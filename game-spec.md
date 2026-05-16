@@ -8,6 +8,10 @@ The core gameplay loop remains consistent at every scale:
 
 **Accept jobs → process work → earn credits/data → buy upgrades → unlock larger jobs and larger infrastructure.**
 
+Player-facing jobs are implemented as **tasks**. A task is composed from lower-level operations such as CPU operations, cache fills, RAM staging, and later storage/network transfer. The UI can keep short job labels, but the simulation should reason about the operation queues that make each task run.
+
+The first minutes are deliberately bit-scale. The player should start by flipping bits and copying tiny values before the game reveals byte-scale work, research, multicore scheduling, RAM staging, PSU stress, and cooling. Each new concept should feel discovered from the previous bottleneck rather than dumped into the first screen.
+
 The game starts with only two concepts: **clock speed** and **cache**. Complexity is introduced gradually. As the player progresses, lower-tier management is automated or abstracted so the player always focuses on the newest scale of compute.
 
 The game should feel like the player is repeatedly solving the same class of problem at larger scales:
@@ -31,6 +35,8 @@ The game begins with one core, clock speed, cache, and tiny jobs. RAM, power, he
 The first player lesson is:
 
 **More clock speed makes jobs finish faster. Cache makes certain jobs more efficient.**
+
+In the current target, cache is not only a percent modifier. Cache holds CPU operation queues. Tasks with cache-required operations wait for the needed cache fill before those operations can execute.
 
 ### 2.2 Add One Major Concept at a Time
 
@@ -86,9 +92,9 @@ The player should not manually manage early-game objects forever.
 
 | Player Unlocks | Previous Layer Should Become Easier Through |
 |---|---|
-| Basic queue | Auto-repeat jobs |
+| Basic queue | Manual per-core assignment |
 | Multiple cores | Auto-fill idle cores |
-| Scheduler | Core assignment policies |
+| CPU Operation Scheduler | Core operation policies and cache queue feeding |
 | Second CPU | Preconfigured CPU packages |
 | Full system building | System templates |
 | Multiple systems | Prebuilt machines |
@@ -99,6 +105,8 @@ The player should not manually manage early-game objects forever.
 | Regions | Global scheduler policies |
 
 The player should always manage the newest interesting layer, not every layer at once.
+
+Auto-repeat is intentionally deferred until much later. Early automation should teach scheduling and queues instead of hiding task choice before the player understands operations, cache fill, and core throughput.
 
 ---
 
@@ -176,7 +184,11 @@ At infrastructure scale, compute comes from:
 
 Capacity determines whether jobs can be accepted or held in queue.
 
-At system scale, capacity is mostly RAM.
+At CPU scale, cache capacity determines how much of the CPU operation queue can be loaded and ready. A cache-required task waits while its required operation queue fills.
+
+At system scale, RAM stages larger active work and intermediate results. RAM decides which larger tasks can be active at all, how much intermediate work can be retained, and how quickly memory-heavy operations can move between CPU, RAM, and later storage.
+
+Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." RAM load speed uses the same bit-scale start as CPU throughput: the hidden starting rate is 1 b/s, so revealed RAM begins by loading one bit per second before upgrades scale it upward.
 
 At data center scale, capacity includes:
 
@@ -188,11 +200,14 @@ At data center scale, capacity includes:
 
 ### 3.5 Power
 
-Power is a soft or hard constraint depending on scale.
+Tasks do not require power directly. Power draw comes from the hardware doing the work: active cores, dense CPUs, memory, storage, accelerators, cooling, and network gear.
 
 At system scale:
 
-- If hardware draw exceeds PSU capacity, effective clock is throttled.
+- The PSU is a system reliability component, not a per-task requirement.
+- If hardware draw approaches PSU capacity, stress increases and efficiency drops.
+- If hardware draw exceeds PSU capacity, effective clock can throttle, heat rises, and restart risk increases.
+- Dense cores and additional CPUs increase draw nonlinearly. Packing more compute into one system should be powerful but harder to cool and power reliably.
 
 At rack scale:
 
@@ -202,13 +217,13 @@ At data center scale:
 
 - If facility draw approaches or exceeds power input, data center throughput and uptime degrade.
 
-Power should be one of the main sources of reliability risk. Uptime is not a flat stat; uptime emerges from whether the player leaves enough headroom to handle active workloads.
+Power should be one of the main sources of reliability risk. Uptime is not a flat stat; uptime emerges from whether the player leaves enough PSU, rack, and facility headroom to handle active workloads without stress spikes or restarts.
 
 ### 3.6 Heat and Cooling
 
 Heat is generated by active compute and excess power draw.
 
-Cooling determines how much sustained workload the infrastructure can support before throttling.
+Cooling determines how much sustained workload the infrastructure can support before throttling. Better cooling also improves efficiency and reliability by reducing thermal stress, lowering wasted power, and reducing restart/SLA risk.
 
 At CPU scale:
 
@@ -242,75 +257,138 @@ Operating cost should be a balancing pressure against brute-force scaling.
 
 ## 4. Core Processing Model
 
-### 4.1 Job Requirements
+### 4.1 Task Requirements
 
-Each job can define:
+Each player-facing job is a task. Each task expands into low-level operations that are scheduled and staged through cache, RAM, and later storage.
+
+Each task can define:
 
 | Field | Meaning |
 |---|---|
-| Required cycles | Amount of CPU/compute work needed |
-| Required memory | RAM or memory capacity needed |
-| Cache need | Cache threshold for efficient execution |
-| Memory intensity | How much RAM frequency/bandwidth matters |
+| Required CPU operations | Amount of CPU/compute work needed |
+| Required memory | RAM or memory capacity needed for active/intermediate work |
+| Cache operation queue | CPU operations that must be loaded into cache before execution |
+| Cache fill size | How much cache capacity must be available before cache-required operations can run |
+| RAM staging size | How much active/intermediate work must be staged in RAM |
+| Storage staging size | Later requirement for large inactive or bulk data work |
+| Memory intensity | How much RAM load speed/bandwidth matters |
 | Parallelizable | Whether the job can be split across cores/systems |
-| Power draw | Additional active draw while running |
+| Hardware stress | Derived from the active hardware executing the task, not a direct task requirement |
 | Reward credits | Main payout |
 | Reward data | Progression payout |
 | SLA requirement | Optional uptime target |
 | Latency requirement | Optional max latency target |
 | Coverage requirement | Optional geographic/service coverage target |
 
-Early jobs should only expose cycles, reward, and eventually cache need. Later jobs expose memory, parallelization, power, SLA, latency, and coverage.
+Early tasks should only expose CPU operations, reward, and eventually cache needs. Later tasks expose memory staging, parallelization, storage staging, SLA, latency, and coverage. Power is never exposed as a task requirement; it is reflected through PSU/system stress while hardware runs the operations.
 
-### 4.2 Effective Clock
+### 4.2 Operation Queue Pipeline
+
+The operation pipeline is:
+
+1. The player accepts a task.
+2. The task expands into low-level operations.
+3. Cache-required CPU operations wait for cache fill.
+4. RAM stages larger active work and intermediate results.
+5. Storage later stages large inactive inputs/outputs before they can move into RAM/cache.
+6. The scheduler assigns ready operations to cores or later systems.
+7. Completion pays credits/data once the task's required operations finish.
+
+Cache stores CPU operation queues. If the next operation requires cache and the cache queue is empty or incomplete, the task waits for cache load instead of running with a simple speed penalty.
+
+### 4.3 Inferred Task Composition DAG
+
+Tasks should be authored and surfaced as concise player goals, but the simulation should infer a small directed acyclic graph of internal work from each task definition. The graph is not player-authored; it is derived from task requirements so future UI can explain why a task is waiting without exposing every operation as a separate job.
+
+Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors.
+
+Task operations should follow a small authoring pattern:
+
+- `memory` operations must declare `read`, `write`, or `overwrite`.
+- Read/write/overwrite operations spend CPU cycles while buffering cache writes. If the CPU finishes buffering before cache load completes, that core waits idle on cache before the operation advances.
+- Read/write/overwrite operations require cache for the amount of data they touch, so an 8 b byte read or write needs an 8 b cache footprint.
+- Task-level cache provisioning sums distinct read and write footprints, so reading 8 b and writing 8 b needs 16 b total; overwrite reuses that footprint and only needs the overwritten size.
+- Parallel cache-backed operations provision their per-core footprint across the required cores.
+- Cache residency and the cache meter should preserve completed read/write footprints until the task completes, while overwrite updates the existing footprint instead of adding another segment.
+- Counted memory operations use that total touched cache footprint once for cache fill; operation count affects CPU cycles and rewards, not a second cache-size multiplier.
+- Cache load cycles equal touched bits, so cache load rate is readable as bits per second. A 1 b buffer on a 1 Hz CPU and 1 Hz cache load rate should advance together.
+- Compute operations may still require cache, but their CPU compute cycles run after their cache load is ready.
+- Transform tasks should avoid redundant "copy then write" phases; writing the copied value is the copy.
+- Task rewards and required cycles are derived from summed operation counts and cycles.
+
+Example early DAG shape:
+
+| Node | Depends On | Purpose |
+|---|---|---|
+| Accept task | None | Reserves the task in the active/queued work list |
+| Fill cache queue | Accept task or previous recipe step | Loads cache-required CPU operations at the recipe step that needs them |
+| Stage RAM work | Accept task, previous recipe step, or fill cache queue | Holds active/intermediate work at the recipe step that needs it |
+| Execute CPU operations | Required staging nodes for that recipe step | Spends core throughput on ready operations |
+| Complete task | Execute CPU operations | Pays credits/data and unlock progress |
+
+Early bit-scale tasks may only have accept, execute, and complete nodes. Cache-sensitive tasks add cache fill immediately before the operation or recipe step that needs that cache queue, not only as a single task-wide prelude. Larger tasks add RAM and later storage/network nodes. The graph must remain acyclic so selectors can produce deterministic ready/waiting reasons and the scheduler can safely choose the next executable operation.
+
+Task UI progress should stay at the player-facing task layer: one aggregate meter covers the full recipe, including cache/RAM load and every internal operation, so progress does not restart at each step. CPU core meters represent only CPU execution on that core; cache and RAM loading should appear as runtime state, not as CPU processing progress. The cache module should show active cache load and ready operation data while leaving unused capacity grey; segment color should map to the core writing that cache data. CPU-filled cache buffers should fill a dashed track at CPU processing speed, while cache writes fill the same footprint with a solid overlay at cache load speed. Cache load segments grow with load progress instead of snapping to the full required footprint. Completed tasks release cache immediately and should not leave a held or resident footprint.
+
+When tasks pay out, credits and data gains should be visible as short reward feedback that travels toward the matching resource total without covering the main controls.
+
+### 4.4 Effective Clock
 
 At CPU scale:
 
-`effective_clock = base_clock × clock_multiplier × cache_modifier × heat_modifier × power_modifier`
+`effective_clock = base_clock × clock_multiplier × thermal_modifier × power_stress_modifier`
 
-Clock speed is the main early-game speed driver.
+Clock speed is the main early-game speed driver. Cache affects whether operations are ready to execute; power affects the clock only through system stress.
 
-### 4.3 Job Time
+### 4.5 Task Time
 
-Base job time:
+Base task time:
 
-`base_seconds = required_cycles / effective_clock`
+`base_seconds = required_cpu_operations / effective_clock`
 
-Final job time:
+Final task time:
 
-`final_seconds = base_seconds × cache_modifier × memory_modifier × scheduler_modifier`
+`final_seconds = base_seconds + sum(operation_cache_fill_wait + operation_ram_stage_wait + storage_stage_wait)`
 
-### 4.4 Cache Modifier
+Scheduler quality can reduce wait and routing overhead by keeping ready operations flowing to the right cores or systems.
+
+### 4.6 Cache, RAM, And Storage Staging
 
 Cache should be simple early and deeper later.
 
 Early version:
 
-- If cache is below job need, job takes longer.
-- If cache meets job need, job runs normally.
-- If cache exceeds job need, job gets a small bonus.
-- Repeated similar jobs can gain additional cache efficiency after scheduler upgrades.
+- If a task has no cache-required operations, it can run directly on available CPU throughput.
+- If a task has cache-required operations, each operation waits at its own graph step until its cache fill completes.
+- More cache holds larger CPU operation queues.
+- Faster cache load speed fills the queue sooner.
+- Repeated similar tasks can gain additional cache efficiency after scheduler upgrades.
 
-Example:
+RAM and storage follow the same family of decisions at larger scales:
 
-`cache_modifier = 0.85 if cache >= cache_need`
+- More RAM stages larger active/intermediate work.
+- Faster RAM load speed moves work between memory and compute sooner.
+- More storage holds larger inactive inputs/outputs.
+- Faster storage load speed moves work into RAM sooner.
 
-`cache_modifier = 1 + ((cache_need - cache) / cache_need × 0.5) if cache < cache_need`
+The old cache modifier model can remain as a temporary balancing approximation during prototype work, but the target behavior is staged operation readiness rather than a pure percent modifier.
 
-### 4.5 Power Modifier
+### 4.7 Power Stress
 
-At all scales, power should work similarly.
+At all scales, power should work similarly, but tasks do not directly request power.
 
-`power_modifier = min(1, available_power / active_power_draw)`
+`power_stress = active_hardware_draw / safe_power_capacity`
 
-If draw exceeds available power:
+If draw approaches or exceeds available power:
 
-- Jobs slow down.
+- Efficiency drops.
+- Jobs may slow down.
 - Heat increases.
+- Restart risk increases at severe stress.
 - SLA risk increases for SLA jobs.
 - Severe overstrain can pause jobs or cause contract failure later in the game.
 
-### 4.6 Heat Modifier
+### 4.8 Heat Modifier
 
 At all scales, cooling determines how much sustained load the build can handle.
 
@@ -337,8 +415,8 @@ One tiny CPU doing primitive jobs.
 - One CPU core.
 - Clock speed.
 - Cache.
-- Current job.
-- Job duration.
+- Bit-scale task list.
+- Current task state.
 - Credits.
 - Data.
 
@@ -358,33 +436,56 @@ One tiny CPU doing primitive jobs.
 | Stat | Value |
 |---|---:|
 | Cores | 1 |
-| Clock | 10 Hz |
-| Cache | 1 B |
+| Clock | 1 Hz |
+| Cache | 1 b |
+| Cache load rate | 1 Hz |
 | RAM | Hidden |
 | Power | Hidden |
 | Cooling | Hidden |
 | Scheduler | None |
 
-### Jobs
+### Tasks
 
-Early jobs should be tiny and direct:
+Early tasks should be tiny and direct. The first visible work should be a bit-scale starter pair; byte-scale and cache-sensitive tasks appear only after the player has seen simple CPU operations complete and spent earned resources on research.
+Task credit payouts should match the derived operation count for the started parent task; data rewards can still mark progression milestones.
+Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
+Research is the player-facing unlock surface. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
 
-| Job | Purpose |
+| Task | Purpose |
 |---|---|
-| Bit Flip | Teaches jobs consume cycles |
-| Byte Copy | Teaches clock speed |
-| Packet Check | Teaches cache need |
+| Fetch Bit | First runnable task; teaches 1 b cache-backed work at 1 Hz |
+| Decode Bit | Visible starter goal that needs a 2 b cache footprint |
+| Bit Flip | Unlocks with Decode Logic and teaches 2 b mutation-style CPU operations |
+| Bit Shift | Unlocks with Decode Logic and introduces 2 b shifted bit work |
+| Byte Copy | Unlocks through Byte Operations after bit-task resource grind |
+| Packet Check | Reveals after cache is relevant and teaches cache fill |
 | Tiny Checksum | Teaches repeated work |
-| Micro Benchmark | Unlock gate |
 
-### Unlocks
+### Research Compute
 
-| Unlock | Requirement |
-|---|---|
-| Cache upgrades | Complete 3–5 jobs |
-| Auto-repeat job | Complete 10 jobs |
-| Micro benchmark | Buy several clock/cache upgrades |
-| Multi-core research | Complete micro benchmark |
+Some research needs benchmark-style compute before the research can be purchased. These benchmark tasks are internal work items launched from the research card, not lingering normal task cards.
+
+| Research | Compute Work | Notes |
+|---|---|---|
+| Multi-Core Control | Micro Benchmark, Parallelism Benchmark | The card lists clock/cache prerequisites and runs both benchmarks before the multi-core unlock can be purchased |
+| System Bus | Multi-Core Benchmark | The card runs the four-core benchmark before second CPU purchase is unlocked |
+
+### Progressive Task And Research Reveal
+
+| Reveal | Requirement | Notes |
+|---|---|---|
+| Fetch Bit | New save | First actionable task |
+| Decode Bit | New save | Second bit-scale starter task, blocked until 2 b cache |
+| Decode Logic research | Starter task resources | Unlocks the paired bit-operation tasks |
+| Bit Flip | Decode Logic research | First mutation task |
+| Bit Shift | Decode Logic research | First shift task |
+| Byte Copy | Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
+| Cache upgrades | New save | Cache capacity and cache speed upgrades are available immediately |
+| Packet Check | Cache Mapping research | First cache-fill waiting task |
+| Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
+| Benchmark Harness research | Cache Mapping, Packet Check, clock tuning | Reveals benchmark compute inside later research cards |
+| Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
+| Auto-repeat | Deferred until later scheduler/automation layers | Do not reveal in the bit-scale opening |
 
 ---
 
@@ -397,14 +498,15 @@ The player improves a single-core CPU through clock and cache.
 ### Main Decisions
 
 - Buy clock speed for broad speed.
-- Buy cache for efficiency.
+- Buy cache capacity and cache speed for operation queue/fill efficiency.
 - Choose jobs that match current hardware.
 
 ### New Mechanics
 
 - Benchmarks.
-- Cache efficiency.
-- Auto-repeat simple jobs.
+- Cache operation queues.
+- Cache capacity and cache speed upgrades.
+- Cache fill wait for cache-required tasks.
 
 ### Design Goal
 
@@ -426,9 +528,10 @@ Parallel job processing.
 
 Multi-core CPU unlocks after:
 
-- Several clock upgrades.
-- Several cache upgrades.
-- Completion of a parallelism benchmark.
+- Benchmark Harness research.
+- Several clock/cache upgrades shown as Multi-Core Control requirements.
+- Completion of Micro Benchmark and Parallelism Benchmark from the Multi-Core Control research card.
+- Purchase of Multi-Core Control research.
 
 ### New Mechanics
 
@@ -451,10 +554,10 @@ Cores help many jobs run at once.
 
 | Unlock | Requirement |
 |---|---|
-| Second core | Complete parallelism benchmark |
-| Basic queue | Own 2 cores |
+| Second core | Multi-Core Control research |
+| Basic queue | Own 2 cores and complete Local Scheduler research |
 | More cores | Buy core slots / reach CPU tier |
-| Scheduler | Reach 4 cores |
+| Scheduler | Own 4 cores and complete Kernel Scheduler research |
 
 ---
 
@@ -466,20 +569,22 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 
 ### Unlock Condition
 
-Scheduler unlocks when the player reaches 4 cores.
+Scheduler unlocks when the player reaches 4 cores and completes Kernel Scheduler research.
 
-### Scheduler Levels
+### Scheduler Layers
 
 | Level | Name | Effect |
 |---:|---|---|
-| 0 | None | Player manually starts jobs |
-| 1 | Basic Queue | Idle cores pull jobs automatically |
-| 2 | Priority Queue | Player chooses priority: credits, data, shortest job, longest job |
-| 3 | Cache-Aware Queue | Groups similar jobs for cache efficiency |
-| 4 | Multithread Scheduler | Splits eligible jobs across cores |
-| 5 | Heterogeneous Scheduler | Routes jobs to CPU/GPU/NPU |
-| 6 | Cluster Scheduler | Routes jobs across systems |
-| 7 | Global Scheduler | Routes jobs across regions |
+| 0 | None | Player manually starts tasks |
+| 1 | CPU Operation Scheduler | Feeds cache-backed CPU operation queues to idle cores |
+| 2 | Priority Operation Scheduler | Player chooses priority: credits, data, shortest task, longest task |
+| 3 | Cache-Aware Operation Scheduler | Groups similar tasks to reduce cache fill churn |
+| 4 | Multithread Operation Scheduler | Splits eligible tasks across cores |
+| 5 | System Scheduler | Routes work across CPU/GPU/NPU/RAM/storage inside a system |
+| 6 | Cluster Scheduler | Routes work across networked systems |
+| 7 | Regional Scheduler | Routes work across data centers, availability zones, and regions |
+
+The named scheduler path begins with the CPU Operation Scheduler. Later layers should be named by the scale they coordinate: system scheduler, cluster scheduler, regional scheduler, and eventually global/planetary policy.
 
 ### Scheduler Policies
 
@@ -512,7 +617,7 @@ Second CPU unlocks after:
 
 ### Major Rule
 
-When the player buys the second CPU, RAM and power supply become visible.
+When the player buys the second CPU, RAM and power supply become visible. This is an existing-stage gate: RAM and PSU systems may exist in the save/simulation before this point, but they should not be actionable or visually dominant until the second CPU stage.
 
 ### New Mechanics
 
@@ -527,23 +632,25 @@ When the player buys the second CPU, RAM and power supply become visible.
 RAM determines:
 
 - Which jobs can start.
-- How many jobs can be queued.
+- How many active/intermediate task stages can be held.
 - How many simultaneous jobs can be held in memory.
 - How well memory-heavy jobs perform.
+- How quickly larger staged work can move when RAM load speed is upgraded from the 1 b/s bit-scale start.
 
 RAM should not be heavily exposed before this stage. Before this point, memory can exist internally as hidden capacity.
 
 ### Power Supply Role
 
-The power supply determines whether the system can support active hardware draw.
+The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
 
 If active draw exceeds PSU capacity:
 
 - Effective clock is throttled.
 - Heat increases.
 - Job completion slows.
+- Restart risk increases.
 
-At this point, power should still be forgiving. It should throttle before it fails.
+At this point, power should still be forgiving. It should show stress and throttle before restarts become a common risk. Dense CPU/core upgrades should increase draw nonlinearly so compact high-throughput builds need better PSU and cooling support.
 
 ---
 
@@ -558,7 +665,10 @@ The player learns sustained performance.
 Cooling unlocks after:
 
 - Power supply is visible.
+- Player completes Thermal Control research after first seeing PSU/heat pressure.
 - Player first experiences heat throttling or unlocks overclocking.
+
+Thermal Control is the player-facing gate for cooling controls in the current target. Before that gate, cooling can be represented internally for balance or future migration, but the UI should not ask the player to manage it.
 
 ### Cooling Tiers
 
@@ -573,7 +683,7 @@ Cooling unlocks after:
 
 ### Design Rule
 
-Cooling should be introduced as the solution to a visible problem, not as an arbitrary early upgrade.
+Cooling should be introduced as the solution to a visible problem, not as an arbitrary early upgrade. Cooling improves sustained throughput, power efficiency, and reliability by lowering thermal stress and restart/SLA risk.
 
 ---
 
@@ -1215,17 +1325,17 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 1 | Single core | Starting point |
 | 2 | Clock speed | Primary throughput mechanic |
 | 3 | Cache | First efficiency mechanic |
-| 4 | Auto-repeat jobs | Reduces early clicking |
+| 4 | Cache operation queues | Makes cache-required tasks wait for cache fill |
 | 5 | Benchmarks | Adds progression gates |
 | 6 | Second core | Introduces parallelism |
 | 7 | More cores | Builds pressure for scheduling |
-| 8 | Basic queue | Reduces manual assignment |
+| 8 | Basic queue | Reduces manual core assignment |
 | 9 | Four-core milestone | First major CPU achievement |
-| 10 | Scheduler | Automates local job assignment |
+| 10 | CPU Operation Scheduler | Automates local operation assignment |
 | 11 | Second CPU | Transitions to full system building |
-| 12 | RAM | Adds capacity and queue constraints |
-| 13 | Power supply | Adds system strain/throttling |
-| 14 | Cooling | Solves heat/overclock constraints |
+| 12 | RAM | Adds active/intermediate staging constraints |
+| 13 | Power supply | Adds reliability stress and restart risk |
+| 14 | Cooling | Improves efficiency and reliability |
 | 15 | Preconfigured CPUs | Reduces CPU micromanagement |
 | 16 | Expansion slots | Adds specialization |
 | 17 | GPU/NPU | Adds specialized workloads |
@@ -1252,11 +1362,11 @@ These should be built on existing systems, not introduced as unrelated mechanics
 
 | Stage | Automation Unlock | What It Replaces |
 |---|---|---|
-| Early CPU | Auto-repeat | Manual restart of tiny jobs |
+| Early CPU | Manual task choice | Player learns task requirements before automation hides decisions |
 | 2 cores | Basic queue | Manually assigning jobs to each core |
-| 4 cores | Scheduler | Core-by-core management |
+| 4 cores | CPU Operation Scheduler | Core-by-core operation management and cache queue feeding |
 | Full system | Preconfigured CPUs | Per-core CPU tuning |
-| Workstation | Workload routing | Manual CPU/GPU/NPU assignment |
+| Workstation | System scheduler | Manual CPU/GPU/NPU/RAM/storage assignment |
 | Multiple systems | System templates | Rebuilding machines by hand |
 | Networking | Shared queue | Manual per-system job assignment |
 | Cluster | Cluster scheduler | Manual distributed job placement |
@@ -1264,8 +1374,9 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | Data center | Procurement policy | Manual rack expansion |
 | SLA phase | SLA-safe scheduling | Manual risk management |
 | AZ phase | Failover policy | Manual redundancy handling |
-| Region phase | Global scheduler | Manual regional routing |
-| Planetary phase | Infrastructure policy | Most low-level operations |
+| Region phase | Regional scheduler | Manual regional routing |
+| Planetary phase | Global scheduler / infrastructure policy | Most low-level operations |
+| Much later automation | Auto-repeat | Manual restart of familiar repeatable tasks |
 
 ---
 
@@ -1278,7 +1389,9 @@ The first prototype should include only:
 - One core.
 - Clock speed.
 - Cache.
-- A few jobs.
+- A few tasks made from CPU operations.
+- Cache operation queues.
+- Cache fill waits for cache-required tasks.
 - Credits.
 - Data.
 - Clock upgrades.
@@ -1286,7 +1399,7 @@ The first prototype should include only:
 - Multi-core unlock.
 - Basic queue.
 
-Do not implement RAM, power, heat, cooling, networking, data centers, or SLA in the first playable prototype unless the early loop already feels good.
+Do not implement auto-repeat, RAM, power, heat, cooling, networking, data centers, or SLA in the first playable prototype unless the early loop already feels good.
 
 ### 13.2 First Vertical Slice Scope
 
@@ -1296,9 +1409,10 @@ A strong first vertical slice should include progression through:
 2. Clock/cache upgrades.
 3. Multi-core unlock.
 4. Four-core milestone.
-5. Scheduler unlock.
+5. CPU Operation Scheduler unlock.
 6. Second CPU unlock.
 7. RAM/power reveal.
+8. RAM staging and PSU stress expectations documented for the next slice.
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
 
@@ -1337,17 +1451,22 @@ Late game should include:
 ## 14. Key Balancing Rules
 
 1. Clock should always help, but should not remain the only optimal path.
-2. Cache should be introduced early and matter most for repeated/small/structured work.
-3. Cores should improve parallel throughput, not single-job speed, until scheduler upgrades.
-4. RAM should become visible only when the player has enough parallelism for it to matter.
-5. Power should first throttle, not destroy or fail.
-6. Cooling should unlock only after heat is experienced or overclocking is unlocked.
-7. Higher SLA jobs should pay more because they require safer infrastructure.
-8. Uptime should emerge from headroom, redundancy, routing, and load management.
-9. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
-10. Brute force should remain possible but inefficient.
-11. Operating cost should include maintenance, staff, monitoring, and automation.
-12. Every new scale should automate or abstract the previous scale.
+2. Cache should be introduced early as CPU operation queue capacity and fill speed, not only as a flat speed modifier.
+3. Cache-required tasks should wait for cache fill before their required operations execute.
+4. Cores should improve parallel throughput, not single-job speed, until scheduler upgrades.
+5. RAM should become visible only when the player has enough parallelism for active/intermediate staging to matter.
+6. Cache, RAM, and storage load speeds should be meaningful upgrade paths.
+7. Tasks should not require power directly; active hardware creates power draw and stress.
+8. Power should first show stress and throttle, with restart/failure risk appearing only under severe or repeated overstrain.
+9. Dense cores and additional CPUs should increase power draw nonlinearly.
+10. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability.
+11. Higher SLA jobs should pay more because they require safer infrastructure.
+12. Uptime should emerge from headroom, redundancy, routing, and load management.
+13. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
+14. Brute force should remain possible but inefficient.
+15. Operating cost should include maintenance, staff, monitoring, and automation.
+16. Every new scale should automate or abstract the previous scale.
+17. Auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
 
 ---
 
@@ -1357,17 +1476,17 @@ The player should feel a continuous progression from tiny computation to planeta
 
 The same question repeats at larger scale:
 
-**Can my compute system handle this job without overstraining its constraints?**
+**Can my compute system handle this task without overstraining its constraints?**
 
 At first, the constraint is clock speed.
 
-Then it is cache.
+Then it is cache fill and CPU operation queue capacity.
 
 Then cores.
 
-Then RAM.
+Then RAM staging for active and intermediate work.
 
-Then power and cooling.
+Then PSU stress, restart risk, and cooling efficiency.
 
 Then workload routing.
 
@@ -1382,4 +1501,3 @@ Then SLA uptime.
 Then latency and geographic coverage.
 
 The game succeeds if every new layer feels like a natural enlargement of the same core system rather than a disconnected new feature.
-

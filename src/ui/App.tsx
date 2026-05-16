@@ -10,13 +10,16 @@ import {
   type GameState,
 } from "../game";
 import { idleBitPersistence } from "../platform";
-import { CpuBoard, Header, JobPanel, UpgradePanel } from "./components";
+import { SystemWorkbench, type SelectedComponent } from "./components";
+import type { UiGameAction } from "./uiActions";
 
-const SAVE_KEY = "save-v1";
+const SAVE_KEY = "save-v2";
 
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());
-  const [saveStatus, setSaveStatus] = useState("Loading");
+  const [selectedComponent, setSelectedComponent] =
+    useState<SelectedComponent>("core:1");
+  const [resourceEffectsReady, setResourceEffectsReady] = useState(false);
   const stateRef = useRef(state);
   const visible = useMemo(() => deriveVisibleState(state), [state]);
 
@@ -32,11 +35,13 @@ export function App() {
       .then((rawSave) => {
         if (!cancelled) {
           setState(deserializeSave(rawSave));
-          setSaveStatus(`Ready: ${idleBitPersistence.driver}`);
         }
       })
-      .catch(() => {
-        if (!cancelled) setSaveStatus("Unsaved");
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) {
+          setResourceEffectsReady(true);
+        }
       });
 
     return () => {
@@ -61,7 +66,6 @@ export function App() {
 
   const save = async (nextState: GameState) => {
     await idleBitPersistence.set(SAVE_KEY, serializeSave(nextState));
-    setSaveStatus("Saved");
   };
 
   useEffect(() => {
@@ -72,31 +76,27 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const dispatch = (action: GameAction) => {
-    setState((current) => applyAction(current, action));
+  const dispatch = (action: UiGameAction) => {
+    setState((current) => applyAction(current, action as GameAction));
   };
 
   const reset = async () => {
     const freshState = createInitialGameState();
+    setSelectedComponent("core:1");
     setState(freshState);
     await idleBitPersistence.set(SAVE_KEY, serializeSave(freshState));
-    setSaveStatus("Reset");
   };
 
   return (
     <div className="app-shell">
-      <Header
+      <SystemWorkbench
         visible={visible}
-        saveStatus={saveStatus}
-        onSave={() => void save(state)}
+        dispatch={dispatch}
+        selectedComponent={selectedComponent}
+        onSelectComponent={setSelectedComponent}
         onReset={() => void reset()}
+        animateResourceGains={resourceEffectsReady}
       />
-      <div className="game-layout">
-        <JobPanel state={state} visible={visible} dispatch={dispatch} />
-        <CpuBoard visible={visible} />
-        <UpgradePanel visible={visible} dispatch={dispatch} />
-      </div>
     </div>
   );
 }
-

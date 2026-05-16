@@ -10,6 +10,10 @@
 
 Game rules belong in `src/game`. React and Electron call game functions; they do not own progression, unlocks, rewards, timers, or balancing rules.
 
+## Pre-Live Design Policy
+
+IdleBit is pre-live. Breaking save schema, UI, and mechanic changes are allowed when they move the prototype toward the current spec. Keep `game-spec.md`, `FEATURES.md`, and `docs/qa-notes.md` aligned with those changes, and prefer clear migration/reset notes over preserving obsolete behavior.
+
 ## Coding Standards
 
 - Use strict TypeScript.
@@ -22,7 +26,7 @@ Game rules belong in `src/game`. React and Electron call game functions; they do
 - Use immutable updates for game state.
 - Save serializable game state, not UI or Electron objects.
 - Keep renderer code deterministic where possible.
-- Add tests for progression math, unlock gates, queue behavior, and save migration.
+- Add tests for progression math, unlock gates, operation queue behavior, cache/RAM/storage staging, reliability stress, and save migration.
 
 ## UI Standards
 
@@ -52,4 +56,3 @@ Update `FEATURES.md` whenever a feature changes status. Use:
 - `Built`: implemented and manually reachable or wired.
 - `Tested`: covered by automated tests or documented smoke checks.
 - `Deferred`: intentionally outside the current build.
-

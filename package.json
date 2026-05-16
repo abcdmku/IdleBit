@@ -1,0 +1,37 @@
+{
+  "name": "idlebit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && npm run electron:compile && electron dist-electron/main.js",
+    "build": "tsc -p tsconfig.app.json && vite build && npm run electron:compile",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "electron:compile": "tsc -p electron/tsconfig.json"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.2",
+    "electron": "^33.2.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8",
+    "wait-on": "^8.0.1"
+  }
+}
+

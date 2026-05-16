@@ -1,4 +1,9 @@
-import type { Cost, ResourceBag } from "../game/types";
+import type { ResourceBag } from "../game/types";
+
+export interface DisplayCost {
+  resource: string;
+  amount: number;
+}
 
 export const formatNumber = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -18,13 +23,22 @@ export const formatBytes = (bytes: number) => {
   return `${formatNumber(bytes)} B`;
 };
 
-export const formatSeconds = (seconds: number) => {
-  if (seconds < 1) return "<1s";
-  if (seconds < 60) return `${formatNumber(seconds)}s`;
-  return `${formatNumber(seconds / 60)}m`;
+export const formatBits = (bits: number) => {
+  if (bits >= 1_000_000_000) return `${formatNumber(bits / 1_000_000_000)} Gb`;
+  if (bits >= 1_000_000) return `${formatNumber(bits / 1_000_000)} Mb`;
+  if (bits >= 1_000) return `${formatNumber(bits / 1_000)} Kb`;
+  return `${formatNumber(bits)} b`;
 };
 
-export const formatCost = (costs: Cost[]) =>
+export const formatBitRate = (bitsPerSecond: number) =>
+  `${formatBits(bitsPerSecond)}/s`;
+
+export const formatWatts = (watts: number) => {
+  if (watts >= 1_000) return `${formatNumber(watts / 1_000)} kW`;
+  return `${formatNumber(watts)} W`;
+};
+
+export const formatCost = (costs: DisplayCost[]) =>
   costs
     .map((cost) => `${formatNumber(cost.amount)} ${cost.resource}`)
     .join(" + ");
@@ -33,4 +47,3 @@ export const formatResources = (resources: ResourceBag) => [
   { label: "Credits", value: formatNumber(resources.credits) },
   { label: "Data", value: formatNumber(resources.data) },
 ];
-

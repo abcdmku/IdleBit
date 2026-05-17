@@ -225,6 +225,7 @@ interface UiTask {
   canRun?: boolean;
   canQueue?: boolean;
   blockedReason?: string | null;
+  queueBlockedReason?: string | null;
   lockedReason?: string | null;
   lockReason?: string | null;
   unlockReason?: string | null;
@@ -700,6 +701,9 @@ const getVisibleRamUsedBits = (visible: VisibleState) => {
   );
 };
 
+const getVisibleSchedulerSlots = (visible: VisibleState) =>
+  Math.max(0, getHardware(visible).schedulerSlots ?? 0);
+
 const hasSystemMemory = (visible: VisibleState) =>
   visible.flags.systemStats || visible.hardware.secondCpu || getVisibleRamBits(visible) > 0;
 
@@ -713,12 +717,31 @@ const getTaskLockedReason = (task: UiTask) =>
   task.unlockReason ??
   null;
 
-const getTaskCanStart = (task: UiTask) => {
+const getTaskQueueBlockedReason = (task: UiTask) =>
+  task.queueBlockedReason ?? (task.canQueue === false ? getTaskLockedReason(task) : null);
+
+const getTaskCanRunNow = (task: UiTask) => {
   if (getTaskLockedReason(task)) return false;
   if (typeof task.canStart === "boolean") return task.canStart;
   if (typeof task.canRun === "boolean") return task.canRun;
-  if (typeof task.canQueue === "boolean") return task.canQueue;
   return true;
+};
+
+const getTaskCanStart = (task: UiTask) =>
+  getTaskCanRunNow(task) || task.canQueue === true;
+
+const getTaskCanUseAction = (task: UiTask, mode: QueueMode) => {
+  if (mode === "core") return getTaskCanRunNow(task);
+  if (mode === "scheduler") return task.canQueue === true;
+  return getTaskCanStart(task);
+};
+
+const getTaskActionDisabledReason = (task: UiTask, mode: QueueMode) => {
+  if (mode === "scheduler") {
+    return getTaskQueueBlockedReason(task) ?? "Scheduler unavailable";
+  }
+
+  return getTaskLockedReason(task) ?? getTaskQueueBlockedReason(task) ?? "Locked";
 };
 
 const taskStateFromText = (value: string | undefined): TaskState | null => {
@@ -1499,6 +1522,8 @@ function SchedulerSection({
   const activeInSocket = socket.cores.filter((core) => getCoreActiveTask(core)).length;
   const queueLabels = getQueueLabels(visible, socket.id);
   const waitingCount = queueLabels.length;
+  const slotCapacity = getVisibleSchedulerSlots(visible);
+  const queueFull = slotCapacity > 0 && waitingCount >= slotCapacity;
 
   return (
     <section className={`hw-section scheduler-section ${selected ? "selected" : ""}`}>
@@ -1509,8 +1534,11 @@ function SchedulerSection({
           <span className="pill active">
             <strong>{activeInSocket}</strong>active
           </span>
-          <span className="pill waiting">
-            <strong>{waitingCount}</strong>queued
+          <span className={`pill waiting ${queueFull ? "full" : ""}`}>
+            <strong>
+              {formatNumber(waitingCount)}/{formatNumber(slotCapacity)}
+            </strong>
+            slots
           </span>
         </span>
       </button>
@@ -1771,8 +1799,9 @@ export function TaskBay({
           <div className="research-empty">No tasks available</div>
         ) : (
           tasks.map((task) => {
-            const canStart = getTaskCanStart(task);
+            const canStart = getTaskCanUseAction(task, mode);
             const activeTask = getActiveTaskFor(task, activeTasks);
+            const disabled = selectedCoreBusy || !canStart;
 
             return (
               <TaskCard
@@ -1782,11 +1811,13 @@ export function TaskBay({
                 state={getTaskState(task, activeTasks, queue)}
                 progress={getTaskProgress(task, activeTasks, queue)}
                 runtimeLabel={activeTask ? getActiveRuntimeLabel(activeTask) : null}
-                disabled={selectedCoreBusy || !canStart}
+                disabled={disabled}
                 disabledReason={
-                  selectedCoreBusy
-                    ? `Core ${selectedCore?.id} busy`
-                    : getTaskLockedReason(task) ?? (!canStart ? "Locked" : null)
+                  disabled
+                    ? selectedCoreBusy
+                      ? `Core ${selectedCore?.id} busy`
+                      : getTaskActionDisabledReason(task, mode)
+                    : null
                 }
                 onRun={() => runTask(task)}
                 onInspect={() => setInspectedTaskId(task.id)}

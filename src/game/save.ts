@@ -102,6 +102,10 @@ const normalizeState = (state: LegacyState): GameState => {
       cacheSpeedLevel,
       cacheBits,
       cacheBytes: getCacheBytes(cacheLevel),
+      schedulerSlots: Math.max(
+        0,
+        hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,
+      ),
       ramLevel,
       ramBits,
       ramBytes: ramLevel > 0 ? getRamBytes(ramLevel) : 0,

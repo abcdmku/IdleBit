@@ -43,6 +43,7 @@ const count = (
   if (id === "cache") return state.hardware.cacheLevel - 1;
   if (id === "cacheSpeed") return state.hardware.cacheSpeedLevel - 1;
   if (id === "core") return state.hardware.cores - 1;
+  if (id === "schedulerSlot") return state.hardware.schedulerSlots;
   if (id === "ram") return state.hardware.ramLevel;
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
@@ -143,6 +144,21 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
         },
       });
     },
+  },
+  {
+    id: "schedulerSlot",
+    name: "Queue Slot",
+    component: "scheduler",
+    accent: "violet",
+    requirement: (state) => state.flags.basicQueue || state.flags.scheduler,
+    cost: (state) => [
+      credits(48 * 1.72 ** state.hardware.schedulerSlots),
+      data(3 * 1.34 ** state.hardware.schedulerSlots),
+    ],
+    buy: (state) =>
+      setHardware(state, {
+        schedulerSlots: state.hardware.schedulerSlots + 1,
+      }),
   },
   {
     id: "basicQueue",

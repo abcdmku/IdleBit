@@ -54,6 +54,14 @@ const fund = (state: GameState): GameState => ({
   resources: { credits: 20_000, data: 20_000 },
 });
 
+const withSchedulerSlots = (state: GameState, schedulerSlots: number): GameState => ({
+  ...state,
+  hardware: {
+    ...state.hardware,
+    schedulerSlots,
+  },
+});
+
 const completeStarterLadder = () => {
   let state = createInitialGameState();
 
@@ -74,6 +82,28 @@ const completeStarterLadder = () => {
   state = runTask(state, "byteCopy");
 
   return state;
+};
+
+const withExactByteCopyCache = (state: GameState): GameState => {
+  const byteCopy = getTaskDefinition("byteCopy");
+
+  return {
+    ...state,
+    flags: {
+      ...state.flags,
+      basicQueue: true,
+    },
+    hardware: {
+      ...state.hardware,
+      cores: Math.max(2, state.hardware.cores),
+      coreClockLevels: {
+        ...state.hardware.coreClockLevels,
+        2: state.hardware.coreClockLevels[2] ?? state.hardware.clockLevel,
+      },
+      cacheBits: byteCopy.cacheNeedBits,
+      cacheBytes: byteCopy.cacheNeedBytes,
+    },
+  };
 };
 
 const unlockCache = () => research(completeStarterLadder(), "cacheMapping");
@@ -132,6 +162,7 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.ramSpeedMt).toBe(1);
     expect(getRamLoadRate(state)).toBe(1);
     expect(state.hardware.cores).toBe(1);
+    expect(state.hardware.schedulerSlots).toBe(0);
     expect(visible.stage).toBe("primitiveCpu");
     expect(visible.flags.systemStats).toBe(false);
     expect(visible.tasks.map((task) => task.id)).toEqual([
@@ -556,6 +587,7 @@ describe("IdleBit simulation", () => {
       flags: { ...lowRamSystem.flags, basicQueue: true },
       hardware: {
         ...lowRamSystem.hardware,
+        schedulerSlots: 1,
         ramBits: 4,
         ramBytes: 1,
       },
@@ -584,6 +616,108 @@ describe("IdleBit simulation", () => {
         ?.computeTasks.find((task) => task.id === "multiCoreBenchmark")
         ?.blockedReason,
     ).toBe("Cache capacity too low.");
+  });
+
+  it("uses free RAM instead of total RAM when starting tasks manually", () => {
+    let state = unlockSystemStats();
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "tinyChecksum",
+      coreId: 1,
+    });
+
+    expect(state.activeTasks).toHaveLength(1);
+    expect(state.activeTasks[0]?.coreOperations[0]?.memoryReservedBits).toBe(8);
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "tinyChecksum",
+      coreId: 2,
+    });
+
+    const visible = deriveVisibleState(state);
+
+    expect(state.activeTasks).toHaveLength(1);
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
+      expect.objectContaining({ status: "waitingMemory" }),
+    );
+    expect(visible.tasks.find((task) => task.id === "tinyChecksum")?.canStart).toBe(
+      false,
+    );
+    expect(
+      visible.tasks.find((task) => task.id === "tinyChecksum")?.blockedReason,
+    ).toBe("Not enough free RAM.");
+  });
+
+  it("keeps queued scheduler tasks pending until RAM is free", () => {
+    let state = unlockSystemStats();
+
+    state = buy(state, "schedulerSlot");
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "tinyChecksum",
+      coreId: 1,
+    });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+
+    expect(state.queue).toEqual(["tinyChecksum"]);
+    expect(state.activeTasks).toHaveLength(1);
+
+    state = tickGame(state, 16);
+
+    expect(state.queue).toEqual(["tinyChecksum"]);
+    expect(state.activeTasks).toHaveLength(1);
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
+      expect.objectContaining({ status: "waitingMemory" }),
+    );
+  });
+
+  it("uses free cache instead of total cache when starting tasks manually", () => {
+    let state = withExactByteCopyCache(completeStarterLadder());
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "byteCopy",
+      coreId: 1,
+    });
+
+    expect(state.activeTasks).toHaveLength(1);
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "byteCopy",
+      coreId: 2,
+    });
+
+    const visible = deriveVisibleState(state);
+
+    expect(state.activeTasks).toHaveLength(1);
+    expect(visible.tasks.find((task) => task.id === "byteCopy")?.canStart).toBe(
+      false,
+    );
+    expect(visible.tasks.find((task) => task.id === "byteCopy")?.blockedReason).toBe(
+      "Not enough free cache.",
+    );
+  });
+
+  it("keeps queued scheduler tasks pending until cache is free", () => {
+    let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 1);
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "byteCopy",
+      coreId: 1,
+    });
+    state = applyAction(state, { type: "queueTask", taskId: "byteCopy" });
+
+    expect(state.queue).toEqual(["byteCopy"]);
+    expect(state.activeTasks).toHaveLength(1);
+
+    state = tickGame(state, 16);
+
+    expect(state.queue).toEqual(["byteCopy"]);
+    expect(state.activeTasks).toHaveLength(1);
   });
 
   it("runs benchmark compute from research cards instead of the task catalog", () => {
@@ -640,6 +774,40 @@ describe("IdleBit simulation", () => {
     expect(upgrades).not.toContain("scheduler");
     expect(localScheduler?.canBuy).toBe(true);
     expect(localScheduler?.requirements.every((item) => item.met)).toBe(true);
+  });
+
+  it("requires purchased scheduler slots before queueing tasks", () => {
+    let state = unlockMultiCore();
+
+    state = buy(state, "core");
+    state = research(state, "localScheduler");
+
+    let visible = deriveVisibleState(state);
+    let fetchBit = visible.tasks.find((task) => task.id === "fetchBit");
+
+    expect(state.hardware.schedulerSlots).toBe(0);
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("schedulerSlot");
+    expect(fetchBit?.canQueue).toBe(false);
+    expect(fetchBit?.queueBlockedReason).toBe("Buy scheduler slots.");
+
+    state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
+
+    expect(state.queue).toEqual([]);
+
+    state = buy(state, "schedulerSlot");
+    visible = deriveVisibleState(state);
+    fetchBit = visible.tasks.find((task) => task.id === "fetchBit");
+
+    expect(state.hardware.schedulerSlots).toBe(1);
+    expect(fetchBit?.canQueue).toBe(true);
+
+    state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
+    visible = deriveVisibleState(state);
+
+    expect(state.queue).toEqual(["fetchBit"]);
+    expect(
+      visible.tasks.find((task) => task.id === "decodeBit")?.queueBlockedReason,
+    ).toBe("Scheduler slots full.");
   });
 
   it("loads cache before executing operation cycles", () => {
@@ -789,6 +957,7 @@ describe("IdleBit simulation", () => {
 
     state = buy(state, "core");
     state = research(state, "localScheduler");
+    state = buy(buy(state, "schedulerSlot"), "schedulerSlot");
     state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
     state = applyAction(state, { type: "queueTask", taskId: "decodeBit" });
     state = tickGame(state, 16);

@@ -98,6 +98,7 @@ export const createInitialGameState = (): GameState => ({
     cacheBits: getCacheBits(1),
     cacheBytes: getCacheBytes(1),
     cores: 1,
+    schedulerSlots: 0,
     secondCpu: false,
     ramLevel: 0,
     ramBits: 0,

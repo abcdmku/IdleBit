@@ -4,6 +4,9 @@ import { getUpgradeCount, getUpgradeDefinition } from "./content/upgrades";
 import { canAfford } from "./economy";
 import {
   estimateJobSeconds,
+  getAvailableCacheBits,
+  getAvailableMemoryBits,
+  getAvailableSchedulerSlots,
   getCacheLoadCycles,
   getHardwareCacheBits,
   getMemoryCapacityBits,
@@ -15,6 +18,7 @@ import {
   getRamLoadCycles,
   getReservedMemoryBits,
   getRestartReliability,
+  getSchedulerSlotCapacity,
 } from "./math";
 import { bitsToBytes } from "./progression";
 import {
@@ -68,10 +72,10 @@ const isTaskComplete = (state: GameState, task: TaskDefinition) =>
   (state.completedTasks[task.id] ?? state.completedJobs[task.id] ?? 0) > 0 ||
   state.completedBenchmarks.includes(task.id);
 
-const canRunTask = (state: GameState, task: TaskDefinition) => {
+const taskMeetsRequirements = (state: GameState, task: TaskDefinition) => {
   const benchmarkDone = task.kind === "benchmark" && isTaskComplete(state, task);
 
-  return task.requirement(state) && !benchmarkDone && taskFitsHardware(state, task);
+  return task.requirement(state) && !benchmarkDone;
 };
 
 const isTaskRevealed = (state: GameState, task: TaskDefinition) =>
@@ -83,9 +87,16 @@ const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
   task.ramNeedBits <= getMemoryCapacityBits(state);
 
+const taskFitsFreeStaging = (state: GameState, task: TaskDefinition) =>
+  task.cacheNeedBits <= getAvailableCacheBits(state) &&
+  task.ramNeedBits <= getAvailableMemoryBits(state);
+
+const canAcceptTask = (state: GameState, task: TaskDefinition) =>
+  taskMeetsRequirements(state, task) && taskFitsHardware(state, task);
+
 const getBlockedReason = (state: GameState, task: TaskDefinition) => {
-  const runnable = canRunTask(state, task);
-  if (!runnable) {
+  const acceptable = canAcceptTask(state, task);
+  if (!acceptable) {
     if (isTaskComplete(state, task) && task.kind === "benchmark") {
       return "Benchmark complete.";
     }
@@ -116,6 +127,9 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return "Research or prerequisite task missing.";
   }
 
+  if (task.cacheNeedBits > getAvailableCacheBits(state)) return "Not enough free cache.";
+  if (task.ramNeedBits > getAvailableMemoryBits(state)) return "Not enough free RAM.";
+
   const idleCoreCount = state.hardware.cores - getBusyCoreIds(state).size;
   if (idleCoreCount < task.minCores) {
     return task.minCores > 1
@@ -131,10 +145,24 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
 };
 
 const getTaskCanStart = (state: GameState, task: TaskDefinition) =>
+  canAcceptTask(state, task) &&
+  taskFitsFreeStaging(state, task) &&
   getBlockedReason(state, task) === null;
 
 const getTaskCanQueue = (state: GameState, task: TaskDefinition) =>
-  canRunTask(state, task) && (state.flags.basicQueue || state.flags.scheduler);
+  getQueueBlockedReason(state, task) === null;
+
+const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
+  if (!canAcceptTask(state, task)) return getBlockedReason(state, task);
+  if (!state.flags.basicQueue && !state.flags.scheduler) return "Scheduler locked.";
+  if (getAvailableSchedulerSlots(state) <= 0) {
+    return getSchedulerSlotCapacity(state) <= 0
+      ? "Buy scheduler slots."
+      : "Scheduler slots full.";
+  }
+
+  return null;
+};
 
 const getVisibleOperation = (operation: TaskDefinition["operations"][number]): VisibleOperation => ({
   id: operation.id,
@@ -184,9 +212,10 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   dagNodes: task.dagNodes.map(getVisibleTaskSubtask),
   requiredCores: task.minCores,
   cacheFit: getCacheFit(state, task),
-  canStart: getTaskCanStart(state, task) || getTaskCanQueue(state, task),
+  canStart: getTaskCanStart(state, task),
   canQueue: getTaskCanQueue(state, task),
   blockedReason: getBlockedReason(state, task),
+  queueBlockedReason: getQueueBlockedReason(state, task),
 });
 
 const getRamUsedBytes = (state: GameState) =>
@@ -668,6 +697,7 @@ const getResearchComputeTask = (
     canStart: visibleTask.canStart,
     canQueue: visibleTask.canQueue,
     blockedReason: visibleTask.blockedReason,
+    queueBlockedReason: visibleTask.queueBlockedReason,
     completed,
     active: Boolean(activeTask),
     progress: activeTask

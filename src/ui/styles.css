@@ -34,6 +34,8 @@
   --radius: 6px;
   --radius-lg: 10px;
   --shadow-glow: 0 0 0 1px rgba(36, 231, 195, 0.18), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --progress-bar-thickness: 3px;
+  --progress-bar-thickness-compact: 2px;
 
   color: var(--text);
   background: var(--bg-0);
@@ -582,7 +584,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .die-progress {
   display: block;
   width: 100%;
-  height: 3px;
+  height: var(--progress-bar-thickness);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(120, 220, 200, 0.1);
@@ -592,7 +594,6 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--cyan), var(--green));
-  transition: width 120ms linear;
 }
 
 .core-upgrade-chip {
@@ -740,26 +741,33 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .module-meter {
   display: block;
   width: 100%;
-  height: 6px;
+  height: var(--progress-bar-thickness);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(120, 220, 200, 0.1);
 }
 
-.module-meter span {
+.module-meter > span {
   display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--green), var(--cyan));
   transition: width 160ms linear;
 }
 
-.module-meter.cache-pressure-meter { display: flex; height: 8px; }
-.module-meter.cache-pressure-meter > span { flex: 0 0 auto; }
+.module-meter.cache-pressure-meter {
+  display: flex;
+  height: var(--progress-bar-thickness);
+}
+
+.module-meter.cache-pressure-meter > span {
+  flex: 0 0 auto;
+}
 
 .module-meter.cache-pressure-meter .cache-pressure-segment {
   position: relative;
   overflow: hidden;
   background: color-mix(in srgb, var(--cache-core-color) 48%, transparent);
+  transition: none;
 }
 
 .module-meter.cache-pressure-meter .cache-pressure-segment.buffering {
@@ -778,6 +786,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   left: 0;
   top: 0;
   height: 100%;
+  transition: none;
 }
 
 .module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-buffer {
@@ -892,6 +901,8 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .scheduler-counts .pill.active strong { color: var(--green); }
 .scheduler-counts .pill.waiting { border-color: rgba(184, 158, 255, 0.45); color: var(--violet); }
 .scheduler-counts .pill.waiting strong { color: var(--violet); }
+.scheduler-counts .pill.waiting.full { border-color: rgba(255, 198, 92, 0.5); color: var(--amber); }
+.scheduler-counts .pill.waiting.full strong { color: var(--amber); }
 
 .queue-preview {
   display: flex;
@@ -1151,7 +1162,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .task-progress {
   display: block;
   width: 100%;
-  height: 3px;
+  height: var(--progress-bar-thickness);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(120, 220, 200, 0.1);
@@ -1584,7 +1595,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .dag-node-progress {
   display: block;
   width: 100%;
-  height: 3px;
+  height: var(--progress-bar-thickness-compact);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(120, 220, 200, 0.1);

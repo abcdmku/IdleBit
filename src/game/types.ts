@@ -40,6 +40,7 @@ export type UpgradeId =
   | "cacheSpeed"
   | "autoRepeat"
   | "core"
+  | "schedulerSlot"
   | "basicQueue"
   | "scheduler"
   | "secondCpu"
@@ -271,6 +272,7 @@ export interface HardwareState {
   cacheBits: number;
   cacheBytes: number;
   cores: number;
+  schedulerSlots: number;
   secondCpu: boolean;
   ramLevel: number;
   ramBits: number;
@@ -391,6 +393,7 @@ export interface VisibleTask {
   canStart: boolean;
   canQueue: boolean;
   blockedReason: string | null;
+  queueBlockedReason: string | null;
 }
 
 export interface VisibleJob extends VisibleTask {
@@ -440,6 +443,7 @@ export interface VisibleResearchComputeTask {
   canStart: boolean;
   canQueue: boolean;
   blockedReason: string | null;
+  queueBlockedReason: string | null;
   completed: boolean;
   active: boolean;
   progress: number;

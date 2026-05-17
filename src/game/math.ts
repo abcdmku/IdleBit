@@ -18,6 +18,15 @@ const clamp = (value: number, min: number, max: number) =>
 export const getHardwareCacheBits = (state: GameState) =>
   state.hardware.cacheBits ?? state.hardware.cacheBytes * 8;
 
+export const getReservedCacheBits = (state: GameState) =>
+  state.activeTasks.reduce(
+    (sum, task) => sum + getTaskDefinition(task.taskId).cacheNeedBits,
+    0,
+  );
+
+export const getAvailableCacheBits = (state: GameState) =>
+  Math.max(0, getHardwareCacheBits(state) - getReservedCacheBits(state));
+
 export const getHardwareRamBits = (state: GameState) =>
   state.hardware.ramBits ?? state.hardware.ramBytes * 8;
 
@@ -25,6 +34,15 @@ export const getMemoryCapacityBits = (state: GameState) => {
   const ramBits = getHardwareRamBits(state);
   return ramBits > 0 ? ramBits : 8;
 };
+
+export const getAvailableMemoryBits = (state: GameState) =>
+  Math.max(0, getMemoryCapacityBits(state) - getReservedMemoryBits(state));
+
+export const getSchedulerSlotCapacity = (state: GameState) =>
+  Math.max(0, state.hardware.schedulerSlots ?? 0);
+
+export const getAvailableSchedulerSlots = (state: GameState) =>
+  Math.max(0, getSchedulerSlotCapacity(state) - state.queue.length);
 
 export const getMemoryCapacityBytes = (state: GameState) =>
   bitsToBytes(getMemoryCapacityBits(state));

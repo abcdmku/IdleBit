@@ -37,6 +37,7 @@ Target scope from `game-spec.md` section 13.2:
   - Parallel cache-backed operations provision their per-core footprint across the required cores.
   - Cache residency preserves completed read/write footprints until task completion, while overwrite updates the existing footprint instead of adding another segment.
   - Cache capacity controls how much CPU operation queue can be loaded and ready.
+  - Manual starts and scheduler pulls use free cache after active reservations, while queue acceptance uses total hardware fit so cache-heavy work can wait pending instead of over-committing active cache.
   - Cache load speed controls how quickly cache-required operations become ready, with cache load cycles matching touched bits so the displayed rate reads as bits per second.
   - When CPU clock and cache load rate are equal for a memory operation with matching cycle/bit counts, Buffer and cache-write progress stay aligned.
   - Byte Copy is modeled as counted byte-scale work: 8 read ops and 8 write ops with a 16 b total cache footprint.
@@ -51,9 +52,11 @@ Target scope from `game-spec.md` section 13.2:
 - Parallelism:
   - Extra cores increase concurrent throughput.
   - Extra cores do not reduce one non-parallel task's duration before scheduler support.
-  - Basic queue assigns ready operations/tasks to idle cores.
+  - Basic queue assigns ready operations/tasks to idle cores after queue slots are purchased.
+  - Scheduler backlog capacity starts at 0; Queue Slot upgrades add finite queued-task capacity and full queues block additional queue intake.
 - Staging and reliability:
-  - RAM stages larger active/intermediate work after reveal.
+  - RAM extends the memory staging hierarchy after cache and stages larger active/intermediate work after reveal.
+  - Manual starts and scheduler pulls use free RAM after active reservations, while queue acceptance uses total hardware fit so RAM-heavy work can wait pending instead of spawning as waiting over-commit work.
   - Cache/RAM/storage load speeds are modeled as upgrade paths.
   - Tasks do not require power directly.
   - PSU stress derives from active hardware draw.
@@ -89,7 +92,7 @@ Target scope from `game-spec.md` section 13.2:
 - Auto-repeat controls do not appear in the early slice.
 - Queue/scheduler controls appear only after their unlock gates.
 - Multi-core flow allows multiple jobs to run concurrently after core unlock.
-- CPU Operation Scheduler/basic queue flow pulls ready operations/tasks onto idle cores at the four-core milestone.
+- CPU Operation Scheduler/basic queue flow pulls ready operations/tasks onto idle cores after the player buys scheduler queue slots.
 - Second CPU flow reveals RAM and power without revealing later systems.
 - RAM readouts communicate active/intermediate staging.
 - PSU readouts communicate draw, headroom, stress, and restart risk without making power a per-task requirement.
@@ -132,7 +135,7 @@ Current `FEATURES.md` observations:
 - `FEATURES.md` exists and names `game-spec.md` as the source of truth.
 - Vertical slice simulation and responsive UI features that match the current operation-task build are marked `Tested` when existing notes cite automated or smoke evidence.
 - Bit-scale startup, progressive task/research reveal, inferred task composition DAG, and Thermal Control gate are now tracked as `Tested` after automated verification and browser smoke.
-- Operation composition, cache queue/fill behavior, RAM staging, PSU stress, dense hardware draw, cache/RAM load-speed upgrades, and cooling reliability are covered by automated or smoke verification.
+- Operation composition, cache queue/fill behavior, finite scheduler queue slots, cache/RAM staging free-capacity start and scheduler pull gates, queue acceptance under active pressure, PSU stress, dense hardware draw, cache/RAM load-speed upgrades, and cooling reliability are covered by automated or smoke verification.
 - Browser persistence and Electron shell are marked `Built`.
 - Auto-repeat is marked `Deferred` under the new target even if old prototype behavior existed.
 - Later-stage systems are marked `Deferred`, which matches the first vertical slice scope.
@@ -142,7 +145,7 @@ Current `FEATURES.md` observations:
 
 ## Checks Run
 
-- `npm test`: passed with 34 tests on May 16, 2026: 31 game simulation tests plus 3 UI tests covering armed-only credits/data gain flyouts, cleanup, Buffer/Load/Ready dashed/solid cache layers, Byte Copy split read/write cache segments, equal-rate CPU/cache buffer alignment, research-card benchmark compute, and research-only scheduler unlock gates. Simulation coverage includes 1 Hz/1 b initial state, cache/RAM load starts, starter cache footprints, counted task work, Byte Copy counted cache-fill timing plus 16 b read/write residency, overwrite residency reuse, parallel per-core cache provisioning, cache-backed operation actions, CPU-buffered memory cache writes, CPU/cache equal-rate alignment, CPU-idle cache waits, active-only cache reservation, completed-task cache release, legacy cache residency save cleanup, starting cache capacity/speed upgrades, grouped progressive reveal, cached internal recipe DAG data, per-operation cache staging, DAG-derived op-count task credit rewards, whole-task progress vs CPU-only execution progress, cache/RAM fit gates, RAM reveal/upgrades, scheduler queue intake, multicore completion, PSU restart risk, cooling improvement, and job action aliases.
+- `npm test`: passed with 39 tests on May 16, 2026: 36 game simulation tests plus 3 UI tests covering armed-only credits/data gain flyouts, cleanup, Buffer/Load/Ready dashed/solid cache layers, Byte Copy split read/write cache segments, equal-rate CPU/cache buffer alignment, research-card benchmark compute, and research-only scheduler unlock gates. Simulation coverage includes 1 Hz/1 b initial state, zero default scheduler queue slots, purchased Queue Slot capacity, full-queue intake blocking, cache/RAM load starts, starter cache footprints, counted task work, Byte Copy counted cache-fill timing plus 16 b read/write residency, overwrite residency reuse, parallel per-core cache provisioning, cache-backed operation actions, CPU-buffered memory cache writes, CPU/cache equal-rate alignment, CPU-idle cache waits, active-only cache reservation, completed-task cache release, legacy cache residency save cleanup, starting cache capacity/speed upgrades, grouped progressive reveal, cached internal recipe DAG data, per-operation cache staging, DAG-derived op-count task credit rewards, whole-task progress vs CPU-only execution progress, cache/RAM fit gates, cache/RAM free-capacity manual and scheduler pull gates, queue acceptance while active cache/RAM is full, RAM reveal/upgrades, scheduler queue intake, multicore completion, PSU restart risk, cooling improvement, and job action aliases.
 - `npm run typecheck`: passed for app and Electron TypeScript on May 16, 2026.
 - `npm run build`: passed for Vite production output and Electron compile on May 16, 2026.
 - Desktop browser smoke: passed at `http://127.0.0.1:4173` via local Playwright fallback; first screen is bit-scale with Fetch Bit and Decode Bit visible, research initially hidden/empty, RAM/PSU/cooling status entries absent, centered `CPU` header, `Cache` title, and row-aligned core/cache upgrade buttons.

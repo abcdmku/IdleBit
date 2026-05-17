@@ -188,6 +188,8 @@ At CPU scale, cache capacity determines how much of the CPU operation queue can 
 
 At system scale, RAM stages larger active work and intermediate results. RAM decides which larger tasks can be active at all, how much intermediate work can be retained, and how quickly memory-heavy operations can move between CPU, RAM, and later storage.
 
+Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and scheduler pulls must compare each task's cache and RAM staging needs against free capacity after active reservations. Queue acceptance only requires prerequisites, total hardware fit, and an open purchased scheduler queue slot; if a queued task fits the hardware but not currently free cache or RAM, it stays pending until capacity is released. Scheduler unlocks do not grant infinite backlog capacity by default.
+
 Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." RAM load speed uses the same bit-scale start as CPU throughput: the hidden starting rate is 1 b/s, so revealed RAM begins by loading one bit per second before upgrades scale it upward.
 
 At data center scale, capacity includes:
@@ -570,6 +572,8 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 ### Unlock Condition
 
 Scheduler unlocks when the player reaches 4 cores and completes Kernel Scheduler research.
+
+Local Scheduler research enables queue-slot purchases. The default scheduler backlog is 0 slots; each Queue Slot upgrade adds one held task that can wait for idle cores, cache, or RAM.
 
 ### Scheduler Layers
 

@@ -26,7 +26,7 @@
 | Task operation composition | Tested | Player-facing tasks decompose into read/write/overwrite memory operations and compute operations, including counted operation nodes for large repeated work |
 | Runtime progress meters | Tested | Task cards show one whole-task progress value across recipe/load/compute work, while CPU core meters show current CPU execution, including memory-operation cache buffer cycles |
 | Inferred task composition DAG | Tested | Task definitions infer cached recipe-step DAG nodes, per-step staging, and accept/execute/complete dependencies for ready/waiting reasons |
-| CPU cache operation queue | Tested | Cache stores CPU operation queues instead of acting only as a percent modifier |
+| CPU cache operation queue | Tested | Cache stores CPU operation queues instead of acting only as a percent modifier, and start/scheduler pull gates use free cache after active reservations while queue acceptance uses total fit |
 | Cache-fill wait gate | Tested | Cache-required operations wait for cache fill at the graph step where that operation executes |
 | Progressive task reveal | Tested | Tasks appear in small concept groups instead of a single previous-task chain |
 | Progressive research reveal | Tested | Research appears only after data/research has player-facing meaning |
@@ -36,14 +36,15 @@
 | Micro Benchmark | Tested | Benchmark compute gates progression from early CPU tuning |
 | Multi-core unlock | Tested | Parallelism benchmark completion enables Multi-Core Control research, which unlocks buying more cores |
 | Additional cores | Tested | Cores increase parallel throughput, not single-job speed |
-| Basic queue | Tested | Early queue behavior feeds ready operations/tasks to idle cores |
+| Basic queue | Tested | Early queue behavior feeds ready operations/tasks to idle cores after queue slots are purchased |
+| Scheduler queue slots | Tested | Scheduler backlog capacity starts at zero and Queue Slot upgrades add finite queued-task slots |
 | Four-core milestone | Tested | Four cores satisfy the Kernel Scheduler research requirement |
 | CPU Operation Scheduler unlock | Tested | Local and Kernel Scheduler unlocks are research purchases, not direct hardware upgrade shortcuts |
 | Second CPU unlock | Tested | Multi-core benchmark compute enables System Bus research, which unlocks second CPU purchase |
 | RAM reveal | Tested | RAM appears after second CPU purchase |
 | Power reveal | Tested | Power appears after second CPU purchase |
 | RAM/PSU existing-stage gate | Tested | RAM and PSU may exist internally but stay hidden/actionless until the second CPU stage |
-| RAM staging model | Tested | RAM stages larger active/intermediate work after reveal |
+| RAM staging model | Tested | RAM extends the memory staging hierarchy after cache, and start/scheduler pull gates use free RAM after active reservations while queue acceptance uses total fit |
 | PSU reliability stress | Tested | PSU affects reliability, efficiency, throttle, and restart risk rather than direct task requirements |
 | Dense hardware draw curve | Tested | Dense cores/CPUs increase draw nonlinearly |
 | Cooling Thermal Control gate | Tested | Cooling controls unlock through Thermal Control research after PSU/heat pressure is visible |
@@ -117,6 +118,7 @@
 | Benchmarks | Tested |
 | Additional cores | Tested |
 | Basic queue | Tested |
+| Scheduler queue slots | Tested |
 | CPU Operation Scheduler | Tested |
 | Thermal Control research | Tested |
 | Scheduler policies | Deferred |
@@ -154,7 +156,7 @@
 
 - The first build targets the vertical slice only.
 - Docs target for this slice: bit-scale startup, grouped task/research reveal, internal recipe DAG, RAM/PSU existing-stage gate, and Thermal Control as the cooling gate.
-- Active pre-live target: tasks are composed from low-level and counted operations; counted memory-operation cache fill uses total touched bits once; task-level cache provisioning and active residency sum distinct reads/writes, multiply parallel per-core cache footprints, and let overwrites reuse the touched footprint; cache stores CPU operation queues; cache-required operations wait for cache fill at their DAG step; RAM stages larger active/intermediate work; cache/RAM/storage load speeds are upgrade paths.
+- Active pre-live target: tasks are composed from low-level and counted operations; counted memory-operation cache fill uses total touched bits once; task-level cache provisioning and active residency sum distinct reads/writes, multiply parallel per-core cache footprints, and let overwrites reuse the touched footprint; cache stores CPU operation queues; cache-required operations wait for cache fill at their DAG step; scheduler backlog capacity comes from purchased Queue Slot upgrades instead of infinite default slots; cache and RAM gate starts and scheduler pulls against free active capacity while still allowing queue acceptance by total fit; RAM stages larger active/intermediate work as the next memory tier after cache; cache/RAM/storage load speeds are upgrade paths.
 - Power target: tasks do not require power directly; PSU capacity is a reliability/stress system with throttle and restart risk, dense compute draw scales nonlinearly, and cooling improves efficiency plus reliability.
 - Cooling target: cooling is gated by Thermal Control research after PSU/heat pressure, not exposed as an arbitrary early component.
 - Research target: new task groups and hardware categories unlock through research cards; benchmark-style compute is launched from research cards, and each card lists the research/task/hardware/compute requirements blocking it.
@@ -163,4 +165,4 @@
 - Breaking save reset: browser persistence now uses `save-v2` for the bit-scale pre-live schema.
 - The reference PNGs guide visual tone, not mechanics.
 - UI copy should be short and useful.
-- Verification completed May 16, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed for this bit-scale/reveal/DAG slice, including CPU-buffered cache writes, equal-rate CPU/cache alignment, counted cache-fill timing, distinct read/write cache residency, overwrite cache reuse, per-operation cache staging, completed-task cache release, cached DAG-derived totals, research-card compute benchmarks, scheduler research unlock gates, dashed/solid cache state visuals, and shared resource tokens. Browser smoke evidence is recorded in `docs/qa-notes.md`.
+- Verification completed May 16, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed for this bit-scale/reveal/DAG slice, including CPU-buffered cache writes, equal-rate CPU/cache alignment, counted cache-fill timing, distinct read/write cache residency, overwrite cache reuse, per-operation cache staging, finite scheduler queue slots, cache/RAM free-capacity start and scheduler pull gates with queue acceptance, completed-task cache release, cached DAG-derived totals, research-card compute benchmarks, scheduler research unlock gates, dashed/solid cache state visuals, and shared resource tokens. Browser smoke evidence is recorded in `docs/qa-notes.md`.

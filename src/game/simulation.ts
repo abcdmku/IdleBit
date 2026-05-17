@@ -4,6 +4,9 @@ import { getUpgradeDefinition, upgradeDefinitions } from "./content/upgrades";
 import { addRewards, canAfford, spend } from "./economy";
 import {
   estimateActiveRemainingSeconds,
+  getAvailableCacheBits,
+  getAvailableMemoryBits,
+  getAvailableSchedulerSlots,
   getCacheLoadCycles,
   getCacheLoadRate,
   getCorruptionRiskPerSecond,
@@ -108,21 +111,36 @@ const refreshTaskTotals = (task: ActiveTask): ActiveTask => {
   };
 };
 
-const canRunTask = (state: GameState, taskId: TaskId) => {
-  const task = getTaskDefinition(taskId);
-  const benchmarkDone = task.kind === "benchmark" && isBenchmarkComplete(state, taskId);
-
-  return task.requirement(state) && !benchmarkDone && canFitTask(state, task);
-};
-
 const isTaskRevealed = (state: GameState, task: TaskDefinition) =>
   task.reveal(state) || task.requirement(state);
 
 const isPlayerFacingTask = (task: TaskDefinition) => task.kind !== "benchmark";
 
-const canFitTask = (state: GameState, task: TaskDefinition) =>
+const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
   task.ramNeedBits <= getMemoryCapacityBits(state);
+
+const taskFitsFreeStaging = (state: GameState, task: TaskDefinition) =>
+  task.cacheNeedBits <= getAvailableCacheBits(state) &&
+  task.ramNeedBits <= getAvailableMemoryBits(state);
+
+const canAcceptTask = (state: GameState, taskId: TaskId) => {
+  const task = getTaskDefinition(taskId);
+  const benchmarkDone = task.kind === "benchmark" && isBenchmarkComplete(state, taskId);
+
+  return task.requirement(state) && !benchmarkDone && taskFitsHardware(state, task);
+};
+
+const canStartTask = (state: GameState, taskId: TaskId) => {
+  const task = getTaskDefinition(taskId);
+
+  return canAcceptTask(state, taskId) && taskFitsFreeStaging(state, task);
+};
+
+const canQueueTask = (state: GameState, taskId: TaskId) =>
+  canAcceptTask(state, taskId) &&
+  (state.flags.basicQueue || state.flags.scheduler) &&
+  getAvailableSchedulerSlots(state) > 0;
 
 const selectCoreIdsForTask = (
   state: GameState,
@@ -386,7 +404,7 @@ const assignTaskToCores = (
   taskId: TaskId,
   preferredCoreId?: number,
 ): GameState => {
-  if (!canRunTask(state, taskId)) return state;
+  if (!canStartTask(state, taskId)) return state;
 
   const task = getTaskDefinition(taskId);
   const assignedCoreIds = selectCoreIdsForTask(state, task, preferredCoreId);
@@ -414,8 +432,7 @@ const selectQueueCoreId = (state: GameState) => {
 };
 
 const enqueueTask = (state: GameState, taskId: TaskId) => {
-  if (!canRunTask(state, taskId)) return state;
-  if (!state.flags.basicQueue && !state.flags.scheduler) return state;
+  if (!canQueueTask(state, taskId)) return state;
 
   const coreId = selectQueueCoreId(state);
   const scheduler = state.coreSchedulers[coreId];
@@ -1106,7 +1123,9 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
 export const getAvailableTasks = (state: GameState) =>
   taskDefinitions.filter(
     (task) =>
-      isPlayerFacingTask(task) && isTaskRevealed(state, task) && canRunTask(state, task.id),
+      isPlayerFacingTask(task) &&
+      isTaskRevealed(state, task) &&
+      canAcceptTask(state, task.id),
   );
 
 export const getAvailableJobs = getAvailableTasks;

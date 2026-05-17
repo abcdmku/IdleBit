@@ -148,21 +148,31 @@ export const researchDefinitions: ResearchDefinition[] = [
     cost: () => [credits(140), data(10)],
   },
   {
-    id: "kernelScheduler",
-    name: "Kernel Scheduler",
-    description: "Unlock barrier-aware multicore task scheduling.",
+    id: "systemScheduler",
+    name: "System Scheduler",
+    description: "Unlock barrier-aware system task scheduling.",
     grants: ["scheduler"],
     reveal: (state) => hasResearch(state, "localScheduler"),
-    requirement: (state) => requirementsMet(state, getKernelSchedulerRequirements()),
-    requirements: () => getKernelSchedulerRequirements(),
+    requirement: (state) => requirementsMet(state, getSystemSchedulerRequirements()),
+    requirements: () => getSystemSchedulerRequirements(),
     cost: () => [credits(320), data(16)],
+  },
+  {
+    id: "ramControl",
+    name: "RAM Control",
+    description: "Unlock system RAM modules and larger staged workloads.",
+    grants: ["systemStats"],
+    reveal: (state) => hasResearch(state, "localScheduler"),
+    requirement: (state) => requirementsMet(state, getRamControlRequirements()),
+    requirements: () => getRamControlRequirements(),
+    cost: () => [credits(260), data(18)],
   },
   {
     id: "systemBus",
     name: "System Bus",
-    description: "Unlock the second CPU socket and system-level telemetry.",
+    description: "Unlock matched CPU packages and system-level task routing.",
     grants: ["secondCpu"],
-    reveal: (state) => hasResearch(state, "kernelScheduler"),
+    reveal: (state) => hasResearch(state, "systemScheduler"),
     requirement: (state) => requirementsMet(state, getSystemBusRequirements()),
     requirements: () => getSystemBusRequirements(),
     computeTaskIds: ["multiCoreBenchmark"],
@@ -173,7 +183,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Thermal Control",
     description: "Unlock cooling upgrades that improve restart reliability.",
     grants: ["cooling"],
-    reveal: (state) => hasResearch(state, "systemBus") || state.flags.systemStats,
+    reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getThermalControlRequirements()),
     requirements: () => getThermalControlRequirements(),
     cost: () => [credits(240), data(18)],
@@ -250,20 +260,32 @@ function getLocalSchedulerRequirements() {
   ];
 }
 
-function getKernelSchedulerRequirements() {
+function getSystemSchedulerRequirements() {
   return [
     researchRequirement("localScheduler", "Complete Local Scheduler research"),
+    researchRequirement("ramControl", "Complete RAM Control research"),
     hardwareRequirement(
       "four-cores",
       "Install 4 CPU cores",
       (state) => state.hardware.cores >= 4,
     ),
+    hardwareRequirement(
+      "one-kilobit-ram",
+      "Install at least 1 Kb RAM",
+      (state) => state.hardware.ramBits >= 1024,
+    ),
+  ];
+}
+
+function getRamControlRequirements() {
+  return [
+    researchRequirement("localScheduler", "Complete Local Scheduler research"),
   ];
 }
 
 function getSystemBusRequirements() {
   return [
-    researchRequirement("kernelScheduler", "Complete Kernel Scheduler research"),
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
     computeRequirement("multiCoreBenchmark", "Run Multi-Core Benchmark"),
   ];
 }
@@ -274,7 +296,7 @@ function getThermalControlRequirements() {
     hardwareRequirement(
       "second-cpu-installed",
       "Install the second CPU",
-      (state) => state.hardware.secondCpu || state.flags.systemStats,
+      (state) => state.hardware.secondCpu,
     ),
   ];
 }

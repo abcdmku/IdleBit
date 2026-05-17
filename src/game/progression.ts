@@ -1,5 +1,6 @@
 import { hasResearch } from "./content/research";
 import type {
+  CpuHardwareState,
   CoreSchedulerState,
   GameState,
   OperationRuntimeStatus,
@@ -25,7 +26,7 @@ export const bitsToBytes = (bits: number) => Math.ceil(bits / 8);
 export const getCacheBytes = (level: number) => bitsToBytes(getCacheBits(level));
 
 export const getRamBits = (level: number) =>
-  level <= 0 ? 0 : 8 * 2 ** (level - 1);
+  level <= 0 ? 0 : 256 * 2 ** (level - 1);
 
 export const getRamBytes = (level: number) => bitsToBytes(getRamBits(level));
 
@@ -37,6 +38,123 @@ export const getPsuWatts = (level: number) =>
 
 export const getCoolingRating = (level: number) =>
   level <= 0 ? 0 : Math.round((1 + (level - 1) * 0.28) * 100) / 100;
+
+export const createCpuHardwareState = (
+  id: number,
+  coreIds: number[],
+  template?: Partial<Omit<CpuHardwareState, "id" | "coreIds">>,
+): CpuHardwareState => {
+  const cacheLevel = template?.cacheLevel ?? 1;
+  const cacheSpeedLevel = template?.cacheSpeedLevel ?? 1;
+
+  return {
+    id,
+    coreIds,
+    cacheLevel,
+    cacheSpeedLevel,
+    cacheBits: template?.cacheBits ?? getCacheBits(cacheLevel),
+    cacheBytes: template?.cacheBytes ?? getCacheBytes(cacheLevel),
+    schedulerSlots: template?.schedulerSlots ?? 0,
+  };
+};
+
+export const getCpuHardware = (state: GameState, cpuId = 1) =>
+  normalizeCpuHardware(
+    state,
+    state.hardware.cpus.find((cpu) => cpu.id === cpuId) ??
+      state.hardware.cpus[0] ??
+      createCpuHardwareState(1, [1], {
+        cacheLevel: state.hardware.cacheLevel,
+        cacheSpeedLevel: state.hardware.cacheSpeedLevel,
+        cacheBits: state.hardware.cacheBits,
+        cacheBytes: state.hardware.cacheBytes,
+        schedulerSlots: state.hardware.schedulerSlots,
+      }),
+  );
+
+export const getCpuForCore = (state: GameState, coreId: number) =>
+  getCpuHardware(
+    state,
+    state.hardware.cpus.find((cpu) => cpu.coreIds.includes(coreId))?.id ?? 1,
+  );
+
+export const getCpuIdForCore = (state: GameState, coreId: number) =>
+  getCpuForCore(state, coreId).id;
+
+export const getAllCoreIds = (state: GameState) => {
+  const coreIds = state.hardware.cpus.flatMap((cpu) => cpu.coreIds);
+  if (coreIds.length > 0) return coreIds;
+  return Array.from({ length: state.hardware.cores }, (_, index) => index + 1);
+};
+
+const getSingleCpuCoreIds = (state: GameState, cpu: CpuHardwareState) => {
+  const desiredCoreCount = Math.max(1, state.hardware.cores, cpu.coreIds.length);
+  if (desiredCoreCount <= cpu.coreIds.length) return cpu.coreIds;
+
+  return Array.from({ length: desiredCoreCount }, (_, index) => index + 1);
+};
+
+const normalizeCpuHardware = (
+  state: GameState,
+  cpu: CpuHardwareState,
+): CpuHardwareState => {
+  if (state.hardware.cpus.length !== 1) return createCpuHardwareState(cpu.id, cpu.coreIds, cpu);
+
+  return createCpuHardwareState(cpu.id, getSingleCpuCoreIds(state, cpu), {
+    ...cpu,
+    cacheLevel: state.hardware.cacheLevel,
+    cacheSpeedLevel: state.hardware.cacheSpeedLevel,
+    cacheBits: state.hardware.cacheBits,
+    cacheBytes: state.hardware.cacheBytes,
+    schedulerSlots: state.hardware.schedulerSlots,
+  });
+};
+
+export const syncHardwarePackages = (state: GameState): GameState => {
+  const existingCpus =
+    state.hardware.cpus.length > 0
+      ? state.hardware.cpus
+      : [
+          createCpuHardwareState(
+            1,
+            Array.from(
+              { length: Math.max(1, state.hardware.cores) },
+              (_, index) => index + 1,
+            ),
+            {
+              cacheLevel: state.hardware.cacheLevel,
+              cacheSpeedLevel: state.hardware.cacheSpeedLevel,
+              cacheBits: state.hardware.cacheBits,
+              cacheBytes: state.hardware.cacheBytes,
+              schedulerSlots: state.hardware.schedulerSlots,
+            },
+          ),
+        ];
+  const cpus = existingCpus.map((cpu) => normalizeCpuHardware(state, cpu));
+  const allCoreIds = cpus.flatMap((cpu) => cpu.coreIds);
+  const cores = allCoreIds.length;
+  const maxCacheCpu = cpus.reduce((best, cpu) =>
+    cpu.cacheBits > best.cacheBits ? cpu : best,
+  );
+  const maxSpeedCpu = cpus.reduce((best, cpu) =>
+    cpu.cacheSpeedLevel > best.cacheSpeedLevel ? cpu : best,
+  );
+
+  return {
+    ...state,
+    hardware: {
+      ...state.hardware,
+      cpus,
+      cores,
+      secondCpu: state.hardware.secondCpu || cpus.length > 1,
+      cacheLevel: maxCacheCpu.cacheLevel,
+      cacheBits: maxCacheCpu.cacheBits,
+      cacheBytes: maxCacheCpu.cacheBytes,
+      cacheSpeedLevel: maxSpeedCpu.cacheSpeedLevel,
+      schedulerSlots: cpus.reduce((total, cpu) => total + cpu.schedulerSlots, 0),
+    },
+  };
+};
 
 export const createCoreSchedulerState = (
   coreId: number,
@@ -93,17 +211,20 @@ export const createInitialGameState = (): GameState => ({
     coreClockLevels: {
       1: 1,
     },
+    cpus: [createCpuHardwareState(1, [1])],
     cacheLevel: 1,
     cacheSpeedLevel: 1,
     cacheBits: getCacheBits(1),
     cacheBytes: getCacheBytes(1),
     cores: 1,
     schedulerSlots: 0,
+    systemSchedulerSlots: 0,
     secondCpu: false,
     ramLevel: 0,
     ramBits: 0,
     ramBytes: 0,
-    ramSpeedMt: getRamSpeedMt(0),
+    ramSpeedLevel: 1,
+    ramSpeedMt: getRamSpeedMt(1),
     psuLevel: 0,
     psuWatts: 0,
     coolingLevel: 0,
@@ -164,10 +285,11 @@ export const getStageLabel = (stage: StageId) => {
 };
 
 const withCoreSchedulers = (state: GameState): GameState => {
+  const syncedState = syncHardwarePackages(state);
   const schedulers = { ...state.coreSchedulers };
   let changed = false;
 
-  for (let coreId = 1; coreId <= state.hardware.cores; coreId += 1) {
+  for (const coreId of getAllCoreIds(syncedState)) {
     if (!schedulers[coreId]) {
       schedulers[coreId] = createCoreSchedulerState(coreId);
       changed = true;
@@ -176,20 +298,19 @@ const withCoreSchedulers = (state: GameState): GameState => {
 
   for (const rawCoreId of Object.keys(schedulers)) {
     const coreId = Number(rawCoreId);
-    if (coreId > state.hardware.cores) {
+    if (!getAllCoreIds(syncedState).includes(coreId)) {
       delete schedulers[coreId];
       changed = true;
     }
   }
 
-  return changed ? { ...state, coreSchedulers: schedulers } : state;
+  return changed ? { ...syncedState, coreSchedulers: schedulers } : syncedState;
 };
 
 export const syncCoreSchedulers = (state: GameState): GameState => {
   const seeded = withCoreSchedulers(state);
   const schedulers = Object.fromEntries(
-    Array.from({ length: seeded.hardware.cores }, (_, index) => {
-      const coreId = index + 1;
+    getAllCoreIds(seeded).map((coreId) => {
       const activeTask = seeded.activeTasks.find((task) =>
         task.assignedCoreIds.includes(coreId),
       );
@@ -243,9 +364,12 @@ export const updateProgressionFlags = (state: GameState): GameState => {
       basicQueue:
         state.flags.basicQueue || researched.includes("localScheduler"),
       scheduler:
-        state.flags.scheduler || researched.includes("kernelScheduler"),
+        state.flags.scheduler || researched.includes("systemScheduler"),
       secondCpu: state.flags.secondCpu || researched.includes("systemBus"),
-      systemStats: state.flags.systemStats || state.hardware.secondCpu,
+      systemStats:
+        state.flags.systemStats ||
+        state.hardware.secondCpu ||
+        researched.includes("ramControl"),
       cooling: state.flags.cooling || researched.includes("thermalControl"),
     },
   };
@@ -264,8 +388,10 @@ export const getMilestone = (state: GameState) => {
   if (!state.flags.multiCore) return "Research multi-core control.";
   if (state.hardware.cores < 2) return "Add a second core for local scheduling.";
   if (!state.flags.basicQueue) return "Research the local scheduler.";
-  if (state.hardware.cores < 4) return "Reach four cores for the kernel scheduler.";
-  if (!state.flags.scheduler) return "Research the kernel scheduler.";
+  if (state.hardware.cores < 4) return "Reach four cores for the system scheduler.";
+  if (!state.research.completed.includes("ramControl")) return "Research RAM control.";
+  if (state.hardware.ramBits < 1024) return "Upgrade RAM to 1 Kb.";
+  if (!state.flags.scheduler) return "Research the system scheduler.";
   if (!hasCompleted(state, "multiCoreBenchmark")) {
     return "Complete the multi-core benchmark.";
   }

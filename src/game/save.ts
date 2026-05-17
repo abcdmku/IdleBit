@@ -1,5 +1,6 @@
 import {
   createCoreSchedulers,
+  createCpuHardwareState,
   createInitialGameState,
   getCacheBits,
   getCacheBytes,
@@ -9,6 +10,7 @@ import {
   getRamBytes,
   getRamBits,
   getRamSpeedMt,
+  syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
 import type { ActiveTask, GameFlags, GameState, ResearchId } from "./types";
@@ -44,10 +46,38 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.benchmarks) completed.push("benchmarkHarness");
   if (flags.multiCore) completed.push("multiCore");
   if (flags.basicQueue) completed.push("localScheduler");
-  if (flags.scheduler) completed.push("kernelScheduler");
+  if (flags.scheduler) completed.push("systemScheduler");
+  if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");
   if (flags.cooling) completed.push("thermalControl");
   return completed;
+};
+
+const validResearchIds = [
+  "decodeLogic",
+  "bitMutation",
+  "shiftOperations",
+  "byteOperations",
+  "cacheMapping",
+  "benchmarkHarness",
+  "multiCore",
+  "localScheduler",
+  "systemScheduler",
+  "ramControl",
+  "systemBus",
+  "thermalControl",
+] satisfies ResearchId[];
+
+const normalizeResearchCompleted = (
+  completed: readonly unknown[] = [],
+): ResearchId[] => {
+  const normalized = completed
+    .map((id) => (id === "kernelScheduler" ? "systemScheduler" : id))
+    .filter((id): id is ResearchId =>
+      validResearchIds.includes(id as ResearchId),
+    );
+
+  return Array.from(new Set(normalized));
 };
 
 const isActiveTask = (value: unknown): value is ActiveTask => {
@@ -69,8 +99,40 @@ const normalizeState = (state: LegacyState): GameState => {
   const cacheSpeedLevel =
     hardware.cacheSpeedLevel ?? fresh.hardware.cacheSpeedLevel;
   const ramLevel = hardware.ramLevel ?? (hardware.ramGb ? 1 : fresh.hardware.ramLevel);
+  const ramSpeedLevel =
+    hardware.ramSpeedLevel ??
+    (hardware.ramSpeedMt && hardware.ramSpeedMt > 0
+      ? Math.max(1, Math.round(Math.log2(hardware.ramSpeedMt) + 1))
+      : fresh.hardware.ramSpeedLevel);
   const cacheBits = hardware.cacheBits ?? getCacheBits(cacheLevel);
   const ramBits = hardware.ramBits ?? (ramLevel > 0 ? getRamBits(ramLevel) : 0);
+  const schedulerSlots = Math.max(
+    0,
+    hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,
+  );
+  const systemSchedulerSlots = Math.max(
+    0,
+    hardware.systemSchedulerSlots ?? fresh.hardware.systemSchedulerSlots,
+  );
+  const cpus =
+    hardware.cpus && hardware.cpus.length > 0
+      ? hardware.cpus
+      : [
+          createCpuHardwareState(
+            1,
+            Array.from(
+              { length: Math.max(1, hardware.cores ?? fresh.hardware.cores) },
+              (_, index) => index + 1,
+            ),
+            {
+              cacheLevel,
+              cacheSpeedLevel,
+              cacheBits,
+              cacheBytes: getCacheBytes(cacheLevel),
+              schedulerSlots,
+            },
+          ),
+        ];
   const psuLevel =
     hardware.psuLevel ?? (hardware.psuWatts ? 1 : fresh.hardware.psuLevel);
   const coolingLevel = hardware.coolingLevel ?? fresh.hardware.coolingLevel;
@@ -87,9 +149,15 @@ const normalizeState = (state: LegacyState): GameState => {
     ...Object.values(coreClockLevels),
   );
   const completedTasks = state.completedTasks ?? state.completedJobs ?? {};
-  const activeTasks = (state.activeTasks ?? state.activeJobs ?? []).filter(isActiveTask);
-  const researchCompleted =
-    state.research?.completed ?? researchFromLegacyFlags(state.flags);
+  const activeTasks = (state.activeTasks ?? state.activeJobs ?? [])
+    .filter(isActiveTask)
+    .map((task) => ({
+      ...task,
+      schedulerQueued: task.schedulerQueued === true,
+    }));
+  const researchCompleted = normalizeResearchCompleted(
+    state.research?.completed ?? researchFromLegacyFlags(state.flags),
+  );
   const normalized: GameState = {
     ...fresh,
     ...state,
@@ -102,17 +170,17 @@ const normalizeState = (state: LegacyState): GameState => {
       cacheSpeedLevel,
       cacheBits,
       cacheBytes: getCacheBytes(cacheLevel),
-      schedulerSlots: Math.max(
-        0,
-        hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,
-      ),
+      cpus,
+      schedulerSlots,
+      systemSchedulerSlots,
       ramLevel,
       ramBits,
       ramBytes: ramLevel > 0 ? getRamBytes(ramLevel) : 0,
+      ramSpeedLevel,
       ramSpeedMt:
         hardware.ramSpeedMt && hardware.ramSpeedMt > 0
           ? hardware.ramSpeedMt
-          : getRamSpeedMt(ramLevel),
+          : getRamSpeedMt(ramSpeedLevel),
       psuLevel,
       psuWatts: hardware.psuLevel
         ? (hardware.psuWatts ?? getPsuWatts(psuLevel))
@@ -133,7 +201,7 @@ const normalizeState = (state: LegacyState): GameState => {
       ...state.resources,
     },
     research: {
-      completed: Array.from(new Set(researchCompleted)),
+      completed: researchCompleted,
     },
     reliability: {
       ...fresh.reliability,
@@ -151,7 +219,7 @@ const normalizeState = (state: LegacyState): GameState => {
     autoRepeatJobId: state.autoRepeatJobId ?? null,
   };
 
-  return updateProgressionFlags(normalized);
+  return updateProgressionFlags(syncHardwarePackages(normalized));
 };
 
 export const deserializeSave = (raw: string | null): GameState => {

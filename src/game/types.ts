@@ -30,7 +30,8 @@ export type ResearchId =
   | "benchmarkHarness"
   | "multiCore"
   | "localScheduler"
-  | "kernelScheduler"
+  | "systemScheduler"
+  | "ramControl"
   | "systemBus"
   | "thermalControl";
 
@@ -41,10 +42,13 @@ export type UpgradeId =
   | "autoRepeat"
   | "core"
   | "schedulerSlot"
+  | "systemSchedulerSlot"
   | "basicQueue"
   | "scheduler"
   | "secondCpu"
+  | "matchedCpu"
   | "ram"
+  | "ramSpeed"
   | "psu"
   | "cooling";
 
@@ -68,6 +72,8 @@ export type UnlockId =
   | "cooling";
 
 export type TaskKind = "task" | "job" | "benchmark";
+
+export type TaskCategory = "cpu" | "system" | "distributed";
 
 export type TaskOperationKind = "memory" | "compute" | "barrier";
 
@@ -146,6 +152,7 @@ export interface TaskDefinition {
   id: TaskId;
   name: string;
   kind: TaskKind;
+  category: TaskCategory;
   operations: TaskOperationDefinition[];
   subtasks: TaskSubtaskDefinition[];
   dagNodes: TaskSubtaskDefinition[];
@@ -205,6 +212,8 @@ export interface UpgradeDefinition {
 
 export interface UpgradeContext {
   coreId?: number;
+  cpuId?: number;
+  sourceCpuId?: number;
 }
 
 export interface ActiveCoreOperation {
@@ -229,6 +238,7 @@ export interface ActiveTask {
   instanceId: string;
   taskId: TaskId;
   jobId: JobId;
+  schedulerQueued: boolean;
   coreId: number;
   assignedCoreIds: number[];
   coreOperations: ActiveCoreOperation[];
@@ -267,21 +277,34 @@ export interface HardwareState {
   clockLevel: number;
   clockHz: number;
   coreClockLevels: Record<number, number>;
+  cpus: CpuHardwareState[];
   cacheLevel: number;
   cacheSpeedLevel: number;
   cacheBits: number;
   cacheBytes: number;
   cores: number;
   schedulerSlots: number;
+  systemSchedulerSlots: number;
   secondCpu: boolean;
   ramLevel: number;
   ramBits: number;
   ramBytes: number;
+  ramSpeedLevel: number;
   ramSpeedMt: number;
   psuLevel: number;
   psuWatts: number;
   coolingLevel: number;
   coolingRating: number;
+}
+
+export interface CpuHardwareState {
+  id: number;
+  coreIds: number[];
+  cacheLevel: number;
+  cacheSpeedLevel: number;
+  cacheBits: number;
+  cacheBytes: number;
+  schedulerSlots: number;
 }
 
 export interface ResearchState {
@@ -313,6 +336,15 @@ export interface CacheResidencySegment {
   bufferProgress?: number;
 }
 
+export interface RamResidencySegment {
+  coreId: number;
+  taskId: TaskId;
+  operationId?: string | null;
+  bits: number;
+  state: "reserved" | "loading" | "loaded";
+  progress: number;
+}
+
 export interface GameState {
   version: 1;
   tick: number;
@@ -336,12 +368,20 @@ export interface GameState {
 export type GameAction =
   | { type: "startTask"; taskId: TaskId }
   | { type: "startTaskOnCore"; taskId: TaskId; coreId: number }
-  | { type: "queueTask"; taskId: TaskId }
+  | { type: "queueTask"; taskId: TaskId; cpuId?: number }
+  | { type: "cancelTask"; taskId: TaskId; instanceId?: string }
+  | { type: "cancelQueuedTask"; taskId: TaskId }
   | { type: "buyResearch"; researchId: ResearchId }
-  | { type: "buyUpgrade"; upgradeId: UpgradeId; coreId?: number }
+  | {
+      type: "buyUpgrade";
+      upgradeId: UpgradeId;
+      coreId?: number;
+      cpuId?: number;
+      sourceCpuId?: number;
+    }
   | { type: "startJob"; jobId: JobId }
   | { type: "startJobOnCore"; jobId: JobId; coreId: number }
-  | { type: "queueJob"; jobId: JobId }
+  | { type: "queueJob"; jobId: JobId; cpuId?: number }
   | { type: "setAutoRepeat"; jobId: JobId | null };
 
 export interface VisibleOperation {
@@ -377,6 +417,7 @@ export interface VisibleTask {
   id: TaskId;
   name: string;
   kind: TaskKind;
+  category: TaskCategory;
   rewardCredits: number;
   rewardData: number;
   cacheNeedBits: number;
@@ -434,6 +475,7 @@ export interface VisibleResearchRequirement {
 export interface VisibleResearchComputeTask {
   id: TaskId;
   name: string;
+  category: TaskCategory;
   operationCount: number;
   rewardCredits: number;
   rewardData: number;
@@ -473,6 +515,7 @@ export interface VisibleActiveTask {
   instanceId: string;
   taskId: TaskId;
   jobId: JobId;
+  schedulerQueued: boolean;
   name: string;
   coreId: number;
   assignedCoreIds: number[];
@@ -505,6 +548,19 @@ export interface VisibleCpuSocket {
   id: number;
   label: string;
   cores: VisibleCore[];
+  cacheLevel: number;
+  cacheSpeedLevel: number;
+  cacheBits: number;
+  cacheBytes: number;
+  cacheUsedBits: number;
+  cacheUsedBytes: number;
+  cacheResidency: CacheResidencySegment[];
+  schedulerSlots: number;
+  queuedCount: number;
+  coreUpgrade: VisibleUpgrade | null;
+  cacheUpgrade: VisibleUpgrade | null;
+  cacheSpeedUpgrade: VisibleUpgrade | null;
+  schedulerSlotUpgrade: VisibleUpgrade | null;
 }
 
 export interface VisibleRamSlot {
@@ -534,6 +590,7 @@ export interface VisibleHardwareMetrics {
   ramUsedBits: number;
   ramUsedBytes: number;
   ramSlots: VisibleRamSlot[];
+  ramResidency: RamResidencySegment[];
   memory: VisibleMemoryPipeline;
   powerUsedWatts: number;
   powerHeadroomWatts: number;

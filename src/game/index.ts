@@ -3,6 +3,8 @@ export {
   applyAction,
   buyResearch,
   buyUpgrade,
+  cancelQueuedTaskById,
+  cancelTask,
   queueTask,
   startJob,
   startTask,

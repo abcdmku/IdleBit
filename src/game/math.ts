@@ -2,6 +2,8 @@ import { getTaskDefinition } from "./content/tasks";
 import {
   bitsToBytes,
   getClockHz,
+  getCpuForCore,
+  getCpuHardware,
   getCoreClockHz,
   getCoreClockLevel,
 } from "./progression";
@@ -16,16 +18,39 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 export const getHardwareCacheBits = (state: GameState) =>
-  state.hardware.cacheBits ?? state.hardware.cacheBytes * 8;
+  Math.max(
+    state.hardware.cpus.length > 0
+      ? 0
+      : (state.hardware.cacheBits ?? state.hardware.cacheBytes * 8),
+    ...state.hardware.cpus.map((cpu) => getCpuHardware(state, cpu.id).cacheBits),
+  );
 
-export const getReservedCacheBits = (state: GameState) =>
+export const getReservedCacheBits = (state: GameState, cpuId?: number) =>
   state.activeTasks.reduce(
-    (sum, task) => sum + getTaskDefinition(task.taskId).cacheNeedBits,
+    (sum, task) =>
+      cpuId !== undefined && getCpuForCore(state, task.coreId).id !== cpuId
+        ? sum
+        : sum + getTaskDefinition(task.taskId).cacheNeedBits,
     0,
   );
 
-export const getAvailableCacheBits = (state: GameState) =>
-  Math.max(0, getHardwareCacheBits(state) - getReservedCacheBits(state));
+export const getAvailableCacheBits = (state: GameState, cpuId?: number) => {
+  if (cpuId !== undefined) {
+    const cpu = getCpuHardware(state, cpuId);
+    return Math.max(0, cpu.cacheBits - getReservedCacheBits(state, cpu.id));
+  }
+
+  return Math.max(
+    0,
+    ...state.hardware.cpus.map((cpu) => {
+      const normalizedCpu = getCpuHardware(state, cpu.id);
+      return Math.max(
+        0,
+        normalizedCpu.cacheBits - getReservedCacheBits(state, normalizedCpu.id),
+      );
+    }),
+  );
+};
 
 export const getHardwareRamBits = (state: GameState) =>
   state.hardware.ramBits ?? state.hardware.ramBytes * 8;
@@ -38,11 +63,55 @@ export const getMemoryCapacityBits = (state: GameState) => {
 export const getAvailableMemoryBits = (state: GameState) =>
   Math.max(0, getMemoryCapacityBits(state) - getReservedMemoryBits(state));
 
-export const getSchedulerSlotCapacity = (state: GameState) =>
-  Math.max(0, state.hardware.schedulerSlots ?? 0);
+export const getSchedulerQueuedCount = (state: GameState, cpuId: number) => {
+  const cpu = getCpuHardware(state, cpuId);
+  return cpu.coreIds.reduce(
+    (total, coreId) => total + (state.coreSchedulers[coreId]?.localQueue.length ?? 0),
+    0,
+  );
+};
 
-export const getAvailableSchedulerSlots = (state: GameState) =>
-  Math.max(0, getSchedulerSlotCapacity(state) - state.queue.length);
+export const getSchedulerSlotCapacity = (state: GameState, cpuId?: number) =>
+  cpuId === undefined
+    ? state.hardware.cpus.reduce(
+        (total, cpu) => total + getCpuHardware(state, cpu.id).schedulerSlots,
+        0,
+      )
+    : Math.max(0, getCpuHardware(state, cpuId).schedulerSlots);
+
+export const getAvailableSchedulerSlots = (
+  state: GameState,
+  cpuId?: number,
+): number => {
+  if (cpuId !== undefined) {
+    return Math.max(
+      0,
+      getSchedulerSlotCapacity(state, cpuId) - getSchedulerQueuedCount(state, cpuId),
+    );
+  }
+
+  return state.hardware.cpus.reduce(
+    (total, cpu) => total + getAvailableSchedulerSlots(state, cpu.id),
+    0,
+  );
+};
+
+const isSystemScheduledTask = (task: TaskDefinition) =>
+  task.category === "system" || task.category === "distributed";
+
+export const getSystemSchedulerQueuedCount = (state: GameState) =>
+  state.queue.filter((taskId) =>
+    isSystemScheduledTask(getTaskDefinition(taskId)),
+  ).length;
+
+export const getSystemSchedulerSlotCapacity = (state: GameState) =>
+  Math.max(0, state.hardware.systemSchedulerSlots ?? 0);
+
+export const getAvailableSystemSchedulerSlots = (state: GameState) =>
+  Math.max(
+    0,
+    getSystemSchedulerSlotCapacity(state) - getSystemSchedulerQueuedCount(state),
+  );
 
 export const getMemoryCapacityBytes = (state: GameState) =>
   bitsToBytes(getMemoryCapacityBits(state));
@@ -65,12 +134,13 @@ export const getCacheMultiplier = (state: GameState, task: TaskDefinition) => {
 export const getOperationCacheMultiplier = (
   state: GameState,
   operation: TaskOperationDefinition,
+  coreId = 1,
 ) => {
   if (operation.cacheBits <= 0) return 1;
-  if (getHardwareCacheBits(state) >= operation.cacheBits) return 1.12;
+  const cacheBits = getCpuForCore(state, coreId).cacheBits;
+  if (cacheBits >= operation.cacheBits) return 1.12;
 
-  const shortage =
-    (operation.cacheBits - getHardwareCacheBits(state)) / operation.cacheBits;
+  const shortage = (operation.cacheBits - cacheBits) / operation.cacheBits;
   return 1 / (1 + shortage * 0.65);
 };
 
@@ -84,7 +154,9 @@ export const getOperationEffectiveClock = (
   state: GameState,
   operation: TaskOperationDefinition,
   coreId = 1,
-) => getCoreClockHz(state, coreId) * getOperationCacheMultiplier(state, operation);
+) =>
+  getCoreClockHz(state, coreId) *
+  getOperationCacheMultiplier(state, operation, coreId);
 
 export const getCacheLoadCyclesForBits = (_state: GameState, cacheBits: number) => {
   if (cacheBits <= 0) return 0;
@@ -115,8 +187,8 @@ export const getRamLoadCycles = (
   return operation.ramBits;
 };
 
-export const getCacheLoadRate = (state: GameState, _coreId: number) =>
-  getClockHz(state.hardware.cacheSpeedLevel ?? 1);
+export const getCacheLoadRate = (state: GameState, coreId: number) =>
+  getClockHz(getCpuForCore(state, coreId).cacheSpeedLevel ?? 1);
 
 export const getRamLoadRate = (state: GameState) =>
   Math.max(1, getMemorySpeedMt(state));
@@ -199,7 +271,7 @@ export const getActiveOperationDefinition = (
 };
 
 export const getHardwareDrawWatts = (state: GameState) => {
-  const socketCount = state.hardware.secondCpu ? 2 : 1;
+  const socketCount = Math.max(1, state.hardware.cpus.length);
   const boardWatts = state.flags.systemStats ? 12 : 6;
   const socketWatts = socketCount * 7.5;
   const coreIdleWatts = Array.from(
@@ -224,8 +296,10 @@ export const getHardwareDrawWatts = (state: GameState) => {
           activeOperationPowerMultiplier(operation)
       );
     }, 0);
-  const cacheWatts =
-    state.hardware.cacheLevel <= 0 ? 0 : 0.18 * state.hardware.cacheLevel ** 1.45;
+  const cacheWatts = state.hardware.cpus.reduce(
+    (sum, cpu) => sum + (cpu.cacheLevel <= 0 ? 0 : 0.18 * cpu.cacheLevel ** 1.45),
+    0,
+  );
   const ramWatts =
     state.hardware.ramLevel <= 0 ? 0 : 1.8 * state.hardware.ramLevel ** 1.22;
   const coolingWatts =

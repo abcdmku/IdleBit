@@ -34,6 +34,7 @@ type RawTask = {
   id: TaskId;
   name: string;
   kind: TaskKind;
+  category: TaskDefinition["category"];
   rewardData: number;
   parallelizable: boolean;
   repeatable: boolean;
@@ -120,15 +121,69 @@ const getProvisionedCacheBits = (
     return provisionedBits + operationCacheBits;
   }, 0);
 
+const getOperationCoreMultiplier = (
+  operation: TaskOperationDefinition,
+  parallelCoreCount: number,
+) => (operation.parallel ? parallelCoreCount : 1);
+
+const getOperationCpuWork = (
+  operation: TaskOperationDefinition,
+  parallelCoreCount: number,
+) => operation.cycles * getOperationCoreMultiplier(operation, parallelCoreCount);
+
+const getOperationCacheLoadWork = (
+  operation: TaskOperationDefinition,
+  parallelCoreCount: number,
+) => operation.cacheBits * getOperationCoreMultiplier(operation, parallelCoreCount);
+
+const getOperationRamLoadWork = (
+  operation: TaskOperationDefinition,
+  parallelCoreCount: number,
+) => operation.ramBits * getOperationCoreMultiplier(operation, parallelCoreCount);
+
+const getOperationsCpuWork = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) =>
+  operations.reduce(
+    (total, operation) => total + getOperationCpuWork(operation, parallelCoreCount),
+    0,
+  );
+
+const getOperationsCacheLoadWork = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) =>
+  operations.reduce(
+    (total, operation) =>
+      total + getOperationCacheLoadWork(operation, parallelCoreCount),
+    0,
+  );
+
+const getOperationsRamLoadWork = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) =>
+  operations.reduce(
+    (largest, operation) =>
+      Math.max(largest, getOperationRamLoadWork(operation, parallelCoreCount)),
+    0,
+  );
+
+const getOperationsWorkCount = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) =>
+  getOperationsCpuWork(operations, parallelCoreCount) +
+  getOperationsCacheLoadWork(operations, parallelCoreCount) +
+  getOperationsRamLoadWork(operations, parallelCoreCount);
+
 const summarizeOperations = (
   operations: TaskOperationDefinition[],
   parallelCoreCount = 1,
 ) => ({
-  operationCount: operations.reduce(
-    (total, operation) => total + operation.count,
-    0,
-  ),
-  cycles: operations.reduce((total, operation) => total + operation.cycles, 0),
+  operationCount: getOperationsWorkCount(operations, parallelCoreCount),
+  cycles: getOperationsCpuWork(operations, parallelCoreCount),
   cacheBits: getProvisionedCacheBits(operations, parallelCoreCount),
   ramBits: operations.reduce(
     (largest, operation) => Math.max(largest, operation.ramBits),
@@ -140,19 +195,8 @@ const summarizeGraphNodes = (
   nodes: TaskSubtaskDefinition[],
   parallelCoreCount = 1,
 ) => {
-  const operationsById = new Map<string, TaskOperationDefinition>();
-
-  for (const node of nodes) {
-    for (const operation of node.operations) {
-      operationsById.set(operation.id, operation);
-    }
-  }
-
   return {
-    operationCount: Array.from(operationsById.values()).reduce(
-      (total, operation) => total + operation.count,
-      0,
-    ),
+    operationCount: nodes.reduce((total, node) => total + node.operationCount, 0),
     cycles: nodes
       .filter((node) => node.kind === "execute" || node.kind === "recipe")
       .reduce((total, node) => total + node.cycles, 0),
@@ -242,6 +286,7 @@ const rawTasks: RawTask[] = [
     id: "fetchBit",
     name: "Fetch Bit",
     kind: "task",
+    category: "cpu",
     rewardData: 0,
     parallelizable: false,
     repeatable: true,
@@ -270,6 +315,7 @@ const rawTasks: RawTask[] = [
     id: "decodeBit",
     name: "Decode Bit",
     kind: "task",
+    category: "cpu",
     rewardData: 0,
     parallelizable: false,
     repeatable: true,
@@ -311,6 +357,7 @@ const rawTasks: RawTask[] = [
     id: "bitFlip",
     name: "Bit Flip",
     kind: "task",
+    category: "cpu",
     rewardData: 1,
     parallelizable: false,
     repeatable: true,
@@ -354,6 +401,7 @@ const rawTasks: RawTask[] = [
     id: "bitShift",
     name: "Bit Shift",
     kind: "task",
+    category: "cpu",
     rewardData: 1,
     parallelizable: false,
     repeatable: true,
@@ -397,6 +445,7 @@ const rawTasks: RawTask[] = [
     id: "byteCopy",
     name: "Byte Copy",
     kind: "task",
+    category: "cpu",
     rewardData: 2,
     parallelizable: false,
     repeatable: true,
@@ -440,6 +489,7 @@ const rawTasks: RawTask[] = [
     id: "packetCheck",
     name: "Packet Check",
     kind: "task",
+    category: "cpu",
     rewardData: 1,
     parallelizable: false,
     repeatable: true,
@@ -495,31 +545,32 @@ const rawTasks: RawTask[] = [
     id: "tinyChecksum",
     name: "Tiny Checksum",
     kind: "task",
+    category: "system",
     rewardData: 2,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
     reveal: (state) =>
-      hasResearch(state, "systemBus") && hasCompleted(state, "packetCheck"),
+      hasResearch(state, "ramControl") && hasCompleted(state, "packetCheck"),
     requirement: (state) =>
-      hasResearch(state, "systemBus") && countTask(state, "packetCheck") >= 1,
+      hasResearch(state, "ramControl") && countTask(state, "packetCheck") >= 1,
     operations: [
       {
         id: "stage-checksum",
         name: "Stage Checksum Page",
         kind: "memory",
         memoryAction: "read",
-        count: 4,
+        count: 8,
         cycles: 3,
-        ramBits: 8,
+        ramBits: 256,
       },
       {
         id: "checksum-step",
         name: "Checksum Step",
         kind: "compute",
         cycles: 36,
-        cacheBits: 4,
-        ramBits: 8,
+        cacheBits: 8,
+        ramBits: 256,
       },
     ],
     recipe: [
@@ -539,6 +590,7 @@ const rawTasks: RawTask[] = [
     id: "microBenchmark",
     name: "Micro Benchmark",
     kind: "benchmark",
+    category: "cpu",
     rewardData: 4,
     parallelizable: false,
     repeatable: false,
@@ -571,6 +623,7 @@ const rawTasks: RawTask[] = [
     id: "parallelismBenchmark",
     name: "Parallelism Benchmark",
     kind: "benchmark",
+    category: "cpu",
     rewardData: 8,
     parallelizable: false,
     repeatable: false,
@@ -602,14 +655,15 @@ const rawTasks: RawTask[] = [
     id: "multiCoreBenchmark",
     name: "Multi-Core Benchmark",
     kind: "benchmark",
+    category: "system",
     rewardData: 14,
     parallelizable: true,
     repeatable: false,
     minCores: 4,
     maxCores: 4,
-    reveal: (state) => hasResearch(state, "kernelScheduler"),
+    reveal: (state) => hasResearch(state, "systemScheduler"),
     requirement: (state) =>
-      hasResearch(state, "kernelScheduler") &&
+      hasResearch(state, "systemScheduler") &&
       state.hardware.cores >= 4 &&
       !hasCompleted(state, "multiCoreBenchmark"),
     operations: [
@@ -731,6 +785,7 @@ const deriveDagNodes = (
   );
   const terminalNodeByStepId = new Map<string, string>();
   const dependedStepIds = new Set<string>();
+  let loadedRamBits = 0;
 
   for (const [index, step] of recipe.entries()) {
     const recipeNode = recipeNodeByStepId.get(step.id);
@@ -767,6 +822,7 @@ const deriveDagNodes = (
           operationIds: cacheOperations.map((operation) => operation.id),
           operations: cacheOperations,
           subtasks: [],
+          operationCount: recipeNode.cacheBits,
           cycles: 0,
           cacheBits: recipeNode.cacheBits,
           ramBits: 0,
@@ -775,7 +831,7 @@ const deriveDagNodes = (
       dependencyIds = [id];
     }
 
-    if (recipeNode.ramBits > 0) {
+    if (recipeNode.ramBits > loadedRamBits) {
       const id = `${taskId}:ram:${step.id}`;
       const ramOperations = recipeNode.operations.filter(
         (operation) => operation.ramBits > 0,
@@ -790,12 +846,14 @@ const deriveDagNodes = (
           operationIds: ramOperations.map((operation) => operation.id),
           operations: ramOperations,
           subtasks: [],
+          operationCount: recipeNode.ramBits,
           cycles: 0,
           cacheBits: 0,
           ramBits: recipeNode.ramBits,
         }),
       );
       dependencyIds = [id];
+      loadedRamBits = recipeNode.ramBits;
     }
 
     const executeId = `${taskId}:execute:${step.id}`;
@@ -808,6 +866,7 @@ const deriveDagNodes = (
         operationIds: recipeNode.operationIds,
         operations: recipeNode.operations,
         subtasks: [],
+        operationCount: recipeNode.cycles,
         cycles: recipeNode.cycles,
         cacheBits: recipeNode.cacheBits,
         ramBits: recipeNode.ramBits,
@@ -865,6 +924,7 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     id: raw.id,
     name: raw.name,
     kind: raw.kind,
+    category: raw.category,
     rewardData: raw.rewardData,
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,

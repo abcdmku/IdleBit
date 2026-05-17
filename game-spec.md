@@ -126,9 +126,7 @@ Earned from:
 Spent on:
 
 - CPU upgrades.
-- Cache upgrades.
 - Core purchases.
-- RAM.
 - Power supply.
 - Cooling.
 - Expansion cards.
@@ -156,10 +154,14 @@ Spent on:
 - Architecture unlocks.
 - Scheduler unlocks.
 - New job families.
+- Cache capacity and cache speed tuning.
+- RAM capacity and RAM speed tuning.
 - Automation systems.
 - Cluster features.
 - Data center management tools.
 - Availability zone and region unlocks.
+
+Cache and RAM upgrades can still include a small credit installation cost, but their primary cost should be data. Memory tuning should feel like spending learned architecture/data knowledge, while broader CPU, power, and facility purchases can stay more credit-heavy.
 
 ### 3.3 Compute
 
@@ -188,9 +190,9 @@ At CPU scale, cache capacity determines how much of the CPU operation queue can 
 
 At system scale, RAM stages larger active work and intermediate results. RAM decides which larger tasks can be active at all, how much intermediate work can be retained, and how quickly memory-heavy operations can move between CPU, RAM, and later storage.
 
-Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and scheduler pulls must compare each task's cache and RAM staging needs against free capacity after active reservations. Queue acceptance only requires prerequisites, total hardware fit, and an open purchased scheduler queue slot; if a queued task fits the hardware but not currently free cache or RAM, it stays pending until capacity is released. Scheduler unlocks do not grant infinite backlog capacity by default.
+Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and scheduler pulls must compare each task's cache and RAM staging needs against free capacity after active reservations. Queue acceptance only requires prerequisites, total hardware fit, enough CPU scheduler width for the task's core demand, and an open purchased scheduler queue slot; if a queued task fits the hardware but not currently free cache or RAM, it stays pending until capacity is released. A pending cache/RAM-blocked queue entry should not stop later ready CPU-local work from dispatching when idle cores and staging capacity are still available. Scheduler unlocks do not grant infinite backlog capacity or infinite multicore provisioning width by default.
 
-Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." RAM load speed uses the same bit-scale start as CPU throughput: the hidden starting rate is 1 b/s, so revealed RAM begins by loading one bit per second before upgrades scale it upward.
+Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." Cache and RAM capacity/speed upgrades should cost more data than credits. RAM load speed uses the same bit-scale start as CPU throughput: RAM begins at 256 b capacity and a 1 Hz load rate when RAM Control is researched, then capacity and speed upgrade separately.
 
 At data center scale, capacity includes:
 
@@ -294,15 +296,17 @@ The operation pipeline is:
 4. RAM stages larger active work and intermediate results.
 5. Storage later stages large inactive inputs/outputs before they can move into RAM/cache.
 6. The scheduler assigns ready operations to cores or later systems.
-7. Completion pays credits/data once the task's required operations finish.
+7. Completion pays credits/data once the task's required CPU, cache-load, and RAM-load operations finish.
 
 Cache stores CPU operation queues. If the next operation requires cache and the cache queue is empty or incomplete, the task waits for cache load instead of running with a simple speed penalty.
+
+Players should be able to cancel active tasks and pending queued tasks. Canceling active work releases its cache/RAM reservations and any scheduler queue reservation without paying completion rewards. Canceling pending queued work removes only an unstarted queue entry, so an already active scheduler-dispatched copy of the same task keeps its reservation until it completes or is canceled directly.
 
 ### 4.3 Inferred Task Composition DAG
 
 Tasks should be authored and surfaced as concise player goals, but the simulation should infer a small directed acyclic graph of internal work from each task definition. The graph is not player-authored; it is derived from task requirements so future UI can explain why a task is waiting without exposing every operation as a separate job.
 
-Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors.
+Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors. The player-facing operation count is the paid work total: CPU execution cycles plus cache load bits plus RAM staging bits.
 
 Task operations should follow a small authoring pattern:
 
@@ -314,9 +318,10 @@ Task operations should follow a small authoring pattern:
 - Cache residency and the cache meter should preserve completed read/write footprints until the task completes, while overwrite updates the existing footprint instead of adding another segment.
 - Counted memory operations use that total touched cache footprint once for cache fill; operation count affects CPU cycles and rewards, not a second cache-size multiplier.
 - Cache load cycles equal touched bits, so cache load rate is readable as bits per second. A 1 b buffer on a 1 Hz CPU and 1 Hz cache load rate should advance together.
+- RAM load cycles equal staged bits, so loading 256 b into RAM contributes 256 paid operations before the CPU can process that staged work.
 - Compute operations may still require cache, but their CPU compute cycles run after their cache load is ready.
 - Transform tasks should avoid redundant "copy then write" phases; writing the copied value is the copy.
-- Task rewards and required cycles are derived from summed operation counts and cycles.
+- Task credit rewards are derived from the paid operation total: CPU cycles plus cache-load work plus RAM-load work. Data rewards can remain hand-authored progression payouts.
 
 Example early DAG shape:
 
@@ -330,7 +335,7 @@ Example early DAG shape:
 
 Early bit-scale tasks may only have accept, execute, and complete nodes. Cache-sensitive tasks add cache fill immediately before the operation or recipe step that needs that cache queue, not only as a single task-wide prelude. Larger tasks add RAM and later storage/network nodes. The graph must remain acyclic so selectors can produce deterministic ready/waiting reasons and the scheduler can safely choose the next executable operation.
 
-Task UI progress should stay at the player-facing task layer: one aggregate meter covers the full recipe, including cache/RAM load and every internal operation, so progress does not restart at each step. CPU core meters represent only CPU execution on that core; cache and RAM loading should appear as runtime state, not as CPU processing progress. The cache module should show active cache load and ready operation data while leaving unused capacity grey; segment color should map to the core writing that cache data. CPU-filled cache buffers should fill a dashed track at CPU processing speed, while cache writes fill the same footprint with a solid overlay at cache load speed. Cache load segments grow with load progress instead of snapping to the full required footprint. Completed tasks release cache immediately and should not leave a held or resident footprint.
+Task UI progress should stay at the player-facing task layer: one aggregate meter covers the full recipe, including cache/RAM load and every internal operation, so progress does not restart at each step. CPU core meters represent only CPU execution on that core; cache and RAM loading should appear as runtime state, not as CPU processing progress. The cache module should show active cache load and ready operation data while leaving unused capacity grey; segment color should map to the core writing that cache data. CPU-filled cache buffers should fill a dashed track at CPU processing speed, while cache writes fill the same footprint with a solid overlay at cache load speed. Cache load segments grow with load progress instead of snapping to the full required footprint. RAM segments should show reserved, loading, and ready task staging; CPU execution for RAM-backed work begins only after the required RAM load is ready. Completed tasks release cache and RAM reservations immediately and should not leave a held or resident footprint.
 
 When tasks pay out, credits and data gains should be visible as short reward feedback that travels toward the matching resource total without covering the main controls.
 
@@ -449,9 +454,10 @@ One tiny CPU doing primitive jobs.
 ### Tasks
 
 Early tasks should be tiny and direct. The first visible work should be a bit-scale starter pair; byte-scale and cache-sensitive tasks appear only after the player has seen simple CPU operations complete and spent earned resources on research.
-Task credit payouts should match the derived operation count for the started parent task; data rewards can still mark progression milestones.
+Task credit payouts should match the derived paid operation count for the started parent task, including cache and RAM loading work; data rewards can still mark progression milestones.
 Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
 Research is the player-facing unlock surface. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
+The task panel should group available work by mechanical category, starting with CPU-bound work and system work; later distributed work should land in its own group rather than blending into the CPU task list.
 
 | Task | Purpose |
 |---|---|
@@ -461,7 +467,7 @@ Research is the player-facing unlock surface. New task groups and hardware categ
 | Bit Shift | Unlocks with Decode Logic and introduces 2 b shifted bit work |
 | Byte Copy | Unlocks through Byte Operations after bit-task resource grind |
 | Packet Check | Reveals after cache is relevant and teaches cache fill |
-| Tiny Checksum | Teaches repeated work |
+| Tiny Checksum | Unlocks after RAM Control and teaches larger RAM/cache staging |
 
 ### Research Compute
 
@@ -482,11 +488,13 @@ Some research needs benchmark-style compute before the research can be purchased
 | Bit Flip | Decode Logic research | First mutation task |
 | Bit Shift | Decode Logic research | First shift task |
 | Byte Copy | Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
-| Cache upgrades | New save | Cache capacity and cache speed upgrades are available immediately |
+| Cache upgrades | New save | Cache capacity and cache speed upgrades are available immediately and use data-weighted costs |
 | Packet Check | Cache Mapping research | First cache-fill waiting task |
 | Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
 | Benchmark Harness research | Cache Mapping, Packet Check, clock tuning | Reveals benchmark compute inside later research cards |
 | Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
+| RAM Control research | Local Scheduler research | Appears alongside System Scheduler and unlocks 256 b RAM at 1 Hz |
+| System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
 | Auto-repeat | Deferred until later scheduler/automation layers | Do not reveal in the bit-scale opening |
 
 ---
@@ -500,7 +508,7 @@ The player improves a single-core CPU through clock and cache.
 ### Main Decisions
 
 - Buy clock speed for broad speed.
-- Buy cache capacity and cache speed for operation queue/fill efficiency.
+- Buy cache capacity and cache speed with data-heavy costs for operation queue/fill efficiency.
 - Choose jobs that match current hardware.
 
 ### New Mechanics
@@ -559,7 +567,7 @@ Cores help many jobs run at once.
 | Second core | Multi-Core Control research |
 | Basic queue | Own 2 cores and complete Local Scheduler research |
 | More cores | Buy core slots / reach CPU tier |
-| Scheduler | Own 4 cores and complete Kernel Scheduler research |
+| Scheduler | Own 4 cores, complete RAM Control, install at least 1 Kb RAM, and complete System Scheduler research |
 
 ---
 
@@ -571,9 +579,9 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 
 ### Unlock Condition
 
-Scheduler unlocks when the player reaches 4 cores and completes Kernel Scheduler research.
+RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control unlocks RAM at 256 b and 1 Hz. System Scheduler unlocks when the player reaches 4 cores, completes RAM Control, and upgrades RAM capacity to at least 1 Kb.
 
-Local Scheduler research enables queue-slot purchases. The default scheduler backlog is 0 slots; each Queue Slot upgrade adds one held task that can wait for idle cores, cache, or RAM.
+Local Scheduler research enables per-CPU queue-slot purchases. The default CPU scheduler backlog is 0 slots; each CPU Queue Slot upgrade adds one held CPU task that can wait for idle cores, cache, or RAM. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes. The scheduler UI should list each queued task's current waiting or active reason so the player can see whether cores, cache, RAM, scheduler width, or active processing are the current state. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler surface for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
 
 ### Scheduler Layers
 
@@ -583,12 +591,11 @@ Local Scheduler research enables queue-slot purchases. The default scheduler bac
 | 1 | CPU Operation Scheduler | Feeds cache-backed CPU operation queues to idle cores |
 | 2 | Priority Operation Scheduler | Player chooses priority: credits, data, shortest task, longest task |
 | 3 | Cache-Aware Operation Scheduler | Groups similar tasks to reduce cache fill churn |
-| 4 | Multithread Operation Scheduler | Splits eligible tasks across cores |
-| 5 | System Scheduler | Routes work across CPU/GPU/NPU/RAM/storage inside a system |
-| 6 | Cluster Scheduler | Routes work across networked systems |
-| 7 | Regional Scheduler | Routes work across data centers, availability zones, and regions |
+| 4 | System Scheduler | Coordinates RAM-staged work and eligible multicore dispatch inside one system |
+| 5 | Cluster Scheduler | Routes work across networked systems |
+| 6 | Regional Scheduler | Routes work across data centers, availability zones, and regions |
 
-The named scheduler path begins with the CPU Operation Scheduler. Later layers should be named by the scale they coordinate: system scheduler, cluster scheduler, regional scheduler, and eventually global/planetary policy.
+The named scheduler path begins with the CPU Operation Scheduler, then moves to System Scheduler for one built machine. Later layers should be named by the scale they coordinate: cluster scheduler, regional scheduler, and eventually global/planetary policy.
 
 ### Scheduler Policies
 
@@ -616,18 +623,19 @@ The player moves from CPU tuning to full computer building.
 
 Second CPU unlocks after:
 
-- Reaching 4 cores.
-- Completing a multi-core benchmark.
+- Completing System Scheduler research.
+- Completing the multi-core benchmark from the System Bus research card.
+- Purchasing System Bus research.
 
 ### Major Rule
 
-When the player buys the second CPU, RAM and power supply become visible. This is an existing-stage gate: RAM and PSU systems may exist in the save/simulation before this point, but they should not be actionable or visually dominant until the second CPU stage.
+When the player buys the second CPU, power supply becomes visible. RAM is already introduced by RAM Control before System Scheduler; the second CPU stage is where PSU stress and broader system building become player-facing.
 
 ### New Mechanics
 
 - CPU sockets.
 - Second CPU.
-- RAM.
+- Matched CPU packages.
 - Power supply.
 - System-level throttling.
 
@@ -639,9 +647,11 @@ RAM determines:
 - How many active/intermediate task stages can be held.
 - How many simultaneous jobs can be held in memory.
 - How well memory-heavy jobs perform.
-- How quickly larger staged work can move when RAM load speed is upgraded from the 1 b/s bit-scale start.
+- How quickly larger staged work can move when RAM load speed is upgraded from the 1 Hz bit-scale start.
+- Capacity and load speed as separate upgrade decisions.
+- Capacity and speed upgrades that cost more data than credits.
 
-RAM should not be heavily exposed before this stage. Before this point, memory can exist internally as hidden capacity.
+RAM should not be heavily exposed before RAM Control. After RAM Control it becomes the required staging layer for System Scheduler and larger cache-backed tasks.
 
 ### Power Supply Role
 
@@ -1335,12 +1345,12 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 7 | More cores | Builds pressure for scheduling |
 | 8 | Basic queue | Reduces manual core assignment |
 | 9 | Four-core milestone | First major CPU achievement |
-| 10 | CPU Operation Scheduler | Automates local operation assignment |
-| 11 | Second CPU | Transitions to full system building |
-| 12 | RAM | Adds active/intermediate staging constraints |
+| 10 | RAM Control | Adds active/intermediate staging constraints before System Scheduler |
+| 11 | System Scheduler | Automates RAM-staged multicore task scheduling after 1 Kb RAM |
+| 12 | Matched CPU | Transitions to full system building |
 | 13 | Power supply | Adds reliability stress and restart risk |
 | 14 | Cooling | Improves efficiency and reliability |
-| 15 | Preconfigured CPUs | Reduces CPU micromanagement |
+| 15 | Preconfigured systems | Reduces system micromanagement |
 | 16 | Expansion slots | Adds specialization |
 | 17 | GPU/NPU | Adds specialized workloads |
 | 18 | Workload routing | Scheduler becomes smarter |
@@ -1368,9 +1378,9 @@ These should be built on existing systems, not introduced as unrelated mechanics
 |---|---|---|
 | Early CPU | Manual task choice | Player learns task requirements before automation hides decisions |
 | 2 cores | Basic queue | Manually assigning jobs to each core |
-| 4 cores | CPU Operation Scheduler | Core-by-core operation management and cache queue feeding |
+| 4 cores | System Scheduler | Core-by-core operation management and cache/RAM queue feeding |
 | Full system | Preconfigured CPUs | Per-core CPU tuning |
-| Workstation | System scheduler | Manual CPU/GPU/NPU/RAM/storage assignment |
+| Workstation | Scheduler policies | Manual CPU/GPU/NPU/RAM/storage assignment |
 | Multiple systems | System templates | Rebuilding machines by hand |
 | Networking | Shared queue | Manual per-system job assignment |
 | Cluster | Cluster scheduler | Manual distributed job placement |
@@ -1413,10 +1423,11 @@ A strong first vertical slice should include progression through:
 2. Clock/cache upgrades.
 3. Multi-core unlock.
 4. Four-core milestone.
-5. CPU Operation Scheduler unlock.
-6. Second CPU unlock.
-7. RAM/power reveal.
-8. RAM staging and PSU stress expectations documented for the next slice.
+5. RAM Control reveal with 256 b RAM at 1 Hz.
+6. 1 Kb RAM gate for System Scheduler.
+7. System Scheduler unlock.
+8. Matched CPU unlock.
+9. Power reveal and PSU stress expectations documented for the next slice.
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
 

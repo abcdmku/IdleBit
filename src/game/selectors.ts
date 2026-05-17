@@ -7,6 +7,7 @@ import {
   getAvailableCacheBits,
   getAvailableMemoryBits,
   getAvailableSchedulerSlots,
+  getAvailableSystemSchedulerSlots,
   getCacheLoadCycles,
   getHardwareCacheBits,
   getMemoryCapacityBits,
@@ -18,12 +19,15 @@ import {
   getRamLoadCycles,
   getReservedMemoryBits,
   getRestartReliability,
+  getSchedulerQueuedCount,
   getSchedulerSlotCapacity,
+  getSystemSchedulerSlotCapacity,
 } from "./math";
 import { bitsToBytes } from "./progression";
 import {
   getCoreClockHz,
   getCoreClockLevel,
+  getCpuHardware,
   getMilestone,
   getStage,
   getStageLabel,
@@ -40,6 +44,7 @@ import type {
   GameState,
   MemoryRuntimeState,
   OperationRuntimeStatus,
+  RamResidencySegment,
   TaskDefinition,
   TaskOperationDefinition,
   VisibleActiveJob,
@@ -53,6 +58,7 @@ import type {
   VisibleState,
   VisibleTask,
   VisibleTaskSubtask,
+  VisibleUpgrade,
 } from "./types";
 
 const getCacheFit = (
@@ -68,6 +74,34 @@ const getCacheFit = (
 const getBusyCoreIds = (state: GameState) =>
   new Set(state.activeTasks.flatMap((task) => task.assignedCoreIds));
 
+const getMaxIdleCoresInCpu = (state: GameState) => {
+  const busyCoreIds = getBusyCoreIds(state);
+  return Math.max(
+    0,
+    ...state.hardware.cpus.map(
+      (cpu) => cpu.coreIds.filter((coreId) => !busyCoreIds.has(coreId)).length,
+    ),
+  );
+};
+
+const getMaxSchedulerWidthForTask = (
+  state: GameState,
+  task: TaskDefinition,
+  requireIdleCores: boolean,
+) => {
+  const busyCoreIds = getBusyCoreIds(state);
+  return Math.max(
+    0,
+    ...state.hardware.cpus.map((cpu) => {
+      const availableCores = requireIdleCores
+        ? cpu.coreIds.filter((coreId) => !busyCoreIds.has(coreId)).length
+        : cpu.coreIds.length;
+      if (availableCores < task.minCores) return 0;
+      return getCpuHardware(state, cpu.id).schedulerSlots;
+    }),
+  );
+};
+
 const isTaskComplete = (state: GameState, task: TaskDefinition) =>
   (state.completedTasks[task.id] ?? state.completedJobs[task.id] ?? 0) > 0 ||
   state.completedBenchmarks.includes(task.id);
@@ -82,6 +116,9 @@ const isTaskRevealed = (state: GameState, task: TaskDefinition) =>
   task.reveal(state) || task.requirement(state);
 
 const isPlayerFacingTask = (task: TaskDefinition) => task.kind !== "benchmark";
+
+const isSystemScheduledTask = (task: TaskDefinition) =>
+  task.category === "system" || task.category === "distributed";
 
 const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
@@ -118,8 +155,8 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
       }
     }
     if (task.id === "multiCoreBenchmark") {
-      if (!hasResearch(state, "kernelScheduler")) {
-        return "Kernel Scheduler research required.";
+      if (!hasResearch(state, "systemScheduler")) {
+        return "System Scheduler research required.";
       }
       if (state.hardware.cores < 4) return "Needs 4 CPU cores.";
     }
@@ -130,7 +167,11 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
   if (task.cacheNeedBits > getAvailableCacheBits(state)) return "Not enough free cache.";
   if (task.ramNeedBits > getAvailableMemoryBits(state)) return "Not enough free RAM.";
 
-  const idleCoreCount = state.hardware.cores - getBusyCoreIds(state).size;
+  if (isSystemScheduledTask(task) && !state.flags.scheduler) {
+    return "System scheduler required.";
+  }
+
+  const idleCoreCount = getMaxIdleCoresInCpu(state);
   if (idleCoreCount < task.minCores) {
     return task.minCores > 1
       ? `Needs ${task.minCores} idle cores.`
@@ -138,7 +179,14 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
   }
 
   if (task.minCores > 1 && !state.flags.scheduler) {
-    return "Kernel scheduler required.";
+    return "System scheduler required.";
+  }
+
+  if (
+    task.minCores > 1 &&
+    getMaxSchedulerWidthForTask(state, task, true) < task.minCores
+  ) {
+    return `CPU scheduler needs ${task.minCores} slots.`;
   }
 
   return null;
@@ -154,8 +202,36 @@ const getTaskCanQueue = (state: GameState, task: TaskDefinition) =>
 
 const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
   if (!canAcceptTask(state, task)) return getBlockedReason(state, task);
+  if (isSystemScheduledTask(task) && !state.flags.scheduler) {
+    return "System scheduler required.";
+  }
   if (!state.flags.basicQueue && !state.flags.scheduler) return "Scheduler locked.";
-  if (getAvailableSchedulerSlots(state) <= 0) {
+
+  if (isSystemScheduledTask(task)) {
+    const availableSystemSlots = getAvailableSystemSchedulerSlots(state);
+    if (availableSystemSlots <= 0) {
+      return getSystemSchedulerSlotCapacity(state) <= 0
+        ? "Buy system queue slots."
+        : "System scheduler slots full.";
+    }
+    if (
+      task.minCores > 1 &&
+      getMaxSchedulerWidthForTask(state, task, false) < task.minCores
+    ) {
+      return `CPU scheduler needs ${task.minCores} slots.`;
+    }
+
+    return null;
+  }
+
+  if (
+    task.minCores > 1 &&
+    getMaxSchedulerWidthForTask(state, task, false) < task.minCores
+  ) {
+    return `CPU scheduler needs ${task.minCores} slots.`;
+  }
+  const availableSlots = getAvailableSchedulerSlots(state);
+  if (availableSlots <= 0) {
     return getSchedulerSlotCapacity(state) <= 0
       ? "Buy scheduler slots."
       : "Scheduler slots full.";
@@ -199,6 +275,7 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   id: task.id,
   name: task.name,
   kind: task.kind,
+  category: task.category,
   rewardCredits: task.rewardCredits,
   rewardData: task.rewardData,
   cacheNeedBits: task.cacheNeedBits,
@@ -417,6 +494,48 @@ const getCacheUsedBits = (segments: CacheResidencySegment[]) =>
 const getCacheUsedBytes = (segments: CacheResidencySegment[]) =>
   bitsToBytes(getCacheUsedBits(segments));
 
+const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
+  state.activeTasks.flatMap((activeTask) => {
+    const definition = getTaskDefinition(activeTask.taskId);
+
+    return activeTask.coreOperations.flatMap((runtime) => {
+      if (
+        runtime.status === "complete" ||
+        runtime.status === "waitingMemory" ||
+        runtime.memoryReservedBits <= 0
+      ) {
+        return [];
+      }
+
+      const operation = definition.operations[runtime.operationIndex];
+      const ramLoadCycles = operation ? getRamLoadCycles(state, operation) : 0;
+      const hasPendingRamLoad =
+        runtime.status === "loadingCache" &&
+        runtime.memoryState !== "ready" &&
+        ramLoadCycles > 0;
+      const loading =
+        runtime.status === "loadingRam" || runtime.memoryState === "ramLoad";
+      const progress = loading
+        ? clampProgress(
+            1 - runtime.remainingLoadCycles / Math.max(ramLoadCycles, 1),
+          )
+        : hasPendingRamLoad
+          ? 0
+          : 1;
+
+      return [
+        {
+          coreId: runtime.coreId,
+          taskId: activeTask.taskId,
+          operationId: runtime.operationId,
+          bits: runtime.memoryReservedBits,
+          state: loading ? "loading" : hasPendingRamLoad ? "reserved" : "loaded",
+          progress,
+        },
+      ];
+    });
+  });
+
 const getTaskOperationLoadCycles = (
   state: GameState,
   operation: TaskOperationDefinition,
@@ -558,6 +677,7 @@ const getVisibleActiveTask = (
     instanceId: activeTask.instanceId,
     taskId: activeTask.taskId,
     jobId: activeTask.jobId,
+    schedulerQueued: activeTask.schedulerQueued,
     name: definition.name,
     coreId: activeTask.coreId,
     assignedCoreIds: activeTask.assignedCoreIds,
@@ -606,23 +726,57 @@ const getCpuSockets = (
   state: GameState,
   activeTasks: VisibleActiveTask[],
   activeJobs: VisibleActiveJob[],
+  cacheResidency: CacheResidencySegment[],
 ): VisibleCpuSocket[] => {
-  const socketCount = state.hardware.secondCpu ? 2 : 1;
-  const coresPerSocket = Math.max(1, Math.ceil(state.hardware.cores / socketCount));
   const clockUpgrade = getUpgradeDefinition("clock");
+  const coreUpgrade = getUpgradeDefinition("core");
+  const cacheUpgrade = getUpgradeDefinition("cache");
+  const cacheSpeedUpgrade = getUpgradeDefinition("cacheSpeed");
+  const schedulerSlotUpgrade = getUpgradeDefinition("schedulerSlot");
+  const visibleUpgrade = (
+    upgrade: ReturnType<typeof getUpgradeDefinition>,
+    cpuId: number,
+  ): VisibleUpgrade => {
+    const context = { cpuId };
+    const costs = upgrade.cost(state, context);
 
-  return Array.from({ length: socketCount }, (_, socketIndex) => {
-    const socketId = socketIndex + 1;
-    const firstCore = socketIndex * coresPerSocket + 1;
-    const lastCore = Math.min(state.hardware.cores, firstCore + coresPerSocket - 1);
+    return {
+      id: upgrade.id,
+      name: upgrade.name,
+      component: upgrade.component,
+      accent: upgrade.accent,
+      costs,
+      canAfford: canAfford(state, costs),
+      purchaseCount: getUpgradeCount(state, upgrade.id, context),
+    };
+  };
+
+  return state.hardware.cpus.map((cpu) => {
+    const socketId = cpu.id;
+    const socketCacheResidency = cacheResidency.filter((segment) =>
+      cpu.coreIds.includes(segment.coreId),
+    );
 
     return {
       id: socketId,
       label: `CPU ${String.fromCharCode(64 + socketId)}`,
-      cores: Array.from(
-        { length: Math.max(0, lastCore - firstCore + 1) },
-        (_, coreOffset) => {
-          const coreId = firstCore + coreOffset;
+      cacheLevel: cpu.cacheLevel,
+      cacheSpeedLevel: cpu.cacheSpeedLevel,
+      cacheBits: cpu.cacheBits,
+      cacheBytes: cpu.cacheBytes,
+      cacheUsedBits: getCacheUsedBits(socketCacheResidency),
+      cacheUsedBytes: getCacheUsedBytes(socketCacheResidency),
+      cacheResidency: socketCacheResidency,
+      schedulerSlots: cpu.schedulerSlots,
+      queuedCount: getSchedulerQueuedCount(state, cpu.id),
+      coreUpgrade: state.flags.multiCore ? visibleUpgrade(coreUpgrade, cpu.id) : null,
+      cacheUpgrade: visibleUpgrade(cacheUpgrade, cpu.id),
+      cacheSpeedUpgrade: visibleUpgrade(cacheSpeedUpgrade, cpu.id),
+      schedulerSlotUpgrade:
+        state.flags.basicQueue || state.flags.scheduler
+          ? visibleUpgrade(schedulerSlotUpgrade, cpu.id)
+          : null,
+      cores: cpu.coreIds.map((coreId) => {
           const context = { coreId };
           const costs = clockUpgrade.cost(state, context);
 
@@ -648,8 +802,7 @@ const getCpuSockets = (
               activeJobs.find((task) => task.assignedCoreIds.includes(coreId)) ??
               null,
           };
-        },
-      ),
+        }),
     };
   });
 };
@@ -688,6 +841,7 @@ const getResearchComputeTask = (
   return {
     id: task.id,
     name: task.name,
+    category: task.category,
     operationCount: task.operationCount,
     rewardCredits: task.rewardCredits,
     rewardData: task.rewardData,
@@ -774,6 +928,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const psuCapacityWatts = getPsuCapacityWatts(syncedState);
   const powerHeadroomWatts = Math.round((psuCapacityWatts - powerUsedWatts) * 10) / 10;
   const cacheResidency = getCacheResidencySegments(syncedState);
+  const ramResidency = getRamResidencySegments(syncedState);
 
   return {
     stage,
@@ -781,7 +936,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     resources: syncedState.resources,
     hardware: syncedState.hardware,
     metrics: {
-      cpuSockets: getCpuSockets(syncedState, activeTasks, activeJobs),
+      cpuSockets: getCpuSockets(syncedState, activeTasks, activeJobs, cacheResidency),
       activeCoreCount: busyCoreIds.size,
       idleCoreCount,
       cacheUsedBits: getCacheUsedBits(cacheResidency),
@@ -789,6 +944,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       ramUsedBits,
       ramUsedBytes,
       ramSlots: getRamSlots(syncedState, ramUsedBits),
+      ramResidency,
       memory: getMemoryPipeline(syncedState),
       powerUsedWatts,
       powerHeadroomWatts,

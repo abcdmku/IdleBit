@@ -94,6 +94,7 @@ export function getVisibleSelection(
   }
 
   if (selectedComponent === "scheduler") {
+    if (visible.flags.scheduler) return "scheduler";
     return hasSchedulerSurface(visible) ? "scheduler:1" : null;
   }
 

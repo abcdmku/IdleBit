@@ -4,6 +4,7 @@ import type {
   CoreSchedulerState,
   GameState,
   OperationRuntimeStatus,
+  RamStickState,
   StageId,
 } from "./types";
 
@@ -32,6 +33,51 @@ export const getRamBytes = (level: number) => bitsToBytes(getRamBits(level));
 
 export const getRamSpeedMt = (level: number) =>
   level <= 0 ? 1 : 2 ** (level - 1);
+
+export const createRamStickState = (
+  id: number,
+  level: number,
+  speedLevel = 1,
+): RamStickState => ({
+  id,
+  level,
+  bits: getRamBits(level),
+  bytes: getRamBytes(level),
+  speedLevel,
+  speedMt: getRamSpeedMt(speedLevel),
+});
+
+export const createRamSticksForLevel = (
+  ramLevel: number,
+  speedLevel = 1,
+): RamStickState[] => {
+  if (ramLevel <= 0) return [];
+
+  return Array.from({ length: ramLevel }, (_, index) =>
+    createRamStickState(index + 1, Math.max(1, index), speedLevel),
+  );
+};
+
+const normalizeRamSticks = (state: GameState) => {
+  const fallbackSpeedLevel = state.hardware.ramSpeedLevel ?? 1;
+  const existing =
+    state.hardware.ramSticks && state.hardware.ramSticks.length > 0
+      ? state.hardware.ramSticks
+      : createRamSticksForLevel(state.hardware.ramLevel, fallbackSpeedLevel);
+
+  return existing.map((stick, index) => {
+    const level = Math.max(1, stick.level ?? index + 1);
+    const speedLevel = Math.max(1, stick.speedLevel ?? fallbackSpeedLevel);
+    return {
+      id: stick.id ?? index + 1,
+      level,
+      bits: stick.bits ?? getRamBits(level),
+      bytes: stick.bytes ?? getRamBytes(level),
+      speedLevel,
+      speedMt: getRamSpeedMt(speedLevel),
+    };
+  });
+};
 
 export const getPsuWatts = (level: number) =>
   level <= 0 ? 0 : Math.round(45 * 1.55 ** (level - 1));
@@ -139,6 +185,17 @@ export const syncHardwarePackages = (state: GameState): GameState => {
   const maxSpeedCpu = cpus.reduce((best, cpu) =>
     cpu.cacheSpeedLevel > best.cacheSpeedLevel ? cpu : best,
   );
+  const ramSticks = normalizeRamSticks(state);
+  const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
+  const ramLevel = ramSticks.length;
+  const ramSpeedLevel =
+    ramSticks.length > 0
+      ? Math.max(...ramSticks.map((stick) => stick.speedLevel))
+      : (state.hardware.ramSpeedLevel ?? 1);
+  const ramSpeedMt =
+    ramSticks.length > 0
+      ? ramSticks.reduce((total, stick) => total + stick.speedMt, 0)
+      : getRamSpeedMt(ramSpeedLevel);
 
   return {
     ...state,
@@ -152,6 +209,12 @@ export const syncHardwarePackages = (state: GameState): GameState => {
       cacheBytes: maxCacheCpu.cacheBytes,
       cacheSpeedLevel: maxSpeedCpu.cacheSpeedLevel,
       schedulerSlots: cpus.reduce((total, cpu) => total + cpu.schedulerSlots, 0),
+      ramLevel,
+      ramBits,
+      ramBytes: bitsToBytes(ramBits),
+      ramSpeedLevel,
+      ramSpeedMt,
+      ramSticks,
     },
   };
 };
@@ -225,6 +288,7 @@ export const createInitialGameState = (): GameState => ({
     ramBytes: 0,
     ramSpeedLevel: 1,
     ramSpeedMt: getRamSpeedMt(1),
+    ramSticks: [],
     psuLevel: 0,
     psuWatts: 0,
     coolingLevel: 0,

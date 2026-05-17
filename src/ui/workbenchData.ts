@@ -3,7 +3,10 @@ import type { HardwareComponentId, VisibleState } from "../game";
 export type SelectedComponent =
   | HardwareComponentId
   | `core:${number}`
+  | `cores:${number}`
   | `scheduler:${number}`
+  | `ramStick:${number}`
+  | "ramSticks"
   | null;
 
 export const componentCopy: Record<
@@ -62,6 +65,9 @@ const hasSystemMemory = (visible: VisibleState) => {
   );
 };
 
+const hasCpuSchedulerUnlocked = (visible: VisibleState) =>
+  visible.flags.basicQueue || visible.flags.scheduler;
+
 export function getVisibleSelection(
   visible: VisibleState,
   selectedComponent: SelectedComponent,
@@ -75,6 +81,17 @@ export function getVisibleSelection(
       : "core:1";
   }
 
+  if (selectedComponent.startsWith("cores:")) {
+    const socketId = Number(selectedComponent.slice("cores:".length));
+    const fallbackSocketId = visible.metrics.cpuSockets[0]?.id;
+    return hasCpuSchedulerUnlocked(visible) &&
+      visible.metrics.cpuSockets.some((socket) => socket.id === socketId)
+      ? selectedComponent
+      : fallbackSocketId
+        ? (`core:${visible.metrics.cpuSockets[0]?.cores[0]?.id ?? 1}` as SelectedComponent)
+        : null;
+  }
+
   if (selectedComponent.startsWith("scheduler:")) {
     const socketId = Number(selectedComponent.slice("scheduler:".length));
     const schedulerVisible = hasSchedulerSurface(visible);
@@ -83,6 +100,21 @@ export function getVisibleSelection(
     );
 
     return schedulerVisible && socketVisible ? selectedComponent : null;
+  }
+
+  if (selectedComponent.startsWith("ramStick:")) {
+    const stickId = Number(selectedComponent.slice("ramStick:".length));
+    return visible.metrics.ramSlots.some((slot) => slot.id === stickId)
+      ? selectedComponent
+      : visible.metrics.ramSlots[0]
+        ? (`ramStick:${visible.metrics.ramSlots[0].id}` as SelectedComponent)
+        : "ram";
+  }
+
+  if (selectedComponent === "ramSticks") {
+    return hasSystemMemory(visible) && visible.metrics.ramSlots.length > 0
+      ? selectedComponent
+      : "ram";
   }
 
   if (selectedComponent === "ram" || selectedComponent === "psu") {

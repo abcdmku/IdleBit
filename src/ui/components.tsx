@@ -126,6 +126,7 @@ export function SystemWorkbench({
           <TaskBay
             visible={visible}
             selectedComponent={component}
+            onSelectComponent={onSelectComponent}
             dispatch={dispatch}
           />
         </aside>

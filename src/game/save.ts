@@ -2,6 +2,7 @@ import {
   createCoreSchedulers,
   createCpuHardwareState,
   createInitialGameState,
+  createRamSticksForLevel,
   getCacheBits,
   getCacheBytes,
   getClockHz,
@@ -106,6 +107,10 @@ const normalizeState = (state: LegacyState): GameState => {
       : fresh.hardware.ramSpeedLevel);
   const cacheBits = hardware.cacheBits ?? getCacheBits(cacheLevel);
   const ramBits = hardware.ramBits ?? (ramLevel > 0 ? getRamBits(ramLevel) : 0);
+  const ramSticks =
+    hardware.ramSticks && hardware.ramSticks.length > 0
+      ? hardware.ramSticks
+      : createRamSticksForLevel(ramLevel, ramSpeedLevel);
   const schedulerSlots = Math.max(
     0,
     hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,
@@ -181,6 +186,7 @@ const normalizeState = (state: LegacyState): GameState => {
         hardware.ramSpeedMt && hardware.ramSpeedMt > 0
           ? hardware.ramSpeedMt
           : getRamSpeedMt(ramSpeedLevel),
+      ramSticks,
       psuLevel,
       psuWatts: hardware.psuLevel
         ? (hardware.psuWatts ?? getPsuWatts(psuLevel))

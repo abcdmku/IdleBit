@@ -48,6 +48,7 @@ export type UpgradeId =
   | "secondCpu"
   | "matchedCpu"
   | "ram"
+  | "ramCapacity"
   | "ramSpeed"
   | "psu"
   | "cooling";
@@ -208,12 +209,21 @@ export interface UpgradeDefinition {
   requirement: (state: GameState) => boolean;
   cost: (state: GameState, context?: UpgradeContext) => Cost[];
   buy: (state: GameState, context?: UpgradeContext) => GameState;
+  refund?: (state: GameState, context?: UpgradeContext) => Cost[];
+  downgrade?: (state: GameState, context?: UpgradeContext) => GameState;
+  downgradeBlockedReason?: (
+    state: GameState,
+    context?: UpgradeContext,
+  ) => string | null;
 }
 
 export interface UpgradeContext {
   coreId?: number;
+  coreIds?: number[];
   cpuId?: number;
   sourceCpuId?: number;
+  ramStickId?: number;
+  ramStickIds?: number[];
 }
 
 export interface ActiveCoreOperation {
@@ -291,10 +301,20 @@ export interface HardwareState {
   ramBytes: number;
   ramSpeedLevel: number;
   ramSpeedMt: number;
+  ramSticks: RamStickState[];
   psuLevel: number;
   psuWatts: number;
   coolingLevel: number;
   coolingRating: number;
+}
+
+export interface RamStickState {
+  id: number;
+  level: number;
+  bits: number;
+  bytes: number;
+  speedLevel: number;
+  speedMt: number;
 }
 
 export interface CpuHardwareState {
@@ -376,8 +396,21 @@ export type GameAction =
       type: "buyUpgrade";
       upgradeId: UpgradeId;
       coreId?: number;
+      coreIds?: number[];
       cpuId?: number;
       sourceCpuId?: number;
+      ramStickId?: number;
+      ramStickIds?: number[];
+    }
+  | {
+      type: "downgradeUpgrade";
+      upgradeId: UpgradeId;
+      coreId?: number;
+      coreIds?: number[];
+      cpuId?: number;
+      sourceCpuId?: number;
+      ramStickId?: number;
+      ramStickIds?: number[];
     }
   | { type: "startJob"; jobId: JobId }
   | { type: "startJobOnCore"; jobId: JobId; coreId: number }
@@ -447,7 +480,10 @@ export interface VisibleUpgrade {
   component: HardwareComponentId;
   accent: UpgradeDefinition["accent"];
   costs: Cost[];
+  refunds: Cost[];
   canAfford: boolean;
+  canDowngrade: boolean;
+  downgradeBlockedReason: string | null;
   purchaseCount: number;
 }
 
@@ -557,6 +593,7 @@ export interface VisibleCpuSocket {
   cacheResidency: CacheResidencySegment[];
   schedulerSlots: number;
   queuedCount: number;
+  allCoreClockUpgrade: VisibleUpgrade | null;
   coreUpgrade: VisibleUpgrade | null;
   cacheUpgrade: VisibleUpgrade | null;
   cacheSpeedUpgrade: VisibleUpgrade | null;
@@ -565,11 +602,15 @@ export interface VisibleCpuSocket {
 
 export interface VisibleRamSlot {
   id: number;
+  level: number;
   sizeBits: number;
   sizeBytes: number;
   usedBits: number;
   usedBytes: number;
+  speedLevel: number;
   speedMt: number;
+  capacityUpgrade: VisibleUpgrade | null;
+  speedUpgrade: VisibleUpgrade | null;
 }
 
 export interface VisibleMemoryPipeline {
@@ -590,6 +631,8 @@ export interface VisibleHardwareMetrics {
   ramUsedBits: number;
   ramUsedBytes: number;
   ramSlots: VisibleRamSlot[];
+  allRamCapacityUpgrade: VisibleUpgrade | null;
+  allRamSpeedUpgrade: VisibleUpgrade | null;
   ramResidency: RamResidencySegment[];
   memory: VisibleMemoryPipeline;
   powerUsedWatts: number;

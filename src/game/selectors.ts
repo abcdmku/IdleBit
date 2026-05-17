@@ -1,6 +1,11 @@
 import { hasResearch, researchDefinitions } from "./content/research";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
-import { getUpgradeCount, getUpgradeDefinition } from "./content/upgrades";
+import {
+  getUpgradeCount,
+  getUpgradeDefinition,
+  getUpgradeDowngradeBlockedReason,
+  getUpgradeRefund,
+} from "./content/upgrades";
 import { canAfford } from "./economy";
 import {
   estimateJobSeconds,
@@ -47,6 +52,7 @@ import type {
   RamResidencySegment,
   TaskDefinition,
   TaskOperationDefinition,
+  UpgradeContext,
   VisibleActiveJob,
   VisibleActiveTask,
   VisibleCoreTaskProgress,
@@ -164,9 +170,6 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return "Research or prerequisite task missing.";
   }
 
-  if (task.cacheNeedBits > getAvailableCacheBits(state)) return "Not enough free cache.";
-  if (task.ramNeedBits > getAvailableMemoryBits(state)) return "Not enough free RAM.";
-
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
   }
@@ -188,6 +191,9 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
   ) {
     return `CPU scheduler needs ${task.minCores} slots.`;
   }
+
+  if (task.cacheNeedBits > getAvailableCacheBits(state)) return "Not enough free cache.";
+  if (task.ramNeedBits > getAvailableMemoryBits(state)) return "Not enough free RAM.";
 
   return null;
 };
@@ -722,6 +728,33 @@ const getMemoryPipeline = (state: GameState) => {
   };
 };
 
+const getVisibleUpgrade = (
+  state: GameState,
+  upgrade: ReturnType<typeof getUpgradeDefinition>,
+  context?: UpgradeContext,
+): VisibleUpgrade => {
+  const costs = upgrade.cost(state, context);
+  const refunds = getUpgradeRefund(state, upgrade.id, context);
+  const downgradeBlockedReason = getUpgradeDowngradeBlockedReason(
+    state,
+    upgrade.id,
+    context,
+  );
+
+  return {
+    id: upgrade.id,
+    name: upgrade.name,
+    component: upgrade.component,
+    accent: upgrade.accent,
+    costs,
+    refunds,
+    canAfford: canAfford(state, costs),
+    canDowngrade: refunds.length > 0 && downgradeBlockedReason === null,
+    downgradeBlockedReason,
+    purchaseCount: getUpgradeCount(state, upgrade.id, context),
+  };
+};
+
 const getCpuSockets = (
   state: GameState,
   activeTasks: VisibleActiveTask[],
@@ -733,23 +766,6 @@ const getCpuSockets = (
   const cacheUpgrade = getUpgradeDefinition("cache");
   const cacheSpeedUpgrade = getUpgradeDefinition("cacheSpeed");
   const schedulerSlotUpgrade = getUpgradeDefinition("schedulerSlot");
-  const visibleUpgrade = (
-    upgrade: ReturnType<typeof getUpgradeDefinition>,
-    cpuId: number,
-  ): VisibleUpgrade => {
-    const context = { cpuId };
-    const costs = upgrade.cost(state, context);
-
-    return {
-      id: upgrade.id,
-      name: upgrade.name,
-      component: upgrade.component,
-      accent: upgrade.accent,
-      costs,
-      canAfford: canAfford(state, costs),
-      purchaseCount: getUpgradeCount(state, upgrade.id, context),
-    };
-  };
 
   return state.hardware.cpus.map((cpu) => {
     const socketId = cpu.id;
@@ -769,31 +785,25 @@ const getCpuSockets = (
       cacheResidency: socketCacheResidency,
       schedulerSlots: cpu.schedulerSlots,
       queuedCount: getSchedulerQueuedCount(state, cpu.id),
-      coreUpgrade: state.flags.multiCore ? visibleUpgrade(coreUpgrade, cpu.id) : null,
-      cacheUpgrade: visibleUpgrade(cacheUpgrade, cpu.id),
-      cacheSpeedUpgrade: visibleUpgrade(cacheSpeedUpgrade, cpu.id),
+      allCoreClockUpgrade: getVisibleUpgrade(state, clockUpgrade, {
+        coreIds: cpu.coreIds,
+      }),
+      coreUpgrade: state.flags.multiCore
+        ? getVisibleUpgrade(state, coreUpgrade, { cpuId: cpu.id })
+        : null,
+      cacheUpgrade: getVisibleUpgrade(state, cacheUpgrade, { cpuId: cpu.id }),
+      cacheSpeedUpgrade: getVisibleUpgrade(state, cacheSpeedUpgrade, { cpuId: cpu.id }),
       schedulerSlotUpgrade:
         state.flags.basicQueue || state.flags.scheduler
-          ? visibleUpgrade(schedulerSlotUpgrade, cpu.id)
+          ? getVisibleUpgrade(state, schedulerSlotUpgrade, { cpuId: cpu.id })
           : null,
       cores: cpu.coreIds.map((coreId) => {
-          const context = { coreId };
-          const costs = clockUpgrade.cost(state, context);
-
           return {
             id: coreId,
             socketId,
             clockLevel: getCoreClockLevel(state, coreId),
             clockHz: getCoreClockHz(state, coreId),
-            clockUpgrade: {
-              id: clockUpgrade.id,
-              name: clockUpgrade.name,
-              component: clockUpgrade.component,
-              accent: clockUpgrade.accent,
-              costs,
-              canAfford: canAfford(state, costs),
-              purchaseCount: getUpgradeCount(state, clockUpgrade.id, context),
-            },
+            clockUpgrade: getVisibleUpgrade(state, clockUpgrade, { coreId }),
             scheduler: state.coreSchedulers[coreId],
             activeTask:
               activeTasks.find((task) => task.assignedCoreIds.includes(coreId)) ??
@@ -810,22 +820,43 @@ const getCpuSockets = (
 const getRamSlots = (state: GameState, ramUsedBits: number): VisibleRamSlot[] => {
   const ramBits = state.hardware.ramBits ?? state.hardware.ramBytes * 8;
   if (!state.flags.systemStats || ramBits <= 0) return [];
+  const capacityUpgrade = getUpgradeDefinition("ramCapacity");
+  const speedUpgrade = getUpgradeDefinition("ramSpeed");
 
-  const slotCount = Math.min(4, Math.max(1, state.hardware.ramLevel));
-  const slotSizeBits = ramBits / slotCount;
+  const slots =
+    state.hardware.ramSticks.length > 0
+      ? state.hardware.ramSticks
+      : [
+          {
+            id: 1,
+            level: 1,
+            bits: ramBits,
+            bytes: bitsToBytes(ramBits),
+            speedLevel: state.hardware.ramSpeedLevel,
+            speedMt: state.hardware.ramSpeedMt,
+          },
+        ];
   let remainingUsedBits = Math.min(ramUsedBits, ramBits);
 
-  return Array.from({ length: slotCount }, (_, index) => {
-    const usedBits = Math.min(slotSizeBits, remainingUsedBits);
+  return slots.map((slot) => {
+    const usedBits = Math.min(slot.bits, remainingUsedBits);
     remainingUsedBits = Math.max(0, remainingUsedBits - usedBits);
 
     return {
-      id: index + 1,
-      sizeBits: slotSizeBits,
-      sizeBytes: bitsToBytes(slotSizeBits),
+      id: slot.id,
+      level: slot.level,
+      sizeBits: slot.bits,
+      sizeBytes: slot.bytes,
       usedBits,
       usedBytes: bitsToBytes(usedBits),
-      speedMt: state.hardware.ramSpeedMt,
+      speedLevel: slot.speedLevel,
+      speedMt: slot.speedMt,
+      capacityUpgrade: getVisibleUpgrade(state, capacityUpgrade, {
+        ramStickId: slot.id,
+      }),
+      speedUpgrade: getVisibleUpgrade(state, speedUpgrade, {
+        ramStickId: slot.id,
+      }),
     };
   });
 };
@@ -929,6 +960,8 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const powerHeadroomWatts = Math.round((psuCapacityWatts - powerUsedWatts) * 10) / 10;
   const cacheResidency = getCacheResidencySegments(syncedState);
   const ramResidency = getRamResidencySegments(syncedState);
+  const ramSlots = getRamSlots(syncedState, ramUsedBits);
+  const ramSlotIds = ramSlots.map((slot) => slot.id);
 
   return {
     stage,
@@ -943,7 +976,19 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       cacheUsedBytes: getCacheUsedBytes(cacheResidency),
       ramUsedBits,
       ramUsedBytes,
-      ramSlots: getRamSlots(syncedState, ramUsedBits),
+      ramSlots,
+      allRamCapacityUpgrade:
+        ramSlotIds.length > 0
+          ? getVisibleUpgrade(syncedState, getUpgradeDefinition("ramCapacity"), {
+              ramStickIds: ramSlotIds,
+            })
+          : null,
+      allRamSpeedUpgrade:
+        ramSlotIds.length > 0
+          ? getVisibleUpgrade(syncedState, getUpgradeDefinition("ramSpeed"), {
+              ramStickIds: ramSlotIds,
+            })
+          : null,
       ramResidency,
       memory: getMemoryPipeline(syncedState),
       powerUsedWatts,
@@ -965,18 +1010,9 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       .filter((task) => isPlayerFacingTask(task) && isTaskRevealed(syncedState, task))
       .map((task) => getTaskVisible(syncedState, task)),
     jobs: getVisibleJobs(syncedState),
-    upgrades: getAvailableUpgrades(syncedState).map((upgrade) => {
-      const costs = upgrade.cost(syncedState);
-      return {
-        id: upgrade.id,
-        name: upgrade.name,
-        component: upgrade.component,
-        accent: upgrade.accent,
-        costs,
-        canAfford: canAfford(syncedState, costs),
-        purchaseCount: getUpgradeCount(syncedState, upgrade.id),
-      };
-    }),
+    upgrades: getAvailableUpgrades(syncedState).map((upgrade) =>
+      getVisibleUpgrade(syncedState, upgrade),
+    ),
     milestone: getMilestone(syncedState),
   };
 };

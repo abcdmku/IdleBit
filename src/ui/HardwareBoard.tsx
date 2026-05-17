@@ -15,6 +15,7 @@ import {
   HardDrive,
   ListTodo,
   MemoryStick,
+  Minus,
   Play,
   Power,
   Plus,
@@ -29,6 +30,7 @@ import type {
   UpgradeId,
   VisibleCore,
   VisibleCpuSocket,
+  VisibleRamSlot,
   VisibleState,
   VisibleUpgrade,
 } from "../game";
@@ -42,15 +44,22 @@ import {
 } from "./format";
 import type { Dispatch } from "./uiActions";
 import type { SelectedComponent } from "./workbenchData";
+import {
+  CoreCacheRow,
+  SystemBoard,
+  SystemRail,
+} from "./MotherboardLayout";
 
 type TaskState = "active" | "waiting" | "rerun" | "restart" | "ready" | "locked";
-type QueueMode = "core" | "scheduler" | "systemScheduler" | "auto";
+type QueueMode = "core" | "scheduler" | "systemScheduler";
+type TaskRouteLayer = QueueMode;
 type ResourceKind = "data" | "credits";
 type ResourceGainKind = ResourceKind;
 type CacheSegmentKind = "read" | "write" | "overwrite" | "compute";
 type CacheSegmentState = "buffering" | "loading" | "loaded";
 type RamSegmentState = "reserved" | "loading" | "loaded";
 type TaskCategoryId = "cpu" | "system" | "distributed" | "other";
+type CoreGridDensity = "normal" | "compact" | "dense";
 
 interface CacheSegment {
   kind: CacheSegmentKind;
@@ -95,17 +104,23 @@ function ResourceAmount({
   plus = false,
   showLabel = true,
   compact = false,
+  dimmed = false,
 }: {
   resource: ResourceKind;
   amount: number;
   plus?: boolean;
   showLabel?: boolean;
   compact?: boolean;
+  dimmed?: boolean;
 }) {
   const { Icon, label } = resourceVisuals[resource];
 
   return (
-    <span className={`resource-token ${resource} ${compact ? "compact" : ""}`}>
+    <span
+      className={`resource-token ${resource} ${compact ? "compact" : ""} ${
+        dimmed ? "dimmed" : ""
+      }`}
+    >
       <Icon size={compact ? 13 : 14} />
       <strong>
         {plus ? "+" : ""}
@@ -119,9 +134,11 @@ function ResourceAmount({
 function ResourceCost({
   costs,
   compact = false,
+  resources,
 }: {
   costs: DisplayCost[];
   compact?: boolean;
+  resources?: VisibleState["resources"];
 }) {
   if (costs.length === 0) return <span className="resource-cost empty">Open</span>;
 
@@ -146,6 +163,7 @@ function ResourceCost({
             amount={cost.amount}
             compact={compact}
             showLabel={!compact}
+            dimmed={resources ? cost.amount > resources[cost.resource] : false}
           />
         );
       })}
@@ -338,6 +356,8 @@ interface UiQueueDisplayItem {
   id: string;
   name: string;
   waitingReason: string;
+  instanceId?: string;
+  active: boolean;
 }
 
 interface UiSystemStatus {
@@ -410,12 +430,31 @@ function getSelectedCoreId(selection: SelectedComponent) {
   return Number.isFinite(coreId) ? coreId : null;
 }
 
+function getSelectedCoreGroupCpuId(selection: SelectedComponent) {
+  if (!selection?.startsWith("cores:")) return null;
+
+  const cpuId = Number(selection.slice("cores:".length));
+  return Number.isFinite(cpuId) ? cpuId : null;
+}
+
 function getSelectedSchedulerId(selection: SelectedComponent) {
   if (!selection?.startsWith("scheduler:")) return null;
 
   const socketId = Number(selection.slice("scheduler:".length));
   return Number.isFinite(socketId) ? socketId : null;
 }
+
+function getSelectedRamStickId(selection: SelectedComponent) {
+  if (!selection?.startsWith("ramStick:")) return null;
+
+  const stickId = Number(selection.slice("ramStick:".length));
+  return Number.isFinite(stickId) ? stickId : null;
+}
+
+const isRamSelection = (selection: SelectedComponent) =>
+  selection === "ram" ||
+  selection === "ramSticks" ||
+  Boolean(selection?.startsWith("ramStick:"));
 
 const asUiVisible = (visible: VisibleState) =>
   visible as unknown as UiVisibleState;
@@ -450,6 +489,49 @@ const getHardware = (visible: VisibleState) =>
     memoryBits?: number;
     systemSchedulerSlots?: number;
   };
+
+const getCoreGridMetrics = (coreCount: number) => {
+  const count = Math.max(1, coreCount);
+  let rows = 1;
+  let columns = 2;
+
+  if (count <= 2) {
+    rows = 1;
+    columns = 2;
+  } else if (count <= 4) {
+    rows = 2;
+    columns = 2;
+  } else if (count <= 8) {
+    rows = 2;
+    columns = 4;
+  } else if (count <= 12) {
+    rows = 2;
+    columns = 6;
+  } else if (count <= 16) {
+    rows = 2;
+    columns = 8;
+  } else if (count <= 24) {
+    rows = 2;
+    columns = 12;
+  } else if (count <= 32) {
+    rows = 2;
+    columns = 16;
+  } else {
+    rows = Math.ceil(count / 16);
+    columns = 16;
+  }
+
+  const density: CoreGridDensity =
+    columns >= 12 ? "dense" : columns >= 4 ? "compact" : "normal";
+
+  return {
+    rows,
+    columns,
+    density,
+    label: `${rows}x${columns}`,
+    fullWidth: columns >= 12,
+  };
+};
 
 const getTasks = (visible: VisibleState): UiTask[] => {
   const ui = asUiVisible(visible);
@@ -687,6 +769,39 @@ const getRamPrimaryState = (segments: RamSegment[]) => {
   return "Idle";
 };
 
+const getRamSegmentsBySlot = (
+  slots: VisibleRamSlot[],
+  segments: RamSegment[],
+) => {
+  const segmentsBySlot = new Map<number, RamSegment[]>(
+    slots.map((slot) => [slot.id, []]),
+  );
+  let slotIndex = 0;
+  let remainingSlotBits = slots[0]?.sizeBits ?? 0;
+
+  for (const segment of segments) {
+    let remainingSegmentBits = segment.bits;
+
+    while (remainingSegmentBits > 0 && slotIndex < slots.length) {
+      const slot = slots[slotIndex];
+      if (!slot) break;
+
+      if (remainingSlotBits <= 0) {
+        slotIndex += 1;
+        remainingSlotBits = slots[slotIndex]?.sizeBits ?? 0;
+        continue;
+      }
+
+      const bits = Math.min(remainingSegmentBits, remainingSlotBits);
+      segmentsBySlot.get(slot.id)?.push({ ...segment, bits });
+      remainingSegmentBits -= bits;
+      remainingSlotBits -= bits;
+    }
+  }
+
+  return segmentsBySlot;
+};
+
 const getOperationCountFromOperations = (operations: UiTaskOperation[]) =>
   operations.reduce((total, operation) => total + (operation.count ?? 1), 0);
 
@@ -801,7 +916,6 @@ const getTaskCanUseAction = (task: UiTask, mode: QueueMode) => {
   if (mode === "systemScheduler") {
     return task.category !== "cpu" && task.canQueue === true;
   }
-  return getTaskCanStart(task);
 };
 
 const getTaskActionDisabledReason = (task: UiTask, mode: QueueMode) => {
@@ -933,6 +1047,32 @@ const getTaskRewardCosts = (task: UiTask): DisplayCost[] => {
   return costs;
 };
 
+function TaskMetaLine({
+  task,
+  memoryUnlocked,
+}: {
+  task: UiTask;
+  memoryUnlocked: boolean;
+}) {
+  const operationCount = getTaskOperationCount(task);
+  const cacheBits = getTaskCacheBits(task);
+  const ramBits = getTaskRamBits(task);
+  const rewards = getTaskRewardCosts(task);
+
+  return (
+    <div className="task-meta-line">
+      <span className="ops">
+        <strong>{operationCount === undefined ? "?" : formatNumber(operationCount)}</strong> ops
+      </span>
+      {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
+      {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
+        <span>ram {formatBits(ramBits)}</span>
+      )}
+      {rewards.length > 0 && <ResourceCost costs={rewards} compact />}
+    </div>
+  );
+}
+
 const getQueueWaitingReason = (
   task: UiTask | undefined,
   activeTask?: UiActiveTask,
@@ -945,14 +1085,29 @@ const getQueueWaitingReason = (
   );
 };
 
+const getActiveTaskOccurrenceMap = (activeTasks: UiActiveTask[]) => {
+  const occurrences = new Map<string, number>();
+  const activeByOccurrence = new Map<string, UiActiveTask>();
+
+  activeTasks.forEach((activeTask) => {
+    const taskId = activeTask.taskId;
+    if (!taskId) return;
+
+    const occurrence = occurrences.get(taskId) ?? 0;
+    occurrences.set(taskId, occurrence + 1);
+    activeByOccurrence.set(`${taskId}:${occurrence}`, activeTask);
+  });
+
+  return activeByOccurrence;
+};
+
 const getQueueDisplayItem = (
   entry: UiQueueEntry,
   tasksById: Map<string, UiTask>,
-  activeTasksById: Map<string, UiActiveTask>,
+  activeTask: UiActiveTask | undefined,
 ): UiQueueDisplayItem | null => {
   const taskId = getQueueTaskId(entry);
   const task = tasksById.get(taskId);
-  const activeTask = activeTasksById.get(taskId);
   const entryName = typeof entry !== "string" ? entry.name : undefined;
   const name = entryName ?? task?.name ?? taskId;
 
@@ -962,7 +1117,32 @@ const getQueueDisplayItem = (
     id: taskId || name,
     name,
     waitingReason: getQueueWaitingReason(task, activeTask),
+    instanceId: activeTask?.instanceId,
+    active: Boolean(activeTask),
   };
+};
+
+const getQueueDisplayItemsFromEntries = (
+  entries: UiQueueEntry[],
+  tasksById: Map<string, UiTask>,
+  activeTasks: UiActiveTask[],
+) => {
+  const activeByOccurrence = getActiveTaskOccurrenceMap(activeTasks);
+  const queueOccurrences = new Map<string, number>();
+
+  return entries
+    .map((entry) => {
+      const taskId = getQueueTaskId(entry);
+      const occurrence = queueOccurrences.get(taskId) ?? 0;
+      queueOccurrences.set(taskId, occurrence + 1);
+
+      return getQueueDisplayItem(
+        entry,
+        tasksById,
+        activeByOccurrence.get(`${taskId}:${occurrence}`),
+      );
+    })
+    .filter(hasValue);
 };
 
 const getQueueLookupTasks = (visible: VisibleState) => [
@@ -972,22 +1152,26 @@ const getQueueLookupTasks = (visible: VisibleState) => [
 
 const getQueueDisplayItems = (visible: VisibleState, socket?: VisibleCpuSocket) => {
   const tasksById = new Map(getQueueLookupTasks(visible).map((task) => [task.id, task]));
-  const activeTasksById = new Map(
-    getActiveTasks(visible)
-      .filter((task) => task.schedulerQueued && task.taskId)
-      .map((task) => [task.taskId ?? "", task]),
+  const schedulerActiveTasks = getActiveTasks(visible).filter(
+    (task) => task.schedulerQueued && task.taskId,
   );
 
   if (socket) {
-    return socket.cores
-      .flatMap((core) => core.scheduler?.localQueue ?? [])
-      .map((taskId) => getQueueDisplayItem(taskId, tasksById, activeTasksById))
-      .filter(hasValue);
+    const socketCoreIds = new Set(socket.cores.map((core) => core.id));
+    const socketActiveTasks = schedulerActiveTasks.filter((task) =>
+      task.assignedCoreIds?.some((coreId) => socketCoreIds.has(coreId)) ||
+      socketCoreIds.has(task.coreId),
+    );
+    const entries = socket.cores.flatMap((core) => core.scheduler?.localQueue ?? []);
+
+    return getQueueDisplayItemsFromEntries(entries, tasksById, socketActiveTasks);
   }
 
-  return getQueueEntries(visible)
-    .map((entry) => getQueueDisplayItem(entry, tasksById, activeTasksById))
-    .filter(hasValue);
+  return getQueueDisplayItemsFromEntries(
+    getQueueEntries(visible),
+    tasksById,
+    schedulerActiveTasks,
+  );
 };
 
 const isSystemQueueTask = (task: UiTask | undefined) =>
@@ -995,16 +1179,14 @@ const isSystemQueueTask = (task: UiTask | undefined) =>
 
 const getSystemQueueDisplayItems = (visible: VisibleState) => {
   const tasksById = new Map(getQueueLookupTasks(visible).map((task) => [task.id, task]));
-  const activeTasksById = new Map(
-    getActiveTasks(visible)
-      .filter((task) => task.schedulerQueued && task.taskId)
-      .map((task) => [task.taskId ?? "", task]),
+  const systemActiveTasks = getActiveTasks(visible).filter((task) =>
+    task.schedulerQueued && isSystemQueueTask(tasksById.get(task.taskId ?? "")),
+  );
+  const entries = getQueueEntries(visible).filter((entry) =>
+    isSystemQueueTask(tasksById.get(getQueueTaskId(entry))),
   );
 
-  return getQueueEntries(visible)
-    .filter((entry) => isSystemQueueTask(tasksById.get(getQueueTaskId(entry))))
-    .map((entry) => getQueueDisplayItem(entry, tasksById, activeTasksById))
-    .filter(hasValue);
+  return getQueueDisplayItemsFromEntries(entries, tasksById, systemActiveTasks);
 };
 
 const getSystemLoad = (visible: VisibleState) => {
@@ -1249,15 +1431,16 @@ export function HardwareBoard({
   onSelectComponent,
 }: HardwareBoardProps) {
   const selectedCoreId = getSelectedCoreId(selectedComponent);
+  const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
   const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
+  const selectedRamStickId = getSelectedRamStickId(selectedComponent);
+  const selectedAllRamSticks = selectedComponent === "ramSticks";
   const schedulerVisible =
     visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
+  const allCoreTuningVisible = visible.flags.basicQueue || visible.flags.scheduler;
   const systemSchedulerVisible = visible.flags.scheduler;
   const memoryVisible = hasSystemMemory(visible);
   const psuVisible = visible.hardware.secondCpu || visible.hardware.psuLevel > 0;
-  const moduleRailVisible =
-    systemSchedulerVisible || memoryVisible || psuVisible || visible.flags.cooling;
-  const totalCores = visible.hardware.cores;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
 
@@ -1272,68 +1455,136 @@ export function HardwareBoard({
   const cpuSelected = selectedComponent === "cpu";
   const cacheSelected = selectedComponent === "cache";
 
+  const primarySocket = visible.metrics.cpuSockets[0];
+  const extraSockets = visible.metrics.cpuSockets.slice(1);
+  const showSocketLabel = visible.metrics.cpuSockets.length > 1;
+  const showEmptySocket = !visible.hardware.secondCpu && visible.flags.secondCpu;
+  const railVisible = psuVisible || visible.flags.cooling;
+
   return (
-    <>
-      {visible.metrics.cpuSockets.map((socket) => (
-        <Fragment key={socket.id}>
-          <CpuSection
-            socket={socket}
-            totalCores={totalCores}
-            showSocketLabel={visible.metrics.cpuSockets.length > 1}
+    <SystemBoard visible={visible}>
+      {systemSchedulerVisible && (
+        <SystemSchedulerSection
+          visible={visible}
+          selected={selectedComponent === "scheduler"}
+          onSelect={() => onSelectComponent("scheduler")}
+          upgrades={systemSchedulerUpgrades}
+          dispatch={dispatch}
+        />
+      )}
+
+      {memoryVisible && (
+        <RamSection
+          visible={visible}
+          selected={isRamSelection(selectedComponent)}
+          selectedRamStickId={selectedRamStickId}
+          selectedAllRamSticks={selectedAllRamSticks}
+          onSelect={() => onSelectComponent("ram")}
+          onSelectStick={(stickId) => onSelectComponent(`ramStick:${stickId}`)}
+          onSelectAllSticks={() => onSelectComponent("ramSticks")}
+          upgrades={ramUpgrades}
+          dispatch={dispatch}
+        />
+      )}
+
+      {primarySocket && (
+        memoryVisible ? (
+          <CpuPackage
+            socket={primarySocket}
             selected={cpuSelected}
+            showSocketLabel={showSocketLabel}
             onSelect={() => onSelectComponent("cpu")}
+            cpuUpgrades={cpuUpgrades}
+            resources={visible.resources}
+            dispatch={dispatch}
+          >
+            <CpuModuleLayout
+              socket={primarySocket}
+              visible={visible}
+              schedulerVisible={schedulerVisible}
+              selectedSchedulerId={selectedSchedulerId}
+              selectedCoreId={selectedCoreId}
+              selectedCoreGroupCpuId={selectedCoreGroupCpuId}
+              allCoreTuningVisible={allCoreTuningVisible}
+              cacheSelected={cacheSelected}
+              onSelectComponent={onSelectComponent}
+              cpuUpgrades={cpuUpgrades}
+              dispatch={dispatch}
+            />
+          </CpuPackage>
+        ) : (
+          <CpuModuleLayout
+            socket={primarySocket}
+            visible={visible}
+            schedulerVisible={schedulerVisible}
+            selectedSchedulerId={selectedSchedulerId}
             selectedCoreId={selectedCoreId}
-            onSelectCore={(coreId) => onSelectComponent(`core:${coreId}`)}
+            selectedCoreGroupCpuId={selectedCoreGroupCpuId}
+            allCoreTuningVisible={allCoreTuningVisible}
+            cacheSelected={cacheSelected}
+            onSelectComponent={onSelectComponent}
             cpuUpgrades={cpuUpgrades}
             dispatch={dispatch}
           />
-          <CacheSection
-            socket={socket}
-            selected={cacheSelected}
-            onSelect={() => onSelectComponent("cache")}
-            dispatch={dispatch}
-          />
-          {schedulerVisible && (
-            <SchedulerSection
+        )
+      )}
+
+      {extraSockets.map((socket) => (
+        <Fragment key={socket.id}>
+          {memoryVisible ? (
+            <CpuPackage
+              socket={socket}
+              selected={cpuSelected}
+              showSocketLabel={showSocketLabel}
+              onSelect={() => onSelectComponent("cpu")}
+              cpuUpgrades={cpuUpgrades}
+              resources={visible.resources}
+              dispatch={dispatch}
+            >
+              <CpuModuleLayout
+                socket={socket}
+                visible={visible}
+                schedulerVisible={schedulerVisible}
+                selectedSchedulerId={selectedSchedulerId}
+                selectedCoreId={selectedCoreId}
+                selectedCoreGroupCpuId={selectedCoreGroupCpuId}
+                allCoreTuningVisible={allCoreTuningVisible}
+                cacheSelected={cacheSelected}
+                onSelectComponent={onSelectComponent}
+                cpuUpgrades={cpuUpgrades}
+                dispatch={dispatch}
+              />
+            </CpuPackage>
+          ) : (
+            <CpuModuleLayout
               socket={socket}
               visible={visible}
-              selected={selectedSchedulerId === socket.id}
-              onSelect={() => onSelectComponent(`scheduler:${socket.id}`)}
+              schedulerVisible={schedulerVisible}
+              selectedSchedulerId={selectedSchedulerId}
+              selectedCoreId={selectedCoreId}
+              selectedCoreGroupCpuId={selectedCoreGroupCpuId}
+              allCoreTuningVisible={allCoreTuningVisible}
+              cacheSelected={cacheSelected}
+              onSelectComponent={onSelectComponent}
+              cpuUpgrades={cpuUpgrades}
               dispatch={dispatch}
             />
           )}
         </Fragment>
       ))}
 
-      {!visible.hardware.secondCpu && visible.flags.secondCpu && (
+      {showEmptySocket && (
         <EmptySocketSection
           selected={selectedComponent === "socket"}
           onSelect={() => onSelectComponent("socket")}
           upgrades={socketUpgrades}
+          resources={visible.resources}
           dispatch={dispatch}
         />
       )}
 
-      {moduleRailVisible && (
-        <div className="module-rail">
-          {systemSchedulerVisible && (
-            <SystemSchedulerSection
-              visible={visible}
-              selected={selectedComponent === "scheduler"}
-              onSelect={() => onSelectComponent("scheduler")}
-              upgrades={systemSchedulerUpgrades}
-              dispatch={dispatch}
-            />
-          )}
-          {memoryVisible && (
-            <RamSection
-              visible={visible}
-              selected={selectedComponent === "ram"}
-              onSelect={() => onSelectComponent("ram")}
-              upgrades={ramUpgrades}
-              dispatch={dispatch}
-            />
-          )}
+      {railVisible && (
+        <SystemRail>
           {psuVisible && (
             <PsuSection
               visible={visible}
@@ -1344,75 +1595,315 @@ export function HardwareBoard({
             />
           )}
           {visible.flags.cooling && <CoolingSection visible={visible} />}
-        </div>
+        </SystemRail>
       )}
-    </>
+    </SystemBoard>
   );
 }
 
-/* ============ CPU SECTION ============ */
+/* ============ CPU / CORE SECTIONS ============ */
 
-function CpuSection({
+function CpuModuleLayout({
   socket,
-  totalCores,
-  showSocketLabel,
-  selected,
-  onSelect,
+  visible,
+  schedulerVisible,
+  selectedSchedulerId,
   selectedCoreId,
-  onSelectCore,
+  selectedCoreGroupCpuId,
+  allCoreTuningVisible,
+  cacheSelected,
+  onSelectComponent,
   cpuUpgrades,
   dispatch,
 }: {
   socket: VisibleCpuSocket;
-  totalCores: number;
-  showSocketLabel: boolean;
-  selected: boolean;
-  onSelect: () => void;
+  visible: VisibleState;
+  schedulerVisible: boolean;
+  selectedSchedulerId: number | null;
   selectedCoreId: number | null;
-  onSelectCore: (coreId: number) => void;
+  selectedCoreGroupCpuId: number | null;
+  allCoreTuningVisible: boolean;
+  cacheSelected: boolean;
+  onSelectComponent: (component: SelectedComponent) => void;
   cpuUpgrades: VisibleUpgrade[];
   dispatch: Dispatch;
 }) {
-  const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
+  const grid = getCoreGridMetrics(socket.cores.length);
+  const scheduler = schedulerVisible ? (
+    <SchedulerSection
+      socket={socket}
+      visible={visible}
+      selected={selectedSchedulerId === socket.id}
+      onSelect={() => onSelectComponent(`scheduler:${socket.id}`)}
+      dispatch={dispatch}
+    />
+  ) : null;
+  const cache = (
+    <CacheSection
+      socket={socket}
+      selected={cacheSelected}
+      onSelect={() => onSelectComponent("cache")}
+      resources={visible.resources}
+      dispatch={dispatch}
+    />
+  );
+  const cores = (
+    <CoreArraySection
+      socket={socket}
+      selectedCoreId={selectedCoreId}
+      selectedAllCores={allCoreTuningVisible && selectedCoreGroupCpuId === socket.id}
+      allCoreTuningVisible={allCoreTuningVisible}
+      onSelectCore={(coreId) => onSelectComponent(`core:${coreId}`)}
+      onSelectAllCores={() => onSelectComponent(`cores:${socket.id}`)}
+      cpuUpgrades={cpuUpgrades}
+      resources={visible.resources}
+      dispatch={dispatch}
+    />
+  );
+
+  if (grid.fullWidth) {
+    return (
+      <Fragment>
+        <div className={`scheduler-cache-row ${scheduler ? "" : "cache-only"}`}>
+          {scheduler}
+          {cache}
+        </div>
+        {cores}
+      </Fragment>
+    );
+  }
+
+  return (
+    <Fragment>
+      {scheduler}
+      <CoreCacheRow>
+        {cores}
+        {cache}
+      </CoreCacheRow>
+    </Fragment>
+  );
+}
+
+function CpuPackage({
+  socket,
+  selected,
+  showSocketLabel,
+  onSelect,
+  cpuUpgrades,
+  resources,
+  dispatch,
+  children,
+}: {
+  socket: VisibleCpuSocket;
+  selected: boolean;
+  showSocketLabel: boolean;
+  onSelect: () => void;
+  cpuUpgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+  children: ReactNode;
+}) {
   const otherCpuUpgrades = cpuUpgrades.filter(
     (upgrade) => upgrade.id !== "clock" && upgrade.id !== "core",
   );
-  const compact = totalCores >= 4;
   const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
   const label = showSocketLabel ? socket.label : "CPU";
 
   return (
-    <section className={`hw-section cpu-section ${selected ? "selected" : ""}`}>
+    <section className={`cpu-package ${selected ? "selected" : ""}`}>
       <button
         type="button"
-        className="hw-section-header"
+        className="cpu-package-header"
         onClick={onSelect}
       >
         <Cpu size={14} />
         <span>{label}</span>
-        <span className="hw-section-meta">
-          <strong>{activeCount}</strong>/{totalCores} active
+        <span className="cpu-package-meta">
+          <strong>{activeCount}</strong>/{socket.cores.length} active
         </span>
       </button>
 
-      <div className={`core-grid ${compact ? "compact" : ""}`}>
+      <div className="cpu-package-body">{children}</div>
+      {selected && otherCpuUpgrades.length > 0 && (
+        <InlineUpgradeRow
+          upgrades={otherCpuUpgrades}
+          resources={resources}
+          dispatch={dispatch}
+        />
+      )}
+    </section>
+  );
+}
+
+const getDowngradeTitle = (upgrade: VisibleUpgrade) =>
+  upgrade.canDowngrade
+    ? `Downgrade ${upgrade.name}: refund ${formatCost(upgrade.refunds)}`
+    : (upgrade.downgradeBlockedReason ?? `${upgrade.name} is at minimum`);
+
+function UpgradeStepper({
+  upgrade,
+  dispatch,
+  coreId,
+  coreIds,
+  cpuId,
+  ramStickId,
+  ramStickIds,
+  label,
+  className = "",
+  resources,
+}: {
+  upgrade: VisibleUpgrade;
+  dispatch: Dispatch;
+  coreId?: number;
+  coreIds?: number[];
+  cpuId?: number;
+  ramStickId?: number;
+  ramStickIds?: number[];
+  label?: string;
+  className?: string;
+  resources?: VisibleState["resources"];
+}) {
+  const buyTitle = `${upgrade.name}: ${formatCost(upgrade.costs)}`;
+  const upgradeContext = {
+      upgradeId: upgrade.id as UpgradeId,
+      ...(coreId !== undefined ? { coreId } : {}),
+      ...(coreIds !== undefined ? { coreIds } : {}),
+      ...(cpuId !== undefined ? { cpuId } : {}),
+      ...(ramStickId !== undefined ? { ramStickId } : {}),
+      ...(ramStickIds !== undefined ? { ramStickIds } : {}),
+    };
+  const dispatchUpgrade = (type: "buyUpgrade" | "downgradeUpgrade") => {
+    if (type === "buyUpgrade") {
+      dispatch({ type: "buyUpgrade", ...upgradeContext });
+      return;
+    }
+
+    dispatch({ type: "downgradeUpgrade", ...upgradeContext });
+  };
+
+  return (
+    <div className={`upgrade-stepper ${upgrade.accent} ${className}`}>
+      <button
+        type="button"
+        className="upgrade-stepper-button minus"
+        disabled={!upgrade.canDowngrade}
+        title={getDowngradeTitle(upgrade)}
+        onClick={() => dispatchUpgrade("downgradeUpgrade")}
+      >
+        <Minus size={11} />
+      </button>
+      <span className="upgrade-stepper-spec" title={buyTitle}>
+        <span>{label ?? upgrade.name}</span>
+        <ResourceCost costs={upgrade.costs} compact resources={resources} />
+      </span>
+      <button
+        type="button"
+        className="upgrade-stepper-button plus"
+        disabled={!upgrade.canAfford}
+        title={buyTitle}
+        onClick={() => dispatchUpgrade("buyUpgrade")}
+      >
+        <Plus size={11} />
+      </button>
+    </div>
+  );
+}
+
+function CoreArraySection({
+  socket,
+  selectedCoreId,
+  selectedAllCores,
+  allCoreTuningVisible,
+  onSelectCore,
+  onSelectAllCores,
+  cpuUpgrades,
+  resources,
+  dispatch,
+}: {
+  socket: VisibleCpuSocket;
+  selectedCoreId: number | null;
+  selectedAllCores: boolean;
+  allCoreTuningVisible: boolean;
+  onSelectCore: (coreId: number) => void;
+  onSelectAllCores: () => void;
+  cpuUpgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
+  const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
+  const grid = getCoreGridMetrics(socket.cores.length);
+  const gridStyle = {
+    "--core-grid-columns": grid.columns,
+  } as CSSProperties;
+  const selectedCore =
+    socket.cores.find((core) => core.id === selectedCoreId) ?? socket.cores[0] ?? null;
+  const selectedClockUpgrade = selectedAllCores
+    ? socket.allCoreClockUpgrade
+    : selectedCore?.clockUpgrade ?? null;
+  const selectedClockCoreIds = selectedAllCores
+    ? socket.cores.map((core) => core.id)
+    : undefined;
+  const selectedClockCoreId = selectedAllCores ? undefined : selectedCore?.id;
+
+  return (
+    <section className={`core-array-section ${grid.fullWidth ? "full-width" : ""}`}>
+      <div className="core-array-header">
+        <span>Cores</span>
+        {allCoreTuningVisible && (
+          <button
+            type="button"
+            className={`core-select-all-button ${selectedAllCores ? "active" : ""}`}
+            onClick={onSelectAllCores}
+            aria-pressed={selectedAllCores}
+            aria-label="Tune all core clocks"
+            title="Tune all core clocks"
+          >
+            All
+          </button>
+        )}
+        <small>
+          <strong>{activeCount}</strong>/{socket.cores.length}
+        </small>
+      </div>
+
+      <div
+        className={`core-grid ${grid.density}`}
+        style={gridStyle}
+        data-grid={grid.label}
+      >
         {socket.cores.map((core) => (
           <CoreDie
             key={core.id}
             core={core}
-            compact={compact}
-            selected={selectedCoreId === core.id}
+            density={grid.density}
+            selected={selectedAllCores || selectedCoreId === core.id}
             onSelect={() => onSelectCore(core.id)}
-            dispatch={dispatch}
           />
         ))}
-        {coreUpgrade && (
-          <AddCoreDie upgrade={coreUpgrade} cpuId={socket.id} dispatch={dispatch} />
-        )}
       </div>
 
-      {selected && otherCpuUpgrades.length > 0 && (
-        <InlineUpgradeRow upgrades={otherCpuUpgrades} dispatch={dispatch} />
+      {(selectedClockUpgrade || coreUpgrade) && (
+        <div className="core-control-strip">
+          {selectedClockUpgrade && (
+            <UpgradeStepper
+              upgrade={selectedClockUpgrade}
+              dispatch={dispatch}
+              coreId={selectedClockCoreId}
+              coreIds={selectedClockCoreIds}
+              label={selectedAllCores ? "All clocks" : `C${selectedCore?.id ?? 1} clock`}
+              resources={resources}
+            />
+          )}
+          {coreUpgrade && (
+            <AddCoreButton
+              upgrade={coreUpgrade}
+              cpuId={socket.id}
+              resources={resources}
+              dispatch={dispatch}
+            />
+          )}
+        </div>
       )}
     </section>
   );
@@ -1420,21 +1911,18 @@ function CpuSection({
 
 function CoreDie({
   core,
-  compact,
+  density,
   selected,
   onSelect,
-  dispatch,
 }: {
   core: VisibleCore;
-  compact: boolean;
+  density: CoreGridDensity;
   selected: boolean;
   onSelect: () => void;
-  dispatch: Dispatch;
 }) {
   const active = getCoreActiveTask(core);
   const progress =
     active?.coreProgress?.find((operation) => operation.coreId === core.id)?.progress ?? 0;
-  const clockUpgrade = core.clockUpgrade;
   const work = active?.name ?? "Idle";
 
   return (
@@ -1443,6 +1931,7 @@ function CoreDie({
       className={`core-die ${active ? "running" : ""} ${selected ? "selected" : ""}`}
       onClick={onSelect}
       aria-pressed={selected}
+      title={`C${core.id} - ${formatClock(core.clockHz)} - ${work}`}
     >
       <span className="core-die-head">
         <span className="core-label">C{core.id}</span>
@@ -1451,7 +1940,7 @@ function CoreDie({
       <span className="core-clock">
         <strong>{formatClock(core.clockHz)}</strong>
       </span>
-      {!compact && (
+      {density === "normal" && (
         <span className="core-work" title={work}>
           {work}
         </span>
@@ -1459,69 +1948,30 @@ function CoreDie({
       <span className="die-progress" aria-hidden="true">
         <span style={{ width: `${clampMeter(progress) * 100}%` }} />
       </span>
-      {clockUpgrade && (
-        <span
-          className="core-upgrade-chip"
-          role="button"
-          tabIndex={0}
-          aria-disabled={!clockUpgrade.canAfford}
-          title={`${clockUpgrade.name}: ${formatCost(clockUpgrade.costs)}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!clockUpgrade.canAfford) return;
-            dispatch({
-              type: "buyUpgrade",
-              upgradeId: clockUpgrade.id as UpgradeId,
-              coreId: core.id,
-            });
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.stopPropagation();
-            event.preventDefault();
-            if (!clockUpgrade.canAfford) return;
-            dispatch({
-              type: "buyUpgrade",
-              upgradeId: clockUpgrade.id as UpgradeId,
-              coreId: core.id,
-            });
-          }}
-          style={{
-            opacity: clockUpgrade.canAfford ? 1 : 0.45,
-            cursor: clockUpgrade.canAfford ? "pointer" : "not-allowed",
-          }}
-        >
-          <Plus size={11} />
-          <ResourceCost costs={clockUpgrade.costs} compact />
-        </span>
-      )}
     </button>
   );
 }
 
-function AddCoreDie({
+function AddCoreButton({
   upgrade,
   cpuId,
+  resources,
   dispatch,
 }: {
   upgrade: VisibleUpgrade;
   cpuId: number;
+  resources: VisibleState["resources"];
   dispatch: Dispatch;
 }) {
   return (
-    <button
-      type="button"
-      className="add-core-die"
-      disabled={!upgrade.canAfford}
-      onClick={() =>
-        dispatch({ type: "buyUpgrade", upgradeId: upgrade.id as UpgradeId, cpuId })
-      }
-      title={`${upgrade.name}: ${formatCost(upgrade.costs)}`}
-    >
-      <Plus size={16} />
-      <span>Add Core</span>
-      <ResourceCost costs={upgrade.costs} compact />
-    </button>
+    <UpgradeStepper
+      upgrade={upgrade}
+      dispatch={dispatch}
+      cpuId={cpuId}
+      label="Core"
+      className="add-core-stepper"
+      resources={resources}
+    />
   );
 }
 
@@ -1529,11 +1979,13 @@ function EmptySocketSection({
   selected,
   onSelect,
   upgrades,
+  resources,
   dispatch,
 }: {
   selected: boolean;
   onSelect: () => void;
   upgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
   dispatch: Dispatch;
 }) {
   return (
@@ -1549,7 +2001,11 @@ function EmptySocketSection({
         <strong>Install matched CPU</strong>
         <small>Copies matching specs</small>
       </div>
-      <InlineUpgradeRow upgrades={upgrades} dispatch={dispatch} />
+      <InlineUpgradeRow
+        upgrades={upgrades}
+        resources={resources}
+        dispatch={dispatch}
+      />
     </section>
   );
 }
@@ -1560,11 +2016,13 @@ function CacheSection({
   socket,
   selected,
   onSelect,
+  resources,
   dispatch,
 }: {
   socket: VisibleCpuSocket;
   selected: boolean;
   onSelect: () => void;
+  resources: VisibleState["resources"];
   dispatch: Dispatch;
 }) {
   const capacity = Math.max(socket.cacheBits, 1);
@@ -1601,74 +2059,83 @@ function CacheSection({
 
       <div className="cache-stat-row">
         <span className="stat">
+          <small>Cap</small>
           <strong>{formatBits(capacity)}</strong>
         </span>
         <span className="stat">
+          <small>Rate</small>
           <strong>{formatClock(Math.round(1 * 1.45 ** (socket.cacheSpeedLevel - 1) * 10) / 10)}</strong>
         </span>
-        <span className="upgrade-chips">
+      </div>
+
+      <CachePipeline
+        segments={cacheReservation.segments}
+        stateBits={stateBits}
+        capacityBits={capacity}
+      />
+
+      {(cacheUpgrade || cacheSpeedUpgrade) && (
+        <div className="core-control-strip cache-control-strip">
           {cacheUpgrade && (
             <UpgradeChip
-              accent="green"
               upgrade={cacheUpgrade}
               dispatch={dispatch}
               cpuId={socket.id}
+              label="Cache cap"
+              control
+              resources={resources}
             />
           )}
           {cacheSpeedUpgrade && (
             <UpgradeChip
-              accent="green"
               upgrade={cacheSpeedUpgrade}
               dispatch={dispatch}
               cpuId={socket.id}
+              label="Cache Hz"
+              control
+              resources={resources}
             />
           )}
-        </span>
-      </div>
-
-      <div className="cache-meter-block">
-        <CachePressureMeter
-          segments={cacheReservation.segments}
-          capacityBits={capacity}
-        />
-        <CacheStateSummary stateBits={stateBits} />
-      </div>
+        </div>
+      )}
 
     </section>
   );
 }
 
 function UpgradeChip({
-  accent,
   upgrade,
   dispatch,
   coreId,
   cpuId,
+  ramStickId,
+  ramStickIds,
+  label,
+  control = false,
+  resources,
 }: {
-  accent: "cyan" | "green" | "violet" | "amber";
   upgrade: VisibleUpgrade;
   dispatch: Dispatch;
   coreId?: number;
   cpuId?: number;
+  ramStickId?: number;
+  ramStickIds?: number[];
+  label?: string;
+  control?: boolean;
+  resources?: VisibleState["resources"];
 }) {
   return (
-    <button
-      type="button"
-      className={`upgrade-chip ${accent}`}
-      disabled={!upgrade.canAfford}
-      title={`${upgrade.name}: ${formatCost(upgrade.costs)}`}
-      onClick={() =>
-        dispatch({
-          type: "buyUpgrade",
-          upgradeId: upgrade.id as UpgradeId,
-          coreId,
-          cpuId,
-        })
-      }
-    >
-      <Plus size={11} />
-      <ResourceCost costs={upgrade.costs} compact />
-    </button>
+    <UpgradeStepper
+      upgrade={upgrade}
+      dispatch={dispatch}
+      coreId={coreId}
+      cpuId={cpuId}
+      ramStickId={ramStickId}
+      ramStickIds={ramStickIds}
+      label={label}
+      className={control ? "control-stepper" : "chip-stepper"}
+      resources={resources}
+    />
   );
 }
 
@@ -1698,26 +2165,21 @@ function SchedulerSection({
         <ListTodo size={14} />
         <span>Scheduler</span>
         <span className="hw-section-meta">
-          <strong>{formatNumber(slotCapacity)}</strong> slots
+          <strong>{formatNumber(waitingCount)}</strong>/{formatNumber(slotCapacity)} used
         </span>
       </button>
 
-      <SchedulerSlotStrip
-        activeSlots={waitingCount}
-        totalSlots={slotCapacity}
+      <QueuePreview
+        items={queueItems}
+        slotCapacity={slotCapacity}
+        ariaLabel="Queued tasks"
+        dispatch={dispatch}
       />
-
-      {queueItems.length > 0 && (
-        <QueuePreview
-          items={queueItems}
-          ariaLabel="Queued tasks"
-          dispatch={dispatch}
-        />
-      )}
 
       {schedulerUpgrade && (
         <InlineUpgradeRow
           upgrades={[schedulerUpgrade]}
+          resources={visible.resources}
           dispatch={dispatch}
           cpuId={socket.id}
         />
@@ -1726,87 +2188,143 @@ function SchedulerSection({
   );
 }
 
-function SchedulerSlotStrip({
-  activeSlots,
-  totalSlots,
-}: {
-  activeSlots: number;
-  totalSlots: number;
-}) {
-  if (totalSlots <= 0) {
-    return (
-      <div
-        className="scheduler-slot-strip empty"
-        aria-label="No queue slots purchased"
-      >
-        <span className="scheduler-slot none" title="No queue slots purchased" />
-      </div>
-    );
+/* ============ RAM / PSU / COOLING ============ */
+
+const schedulerGridMaxHeightPx = 144;
+const schedulerGridGapPx = 4;
+
+function getSchedulerGridMetrics(slotCount: number) {
+  const count = Math.max(0, slotCount);
+  let columns = 2;
+  let rows = 2;
+
+  if (count === 0) {
+    return {
+      columns: 1,
+      rows: 1,
+      gridHeight: 34,
+      slotHeight: 34,
+      density: "spacious",
+    };
   }
 
-  const activeCount = Math.min(activeSlots, totalSlots);
+  if (count > 36) {
+    const side = Math.max(8, Math.ceil(Math.sqrt(count)));
+    const evenSide = side % 2 === 0 ? side : side + 1;
+    columns = evenSide;
+    rows = evenSide;
+  } else if (count > 24) {
+    columns = 6;
+    rows = 6;
+  } else if (count > 16) {
+    columns = 6;
+    rows = 4;
+  } else if (count > 8) {
+    columns = 4;
+    rows = 4;
+  } else if (count > 4) {
+    columns = 4;
+    rows = 2;
+  }
 
-  return (
-    <div
-      className="scheduler-slot-strip"
-      aria-label={`${activeCount} active queue slots, ${totalSlots - activeCount} available`}
-    >
-      {Array.from({ length: totalSlots }, (_, index) => {
-        const active = index < activeCount;
-        return (
-          <span
-            aria-hidden="true"
-            className={`scheduler-slot ${active ? "active" : "available"}`}
-            key={index}
-            title={`Queue slot ${index + 1}: ${active ? "active" : "available"}`}
-          />
-        );
-      })}
-    </div>
+  const targetSlotHeight = rows >= 8 ? 16 : rows >= 6 ? 20 : rows >= 4 ? 24 : 30;
+  const gridHeight = Math.min(
+    schedulerGridMaxHeightPx,
+    rows * targetSlotHeight + (rows - 1) * schedulerGridGapPx,
   );
-}
+  const slotHeight = Math.max(
+    8,
+    Math.floor(
+      (gridHeight - (rows - 1) * schedulerGridGapPx) / rows,
+    ),
+  );
+  const density =
+    rows >= 8 ? "micro" : rows >= 6 ? "dense" : rows >= 4 ? "compact" : "spacious";
 
-/* ============ RAM / PSU / COOLING ============ */
+  return { columns, rows, gridHeight, slotHeight, density };
+}
 
 function QueuePreview({
   items,
+  slotCapacity,
   ariaLabel,
   dispatch,
   emptyLabel,
 }: {
   items: UiQueueDisplayItem[];
+  slotCapacity: number;
   ariaLabel: string;
   dispatch: Dispatch;
   emptyLabel?: string;
 }) {
+  const visibleSlotCount = Math.max(Math.max(0, slotCapacity), items.length);
+  const grid = getSchedulerGridMetrics(visibleSlotCount);
+  const gridStyle = {
+    "--scheduler-grid-columns": grid.columns,
+    "--scheduler-grid-height": `${grid.gridHeight}px`,
+    "--scheduler-slot-height": `${grid.slotHeight}px`,
+  } as CSSProperties;
+
   return (
     <div className="queue-preview" aria-label={ariaLabel}>
-      {items.length > 0 ? (
-        items.slice(0, 8).map((item, index) => (
-          <small
-            key={`${item.id}-${index}`}
-            title={`${item.name}: ${item.waitingReason}`}
-          >
-            <strong>{item.name}</strong>
-            <span>{item.waitingReason}</span>
-            <button
-              type="button"
-              className="queue-cancel-button"
-              onClick={() =>
-                dispatch({ type: "cancelQueuedTask", taskId: item.id })
-              }
-              title={`Cancel ${item.name}`}
-              aria-label={`Cancel ${item.name}`}
-            >
-              <X size={11} />
-            </button>
+      <div
+        className={`queue-preview-list ${grid.density}`}
+        style={gridStyle}
+        data-grid={`${grid.columns}x${grid.rows}`}
+      >
+        {visibleSlotCount > 0 ? (
+          Array.from({ length: visibleSlotCount }, (_, index) => {
+            const item = items[index];
+
+            if (!item) {
+              return (
+                <small
+                  className="queue-slot-cell empty"
+                  key={`empty-${index}`}
+                  title={`Slot ${index + 1}: open`}
+                >
+                  <span className="queue-slot-index">{index + 1}</span>
+                  <span className="queue-slot-state">Open</span>
+                </small>
+              );
+            }
+
+            return (
+              <small
+                className={`queue-slot-cell ${item.active ? "active" : "pending"}`}
+                key={`${item.id}-${index}`}
+                title={`${item.name}: ${item.waitingReason}`}
+              >
+                <span className="queue-slot-index">{index + 1}</span>
+                <span className="queue-slot-state">{item.waitingReason}</span>
+                <button
+                  type="button"
+                  className="queue-cancel-button"
+                  onClick={() =>
+                    dispatch(
+                      item.instanceId
+                        ? {
+                            type: "cancelTask",
+                            taskId: item.id,
+                            instanceId: item.instanceId,
+                          }
+                        : { type: "cancelQueuedTask", taskId: item.id },
+                    )
+                  }
+                  title={`Cancel ${item.name}`}
+                  aria-label={`Cancel ${item.name}`}
+                >
+                  <X size={11} />
+                </button>
+              </small>
+            );
+          })
+        ) : (
+          <small className="queue-empty">
+            <span>{emptyLabel ?? "No slots"}</span>
           </small>
-        ))
-      ) : (
-        <small className="queue-empty">
-          <span>{emptyLabel ?? "No queued tasks"}</span>
-        </small>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1826,13 +2344,6 @@ function SystemSchedulerSection({
 }) {
   const queueItems = getSystemQueueDisplayItems(visible);
   const slotCapacity = getVisibleSystemSchedulerSlots(visible);
-  const activeCount = getActiveTasks(visible).filter((task) => {
-    const taskDefinition = getQueueLookupTasks(visible).find(
-      (candidate) => candidate.id === task.taskId,
-    );
-    return task.schedulerQueued && isSystemQueueTask(taskDefinition);
-  }).length;
-  const pendingCount = Math.max(0, queueItems.length - activeCount);
 
   return (
     <section className={`hw-section scheduler-section system-scheduler-section ${selected ? "selected" : ""}`}>
@@ -1844,27 +2355,21 @@ function SystemSchedulerSection({
         </span>
       </button>
 
-      <SchedulerSlotStrip activeSlots={queueItems.length} totalSlots={slotCapacity} />
-
-      <div className="system-scheduler-stats">
-        <span>
-          <strong>{formatNumber(activeCount)}</strong>
-          active
-        </span>
-        <span>
-          <strong>{formatNumber(pendingCount)}</strong>
-          pending
-        </span>
-      </div>
-
       <QueuePreview
         items={queueItems}
+        slotCapacity={slotCapacity}
         ariaLabel="System scheduler queue"
         dispatch={dispatch}
         emptyLabel="Ready"
       />
 
-      {selected && <InlineUpgradeRow upgrades={upgrades} dispatch={dispatch} />}
+      {selected && (
+        <InlineUpgradeRow
+          upgrades={upgrades}
+          resources={visible.resources}
+          dispatch={dispatch}
+        />
+      )}
     </section>
   );
 }
@@ -1872,25 +2377,50 @@ function SystemSchedulerSection({
 function RamSection({
   visible,
   selected,
+  selectedRamStickId,
+  selectedAllRamSticks,
   onSelect,
+  onSelectStick,
+  onSelectAllSticks,
   upgrades,
   dispatch,
 }: {
   visible: VisibleState;
   selected: boolean;
+  selectedRamStickId: number | null;
+  selectedAllRamSticks: boolean;
   onSelect: () => void;
+  onSelectStick: (stickId: number) => void;
+  onSelectAllSticks: () => void;
   upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
 }) {
   const status = getSystemLoad(visible);
   const capacity = Math.max(getVisibleRamBits(visible), 1);
-  const used = Math.min(getVisibleRamUsedBits(visible), capacity);
   const tone = getStressTone(status.memoryPressure);
   const ramUpgrade = upgrades.find((upgrade) => upgrade.id === "ram");
-  const ramSpeedUpgrade = upgrades.find((upgrade) => upgrade.id === "ramSpeed");
   const ramReservation = getRamReservation(visible);
-  const ramStateBits = getRamStateBits(ramReservation.segments);
-  const ramState = getRamPrimaryState(ramReservation.segments);
+  const ramSlots = visible.metrics.ramSlots;
+  const ramSegmentsBySlot = getRamSegmentsBySlot(ramSlots, ramReservation.segments);
+  const stickCount = ramSlots.length;
+  const selectedSlot =
+    ramSlots.find((slot) => slot.id === selectedRamStickId) ?? ramSlots[0] ?? null;
+  const selectedStickIds = selectedAllRamSticks
+    ? ramSlots.map((slot) => slot.id)
+    : selectedSlot
+      ? [selectedSlot.id]
+      : [];
+  const ramCapacityUpgrade = selectedAllRamSticks
+    ? visible.metrics.allRamCapacityUpgrade
+    : selectedSlot?.capacityUpgrade ?? null;
+  const selectedRamSpeedUpgrade = selectedAllRamSticks
+    ? visible.metrics.allRamSpeedUpgrade
+    : selectedSlot?.speedUpgrade ?? null;
+  const upgradeTargetLabel = selectedAllRamSticks
+    ? "All"
+    : selectedSlot
+      ? `R${selectedSlot.id}`
+      : "RAM";
 
   return (
     <section className={`hw-section memory-section ${tone} ${selected ? "selected" : ""}`}>
@@ -1898,44 +2428,176 @@ function RamSection({
         <MemoryStick size={14} />
         <span>RAM</span>
         <span className="hw-section-meta">
-          <strong>{ramState}</strong>
+          <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
         </span>
       </button>
 
-      <div className="module-stat">
-        <strong>{formatBits(capacity)}</strong>
-        <small>{formatClock(visible.hardware.ramSpeedMt)}</small>
+      <div className="cache-stat-row ram-stat-row">
+        <span className="stat">
+          <small>Cap</small>
+          <strong>{formatBits(capacity)}</strong>
+        </span>
+        <span className="stat">
+          <small>Bus</small>
+          <strong>{formatClock(visible.hardware.ramSpeedMt)}</strong>
+        </span>
+        <span className="stat">
+          <small>Sticks</small>
+          <strong>{formatNumber(stickCount)}</strong>
+        </span>
+        <button
+          type="button"
+          className={`core-select-all-button ram-select-all-button ${
+            selectedAllRamSticks ? "active" : ""
+          }`}
+          onClick={onSelectAllSticks}
+          aria-pressed={selectedAllRamSticks}
+          title="Select all RAM sticks"
+        >
+          All
+        </button>
       </div>
 
-      <div className="ram-stick-row" aria-hidden="true">
-        {visible.metrics.ramSlots.map((slot) => (
-          <span
+      <div
+        className={`ram-stick-grid ${
+          stickCount >= 8 ? "dense" : stickCount >= 4 ? "compact" : ""
+        }`}
+      >
+        {ramSlots.map((slot) => (
+          <RamStickCard
             key={slot.id}
-            style={
-              {
-                "--slot-fill": `${Math.min(1, slot.usedBytes / slot.sizeBytes) * 100}%`,
-              } as CSSProperties
+            slot={slot}
+            selected={
+              selectedAllRamSticks ||
+              selectedRamStickId === slot.id ||
+              (selectedRamStickId === null && selected && selectedSlot?.id === slot.id)
             }
+            onSelect={() => onSelectStick(slot.id)}
+            segments={ramSegmentsBySlot.get(slot.id) ?? []}
           />
         ))}
       </div>
 
-      <RamPressureMeter segments={ramReservation.segments} capacityBits={capacity} />
-      <RamStateSummary stateBits={ramStateBits} usedBits={used} capacityBits={capacity} />
-
-      {(ramUpgrade || ramSpeedUpgrade) && (
-        <div className="cache-stat-row">
-          <span className="upgrade-chips">
-            {ramUpgrade && (
-              <UpgradeChip accent="green" upgrade={ramUpgrade} dispatch={dispatch} />
-            )}
-            {ramSpeedUpgrade && (
-              <UpgradeChip accent="green" upgrade={ramSpeedUpgrade} dispatch={dispatch} />
-            )}
-          </span>
+      {(ramUpgrade || ramCapacityUpgrade || selectedRamSpeedUpgrade) && (
+        <div className="core-control-strip cache-control-strip ram-control-strip">
+          {ramUpgrade && (
+            <UpgradeChip
+              upgrade={ramUpgrade}
+              label="New stick"
+              control
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
+          )}
+          {ramCapacityUpgrade && (
+            <UpgradeChip
+              upgrade={ramCapacityUpgrade}
+              label={`${upgradeTargetLabel} cap`}
+              control
+              ramStickId={selectedAllRamSticks ? undefined : selectedSlot?.id}
+              ramStickIds={selectedAllRamSticks ? selectedStickIds : undefined}
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
+          )}
+          {selectedRamSpeedUpgrade && (
+            <UpgradeChip
+              upgrade={selectedRamSpeedUpgrade}
+              label={`${upgradeTargetLabel} Hz`}
+              control
+              ramStickId={selectedAllRamSticks ? undefined : selectedSlot?.id}
+              ramStickIds={selectedAllRamSticks ? selectedStickIds : undefined}
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+function RamStickCard({
+  slot,
+  selected,
+  onSelect,
+  segments,
+}: {
+  slot: VisibleRamSlot;
+  selected: boolean;
+  onSelect: () => void;
+  segments: RamSegment[];
+}) {
+  const state = getRamPrimaryState(segments);
+
+  return (
+    <button
+      type="button"
+      className={`ram-stick-card ${slot.usedBits > 0 ? "active" : ""} ${
+        selected ? "selected" : ""
+      }`}
+      onClick={onSelect}
+      aria-pressed={selected}
+      title={`R${slot.id} - ${formatBits(slot.sizeBits)} - ${formatClock(slot.speedMt)} - ${state}`}
+    >
+      <span className="ram-stick-card-head">
+        <span className="ram-stick-label">R{slot.id}</span>
+        <span className="core-status-dot" aria-hidden="true" />
+      </span>
+      <span className="ram-stick-card-stats">
+        <span>
+          <small>Cap</small>
+          <strong>{formatBits(slot.sizeBits)}</strong>
+        </span>
+        <span>
+          <small>Hz</small>
+          <strong>{formatClock(slot.speedMt)}</strong>
+        </span>
+      </span>
+      <RamStickPipeline
+        segments={segments}
+        capacityBits={slot.sizeBits}
+      />
+    </button>
+  );
+}
+
+function RamStickPipeline({
+  segments,
+  capacityBits,
+}: {
+  segments: RamSegment[];
+  capacityBits: number;
+}) {
+  const stateBits = getRamStateBits(segments);
+
+  return (
+    <span className="ram-stick-pipeline" aria-hidden="true">
+      {ramStateLabels.map(({ state, label }) => {
+        const bits = stateBits[state];
+        const laneSegments = segments.filter((segment) => segment.state === state);
+
+        return (
+          <span
+            className={`ram-stick-lane ${state} ${bits > 0 ? "active" : ""}`}
+            key={state}
+          >
+            <span>{label}</span>
+            <strong>{formatBits(bits)}</strong>
+            <span className="ram-stick-lane-track">
+              {laneSegments.length > 0 ? (
+                <RamPressureMeter
+                  segments={laneSegments}
+                  capacityBits={capacityBits}
+                />
+              ) : (
+                <ModuleMeter value={0} />
+              )}
+            </span>
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -1978,13 +2640,21 @@ function PsuSection({
       {psuUpgrade && (
         <div className="cache-stat-row">
           <span className="upgrade-chips">
-            <UpgradeChip accent="amber" upgrade={psuUpgrade} dispatch={dispatch} />
+            <UpgradeChip
+              upgrade={psuUpgrade}
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
           </span>
         </div>
       )}
 
       {selected && otherUpgrades.length > 0 && (
-        <InlineUpgradeRow upgrades={otherUpgrades} dispatch={dispatch} />
+        <InlineUpgradeRow
+          upgrades={otherUpgrades}
+          resources={visible.resources}
+          dispatch={dispatch}
+        />
       )}
     </section>
   );
@@ -2018,10 +2688,12 @@ function CoolingSection({ visible }: { visible: VisibleState }) {
 
 function InlineUpgradeRow({
   upgrades,
+  resources,
   dispatch,
   cpuId,
 }: {
   upgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
   dispatch: Dispatch;
   cpuId?: number;
 }) {
@@ -2030,19 +2702,15 @@ function InlineUpgradeRow({
   return (
     <div className="inline-upgrade-row" aria-label="Upgrades">
       {upgrades.map((upgrade) => (
-        <button
-          type="button"
-          className={`inline-upgrade ${upgrade.accent}`}
-          disabled={!upgrade.canAfford}
+        <UpgradeStepper
           key={upgrade.id}
-          onClick={() =>
-            dispatch({ type: "buyUpgrade", upgradeId: upgrade.id as UpgradeId, cpuId })
-          }
-        >
-          <Plus size={12} />
-          <span>{upgrade.name}</span>
-          <ResourceCost costs={upgrade.costs} compact />
-        </button>
+          upgrade={upgrade}
+          dispatch={dispatch}
+          cpuId={cpuId}
+          label={upgrade.name}
+          className="inline-stepper"
+          resources={resources}
+        />
       ))}
     </div>
   );
@@ -2064,13 +2732,124 @@ const getTaskCategory = (task: UiTask): TaskCategoryId => {
   return "other";
 };
 
+function TaskRoutePicker({
+  visible,
+  selection,
+  onSelectComponent,
+}: {
+  visible: VisibleState;
+  selection: SelectedComponent;
+  onSelectComponent: (component: SelectedComponent) => void;
+}) {
+  const sockets = visible.metrics.cpuSockets;
+  const cores = sockets.flatMap((socket) => socket.cores);
+  const firstCoreId = cores[0]?.id ?? 1;
+  const firstSocketId = sockets[0]?.id ?? 1;
+  const schedulerVisible =
+    visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
+  const selectedCoreId = getSelectedCoreId(selection) ?? firstCoreId;
+  const selectedSchedulerId = getSelectedSchedulerId(selection) ?? firstSocketId;
+  const layer: TaskRouteLayer =
+    selection === "scheduler" && visible.flags.scheduler
+      ? "systemScheduler"
+      : selection?.startsWith("scheduler:") && schedulerVisible
+        ? "scheduler"
+        : "core";
+  const layerOptions: Array<{ value: TaskRouteLayer; label: string; title: string }> = [
+    { value: "core", label: "C", title: "Direct core" },
+    ...(schedulerVisible
+      ? [{ value: "scheduler" as const, label: "CPU", title: "CPU scheduler" }]
+      : []),
+    ...(visible.flags.scheduler
+      ? [{ value: "systemScheduler" as const, label: "Sys", title: "System scheduler" }]
+      : []),
+  ];
+
+  const selectLayer = (nextLayer: TaskRouteLayer) => {
+    if (nextLayer === "core") {
+      onSelectComponent(`core:${selectedCoreId || firstCoreId}`);
+      return;
+    }
+
+    if (nextLayer === "scheduler") {
+      onSelectComponent(`scheduler:${selectedSchedulerId || firstSocketId}`);
+      return;
+    }
+
+    onSelectComponent("scheduler");
+  };
+
+  const selectTarget = (value: string) => {
+    if (layer === "core") {
+      onSelectComponent(`core:${Number(value) || firstCoreId}`);
+      return;
+    }
+
+    if (layer === "scheduler") {
+      onSelectComponent(`scheduler:${Number(value) || firstSocketId}`);
+    }
+  };
+
+  return (
+    <div className="task-route-picker" aria-label="Task route">
+      <select
+        className="task-route-select task-route-layer-select"
+        value={layer}
+        onChange={(event) => selectLayer(event.currentTarget.value as TaskRouteLayer)}
+        aria-label="Route layer"
+        title="Route layer"
+      >
+        {layerOptions.map((option) => (
+          <option key={option.value} value={option.value} title={option.title}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <select
+        className="task-route-select task-route-target-select"
+        value={
+          layer === "core"
+            ? String(selectedCoreId)
+            : layer === "scheduler"
+              ? String(selectedSchedulerId)
+              : "system"
+        }
+        onChange={(event) => selectTarget(event.currentTarget.value)}
+        aria-label={layer === "core" ? "Core target" : "CPU target"}
+        title={layer === "core" ? "Core target" : "CPU target"}
+        disabled={layer === "systemScheduler"}
+      >
+        {layer === "core" &&
+          sockets.map((socket) => (
+            <optgroup key={socket.id} label={socket.label}>
+              {socket.cores.map((core) => (
+                <option key={core.id} value={core.id}>
+                  C{core.id}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        {layer === "scheduler" &&
+          sockets.map((socket) => (
+            <option key={socket.id} value={socket.id}>
+              CPU {socket.id}
+            </option>
+          ))}
+        {layer === "systemScheduler" && <option value="system">System</option>}
+      </select>
+    </div>
+  );
+}
+
 export function TaskBay({
   visible,
   selectedComponent,
+  onSelectComponent,
   dispatch,
 }: {
   visible: VisibleState;
   selectedComponent: SelectedComponent;
+  onSelectComponent?: (component: SelectedComponent) => void;
   dispatch: Dispatch;
 }) {
   const tasks = getTasks(visible);
@@ -2078,31 +2857,42 @@ export function TaskBay({
   const queue = getQueueEntries(visible);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
   const inspectedTask = tasks.find((task) => task.id === inspectedTaskId) ?? null;
+  const allCores = getAllCores(visible);
   const selectedCoreId = getSelectedCoreId(selectedComponent);
-  const selectedCore = selectedCoreId
-    ? getAllCores(visible).find((core) => core.id === selectedCoreId)
-    : null;
+  const selectedCore =
+    (selectedCoreId
+      ? allCores.find((core) => core.id === selectedCoreId)
+      : null) ??
+    allCores[0] ??
+    null;
   const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
   const selectedSystemScheduler =
     selectedComponent === "scheduler" && visible.flags.scheduler;
   const schedulerCanRoute =
     visible.flags.basicQueue || visible.flags.scheduler || selectedSchedulerId !== null;
   const mode: QueueMode =
-    selectedCore
-      ? "core"
-      : selectedSystemScheduler
-        ? "systemScheduler"
-        : selectedSchedulerId && schedulerCanRoute
-          ? "scheduler"
-          : "auto";
+    selectedSystemScheduler
+      ? "systemScheduler"
+      : selectedSchedulerId && schedulerCanRoute
+        ? "scheduler"
+        : "core";
   const targetLabel = selectedCore
-    ? `Core ${selectedCore.id}`
-    : mode === "systemScheduler"
-      ? "System Scheduler"
+    ? mode === "core"
+      ? `Core ${selectedCore.id}`
+      : mode === "systemScheduler"
+        ? "System Scheduler"
+        : `CPU ${selectedSchedulerId ?? 1}`
+    : "Core";
+  const routeSelection: SelectedComponent =
+    mode === "systemScheduler"
+      ? "scheduler"
       : mode === "scheduler"
-        ? `Sched ${selectedSchedulerId}`
-        : "Auto";
-  const selectedCoreBusy = Boolean(selectedCore && getCoreActiveTask(selectedCore));
+        ? (`scheduler:${selectedSchedulerId}` as SelectedComponent)
+        : selectedCore
+          ? (`core:${selectedCore.id}` as SelectedComponent)
+          : null;
+  const selectedCoreBusy =
+    mode === "core" && Boolean(selectedCore && getCoreActiveTask(selectedCore));
   const memoryUnlocked = hasSystemMemory(visible);
   const groupedTasks = taskGroups
     .map((group) => ({
@@ -2143,10 +2933,18 @@ export function TaskBay({
 
   return (
     <>
-      <div className="panel-header">
+      <div className="panel-header task-panel-header">
         <ListTodo size={14} />
         <span>Tasks</span>
-        <small>{targetLabel}</small>
+        {onSelectComponent ? (
+          <TaskRoutePicker
+            visible={visible}
+            selection={routeSelection}
+            onSelectComponent={onSelectComponent}
+          />
+        ) : (
+          <small>{targetLabel}</small>
+        )}
       </div>
       <div className="panel-body">
         {tasks.length === 0 ? (
@@ -2172,7 +2970,6 @@ export function TaskBay({
                     mode={mode}
                     state={getTaskState(task, activeTasks, queue)}
                     progress={getTaskProgress(task, activeTasks, queue)}
-                    runtimeLabel={activeTask ? getActiveRuntimeLabel(activeTask) : null}
                     disabled={disabled}
                     disabledReason={
                       disabled
@@ -2222,7 +3019,6 @@ function TaskCard({
   mode,
   state,
   progress,
-  runtimeLabel,
   disabled,
   disabledReason,
   onRun,
@@ -2235,7 +3031,6 @@ function TaskCard({
   mode: QueueMode;
   state: TaskState;
   progress: number;
-  runtimeLabel: string | null;
   disabled: boolean;
   disabledReason: string | null;
   onRun: () => void;
@@ -2253,37 +3048,25 @@ function TaskCard({
       ? "Schedule"
       : mode === "scheduler"
       ? "Queue"
-      : mode === "core"
-        ? "Assign"
-        : task.category !== "cpu"
-          ? "Schedule"
-        : state === "rerun"
-          ? "Rerun"
-          : state === "restart"
-            ? "Restart"
-            : "Run";
+      : "Assign";
+  const buttonLabel = disabled && disabledReason ? disabledReason : commandLabel;
 
   return (
     <article className={`task-card ${task.kind ?? "task"} ${state}`}>
       <div className="task-row-top">
         <strong>{task.name}</strong>
-        <TaskStatePill state={state} />
       </div>
 
-      {runtimeLabel ? (
-        <small className="task-status-line">{runtimeLabel}</small>
-      ) : disabledReason ? (
-        <small className="task-status-line">{disabledReason}</small>
-      ) : (
-        <div className="task-meta-line">
+      <div className="task-meta-line">
           <span className="ops">
             <strong>{operationCount === undefined ? "·" : formatNumber(operationCount)}</strong> ops
           </span>
           {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
-          {memoryUnlocked && ramBits > 0 && <span>ram {formatBits(ramBits)}</span>}
+          {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
+            <span>ram {formatBits(ramBits)}</span>
+          )}
           {rewards.length > 0 && <ResourceCost costs={rewards} compact />}
-        </div>
-      )}
+      </div>
 
       <span className="task-progress" aria-hidden="true">
         <span style={{ width: `${progress * 100}%` }} />
@@ -2292,12 +3075,13 @@ function TaskCard({
       <div className="task-action-row">
         <button
           type="button"
-          className="task-run-button"
+          className={`task-run-button ${disabledReason ? "blocked" : ""}`}
           disabled={disabled}
           onClick={onRun}
+          title={buttonLabel}
         >
-          <Play size={11} />
-          <span>{commandLabel}</span>
+          {!disabledReason && <Play size={11} />}
+          <span>{buttonLabel}</span>
         </button>
         {canCancel && (
           <button
@@ -2322,23 +3106,6 @@ function TaskCard({
       </div>
     </article>
   );
-}
-
-function TaskStatePill({ state }: { state: TaskState }) {
-  const label =
-    state === "active"
-      ? "Active"
-      : state === "waiting"
-        ? "Wait"
-        : state === "rerun"
-          ? "Rerun"
-          : state === "restart"
-            ? "Restart"
-            : state === "locked"
-              ? "Locked"
-              : "Ready";
-
-  return <small className={`task-state-pill ${state}`}>{label}</small>;
 }
 
 /* ============ RESEARCH PANEL ============ */
@@ -2379,7 +3146,13 @@ export function ResearchPanel({
           </div>
         ) : (
           visibleResearch.map((item) => (
-            <ResearchAction key={item.id} research={item} dispatch={dispatch} />
+            <ResearchAction
+              key={item.id}
+              research={item}
+              memoryUnlocked={hasSystemMemory(visible)}
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
           ))
         )}
       </div>
@@ -2408,9 +3181,13 @@ const isResearchComputeComplete = (task: UiResearchComputeTask) =>
 
 function ResearchAction({
   research,
+  memoryUnlocked,
+  resources,
   dispatch,
 }: {
   research: UiResearch;
+  memoryUnlocked: boolean;
+  resources: VisibleState["resources"];
   dispatch: Dispatch;
 }) {
   const costs = research.costs ?? research.cost ?? [];
@@ -2427,6 +3204,13 @@ function ResearchAction({
     !purchased &&
     !lockedReason &&
     (research.canAfford ?? research.canBuy ?? costs.length === 0);
+  const buyLabel = purchased
+    ? "Built"
+    : !canBuy && lockedReason
+      ? lockedReason
+      : !canBuy
+        ? "Locked"
+        : "Buy";
 
   return (
     <article
@@ -2434,21 +3218,30 @@ function ResearchAction({
         purchased ? "purchased" : ""
       }`}
     >
-      <div className="research-action-main">
+      <div className={`research-action-main ${!canBuy && !purchased ? "blocked" : ""}`}>
         <span className="research-copy">
           <strong>{research.name}</strong>
           <em className="research-cost-line">
-            {purchased ? "Built" : <ResourceCost costs={costs} compact />}
+            {purchased ? (
+              "Built"
+            ) : (
+              <ResourceCost costs={costs} compact resources={resources} />
+            )}
           </em>
         </span>
         <button
           type="button"
-          className="research-buy-button"
+          className={`research-buy-button ${!canBuy && !purchased ? "blocked" : ""}`}
           disabled={!canBuy}
           onClick={() => dispatch({ type: "buyResearch", researchId: research.id })}
+          title={buyLabel}
         >
-          {purchased ? <CheckCircle2 size={12} /> : <Plus size={12} />}
-          <span>{purchased ? "Built" : "Buy"}</span>
+          {purchased ? (
+            <CheckCircle2 size={12} />
+          ) : (
+            canBuy && <Plus size={12} />
+          )}
+          <span>{buyLabel}</span>
         </button>
       </div>
 
@@ -2473,25 +3266,47 @@ function ResearchAction({
             const active = Boolean(task.active);
             const canStart = getTaskCanStart(task);
             const disabled = completed || active || !canStart;
+            const blockedReason =
+              !completed && !active && disabled
+                ? getTaskLockedReason(task) ?? getTaskQueueBlockedReason(task) ?? "Locked"
+                : null;
+            const buttonLabel = completed
+              ? "Done"
+              : active
+                ? "..."
+                : blockedReason
+                  ? blockedReason
+                  : task.canQueue
+                    ? "Queue"
+                    : "Run";
 
             return (
-              <div className="research-compute" key={task.id}>
+              <div
+                className={`research-compute ${blockedReason ? "blocked" : ""}`}
+                key={task.id}
+              >
                 <span className="research-compute-copy">
                   <strong>{task.name}</strong>
+                  <TaskMetaLine task={task} memoryUnlocked={memoryUnlocked} />
                   {(active || completed) && (
                     <ModuleMeter value={completed ? 1 : task.progress ?? 0} />
                   )}
                 </span>
                 <button
                   type="button"
-                  className="research-compute-button"
+                  className={`research-compute-button ${blockedReason ? "blocked" : ""}`}
                   disabled={disabled}
                   onClick={() => dispatch({ type: "startTask", taskId: task.id })}
+                  title={buttonLabel}
                 >
-                  <Play size={11} />
+                  {!blockedReason && <Play size={11} />}
+                  {blockedReason ? (
+                    <span>{buttonLabel}</span>
+                  ) : (
                   <span>
                     {completed ? "Done" : active ? "···" : task.canQueue ? "Queue" : "Run"}
                   </span>
+                  )}
                 </button>
               </div>
             );
@@ -2831,29 +3646,55 @@ const getCacheSegmentAlpha = (state: CacheSegmentState) => {
   return 0.52;
 };
 
-function CacheStateSummary({
-  stateBits,
+function CacheStateBadge({
+  state,
+  label,
+  bits,
 }: {
-  stateBits: Record<CacheSegmentState, number>;
+  state: CacheSegmentState;
+  label: string;
+  bits: number;
 }) {
   return (
-    <span className="cache-state-summary" aria-label="Cache states">
+    <span
+      className={`cache-state-badge ${state} ${bits > 0 ? "active" : ""}`}
+      title={`${label}: ${formatBits(bits)}`}
+    >
+      <strong>{formatBits(bits)}</strong>
+      <span aria-hidden="true" />
+      <small>{label}</small>
+    </span>
+  );
+}
+
+function CachePipeline({
+  segments,
+  stateBits,
+  capacityBits,
+}: {
+  segments: CacheSegment[];
+  stateBits: Record<CacheSegmentState, number>;
+  capacityBits: number;
+}) {
+  return (
+    <div className="cache-meter-block cache-pipeline" aria-label="Cache states">
       {cacheStateLabels.map(({ state, label }) => {
         const bits = stateBits[state];
+        const laneSegments = segments.filter((segment) => segment.state === state);
 
         return (
-          <span
-            className={`cache-state-badge ${state} ${bits > 0 ? "active" : ""}`}
+          <div
+            className={`cache-pipeline-row ${state} ${bits > 0 ? "active" : ""}`}
             key={state}
-            title={`${label}: ${formatBits(bits)}`}
           >
-            <strong>{formatBits(bits)}</strong>
-            <span aria-hidden="true" />
-            <small>{label}</small>
-          </span>
+            <CacheStateBadge state={state} label={label} bits={bits} />
+            <span className="cache-pipeline-track">
+              <CachePressureMeter segments={laneSegments} capacityBits={capacityBits} />
+            </span>
+          </div>
         );
       })}
-    </span>
+    </div>
   );
 }
 
@@ -2863,41 +3704,57 @@ const ramStateLabels: Array<{ state: RamSegmentState; label: string }> = [
   { state: "loaded", label: "Ready" },
 ];
 
-function RamStateSummary({
+function RamStateBadge({
+  state,
+  label,
+  bits,
+}: {
+  state: RamSegmentState;
+  label: string;
+  bits: number;
+}) {
+  return (
+    <span
+      className={`ram-state-badge ${state} ${bits > 0 ? "active" : ""}`}
+      title={`${label}: ${formatBits(bits)}`}
+    >
+      <strong>{formatBits(bits)}</strong>
+      <span aria-hidden="true" />
+      <small>{label}</small>
+    </span>
+  );
+}
+
+function RamPipeline({
+  segments,
   stateBits,
-  usedBits,
   capacityBits,
 }: {
+  segments: RamSegment[];
   stateBits: Record<RamSegmentState, number>;
-  usedBits: number;
   capacityBits: number;
 }) {
   return (
-    <span className="ram-state-summary" aria-label="RAM states">
+    <div className="cache-meter-block ram-pipeline" aria-label="RAM states">
       {ramStateLabels.map(({ state, label }) => {
         const bits = stateBits[state];
+        const laneSegments = segments.filter((segment) => segment.state === state);
 
         return (
-          <span
-            className={`ram-state-badge ${state} ${bits > 0 ? "active" : ""}`}
+          <div
+            className={`cache-pipeline-row ram-pipeline-row ${state} ${
+              bits > 0 ? "active" : ""
+            }`}
             key={state}
-            title={`${label}: ${formatBits(bits)}`}
           >
-            <strong>{formatBits(bits)}</strong>
-            <span aria-hidden="true" />
-            <small>{label}</small>
-          </span>
+            <RamStateBadge state={state} label={label} bits={bits} />
+            <span className="cache-pipeline-track ram-pipeline-track">
+              <RamPressureMeter segments={laneSegments} capacityBits={capacityBits} />
+            </span>
+          </div>
         );
       })}
-      <span
-        className={`ram-state-badge used ${usedBits > 0 ? "active" : ""}`}
-        title={`Reserved: ${formatBits(usedBits)} / ${formatBits(capacityBits)}`}
-      >
-        <strong>{formatBits(usedBits)}</strong>
-        <span aria-hidden="true" />
-        <small>Held</small>
-      </span>
-    </span>
+    </div>
   );
 }
 

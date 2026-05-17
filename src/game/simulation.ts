@@ -1,6 +1,11 @@
 import { getResearchDefinition, researchDefinitions } from "./content/research";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
-import { getUpgradeDefinition, upgradeDefinitions } from "./content/upgrades";
+import {
+  getUpgradeDefinition,
+  getUpgradeDowngradeBlockedReason,
+  getUpgradeRefund,
+  upgradeDefinitions,
+} from "./content/upgrades";
 import { addRewards, canAfford, spend } from "./economy";
 import {
   estimateActiveRemainingSeconds,
@@ -20,6 +25,7 @@ import {
   getRestartRiskPerSecond,
 } from "./math";
 import {
+  createRamStickState,
   getAllCoreIds,
   getCpuForCore,
   getCpuHardware,
@@ -35,6 +41,7 @@ import {
 import type {
   ActiveCoreOperation,
   ActiveTask,
+  Cost,
   GameAction,
   GameState,
   OperationRuntimeStatus,
@@ -1433,6 +1440,7 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
     },
   };
   const ramSpeedLevel = bought.hardware.ramSpeedLevel ?? 1;
+  const ramSpeedMt = getRamSpeedMt(ramSpeedLevel);
   const withResearchHardware =
     researchId === "ramControl" && bought.hardware.ramLevel <= 0
       ? {
@@ -1443,7 +1451,8 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
             ramBits: getRamBits(1),
             ramBytes: getRamBytes(1),
             ramSpeedLevel,
-            ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
+            ramSpeedMt,
+            ramSticks: [createRamStickState(1, 1, ramSpeedLevel)],
           },
         }
       : bought;
@@ -1457,9 +1466,12 @@ export const buyUpgrade = (
   coreId?: number,
   cpuId?: number,
   sourceCpuId?: number,
+  coreIds?: number[],
+  ramStickId?: number,
+  ramStickIds?: number[],
 ) => {
   const upgrade = getUpgradeDefinition(upgradeId);
-  const context = { coreId, cpuId, sourceCpuId };
+  const context = { coreId, coreIds, cpuId, sourceCpuId, ramStickId, ramStickIds };
   const costs = upgrade.cost(state, context);
 
   if (!upgrade.requirement(state) || !canAfford(state, costs)) {
@@ -1468,6 +1480,43 @@ export const buyUpgrade = (
 
   const bought = upgrade.buy(spend(state, costs), context);
   return pullQueue(updateProgressionFlags(bought));
+};
+
+const addRefunds = (state: GameState, refunds: Cost[]): GameState => ({
+  ...state,
+  resources: refunds.reduce(
+    (resources, refund) => ({
+      ...resources,
+      [refund.resource]: resources[refund.resource] + refund.amount,
+    }),
+    state.resources,
+  ),
+});
+
+export const downgradeUpgrade = (
+  state: GameState,
+  upgradeId: UpgradeId,
+  coreId?: number,
+  cpuId?: number,
+  sourceCpuId?: number,
+  coreIds?: number[],
+  ramStickId?: number,
+  ramStickIds?: number[],
+) => {
+  const upgrade = getUpgradeDefinition(upgradeId);
+  const context = { coreId, coreIds, cpuId, sourceCpuId, ramStickId, ramStickIds };
+  const refunds = getUpgradeRefund(state, upgradeId, context);
+
+  if (
+    !upgrade.downgrade ||
+    refunds.length === 0 ||
+    getUpgradeDowngradeBlockedReason(state, upgradeId, context)
+  ) {
+    return state;
+  }
+
+  const downgraded = upgrade.downgrade(state, context);
+  return pullQueue(updateProgressionFlags(addRefunds(downgraded, refunds)));
 };
 
 export const startJob = startTask;
@@ -1496,6 +1545,21 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
       action.coreId,
       action.cpuId,
       action.sourceCpuId,
+      action.coreIds,
+      action.ramStickId,
+      action.ramStickIds,
+    );
+  }
+  if (action.type === "downgradeUpgrade") {
+    return downgradeUpgrade(
+      state,
+      action.upgradeId,
+      action.coreId,
+      action.cpuId,
+      action.sourceCpuId,
+      action.coreIds,
+      action.ramStickId,
+      action.ramStickIds,
     );
   }
   if (action.type === "startJob") return startTask(state, action.jobId);

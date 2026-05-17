@@ -12,8 +12,21 @@ export type UiGameAction =
       type: "buyUpgrade";
       upgradeId: string;
       coreId?: number;
+      coreIds?: number[];
       cpuId?: number;
       sourceCpuId?: number;
+      ramStickId?: number;
+      ramStickIds?: number[];
+    }
+  | {
+      type: "downgradeUpgrade";
+      upgradeId: string;
+      coreId?: number;
+      coreIds?: number[];
+      cpuId?: number;
+      sourceCpuId?: number;
+      ramStickId?: number;
+      ramStickIds?: number[];
     };
 
 export type Dispatch = (action: UiGameAction) => void;

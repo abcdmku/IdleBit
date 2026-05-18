@@ -2,6 +2,8 @@ import type { HardwareComponentId, VisibleState } from "../game";
 
 export type SelectedComponent =
   | HardwareComponentId
+  | "cron"
+  | "thermal"
   | `core:${number}`
   | `cores:${number}`
   | `scheduler:${number}`
@@ -10,7 +12,7 @@ export type SelectedComponent =
   | null;
 
 export const componentCopy: Record<
-  HardwareComponentId,
+  string,
   { title: string; kicker: string; info: string }
 > = {
   cpu: {
@@ -42,6 +44,16 @@ export const componentCopy: Record<
     title: "PSU",
     kicker: "capacity and operating draw",
     info: "The PSU shows active draw, stress, and whether the build has power headroom.",
+  },
+  cron: {
+    title: "CRON",
+    kicker: "automation cadence",
+    info: "CRON schedules system tasks at fixed intervals once automation is researched.",
+  },
+  thermal: {
+    title: "Thermal",
+    kicker: "heat and cooling",
+    info: "Thermal control shows heat stress and cooling loop headroom.",
   },
 };
 
@@ -119,6 +131,10 @@ export function getVisibleSelection(
 
   if (selectedComponent === "ram" || selectedComponent === "psu") {
     return hasSystemMemory(visible) ? selectedComponent : "cpu";
+  }
+
+  if (selectedComponent === "cron" || selectedComponent === "thermal") {
+    return visible.hardware.secondCpu ? selectedComponent : "cpu";
   }
 
   if (selectedComponent === "socket") {

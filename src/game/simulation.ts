@@ -20,6 +20,7 @@ import {
   getHardwareCacheBits,
   getMemoryCapacityBits,
   getOperationEffectiveClock,
+  getPowerCostPerMinute,
   getRamLoadCycles,
   getRamLoadCyclesForOperationTick,
   getReservedCacheBits,
@@ -57,6 +58,129 @@ import type {
   TaskOperationDefinition,
   UpgradeId,
 } from "./types";
+
+const POWER_SHUTDOWN_SECONDS = 8;
+const POWER_BOOT_SECONDS = 10;
+const CRON_DEFAULT_INTERVAL_SECONDS = 60;
+const CRON_MAX_SECONDS_INTERVAL = 120;
+const CRON_MIN_MINUTES_INTERVAL = 1;
+const CRON_MAX_MINUTES_INTERVAL = 60;
+const CRON_QUEUE_SPIKE_SECONDS = 5;
+
+export const getCronMinIntervalSeconds = (state: GameState) =>
+  Math.max(1, CRON_DEFAULT_INTERVAL_SECONDS - Math.max(0, state.hardware.cronIntervalLevel ?? 0));
+
+const isPowerOn = (state: GameState) => state.power.state === "on";
+
+const canRunPoweredWork = isPowerOn;
+
+const isSystemScheduledTask = (task: TaskDefinition) =>
+  task.category === "system" || task.category === "distributed";
+
+const isCronEligibleTask = (state: GameState, task: TaskDefinition) =>
+  task.kind === "task" &&
+  task.repeatable &&
+  isSystemScheduledTask(task) &&
+  (task.reveal(state) || task.requirement(state));
+
+const clampCronIntervalValue = (
+  state: GameState,
+  intervalMode: "seconds" | "minutes",
+  intervalValue: number,
+) => {
+  if (intervalMode === "minutes") {
+    return Math.min(
+      CRON_MAX_MINUTES_INTERVAL,
+      Math.max(CRON_MIN_MINUTES_INTERVAL, Math.round(intervalValue)),
+    );
+  }
+
+  return Math.min(
+    CRON_MAX_SECONDS_INTERVAL,
+    Math.max(getCronMinIntervalSeconds(state), Math.round(intervalValue)),
+  );
+};
+
+const getCronIntervalSeconds = (
+  state: GameState,
+  schedule: GameState["cron"]["schedules"][number],
+) => {
+  const value = clampCronIntervalValue(
+    state,
+    schedule.intervalMode,
+    schedule.intervalValue,
+  );
+
+  return schedule.intervalMode === "minutes" ? value * 60 : value;
+};
+
+const createCronSchedule = (state: GameState): GameState["cron"]["schedules"][number] => ({
+  id: state.cron.nextScheduleId,
+  taskId: null,
+  enabled: false,
+  intervalMode: "seconds",
+  intervalValue: getCronMinIntervalSeconds(state),
+  remainingSeconds: getCronMinIntervalSeconds(state),
+  lastResult: null,
+});
+
+const normalizeCronSchedule = (
+  state: GameState,
+  schedule: GameState["cron"]["schedules"][number],
+) => {
+  const intervalValue = clampCronIntervalValue(
+    state,
+    schedule.intervalMode,
+    schedule.intervalValue,
+  );
+  const intervalSeconds =
+    schedule.intervalMode === "minutes" ? intervalValue * 60 : intervalValue;
+
+  return {
+    ...schedule,
+    intervalValue,
+    remainingSeconds: Math.min(
+      Math.max(0, schedule.remainingSeconds),
+      intervalSeconds,
+    ),
+  };
+};
+
+const ensureCronState = (state: GameState) => {
+  if (!state.flags.cron) {
+    return {
+      ...state,
+      cron: {
+        ...state.cron,
+        schedules: state.cron.schedules.map((schedule) =>
+          normalizeCronSchedule(state, schedule),
+        ),
+      },
+    };
+  }
+
+  if (state.cron.schedules.length > 0) {
+    return {
+      ...state,
+      cron: {
+        ...state.cron,
+        schedules: state.cron.schedules.map((schedule) =>
+          normalizeCronSchedule(state, schedule),
+        ),
+      },
+    };
+  }
+
+  const schedule = createCronSchedule(state);
+  return {
+    ...state,
+    cron: {
+      ...state.cron,
+      schedules: [schedule],
+      nextScheduleId: schedule.id + 1,
+    },
+  };
+};
 
 const isBenchmarkComplete = (state: GameState, taskId: TaskId) =>
   state.completedBenchmarks.includes(taskId) ||
@@ -200,9 +324,6 @@ const canAcceptTask = (state: GameState, taskId: TaskId) => {
   return task.requirement(state) && !benchmarkDone && taskFitsHardware(state, task);
 };
 
-const isSystemScheduledTask = (task: TaskDefinition) =>
-  task.category === "system" || task.category === "distributed";
-
 const hasActiveDeadlock = (state: GameState) =>
   state.activeTasks.some((task) =>
     task.coreOperations.some((operation) => operation.status === "deadlocked"),
@@ -234,6 +355,7 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
 
   return (
+    canRunPoweredWork(state) &&
     !isDeadlockStartBlocked(state) &&
     canAcceptTask(state, taskId) &&
     taskFitsCpuHardware(state, task, cpuId)
@@ -278,6 +400,7 @@ const canQueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
   const systemScheduled = isSystemScheduledTask(task);
 
+  if (!canRunPoweredWork(state)) return false;
   if (!canAcceptTask(state, taskId)) return false;
   if (systemScheduled && cpuId !== undefined) return false;
   if (systemScheduled && !state.flags.scheduler) return false;
@@ -374,6 +497,7 @@ const getDeadlockScopeResource = (
 };
 
 const schedulerCanDispatchOnCpu = (state: GameState, cpuId: number) =>
+  canRunPoweredWork(state) &&
   !isDeadlockStartBlocked(state) &&
   !getRamDeadlockOperation(state) && !getCacheDeadlockedCpuIds(state).has(cpuId);
 
@@ -1060,6 +1184,7 @@ const selectQueuedDispatchCandidate = (
 };
 
 const pullQueue = (state: GameState): GameState => {
+  if (!canRunPoweredWork(state)) return syncCoreSchedulers(state);
   if (!state.flags.basicQueue && !state.flags.scheduler) return syncCoreSchedulers(state);
 
   let nextState = state;
@@ -1983,14 +2108,201 @@ const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
   });
 };
 
+const advancePowerTransition = (state: GameState, deltaSeconds: number): GameState => {
+  if (state.power.state !== "shuttingDown" && state.power.state !== "booting") {
+    return state;
+  }
+
+  const transitionSeconds = Math.max(0, state.power.transitionSeconds - deltaSeconds);
+  if (transitionSeconds > 0) {
+    return {
+      ...state,
+      power: {
+        ...state.power,
+        transitionSeconds,
+      },
+    };
+  }
+
+  return {
+    ...state,
+    power: {
+      state: state.power.state === "shuttingDown" ? "off" : "on",
+      transitionSeconds: 0,
+    },
+  };
+};
+
+const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
+  const cost = (getPowerCostPerMinute(state) * deltaSeconds) / 60;
+  if (cost <= 0) return state;
+
+  return {
+    ...state,
+    resources: {
+      ...state.resources,
+      credits: state.resources.credits - cost,
+    },
+  };
+};
+
+const decayCronPowerSpike = (state: GameState, deltaSeconds: number): GameState => ({
+  ...state,
+  cron: {
+    ...state.cron,
+    queuePowerSpikeSeconds: Math.max(
+      0,
+      state.cron.queuePowerSpikeSeconds - deltaSeconds,
+    ),
+  },
+});
+
+const taskIsAlreadyCronOwned = (state: GameState, taskId: TaskId) =>
+  state.queue.includes(taskId) ||
+  state.activeTasks.some((task) => task.taskId === taskId);
+
+const cronResult = (
+  status: "queued" | "skipped" | "blocked",
+  message: string,
+  taskId: TaskId | null,
+  tick: number,
+) => ({
+  status,
+  message,
+  taskId,
+  tick,
+});
+
+const attemptCronRun = (
+  state: GameState,
+  schedule: GameState["cron"]["schedules"][number],
+): { state: GameState; result: NonNullable<GameState["cron"]["schedules"][number]["lastResult"]> } => {
+  const taskId = schedule.taskId;
+  if (!isPowerOn(state)) {
+    return { state, result: cronResult("skipped", "System offline.", taskId, state.tick) };
+  }
+  if (!taskId) {
+    return { state, result: cronResult("skipped", "No system task selected.", null, state.tick) };
+  }
+
+  const task = getTaskDefinition(taskId);
+  if (!isCronEligibleTask(state, task)) {
+    return {
+      state,
+      result: cronResult("skipped", "Task hidden from CRON.", taskId, state.tick),
+    };
+  }
+  if (!canAcceptTask(state, taskId)) {
+    return {
+      state,
+      result: cronResult("blocked", "Task requirements blocked.", taskId, state.tick),
+    };
+  }
+  if (taskIsAlreadyCronOwned(state, taskId)) {
+    return {
+      state,
+      result: cronResult("skipped", "Task already active or queued.", taskId, state.tick),
+    };
+  }
+  if (!canQueueTask(state, taskId)) {
+    const queueFull =
+      isSystemScheduledTask(task) && getAvailableSystemSchedulerSlots(state) <= 0;
+    return {
+      state,
+      result: cronResult(
+        queueFull ? "skipped" : "blocked",
+        queueFull ? "System queue full." : "System scheduler blocked.",
+        taskId,
+        state.tick,
+      ),
+    };
+  }
+
+  const queued = enqueueTask(state, taskId);
+  if (queued === state) {
+    return {
+      state,
+      result: cronResult("blocked", "Queue attempt failed.", taskId, state.tick),
+    };
+  }
+
+  return {
+    state: {
+      ...queued,
+      cron: {
+        ...queued.cron,
+        queuePowerSpikeSeconds: Math.max(
+          queued.cron.queuePowerSpikeSeconds,
+          CRON_QUEUE_SPIKE_SECONDS,
+        ),
+      },
+    },
+    result: cronResult("queued", "Queued by CRON.", taskId, state.tick),
+  };
+};
+
+const tickCron = (state: GameState, deltaSeconds: number): GameState => {
+  const normalizedState = ensureCronState(state);
+  if (!normalizedState.flags.cron || !isPowerOn(normalizedState)) {
+    return normalizedState;
+  }
+
+  let workingState = normalizedState;
+  const schedules: GameState["cron"]["schedules"] = [];
+
+  for (const schedule of normalizedState.cron.schedules) {
+    const normalizedSchedule = normalizeCronSchedule(workingState, schedule);
+    if (!normalizedSchedule.enabled) {
+      schedules.push(normalizedSchedule);
+      continue;
+    }
+
+    const nextRemainingSeconds = normalizedSchedule.remainingSeconds - deltaSeconds;
+    if (nextRemainingSeconds > 0) {
+      schedules.push({
+        ...normalizedSchedule,
+        remainingSeconds: nextRemainingSeconds,
+      });
+      continue;
+    }
+
+    const attempt = attemptCronRun(workingState, normalizedSchedule);
+    workingState = attempt.state;
+    schedules.push({
+      ...normalizedSchedule,
+      remainingSeconds: getCronIntervalSeconds(workingState, normalizedSchedule),
+      lastResult: attempt.result,
+    });
+  }
+
+  return {
+    ...workingState,
+    cron: {
+      ...workingState.cron,
+      schedules,
+    },
+  };
+};
+
 export const tickGame = (state: GameState, deltaMs: number): GameState => {
   const deltaSeconds = Math.max(0, Math.min(deltaMs / 1000, 2));
   const ticked = {
-    ...syncCoreSchedulers(updateProgressionFlags(state)),
+    ...ensureCronState(syncCoreSchedulers(updateProgressionFlags(state))),
     tick: state.tick + deltaSeconds,
     cacheResidency: [],
   };
-  const advanced = tickActiveTasks(ticked, deltaSeconds);
+  const wasPoweredOn = canRunPoweredWork(ticked);
+  const powered = decayCronPowerSpike(
+    applyPowerBilling(advancePowerTransition(ticked, deltaSeconds), deltaSeconds),
+    deltaSeconds,
+  );
+
+  if (!wasPoweredOn || !canRunPoweredWork(powered)) {
+    return updateProgressionFlags(syncCoreSchedulers(powered));
+  }
+
+  const cronTicked = tickCron(powered, deltaSeconds);
+  const advanced = tickActiveTasks(cronTicked, deltaSeconds);
   const settled = settleActiveTasks(advanced);
   const watched = applySchedulerWatchdogs(settled);
   const pressured = updateDeadlockPressure(watched, deltaSeconds);
@@ -2066,7 +2378,7 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
         }
       : bought;
 
-  return pullQueue(updateProgressionFlags(withResearchHardware));
+  return pullQueue(ensureCronState(updateProgressionFlags(withResearchHardware)));
 };
 
 export const buyUpgrade = (
@@ -2186,6 +2498,111 @@ const updateSchedulerConfig = (
     ? updateSystemSchedulerConfig(state, update)
     : updateCpuSchedulerConfig(state, cpuId, update);
 
+export const requestPowerOff = (state: GameState): GameState => {
+  if (!state.flags.psuManagement) return state;
+  if (state.power.state !== "on") return state;
+  return {
+    ...state,
+    power: {
+      state: "shuttingDown",
+      transitionSeconds: POWER_SHUTDOWN_SECONDS,
+    },
+  };
+};
+
+export const requestPowerOn = (state: GameState): GameState => {
+  if (!state.flags.psuManagement) return state;
+  if (state.power.state !== "off") return state;
+  return {
+    ...state,
+    power: {
+      state: "booting",
+      transitionSeconds: POWER_BOOT_SECONDS,
+    },
+  };
+};
+
+export const requestShutdown = requestPowerOff;
+
+export const requestStartup = requestPowerOn;
+
+const updateCronSchedule = (
+  state: GameState,
+  scheduleId: number,
+  update: (
+    schedule: GameState["cron"]["schedules"][number],
+  ) => GameState["cron"]["schedules"][number],
+) => {
+  if (!state.flags.cron) return state;
+  const normalizedState = ensureCronState(state);
+
+  return {
+    ...normalizedState,
+    cron: {
+      ...normalizedState.cron,
+      schedules: normalizedState.cron.schedules.map((schedule) =>
+        schedule.id === scheduleId
+          ? normalizeCronSchedule(normalizedState, update(schedule))
+          : schedule,
+      ),
+    },
+  };
+};
+
+const setCronTask = (
+  state: GameState,
+  scheduleId: number,
+  taskId: TaskId | null,
+) =>
+  updateCronSchedule(state, scheduleId, (schedule) => {
+    if (taskId === null) {
+      return { ...schedule, taskId: null, enabled: false, lastResult: null };
+    }
+
+    const task = getTaskDefinition(taskId);
+    if (!isCronEligibleTask(state, task)) return schedule;
+
+    return { ...schedule, taskId, lastResult: null };
+  });
+
+const setCronInterval = (
+  state: GameState,
+  scheduleId: number,
+  intervalMode: "seconds" | "minutes",
+  intervalValue: number,
+) =>
+  updateCronSchedule(state, scheduleId, (schedule) => {
+    const nextSchedule = {
+      ...schedule,
+      intervalMode,
+      intervalValue: clampCronIntervalValue(state, intervalMode, intervalValue),
+    };
+    return {
+      ...nextSchedule,
+      remainingSeconds: getCronIntervalSeconds(state, nextSchedule),
+    };
+  });
+
+const setCronEnabled = (
+  state: GameState,
+  scheduleId: number,
+  enabled: boolean,
+) =>
+  updateCronSchedule(state, scheduleId, (schedule) => {
+    const canEnable =
+      enabled &&
+      schedule.taskId !== null &&
+      isCronEligibleTask(state, getTaskDefinition(schedule.taskId));
+
+    return {
+      ...schedule,
+      enabled: canEnable,
+      remainingSeconds: canEnable
+        ? getCronIntervalSeconds(state, schedule)
+        : schedule.remainingSeconds,
+    };
+  });
+
 export const applyAction = (state: GameState, action: GameAction): GameState => {
   if (action.type === "startTask") return startTask(state, action.taskId);
   if (action.type === "startTaskOnCore") {
@@ -2197,6 +2614,24 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
   }
   if (action.type === "cancelQueuedTask") {
     return cancelQueuedTaskById(state, action.taskId);
+  }
+  if (action.type === "requestShutdown") return requestShutdown(state);
+  if (action.type === "requestStartup") return requestStartup(state);
+  if (action.type === "requestPowerOff") return requestPowerOff(state);
+  if (action.type === "requestPowerOn") return requestPowerOn(state);
+  if (action.type === "setCronTask") {
+    return setCronTask(state, action.scheduleId, action.taskId);
+  }
+  if (action.type === "setCronInterval") {
+    return setCronInterval(
+      state,
+      action.scheduleId,
+      action.intervalMode,
+      action.intervalValue,
+    );
+  }
+  if (action.type === "setCronEnabled") {
+    return setCronEnabled(state, action.scheduleId, action.enabled);
   }
   if (action.type === "buyResearch") return buyResearch(state, action.researchId);
   if (action.type === "buyUpgrade") {

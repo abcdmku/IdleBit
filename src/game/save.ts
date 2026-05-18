@@ -12,6 +12,7 @@ import {
   getRamBytes,
   getRamBits,
   getRamSpeedMt,
+  syncCronSchedules,
   syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
@@ -60,6 +61,8 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.scheduler) completed.push("systemScheduler");
   if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");
+  if (flags.cron) completed.push("cronScheduler");
+  if (flags.psuManagement) completed.push("psuManagement");
   if (flags.cooling) completed.push("thermalControl");
   return completed;
 };
@@ -78,6 +81,8 @@ const validResearchIds = [
   "systemScheduler",
   "ramControl",
   "systemBus",
+  "cronScheduler",
+  "psuManagement",
   "thermalControl",
 ] satisfies ResearchId[];
 
@@ -247,6 +252,8 @@ const normalizeState = (state: LegacyState): GameState => {
           ? hardware.ramSpeedMt
           : getRamSpeedMt(ramSpeedLevel),
       ramSticks,
+      cronIntervalLevel:
+        hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
       psuLevel,
       psuWatts: hardware.psuLevel
         ? (hardware.psuWatts ?? getPsuWatts(psuLevel))
@@ -265,6 +272,26 @@ const normalizeState = (state: LegacyState): GameState => {
     resources: {
       ...fresh.resources,
       ...state.resources,
+    },
+    power: {
+      state:
+        state.power?.state === "shuttingDown" ||
+        state.power?.state === "off" ||
+        state.power?.state === "booting"
+          ? state.power.state
+          : "on",
+      transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
+    },
+    cron: {
+      schedules: state.cron?.schedules ?? fresh.cron.schedules,
+      nextScheduleId: Math.max(
+        1,
+        state.cron?.nextScheduleId ?? fresh.cron.nextScheduleId,
+      ),
+      queuePowerSpikeSeconds: Math.max(
+        0,
+        state.cron?.queuePowerSpikeSeconds ?? 0,
+      ),
     },
     deadlockPressureSeconds: state.deadlockPressureSeconds ?? 0,
     deadlockPressureResource: state.deadlockPressureResource ?? null,
@@ -289,7 +316,7 @@ const normalizeState = (state: LegacyState): GameState => {
     autoRepeatJobId: state.autoRepeatJobId ?? null,
   };
 
-  return updateProgressionFlags(syncHardwarePackages(normalized));
+  return syncCronSchedules(updateProgressionFlags(syncHardwarePackages(normalized)));
 };
 
 export const deserializeSave = (raw: string | null): GameState => {

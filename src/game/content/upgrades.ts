@@ -101,6 +101,11 @@ const coolingCosts = (purchaseCount: number): Cost[] => [
   data(8 * 1.38 ** purchaseCount),
 ];
 
+const cronIntervalCosts = (purchaseCount: number): Cost[] => [
+  credits(42 * 1.18 ** purchaseCount),
+  data(6 * 1.12 ** purchaseCount),
+];
+
 const setHardware = (
   state: GameState,
   update: Partial<GameState["hardware"]>,
@@ -312,6 +317,7 @@ const count = (
     );
     return levels.length > 0 ? Math.max(0, Math.min(...levels) - 1) : 0;
   }
+  if (id === "cronInterval") return state.hardware.cronIntervalLevel ?? 0;
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
   if (id === "basicQueue") return state.flags.basicQueue ? 1 : 0;
@@ -694,6 +700,32 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
   },
   {
+    id: "cronInterval",
+    name: "CRON Interval",
+    component: "cron",
+    accent: "violet",
+    maxPurchases: 59,
+    requirement: (state) =>
+      state.flags.cron && (state.hardware.cronIntervalLevel ?? 0) < 59,
+    cost: (state) => cronIntervalCosts(Math.max(0, state.hardware.cronIntervalLevel ?? 0)),
+    buy: (state) =>
+      setHardware(state, {
+        cronIntervalLevel: Math.min(59, (state.hardware.cronIntervalLevel ?? 0) + 1),
+      }),
+    refund: (state) =>
+      (state.hardware.cronIntervalLevel ?? 0) > 0
+        ? halfRefund(cronIntervalCosts((state.hardware.cronIntervalLevel ?? 1) - 1))
+        : [],
+    downgrade: (state) => {
+      const cronIntervalLevel = state.hardware.cronIntervalLevel ?? 0;
+      if (cronIntervalLevel <= 0) return state;
+
+      return setHardware(state, {
+        cronIntervalLevel: cronIntervalLevel - 1,
+      });
+    },
+  },
+  {
     id: "basicQueue",
     name: "Local Scheduler",
     component: "scheduler",
@@ -906,7 +938,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "PSU Capacity",
     component: "psu",
     accent: "amber",
-    requirement: (state) => state.hardware.secondCpu,
+    requirement: (state) => state.flags.psuManagement,
     cost: (state) => psuCosts(Math.max(0, state.hardware.psuLevel - 1)),
     buy: (state) => {
       const psuLevel = state.hardware.psuLevel + 1;
@@ -932,7 +964,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
   {
     id: "cooling",
     name: "Cooling Loop",
-    component: "psu",
+    component: "thermal",
     accent: "cyan",
     requirement: (state) => state.flags.cooling,
     cost: (state) => coolingCosts(Math.max(0, state.hardware.coolingLevel)),

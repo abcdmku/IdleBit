@@ -73,6 +73,8 @@ type CacheSegmentState = "buffering" | "loading" | "loaded";
 type RamSegmentState = "reserved" | "loading" | "loaded";
 type TaskCategoryId = "cpu" | "system" | "distributed" | "other";
 type CoreGridDensity = "normal" | "compact" | "dense";
+type CronIntervalMode = "seconds" | "minutes";
+type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
 
 interface CacheSegment {
   kind: CacheSegmentKind;
@@ -396,10 +398,14 @@ interface UiSystemStatus {
   ramBytes?: number;
   psuStress?: number;
   powerStress?: number;
+  powerEfficiency?: number;
+  powerState?: string;
   coolingStress?: number;
   thermalStress?: number;
   coolingStatus?: string;
   thermalStatus?: string;
+  ramCpuMatch?: number;
+  matchingEfficiency?: number;
   memory?: {
     pressure?: number;
     usedBits?: number;
@@ -415,6 +421,52 @@ interface UiSystemStatus {
   };
   psu?: { stress?: number };
   cooling?: { status?: string; stress?: number };
+  power?: {
+    state?: string;
+    drawWatts?: number;
+    capacityWatts?: number;
+    costPerMinute?: number;
+    efficiency?: number;
+  };
+}
+
+interface UiCronSchedule {
+  id?: string | number;
+  scheduleId?: string | number;
+  taskId?: string;
+  enabled?: boolean;
+  intervalSeconds?: number;
+  intervalMinutes?: number;
+  interval?: number;
+  mode?: CronIntervalMode;
+  minIntervalSeconds?: number;
+  minimumSeconds?: number;
+  secondsRemaining?: number;
+  countdownSeconds?: number;
+  nextRunSeconds?: number;
+  lastResult?: string | null;
+  lastRunResult?: string | null;
+  result?: string | null;
+}
+
+interface UiCronState {
+  unlocked?: boolean;
+  enabled?: boolean;
+  schedules?: UiCronSchedule[];
+  rows?: UiCronSchedule[];
+  minIntervalSeconds?: number;
+  unlockedMinimumSeconds?: number;
+  minimumSeconds?: number;
+  minIntervalUpgradeId?: string;
+}
+
+interface UiPowerState {
+  state?: string;
+  lifecycle?: string;
+  drawWatts?: number;
+  capacityWatts?: number;
+  costPerMinute?: number;
+  efficiency?: number;
 }
 
 type UiCore = VisibleCore & { activeTask?: UiActiveTask | null };
@@ -425,13 +477,42 @@ type UiVisibleState = VisibleState & {
   activeTasks?: UiActiveTask[];
   queue: UiQueueEntry[];
   systemStatus?: UiSystemStatus;
+  cron?: UiCronState;
+  automation?: { cron?: UiCronState };
+  systemManagement?: {
+    cron?: UiCronState;
+    psuManagement?: boolean;
+    powerManagement?: boolean;
+    thermalControl?: boolean;
+    power?: UiPowerState;
+  };
+  power?: UiPowerState;
+  flags: VisibleState["flags"] & {
+    cron?: boolean;
+    cronScheduler?: boolean;
+    cronAutomation?: boolean;
+    psuManagement?: boolean;
+    powerManagement?: boolean;
+    thermalControl?: boolean;
+  };
+  hardware: VisibleState["hardware"] & {
+    cron?: UiCronState;
+    power?: UiPowerState;
+    powerState?: string;
+  };
   metrics: VisibleState["metrics"] & {
     ramLoad?: number;
     memoryPressure?: number;
     psuStress?: number;
     powerStress?: number;
+    powerEfficiency?: number;
+    ramCpuMatch?: number;
+    matchingEfficiency?: number;
+    thermalStress?: number;
     coolingStress?: number;
     coolingStatus?: string;
+    thermalStatus?: string;
+    powerState?: string;
   };
 };
 
@@ -1466,6 +1547,266 @@ const getStressTone = (ratio: number | null) => {
   return "good";
 };
 
+const hasSecondCpuSystem = (visible: VisibleState) =>
+  visible.hardware.secondCpu || visible.metrics.cpuSockets.length > 1;
+
+const hasUiFlag = (visible: VisibleState, ...names: string[]) => {
+  const flags = asUiVisible(visible).flags as unknown as Record<string, unknown>;
+  return names.some((name) => flags[name] === true);
+};
+
+const getCronState = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  return (
+    ui.cron ??
+    ui.automation?.cron ??
+    ui.systemManagement?.cron ??
+    ui.hardware.cron ??
+    null
+  );
+};
+
+const hasCronScheduler = (visible: VisibleState) =>
+  Boolean(
+    getCronState(visible)?.unlocked ||
+      hasUiFlag(visible, "cron", "cronScheduler", "cronAutomation"),
+  );
+
+const hasPsuManagement = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  return Boolean(
+    ui.systemManagement?.psuManagement ||
+      ui.systemManagement?.powerManagement ||
+      hasUiFlag(visible, "psuManagement", "powerManagement"),
+  );
+};
+
+const hasThermalControl = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  return Boolean(
+    ui.systemManagement?.thermalControl ||
+      hasUiFlag(visible, "thermalControl") ||
+      visible.flags.cooling,
+  );
+};
+
+const getSystemTaskOptions = (visible: VisibleState) =>
+  getTasks(visible).filter(isSystemQueueTask);
+
+const getCronMinimumSeconds = (
+  cron: UiCronState | null,
+  schedule?: UiCronSchedule,
+) =>
+  Math.max(
+    1,
+    firstNumber(
+      schedule?.minIntervalSeconds,
+      schedule?.minimumSeconds,
+      cron?.minIntervalSeconds,
+      cron?.unlockedMinimumSeconds,
+      cron?.minimumSeconds,
+    ) ?? 60,
+  );
+
+const getCronScheduleId = (schedule: UiCronSchedule, index: number) =>
+  String(schedule.id ?? schedule.scheduleId ?? `schedule-${index + 1}`);
+
+const getCronIntervalSeconds = (
+  schedule: UiCronSchedule,
+  minimumSeconds: number,
+) => {
+  const intervalSeconds = firstNumber(
+    schedule.intervalSeconds,
+    typeof schedule.intervalMinutes === "number"
+      ? schedule.intervalMinutes * 60
+      : undefined,
+    schedule.interval,
+  );
+
+  return Math.max(minimumSeconds, intervalSeconds ?? minimumSeconds);
+};
+
+const getCronMode = (
+  schedule: UiCronSchedule,
+  intervalSeconds: number,
+): CronIntervalMode =>
+  schedule.mode ??
+  (intervalSeconds >= 60 && intervalSeconds % 60 === 0 ? "minutes" : "seconds");
+
+const getCronSchedules = (visible: VisibleState) => {
+  const cron = getCronState(visible);
+  const schedules = ((cron?.schedules ?? cron?.rows ?? []) as unknown) as UiCronSchedule[];
+
+  if (schedules.length > 0) return schedules;
+
+  const firstTask = getSystemTaskOptions(visible)[0];
+  const minimumSeconds = getCronMinimumSeconds(cron);
+  return [
+    {
+      id: "primary",
+      taskId: firstTask?.id ?? "",
+      enabled: false,
+      intervalSeconds: minimumSeconds,
+      minIntervalSeconds: minimumSeconds,
+      lastResult: null,
+    },
+  ];
+};
+
+const getCronLastResult = (schedule: UiCronSchedule) =>
+  schedule.lastResult ?? schedule.lastRunResult ?? schedule.result ?? "No runs yet";
+
+const getCronCountdownLabel = (schedule: UiCronSchedule) => {
+  if (schedule.enabled === false) return "Paused";
+
+  const seconds = firstNumber(
+    schedule.secondsRemaining,
+    schedule.countdownSeconds,
+    schedule.nextRunSeconds,
+  );
+
+  return typeof seconds === "number"
+    ? formatCountdownSeconds(seconds)
+    : "Waiting";
+};
+
+const formatCronInterval = (seconds: number) =>
+  seconds >= 60 && seconds % 60 === 0
+    ? `${formatNumber(seconds / 60)}m`
+    : `${formatNumber(seconds)}s`;
+
+const getCronMinimumUpgrade = (
+  visible: VisibleState,
+  cron: UiCronState | null,
+) => {
+  const candidateIds = [
+    cron?.minIntervalUpgradeId,
+    "cronMinInterval",
+    "cronInterval",
+    "cronSchedulerInterval",
+    "cronSchedulerCadence",
+  ].filter((id): id is string => Boolean(id));
+
+  return visible.upgrades.find((upgrade) =>
+    candidateIds.includes(upgrade.id as string),
+  );
+};
+
+const normalizePowerState = (
+  state: string | null | undefined,
+): PowerLifecycleState => {
+  const normalized = state?.trim().toLowerCase().replace(/[\s_-]/g, "") ?? "";
+
+  if (normalized.includes("boot") || normalized.includes("poweringon")) {
+    return "booting";
+  }
+
+  if (
+    normalized.includes("shut") ||
+    normalized.includes("poweringoff") ||
+    normalized.includes("stopping")
+  ) {
+    return "shuttingDown";
+  }
+
+  if (normalized === "off" || normalized === "offline" || normalized === "down") {
+    return "off";
+  }
+
+  return "on";
+};
+
+const getPowerState = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  return normalizePowerState(
+    ui.systemStatus?.powerState ??
+      ui.systemStatus?.power?.state ??
+      ui.systemManagement?.power?.state ??
+      ui.systemManagement?.power?.lifecycle ??
+      ui.power?.state ??
+      ui.power?.lifecycle ??
+      ui.hardware.powerState ??
+      ui.hardware.power?.state ??
+      ui.metrics.powerState,
+  );
+};
+
+const getPowerStats = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const power =
+    ui.systemStatus?.power ??
+    ui.systemManagement?.power ??
+    ui.power ??
+    ui.hardware.power;
+  const state = getPowerState(visible);
+  const capacityWatts = Math.max(
+    firstNumber(power?.capacityWatts, visible.hardware.psuWatts) ?? 1,
+    1,
+  );
+  const drawWatts =
+    state === "off"
+      ? 0
+      : Math.max(0, firstNumber(power?.drawWatts, visible.metrics.powerUsedWatts) ?? 0);
+  const stress =
+    normalizeRatio(
+      firstNumber(
+        ui.systemStatus?.psuStress,
+        ui.systemStatus?.powerStress,
+        ui.systemStatus?.psu?.stress,
+        ui.metrics.psuStress,
+        ui.metrics.powerStress,
+      ),
+    ) ?? drawWatts / capacityWatts;
+  const costPerMinute =
+    firstNumber(
+      power?.costPerMinute,
+      ui.systemStatus?.power?.costPerMinute,
+      visible.metrics.powerCostPerMinute,
+    ) ?? Math.round(drawWatts * 0.03 * 10) / 10;
+
+  return { state, drawWatts, capacityWatts, stress, costPerMinute };
+};
+
+const getEfficiencyMetrics = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const load = getSystemLoad(visible);
+  const totalCores = Math.max(1, getAllCores(visible).length);
+  const activeCores =
+    visible.metrics.activeCoreCount ??
+    getAllCores(visible).filter((core) => Boolean(getCoreActiveTask(core))).length;
+  const cpuLoad = clampMeter(activeCores / totalCores);
+  const memoryPressure = clampMeter(load.memoryPressure);
+  const derivedMatch =
+    cpuLoad === 0 && memoryPressure === 0
+      ? 1
+      : 1 - Math.min(1, Math.abs(cpuLoad - memoryPressure));
+  const ramCpuMatch =
+    normalizeRatio(
+      firstNumber(
+        ui.metrics.ramCpuMatch,
+        ui.metrics.matchingEfficiency,
+        ui.systemStatus?.ramCpuMatch,
+        ui.systemStatus?.matchingEfficiency,
+      ),
+    ) ?? derivedMatch;
+  const powerEfficiency =
+    normalizeRatio(
+      firstNumber(
+        ui.metrics.powerEfficiency,
+        ui.systemStatus?.powerEfficiency,
+        ui.systemStatus?.power?.efficiency,
+        ui.systemManagement?.power?.efficiency,
+        ui.power?.efficiency,
+        visible.metrics.powerReliability,
+      ),
+    ) ?? Math.max(0, 1 - Math.max(0, load.psuStress - 0.72));
+
+  return {
+    ramCpuMatch: clampMeter(ramCpuMatch),
+    powerEfficiency: clampMeter(powerEfficiency),
+  };
+};
+
 const RESOURCE_GAIN_ANIMATION_MS = 1080;
 const MAX_RESOURCE_GAIN_BURSTS = 10;
 const RESOURCE_GAIN_EPSILON = 0.0001;
@@ -1661,9 +2002,14 @@ export function HardwareBoard({
   const schedulerVisible =
     visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
   const allCoreTuningVisible = visible.flags.basicQueue || visible.flags.scheduler;
+  const secondCpuSystemVisible = hasSecondCpuSystem(visible);
+  const cronVisible = secondCpuSystemVisible;
   const systemSchedulerVisible = visible.flags.scheduler;
   const memoryVisible = hasSystemMemory(visible);
-  const psuVisible = visible.hardware.secondCpu || visible.hardware.psuLevel > 0;
+  const psuManagementUnlocked = hasPsuManagement(visible);
+  const thermalControlUnlocked = hasThermalControl(visible);
+  const psuVisible = secondCpuSystemVisible || visible.hardware.psuLevel > 0;
+  const thermalVisible = secondCpuSystemVisible || thermalControlUnlocked;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
 
@@ -1691,10 +2037,19 @@ export function HardwareBoard({
     deadlockCooldownHelpResource === resource;
   const showSocketLabel = visible.metrics.cpuSockets.length > 1;
   const showEmptySocket = !visible.hardware.secondCpu && visible.flags.secondCpu;
-  const railVisible = psuVisible || visible.flags.cooling;
+  const railVisible = psuVisible || thermalVisible;
 
   return (
     <SystemBoard visible={visible}>
+      {cronVisible && (
+        <CronAutomationSection
+          visible={visible}
+          selected={selectedComponent === "cron"}
+          onSelect={() => onSelectComponent("cron")}
+          dispatch={dispatch}
+        />
+      )}
+
       {systemSchedulerVisible && (
         <SystemSchedulerSection
           visible={visible}
@@ -1869,9 +2224,19 @@ export function HardwareBoard({
               onSelect={() => onSelectComponent("psu")}
               upgrades={psuUpgrades}
               dispatch={dispatch}
+              unlocked={psuManagementUnlocked}
             />
           )}
-          {visible.flags.cooling && <CoolingSection visible={visible} />}
+          {thermalVisible && (
+            <ThermalSection
+              visible={visible}
+              selected={selectedComponent === "thermal"}
+              onSelect={() => onSelectComponent("thermal")}
+              upgrades={psuUpgrades}
+              dispatch={dispatch}
+              unlocked={thermalControlUnlocked}
+            />
+          )}
         </SystemRail>
       )}
     </SystemBoard>
@@ -2962,6 +3327,299 @@ function QueuePreview({
   );
 }
 
+function LockedSystemSection({
+  className,
+  Icon,
+  title,
+  note,
+  selected = false,
+  onSelect,
+  children,
+}: {
+  className: string;
+  Icon: LucideIcon;
+  title: string;
+  note: string;
+  selected?: boolean;
+  onSelect: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <section
+      className={`hw-section locked-system-section ${className} ${
+        selected ? "selected" : ""
+      }`}
+    >
+      <button type="button" className="hw-section-header" onClick={onSelect}>
+        <Icon size={14} />
+        <span>{title}</span>
+        <span className="hw-section-meta">
+          <strong>Locked</strong>
+        </span>
+      </button>
+      <small className="locked-system-note">{note}</small>
+      {children}
+    </section>
+  );
+}
+
+function EfficiencyReadouts({ visible }: { visible: VisibleState }) {
+  const efficiency = getEfficiencyMetrics(visible);
+
+  return (
+    <div className="efficiency-readouts" aria-label="System efficiency">
+      <span>
+        <small>RAM/CPU match</small>
+        <strong>{formatPercent(efficiency.ramCpuMatch)}</strong>
+      </span>
+      <span>
+        <small>Power efficiency</small>
+        <strong>{formatPercent(efficiency.powerEfficiency)}</strong>
+      </span>
+    </div>
+  );
+}
+
+function CronAutomationSection({
+  visible,
+  selected,
+  onSelect,
+  dispatch,
+}: {
+  visible: VisibleState;
+  selected: boolean;
+  onSelect: () => void;
+  dispatch: Dispatch;
+}) {
+  const cron = getCronState(visible);
+  const unlocked = hasCronScheduler(visible);
+
+  if (!unlocked) {
+    return (
+      <LockedSystemSection
+        className="scheduler-section cron-section"
+        Icon={ListTodo}
+        title="Automation"
+        note="Research CRON Scheduler"
+        selected={selected}
+        onSelect={onSelect}
+      />
+    );
+  }
+
+  const schedules = getCronSchedules(visible);
+  const systemTasks = getSystemTaskOptions(visible);
+  const activeCount = schedules.filter((schedule) => schedule.enabled !== false).length;
+  const minUpgrade = getCronMinimumUpgrade(visible, cron);
+  const baseMinimumSeconds = getCronMinimumSeconds(cron);
+
+  return (
+    <section
+      className={`hw-section scheduler-section cron-section ${
+        selected ? "selected" : ""
+      }`}
+    >
+      <div className="hw-section-header-row cron-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <ListTodo size={14} />
+          <span>Automation</span>
+          <span className="hw-section-meta">
+            CRON <strong>{activeCount}</strong>/{schedules.length}
+          </span>
+        </button>
+        <span className="cron-min-chip">Min {formatCronInterval(baseMinimumSeconds)}</span>
+      </div>
+
+      <div className="cron-schedule-list" aria-label="CRON schedules">
+        {schedules.map((schedule, index) => (
+          <CronScheduleRow
+            key={getCronScheduleId(schedule, index)}
+            schedule={schedule}
+            index={index}
+            cron={cron}
+            tasks={systemTasks}
+            dispatch={dispatch}
+          />
+        ))}
+      </div>
+
+      {minUpgrade && (
+        <div className="cron-min-row">
+          <UpgradeStepper
+            upgrade={minUpgrade}
+            dispatch={dispatch}
+            label="Min interval"
+            className="cron-min-stepper"
+            resources={visible.resources}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CronScheduleRow({
+  schedule,
+  index,
+  cron,
+  tasks,
+  dispatch,
+}: {
+  schedule: UiCronSchedule;
+  index: number;
+  cron: UiCronState | null;
+  tasks: UiTask[];
+  dispatch: Dispatch;
+}) {
+  const scheduleId = getCronScheduleId(schedule, index);
+  const minimumSeconds = getCronMinimumSeconds(cron, schedule);
+  const intervalSeconds = getCronIntervalSeconds(schedule, minimumSeconds);
+  const mode = getCronMode(schedule, intervalSeconds);
+  const minValue =
+    mode === "minutes" ? Math.max(1, Math.ceil(minimumSeconds / 60)) : minimumSeconds;
+  const maxSeconds = Math.max(minimumSeconds * 20, intervalSeconds * 2, 600);
+  const maxValue =
+    mode === "minutes" ? Math.max(minValue, Math.ceil(maxSeconds / 60)) : maxSeconds;
+  const intervalValue =
+    mode === "minutes"
+      ? Math.max(minValue, Math.ceil(intervalSeconds / 60))
+      : Math.max(minValue, Math.round(intervalSeconds));
+  const selectedTaskId =
+    schedule.taskId && tasks.some((task) => task.id === schedule.taskId)
+      ? schedule.taskId
+      : (tasks[0]?.id ?? "");
+  const enabled = schedule.enabled !== false;
+
+  const dispatchInterval = (rawValue: string, nextMode = mode) => {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+
+    const nextValue = Math.max(minValue, Math.round(value));
+    const nextSeconds =
+      nextMode === "minutes" ? nextValue * 60 : nextValue;
+
+    dispatch({
+      type: "setCronScheduleInterval",
+      scheduleId,
+      intervalSeconds: Math.max(minimumSeconds, nextSeconds),
+      intervalMode: nextMode,
+      intervalValue: nextValue,
+    });
+  };
+
+  const switchMode = (nextMode: CronIntervalMode) => {
+    const nextValue =
+      nextMode === "minutes"
+        ? Math.max(1, Math.ceil(intervalSeconds / 60))
+        : intervalSeconds;
+    dispatchInterval(String(nextValue), nextMode);
+  };
+
+  return (
+    <div className="cron-schedule-row">
+      <div className="cron-loop-head">
+        <span className={`cron-loop-led ${enabled ? "enabled" : "paused"}`} />
+        <span>
+          <strong>Loop {index + 1}</strong>
+          <small>{enabled ? "Enabled" : "Paused"}</small>
+        </span>
+      </div>
+
+      <label className="cron-control cron-task-control">
+        <span>Task</span>
+        <select
+          value={selectedTaskId}
+          onChange={(event) =>
+            dispatch({
+              type: "setCronScheduleTask",
+              scheduleId,
+              taskId: event.currentTarget.value,
+            })
+          }
+          disabled={tasks.length === 0}
+          aria-label={`CRON schedule ${index + 1} system task`}
+        >
+          {tasks.length === 0 ? (
+            <option value="">No system tasks</option>
+          ) : (
+            tasks.map((task) => (
+              <option key={task.id} value={task.id}>
+                {task.name}
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+
+      <div className="cron-timing-controls">
+        <label className="cron-control cron-mode-control">
+          <span>Mode</span>
+          <select
+            value={mode}
+            onChange={(event) =>
+              switchMode(event.currentTarget.value as CronIntervalMode)
+            }
+            aria-label={`CRON schedule ${index + 1} interval mode`}
+          >
+            <option value="seconds">Seconds</option>
+            <option value="minutes">Minutes</option>
+          </select>
+        </label>
+
+        <label className="cron-control cron-interval-control">
+          <span>Every</span>
+          <input
+            type="number"
+            min={minValue}
+            max={maxValue}
+            step={1}
+            value={intervalValue}
+            onChange={(event) => dispatchInterval(event.currentTarget.value)}
+            aria-label={`CRON schedule ${index + 1} interval`}
+          />
+        </label>
+
+        <input
+          className="cron-interval-range"
+          type="range"
+          min={minValue}
+          max={maxValue}
+          step={1}
+          value={intervalValue}
+          onChange={(event) => dispatchInterval(event.currentTarget.value)}
+          aria-label={`CRON schedule ${index + 1} interval range`}
+        />
+      </div>
+
+      <label className="cron-toggle">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) =>
+            dispatch({
+              type: "setCronScheduleEnabled",
+              scheduleId,
+              enabled: event.currentTarget.checked,
+            })
+          }
+        />
+        <span>Enable</span>
+      </label>
+
+      <div className="cron-result-readouts">
+        <span>
+          <small>Next</small>
+          <strong>{getCronCountdownLabel(schedule)}</strong>
+        </span>
+        <span>
+          <small>Last</small>
+          <strong>{getCronLastResult(schedule)}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SystemSchedulerSection({
   visible,
   selected,
@@ -3285,45 +3943,116 @@ function PsuSection({
   onSelect,
   upgrades,
   dispatch,
+  unlocked,
 }: {
   visible: VisibleState;
   selected: boolean;
   onSelect: () => void;
   upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
+  unlocked: boolean;
 }) {
-  const status = getSystemLoad(visible);
-  const capacity = Math.max(visible.hardware.psuWatts, 1);
-  const tone = getStressTone(status.psuStress);
+  const power = getPowerStats(visible);
+  const tone = getStressTone(power.stress);
+  const efficiency = getEfficiencyMetrics(visible);
   const psuUpgrade = upgrades.find((upgrade) => upgrade.id === "psu");
-  const otherUpgrades = upgrades.filter((upgrade) => upgrade.id !== "psu");
+  const otherUpgrades = upgrades.filter(
+    (upgrade) => upgrade.id !== "psu" && upgrade.id !== "cooling",
+  );
+  const stateLabel = {
+    on: "On",
+    off: "Off",
+    booting: "Booting",
+    shuttingDown: "Shutting down",
+  }[power.state];
+
+  if (!unlocked) {
+    return (
+      <LockedSystemSection
+        className="psu-section"
+        Icon={Power}
+        title="PSU"
+        note="Research PSU Management"
+        selected={selected}
+        onSelect={onSelect}
+      >
+        <EfficiencyReadouts visible={visible} />
+      </LockedSystemSection>
+    );
+  }
 
   return (
-    <section className={`hw-section psu-section ${tone} ${selected ? "selected" : ""}`}>
+    <section
+      className={`hw-section psu-section ${tone} power-${power.state} ${
+        selected ? "selected" : ""
+      }`}
+    >
       <button type="button" className="hw-section-header" onClick={onSelect}>
         <Power size={14} />
         <span>PSU</span>
         <span className="hw-section-meta">
-          <strong>{formatPercent(status.psuStress)}</strong>
+          <strong>{formatPercent(power.stress)}</strong>
         </span>
       </button>
 
-      <div className="module-stat">
-        <strong>{formatWatts(visible.hardware.psuWatts)}</strong>
-        <small>{formatNumber(visible.metrics.powerCostPerMinute)} c/min</small>
+      <div className="power-state-row">
+        <span className={`power-state-chip ${power.state}`}>{stateLabel}</span>
+        <div className="power-control-buttons" aria-label="Power controls">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "setPowerState", state: "on" })}
+            disabled={power.state === "on" || power.state === "booting"}
+          >
+            On
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "setPowerState", state: "off" })}
+            disabled={power.state === "off" || power.state === "shuttingDown"}
+          >
+            Off
+          </button>
+        </div>
       </div>
 
-      <ModuleMeter value={visible.metrics.powerUsedWatts / capacity} />
+      <div className="power-stat-grid">
+        <div className="module-stat">
+          <strong>{formatWatts(power.drawWatts)}</strong>
+          <small>draw</small>
+        </div>
+        <div className="module-stat">
+          <strong>{formatWatts(power.capacityWatts)}</strong>
+          <small>capacity</small>
+        </div>
+        <div className="module-stat">
+          <strong>{formatPercent(power.stress)}</strong>
+          <small>stress</small>
+        </div>
+        <div className="module-stat">
+          <strong>{formatNumber(power.costPerMinute)}</strong>
+          <small>c/min</small>
+        </div>
+        <div className="module-stat">
+          <strong>{formatPercent(efficiency.ramCpuMatch)}</strong>
+          <small>RAM/CPU match</small>
+        </div>
+        <div className="module-stat">
+          <strong>{formatPercent(efficiency.powerEfficiency)}</strong>
+          <small>Power efficiency</small>
+        </div>
+      </div>
+
+      <ModuleMeter value={power.drawWatts / power.capacityWatts} />
 
       {psuUpgrade && (
-        <div className="cache-stat-row">
-          <span className="upgrade-chips">
-            <UpgradeChip
-              upgrade={psuUpgrade}
-              resources={visible.resources}
-              dispatch={dispatch}
-            />
-          </span>
+        <div className="power-upgrade-row">
+          <UpgradeStepper
+            upgrade={psuUpgrade}
+            dispatch={dispatch}
+            label="PSU Capacity"
+            className="inline-stepper"
+            resources={visible.resources}
+          />
         </div>
       )}
 
@@ -3338,19 +4067,49 @@ function PsuSection({
   );
 }
 
-function CoolingSection({ visible }: { visible: VisibleState }) {
+function ThermalSection({
+  visible,
+  selected,
+  onSelect,
+  upgrades,
+  dispatch,
+  unlocked,
+}: {
+  visible: VisibleState;
+  selected: boolean;
+  onSelect: () => void;
+  upgrades: VisibleUpgrade[];
+  dispatch: Dispatch;
+  unlocked: boolean;
+}) {
   const status = getSystemLoad(visible);
   const tone = getStressTone(status.coolingStress);
+  const coolingUpgrade = upgrades.find((upgrade) => upgrade.id === "cooling");
+
+  if (!unlocked) {
+    return (
+      <LockedSystemSection
+        className="thermal-section"
+        Icon={Thermometer}
+        title="Thermal"
+        note="Research Thermal Control"
+        selected={selected}
+        onSelect={onSelect}
+      />
+    );
+  }
 
   return (
-    <section className={`hw-section psu-section ${tone}`}>
-      <div className="hw-section-header">
+    <section
+      className={`hw-section thermal-section ${tone} ${selected ? "selected" : ""}`}
+    >
+      <button type="button" className="hw-section-header" onClick={onSelect}>
         <Thermometer size={14} />
         <span>Thermal</span>
         <span className="hw-section-meta">
           <strong>{status.coolingStatus}</strong>
         </span>
-      </div>
+      </button>
 
       <div className="module-stat">
         <strong>{formatPercent(status.coolingStress)}</strong>
@@ -3358,6 +4117,18 @@ function CoolingSection({ visible }: { visible: VisibleState }) {
       </div>
 
       {status.coolingStress !== null && <ModuleMeter value={status.coolingStress} />}
+
+      {coolingUpgrade && (
+        <div className="power-upgrade-row">
+          <UpgradeStepper
+            upgrade={coolingUpgrade}
+            dispatch={dispatch}
+            label="Cooling Loop"
+            className="inline-stepper"
+            resources={visible.resources}
+          />
+        </div>
+      )}
     </section>
   );
 }
@@ -3634,13 +4405,13 @@ export function TaskBay({
                 <span>{group.label}</span>
                 <small>{group.tasks.length}</small>
               </div>
-              {group.tasks.map((task) => {
+              {group.tasks.map((task, taskIndex) => {
                 const canStart = getTaskCanUseAction(task, mode);
                 const disabled = selectedCoreBusy || !canStart;
 
                 return (
                   <TaskCard
-                    key={task.id}
+                    key={`${group.id}-${task.id}-${taskIndex}`}
                     task={task}
                     mode={mode}
                     state={getTaskState(task, activeTasks, queue)}

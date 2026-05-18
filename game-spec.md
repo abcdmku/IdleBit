@@ -106,7 +106,7 @@ The player should not manually manage early-game objects forever.
 
 The player should always manage the newest interesting layer, not every layer at once.
 
-Auto-repeat is intentionally deferred until much later. Early automation should teach scheduling and queues instead of hiding task choice before the player understands operations, cache fill, and core throughput.
+Broad auto-repeat stays tightly scoped. Early automation should teach scheduling and queues before hiding task choice. The first timer automation is CRON v1 at the second-CPU/system stage: it repeats only visible repeatable system tasks after CRON Scheduler research, never hidden tasks, research benchmarks, or normal CPU task progression.
 
 ---
 
@@ -211,9 +211,16 @@ Tasks do not require power directly. Power draw comes from the hardware doing th
 At system scale:
 
 - The PSU is a system reliability component, not a per-task requirement.
+- Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill.
+- The starting draw after PSU Management should be gentle so players can learn billing, stress, and shutdown controls before power becomes punitive.
 - If hardware draw approaches PSU capacity, stress increases and efficiency drops.
 - If hardware draw exceeds PSU capacity, effective clock can throttle, heat rises, and sustained throughput degrades.
 - Dense cores and additional CPUs increase draw nonlinearly. Packing more compute into one system should be powerful but harder to cool and power reliably.
+- A system has four power states: `on`, `shuttingDown`, `off`, and `booting`.
+- `off` systems allow hardware configuration and upgrade purchases, but block work starts, scheduler dispatch, CRON runs, and power billing.
+- Startup and shutdown use short delays so power state changes are deliberate and visible.
+- RAM and CPU package efficiency should reward matching module sizes/frequencies and CPU package specs. Mismatches increase effective draw and reliability pressure.
+- Cooling is a tradeoff: stronger active cooling can reduce thermal waste and improve sustained throughput, but it adds its own draw and billing while the system is on.
 
 At rack scale:
 
@@ -388,6 +395,21 @@ At all scales, power should work similarly, but tasks do not directly request po
 
 `power_stress = active_hardware_draw / safe_power_capacity`
 
+Power cost accrues continuously while the system is powered on:
+
+`power_bill = active_hardware_draw * elapsed_seconds * power_price`
+
+There is no free wattage threshold. Low early draw should make the first bill forgiving, not free.
+
+System power state controls whether work can run:
+
+| State | Work / CRON | Billing | Notes |
+|---|---|---|---|
+| `on` | Allowed | Draw-based billing over time | Normal running state |
+| `shuttingDown` | New starts and CRON blocked | Bills until the shutdown delay completes | Makes power-off deliberate |
+| `off` | Blocked | Zero | Hardware configuration and purchases remain allowed |
+| `booting` | Blocked | Bills during startup delay | Returns to `on` after startup completes |
+
 If draw approaches or exceeds available power:
 
 - Efficiency drops.
@@ -475,6 +497,19 @@ The task panel should group available work by mechanical category, starting with
 | Packet Check | Reveals after cache is relevant and teaches cache fill |
 | Tiny Checksum | Unlocks after RAM Control and teaches larger RAM/cache staging |
 
+### Repeatable System Tasks
+
+Repeatable system tasks are the only tasks CRON v1 can automate. They are system-stage jobs, not research benchmarks, and they should reveal only when their supporting concept is visible.
+
+| Task | Reveal Timing | Purpose |
+|---|---|---|
+| Memory Scrub | After first Tiny Checksum | Introduces repeatable RAM maintenance work before automation is unlocked |
+| Queue Compaction | After first Tiny Checksum | Repeats scheduler maintenance work that CRON can later automate |
+| Power Telemetry | After first Tiny Checksum | Teaches draw observation before PSU controls are researched |
+| Bus Mirror | Second CPU purchase | Teaches multi-CPU system work after the matched CPU joins the board |
+| Thermal Probe | Second CPU purchase | Starts exposing heat management as the system grows |
+| Shard Reconcile | Second CPU purchase | Introduces wider repeatable system work for a growing CPU package |
+
 ### Research Compute
 
 Some research needs benchmark-style compute before the research can be purchased. These benchmark tasks are internal work items launched from the research card, not lingering normal task cards.
@@ -483,6 +518,16 @@ Some research needs benchmark-style compute before the research can be purchased
 |---|---|---|
 | Multi-Core Control | Micro Benchmark, Parallelism Benchmark | The card lists clock/cache prerequisites and runs both benchmarks before the multi-core unlock can be purchased |
 | System Bus | Multi-Core Benchmark | The card runs the four-core benchmark before second CPU purchase is unlocked |
+
+### System Research Gates
+
+The second CPU purchase reveals locked system modules, but the player still unlocks their controls through research.
+
+| Research | Appears After | Unlocks |
+|---|---|---|
+| CRON Scheduler | Second CPU purchase | CRON v1 timer automation for visible repeatable system tasks |
+| PSU Management | Second CPU purchase | PSU controls, draw billing, and power states |
+| Thermal Control | Second CPU purchase | Thermal controls, cooling loop upgrades, and cooling tradeoffs |
 
 ### Progressive Task And Research Reveal
 
@@ -501,7 +546,13 @@ Some research needs benchmark-style compute before the research can be purchased
 | Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
 | RAM Control research | Local Scheduler research | Appears alongside System Scheduler and unlocks 256 b RAM at 1 Hz |
 | System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
-| Auto-repeat | Deferred until later scheduler/automation layers | Do not reveal in the bit-scale opening |
+| Locked CRON, PSU, and Thermal modules | Second CPU purchase | CRON sits at the top of the system board; PSU and Thermal reveal as locked system support modules |
+| Memory Scrub, Queue Compaction, and Power Telemetry | After first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
+| CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
+| Bus Mirror, Thermal Probe, and Shard Reconcile | Second CPU purchase | Later repeatable system tasks for multi-CPU system management |
+| PSU Management research | Second CPU purchase | Unlocks PSU controls, power billing, and shutdown/startup |
+| Thermal Control research | Second CPU purchase | Unlocks Thermal controls, cooling tradeoffs, and cooling loop upgrades |
+| Broad auto-repeat | Deferred until later scheduler/automation layers | CRON v1 is the scoped early timer; general task auto-repeat stays out of the bit-scale opening |
 
 ---
 
@@ -637,14 +688,17 @@ Second CPU unlocks after:
 
 ### Major Rule
 
-When the player buys the second CPU, power supply becomes visible. RAM is already introduced by RAM Control before System Scheduler; the second CPU stage is where PSU stress and broader system building become player-facing.
+When the player buys the second CPU, locked CRON, PSU, and Thermal modules become visible. CRON sits at the top of the system board so automation status is visible before the player manages power support. RAM is already introduced by RAM Control before System Scheduler; the second CPU stage is where repeatable system tasks, PSU stress, power states, and broader system building become player-facing.
 
 ### New Mechanics
 
 - CPU sockets.
 - Second CPU.
 - Matched CPU packages.
-- Power supply.
+- Locked CRON, PSU, and Thermal modules.
+- CRON Scheduler, PSU Management, and Thermal Control research.
+- CRON v1 timer automation for repeatable system tasks.
+- Power supply and power state controls.
 - System-level throttling.
 
 ### RAM Role
@@ -663,9 +717,26 @@ RAM should not be heavily exposed before RAM Control. After RAM Control it becom
 
 Cache and RAM pressure uses deadlocks instead of invisible start blockers once total installed capacity is sufficient. A task may start or FIFO-dispatch even when the combined in-flight footprint is risky; deadlock does not happen at start time merely because two tasks want more cache or RAM than is currently free. Deadlock-safe CPU scheduler dispatch is stricter: it accounts for active work on the affected CPU and system RAM and will not start CPU-owned work whose eventual cache/RAM footprint cannot fit. Deadlock-safe System Scheduler dispatch accounts for active system RAM footprint only; CPU-local cache footprint is delegated to the selected CPU scheduler. When an active load/write would push CPU-local cache or system-wide RAM beyond capacity, that operation enters `deadlocked`, holds its task/core, and turns the affected core, CPU package, cache/RAM section, and scheduler slot red. A cache deadlock freezes all active work on that CPU package, including the task currently holding cache. A RAM deadlock freezes all active work across the system, including unrelated CPU work, until the deadlock is cleared. The pressure timer gives the player 10 seconds to clear the problem; resolving it earlier lets work resume while the timer cools down, but hitting the full timer wipes active processes and blocks new starts until pressure returns to 0. Canceling active or queued work remains the baseline manual fix, and adding capacity can also let the deadlocked task continue. The first deadlock help caption and follow-up cooldown caption pause the game while visible unless a scheduler watchdog auto-kill countdown is active, and are one-time UI hints stored outside the save blob.
 
+### CRON Role
+
+CRON is the first explicit timer automation layer. It is visible but locked after the second CPU purchase and unlocks through CRON Scheduler research.
+
+CRON v1 rules:
+
+- CRON can schedule only visible repeatable system tasks.
+- CRON cannot schedule hidden tasks, research benchmark compute, normal CPU-bound task progression, or later locked task groups.
+- Each scheduled entry has seconds and minutes interval modes.
+- The default minimum interval is 60 seconds.
+- Each `cronInterval` upgrade lowers the minimum interval by 1 second.
+- CRON skips a tick if the same task is already active or queued, if the task is blocked, if the target scheduler queue is full, or if the system is `off`, `booting`, or `shuttingDown`.
+- Skipped or offline time does not catch up later. A missed run is simply missed.
+- Adding work to the queue through CRON creates a short power spike, so automation interacts with PSU capacity and power billing instead of being free.
+
 ### Power Supply Role
 
-The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
+The PSU is visible but locked after the second CPU purchase. PSU Management research unlocks power controls, draw/billing readouts, and shutdown/startup controls. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
+
+Power is paid over time while the system is powered on. The early draw curve should be gentle, but there is no free threshold: idle `on`, `booting`, and `shuttingDown` states can still bill from their actual draw. Fully `off` systems bill zero and may still be configured, but they cannot start work, dispatch queues, or run CRON.
 
 If active draw exceeds PSU capacity:
 
@@ -674,7 +745,7 @@ If active draw exceeds PSU capacity:
 - Job completion slows.
 - Reliability margin shrinks.
 
-At this point, power should still be forgiving. It should show stress and throttle without rewinding active work. Dense CPU/core upgrades should increase draw nonlinearly so compact high-throughput builds need better PSU and cooling support.
+At this point, power should still be forgiving. It should show stress and throttle without rewinding active work. Dense CPU/core upgrades should increase draw nonlinearly so compact high-throughput builds need better PSU and cooling support. Matching RAM module size/speed and CPU package specs should improve effective draw and reliability, while mismatches make optimization meaningfully worse.
 
 ---
 
@@ -688,9 +759,9 @@ The player learns sustained performance.
 
 Cooling unlocks after:
 
-- Power supply is visible.
-- Player completes Thermal Control research after first seeing PSU/heat pressure.
-- Player first experiences heat throttling or unlocks overclocking.
+- The Thermal module is visible but locked after the second CPU purchase.
+- Player completes Thermal Control research.
+- Player first sees heat and cooling tradeoffs as part of system management.
 
 Thermal Control is the player-facing gate for cooling controls in the current target. Before that gate, cooling can be represented internally for balance or future migration, but the UI should not ask the player to manage it.
 
@@ -707,7 +778,7 @@ Thermal Control is the player-facing gate for cooling controls in the current ta
 
 ### Design Rule
 
-Cooling should be introduced as the solution to a visible problem, not as an arbitrary early upgrade. Cooling improves sustained throughput, power efficiency, and reliability by lowering thermal stress and SLA risk.
+Cooling should be introduced as the solution to a visible problem, not as an arbitrary early upgrade. Cooling improves sustained throughput, power efficiency, and reliability by lowering thermal stress and SLA risk. Active cooling is not free: stronger cooling can add power draw and billing while reducing thermal waste, so the player should balance PSU headroom against thermal control.
 
 ---
 
@@ -1357,28 +1428,30 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 9 | Four-core milestone | First major CPU achievement |
 | 10 | RAM Control | Adds active/intermediate staging constraints before System Scheduler |
 | 11 | System Scheduler | Automates RAM-staged multicore task scheduling after 1 Kb RAM |
-| 12 | Matched CPU | Transitions to full system building |
-| 13 | Power supply | Adds reliability stress and throttling pressure |
-| 14 | Cooling | Improves efficiency and reliability |
-| 15 | Preconfigured systems | Reduces system micromanagement |
-| 16 | Expansion slots | Adds specialization |
-| 17 | GPU/NPU | Adds specialized workloads |
-| 18 | Workload routing | Scheduler becomes smarter |
-| 19 | Multiple systems | Fleet management begins |
-| 20 | System templates | Reduces machine micromanagement |
-| 21 | Networking | Systems cooperate |
-| 22 | Sharding | Splits data across systems |
-| 23 | Distributed computing | Splits work across systems |
-| 24 | Server chassis | Systems become server units |
-| 25 | Racks | Servers become infrastructure |
-| 26 | Rack templates | Reduces server micromanagement |
-| 27 | Data centers | Facility-scale power/cooling/network constraints |
-| 28 | SLA contracts | Rewards stable infrastructure |
-| 29 | Data center procurement policies | Reduces rack/server micromanagement |
-| 30 | Availability zones | Adds failover, latency, and coverage |
-| 31 | Region expansion | Adds geography and demand |
-| 32 | Global scheduler | Automates regional placement |
-| 33 | Planetary computing | Endgame policy layer |
+| 12 | Matched CPU purchase | Transitions to full system building |
+| 13 | Locked CRON, PSU, and Thermal reveal | Shows system automation/support modules after the second CPU purchase, with CRON at the top |
+| 14 | CRON Scheduler | Adds scoped timer automation for visible repeatable system tasks |
+| 15 | PSU Management | Adds power billing, power states, efficiency readouts, and PSU controls |
+| 16 | Thermal Control | Adds cooling controls and thermal/power tradeoffs |
+| 17 | Preconfigured systems | Reduces system micromanagement |
+| 18 | Expansion slots | Adds specialization |
+| 19 | GPU/NPU | Adds specialized workloads |
+| 20 | Workload routing | Scheduler becomes smarter |
+| 21 | Multiple systems | Fleet management begins |
+| 22 | System templates | Reduces machine micromanagement |
+| 23 | Networking | Systems cooperate |
+| 24 | Sharding | Splits data across systems |
+| 25 | Distributed computing | Splits work across systems |
+| 26 | Server chassis | Systems become server units |
+| 27 | Racks | Servers become infrastructure |
+| 28 | Rack templates | Reduces server micromanagement |
+| 29 | Data centers | Facility-scale power/cooling/network constraints |
+| 30 | SLA contracts | Rewards stable infrastructure |
+| 31 | Data center procurement policies | Reduces rack/server micromanagement |
+| 32 | Availability zones | Adds failover, latency, and coverage |
+| 33 | Region expansion | Adds geography and demand |
+| 34 | Global scheduler | Automates regional placement |
+| 35 | Planetary computing | Endgame policy layer |
 
 ---
 
@@ -1391,6 +1464,7 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 4 cores | System Scheduler | Core-by-core operation management and cache/RAM queue feeding |
 | Scheduler Watchdog | Auto-kill controls | Manually clearing long deadlocked scheduler-owned work |
 | Scheduling Policy | Scheduler policy controls | Manually avoiding risky dispatch order |
+| Second CPU | CRON v1 | Manually relaunching visible repeatable system tasks |
 | Full system | Preconfigured CPUs | Per-core CPU tuning |
 | Workstation | Scheduler policies | Manual CPU/GPU/NPU/RAM/storage assignment |
 | Multiple systems | System templates | Rebuilding machines by hand |
@@ -1402,7 +1476,7 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | AZ phase | Failover policy | Manual redundancy handling |
 | Region phase | Regional scheduler | Manual regional routing |
 | Planetary phase | Global scheduler / infrastructure policy | Most low-level operations |
-| Much later automation | Auto-repeat | Manual relaunch of familiar repeatable tasks |
+| Much later automation | Broad auto-repeat | Manual relaunch of non-system and cross-scale recurring work |
 
 ---
 
@@ -1439,7 +1513,10 @@ A strong first vertical slice should include progression through:
 6. 1 Kb RAM gate for System Scheduler.
 7. System Scheduler unlock.
 8. Matched CPU unlock.
-9. Power reveal and PSU stress expectations documented for the next slice.
+9. Second CPU purchase reveals locked CRON, PSU, and Thermal modules, with CRON at the top of the board.
+10. CRON Scheduler unlocks CRON v1 for visible repeatable system tasks only.
+11. PSU Management introduces paid-over-time power, power states, and efficiency readouts.
+12. Thermal Control introduces the cooling/power tradeoff.
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
 
@@ -1484,16 +1561,19 @@ Late game should include:
 5. RAM should become visible only when the player has enough parallelism for active/intermediate staging to matter.
 6. Cache, RAM, and storage load speeds should be meaningful upgrade paths.
 7. Tasks should not require power directly; active hardware creates power draw and stress.
-8. Power should first show stress and throttle without rewinding tasks; hard failure risk belongs to later, higher-scale reliability systems.
+8. Power should be billed over time from actual draw with no free threshold, but the starting draw should be gentle.
 9. Dense cores and additional CPUs should increase power draw nonlinearly.
-10. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability.
-11. Higher SLA jobs should pay more because they require safer infrastructure.
-12. Uptime should emerge from headroom, redundancy, routing, and load management.
-13. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
-14. Brute force should remain possible but inefficient.
-15. Operating cost should include maintenance, staff, monitoring, and automation.
-16. Every new scale should automate or abstract the previous scale.
-17. Auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
+10. Power state controls should make `off` useful for configuration and zero billing while clearly blocking work and CRON.
+11. Power should first show stress and throttle without rewinding tasks; hard failure risk belongs to later, higher-scale reliability systems.
+12. CRON v1 should repeat only visible repeatable system tasks, skip blocked or duplicate work, and never catch up missed runs.
+13. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability while adding an active-power tradeoff.
+14. Higher SLA jobs should pay more because they require safer infrastructure.
+15. Uptime should emerge from headroom, redundancy, routing, and load management.
+16. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
+17. Brute force should remain possible but inefficient.
+18. Operating cost should include maintenance, staff, monitoring, and automation.
+19. Every new scale should automate or abstract the previous scale.
+20. Broad auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
 
 ---
 

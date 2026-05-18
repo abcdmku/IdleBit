@@ -1,5 +1,7 @@
 import { hasResearch } from "./content/research";
 import type {
+  CronIntervalMode,
+  CronScheduleState,
   CpuHardwareState,
   CoreSchedulerState,
   GameState,
@@ -85,6 +87,88 @@ export const getPsuWatts = (level: number) =>
 
 export const getCoolingRating = (level: number) =>
   level <= 0 ? 0 : Math.round((1 + (level - 1) * 0.28) * 100) / 100;
+
+export const getCronMinIntervalSeconds = (state: GameState) =>
+  Math.max(1, 60 - Math.max(0, state.hardware.cronIntervalLevel ?? 0));
+
+export const getCronIntervalSeconds = (
+  state: GameState,
+  mode: CronIntervalMode,
+  value: number,
+) => {
+  const minSeconds = getCronMinIntervalSeconds(state);
+  const safeValue = Number.isFinite(value) ? value : minSeconds;
+
+  if (mode === "minutes") {
+    return Math.max(60, Math.min(3600, Math.round(safeValue) * 60));
+  }
+
+  return Math.max(minSeconds, Math.min(120, Math.round(safeValue)));
+};
+
+export const createCronScheduleState = (
+  id: number,
+  state: GameState,
+  template?: Partial<CronScheduleState>,
+): CronScheduleState => {
+  const intervalMode = template?.intervalMode ?? "seconds";
+  const intervalValue =
+    template?.intervalValue ?? getCronMinIntervalSeconds(state);
+  const intervalSeconds = getCronIntervalSeconds(
+    state,
+    intervalMode,
+    intervalValue,
+  );
+
+  return {
+    id,
+    taskId: template?.taskId ?? null,
+    enabled: template?.enabled ?? true,
+    intervalMode,
+    intervalValue:
+      intervalMode === "minutes"
+        ? Math.max(1, Math.min(60, Math.round(intervalValue)))
+        : intervalSeconds,
+    remainingSeconds:
+      template?.remainingSeconds === undefined
+        ? intervalSeconds
+        : Math.max(0, Math.min(template.remainingSeconds, intervalSeconds)),
+    lastResult: template?.lastResult ?? null,
+  };
+};
+
+export const getCronScheduleSlotCount = (state: GameState) =>
+  hasResearch(state, "cronScheduler") || state.flags.cron ? 1 : 0;
+
+export const syncCronSchedules = (state: GameState): GameState => {
+  const slotCount = getCronScheduleSlotCount(state);
+  const existing = state.cron?.schedules ?? [];
+  const schedules = Array.from({ length: slotCount }, (_, index) => {
+    const existingSchedule = existing[index];
+    return createCronScheduleState(
+      existingSchedule?.id ?? index + 1,
+      state,
+      existingSchedule,
+    );
+  });
+  const nextScheduleId = Math.max(
+    slotCount + 1,
+    state.cron?.nextScheduleId ?? slotCount + 1,
+    ...schedules.map((schedule) => schedule.id + 1),
+  );
+
+  return {
+    ...state,
+    cron: {
+      schedules,
+      nextScheduleId,
+      queuePowerSpikeSeconds: Math.max(
+        0,
+        state.cron?.queuePowerSpikeSeconds ?? 0,
+      ),
+    },
+  };
+};
 
 export const createSchedulerConfig = (
   template?: Partial<SchedulerConfig>,
@@ -305,6 +389,7 @@ export const createInitialGameState = (): GameState => ({
     ramSpeedLevel: 1,
     ramSpeedMt: getRamSpeedMt(1),
     ramSticks: [],
+    cronIntervalLevel: 0,
     psuLevel: 0,
     psuWatts: 0,
     coolingLevel: 0,
@@ -319,9 +404,20 @@ export const createInitialGameState = (): GameState => ({
     scheduler: false,
     secondCpu: false,
     systemStats: false,
+    cron: false,
+    psuManagement: false,
     cooling: false,
     schedulerWatchdog: false,
     schedulerPolicies: false,
+  },
+  power: {
+    state: "on",
+    transitionSeconds: 0,
+  },
+  cron: {
+    schedules: [],
+    nextScheduleId: 1,
+    queuePowerSpikeSeconds: 0,
   },
   research: {
     completed: [],
@@ -435,7 +531,7 @@ export const updateProgressionFlags = (state: GameState): GameState => {
     flags: {
       ...state.flags,
       cache: state.flags.cache || researched.includes("cacheMapping"),
-      autoRepeat: false,
+      autoRepeat: state.flags.autoRepeat || researched.includes("cronScheduler"),
       benchmarks:
         state.flags.benchmarks || researched.includes("benchmarkHarness"),
       multiCore: state.flags.multiCore || researched.includes("multiCore"),
@@ -452,11 +548,14 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         state.flags.systemStats ||
         state.hardware.secondCpu ||
         researched.includes("ramControl"),
+      cron: state.flags.cron || researched.includes("cronScheduler"),
+      psuManagement:
+        state.flags.psuManagement || researched.includes("psuManagement"),
       cooling: state.flags.cooling || researched.includes("thermalControl"),
     },
   };
 
-  return syncCoreSchedulers(nextState);
+  return syncCronSchedules(syncCoreSchedulers(nextState));
 };
 
 export const getMilestone = (state: GameState) => {
@@ -479,6 +578,8 @@ export const getMilestone = (state: GameState) => {
   }
   if (!state.flags.secondCpu) return "Research the system bus.";
   if (!state.hardware.secondCpu) return "Install the second CPU.";
+  if (!state.flags.psuManagement) return "Research PSU management.";
+  if (!state.flags.cron) return "Research CRON scheduler.";
   if (!state.flags.cooling) return "Research thermal control for safer sustained load.";
-  return "Balance RAM, PSU, and cooling under load.";
+  return "Balance power, heat, and automation under load.";
 };

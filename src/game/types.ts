@@ -15,6 +15,12 @@ export type TaskId =
   | "byteCopy"
   | "packetCheck"
   | "tinyChecksum"
+  | "memoryScrub"
+  | "queueCompaction"
+  | "powerTelemetry"
+  | "busMirror"
+  | "thermalProbe"
+  | "shardReconcile"
   | "microBenchmark"
   | "parallelismBenchmark"
   | "multiCoreBenchmark";
@@ -35,6 +41,8 @@ export type ResearchId =
   | "systemScheduler"
   | "ramControl"
   | "systemBus"
+  | "cronScheduler"
+  | "psuManagement"
   | "thermalControl";
 
 export type UpgradeId =
@@ -53,6 +61,7 @@ export type UpgradeId =
   | "ram"
   | "ramCapacity"
   | "ramSpeed"
+  | "cronInterval"
   | "psu"
   | "cooling";
 
@@ -62,6 +71,8 @@ export type HardwareComponentId =
   | "scheduler"
   | "socket"
   | "ram"
+  | "cron"
+  | "thermal"
   | "psu";
 
 export type UnlockId =
@@ -75,6 +86,8 @@ export type UnlockId =
   | "scheduler"
   | "secondCpu"
   | "systemStats"
+  | "cron"
+  | "psuManagement"
   | "cooling";
 
 export type TaskKind = "task" | "job" | "benchmark";
@@ -114,6 +127,12 @@ export type SchedulerKillPolicy =
   | "deadlockedTask"
   | "newestBlocker"
   | "lowestProgress";
+
+export type PowerStateId = "on" | "shuttingDown" | "off" | "booting";
+
+export type CronIntervalMode = "seconds" | "minutes";
+
+export type CronRunStatus = "queued" | "skipped" | "blocked";
 
 export interface SchedulerConfig {
   policy: SchedulerPolicy;
@@ -306,6 +325,34 @@ export interface CoreSchedulerState {
   progress: number;
 }
 
+export interface PowerRuntimeState {
+  state: PowerStateId;
+  transitionSeconds: number;
+}
+
+export interface CronRunResult {
+  status: CronRunStatus;
+  message: string;
+  taskId: TaskId | null;
+  tick: number;
+}
+
+export interface CronScheduleState {
+  id: number;
+  taskId: TaskId | null;
+  enabled: boolean;
+  intervalMode: CronIntervalMode;
+  intervalValue: number;
+  remainingSeconds: number;
+  lastResult: CronRunResult | null;
+}
+
+export interface CronRuntimeState {
+  schedules: CronScheduleState[];
+  nextScheduleId: number;
+  queuePowerSpikeSeconds: number;
+}
+
 export interface GameFlags {
   cache: boolean;
   autoRepeat: boolean;
@@ -315,6 +362,8 @@ export interface GameFlags {
   scheduler: boolean;
   secondCpu: boolean;
   systemStats: boolean;
+  cron: boolean;
+  psuManagement: boolean;
   cooling: boolean;
   schedulerWatchdog: boolean;
   schedulerPolicies: boolean;
@@ -341,6 +390,7 @@ export interface HardwareState {
   ramSpeedLevel: number;
   ramSpeedMt: number;
   ramSticks: RamStickState[];
+  cronIntervalLevel: number;
   psuLevel: number;
   psuWatts: number;
   coolingLevel: number;
@@ -408,6 +458,8 @@ export interface GameState {
   resources: ResourceBag;
   hardware: HardwareState;
   flags: GameFlags;
+  power: PowerRuntimeState;
+  cron: CronRuntimeState;
   research: ResearchState;
   reliability: ReliabilityState;
   completedTasks: Partial<Record<TaskId, number>>;
@@ -427,6 +479,18 @@ export type GameAction =
   | { type: "queueTask"; taskId: TaskId; cpuId?: number }
   | { type: "cancelTask"; taskId: TaskId; instanceId?: string }
   | { type: "cancelQueuedTask"; taskId: TaskId }
+  | { type: "requestShutdown" }
+  | { type: "requestStartup" }
+  | { type: "requestPowerOff" }
+  | { type: "requestPowerOn" }
+  | { type: "setCronTask"; scheduleId: number; taskId: TaskId | null }
+  | {
+      type: "setCronInterval";
+      scheduleId: number;
+      intervalMode: CronIntervalMode;
+      intervalValue: number;
+    }
+  | { type: "setCronEnabled"; scheduleId: number; enabled: boolean }
   | {
       type: "setSchedulerPolicy";
       target: "cpu" | "system";
@@ -703,6 +767,31 @@ export interface VisibleDeadlockPressure {
   lockout: boolean;
 }
 
+export interface VisibleCronTaskOption {
+  id: TaskId;
+  name: string;
+}
+
+export interface VisibleCronSchedule {
+  id: number;
+  taskId: TaskId | null;
+  taskName: string | null;
+  enabled: boolean;
+  intervalMode: CronIntervalMode;
+  intervalValue: number;
+  remainingSeconds: number;
+  lastResult: CronRunResult | null;
+}
+
+export interface VisibleCronState {
+  unlocked: boolean;
+  minIntervalSeconds: number;
+  schedules: VisibleCronSchedule[];
+  taskOptions: VisibleCronTaskOption[];
+  intervalUpgrade: VisibleUpgrade | null;
+  queuePowerSpikeSeconds: number;
+}
+
 export interface VisibleHardwareMetrics {
   cpuSockets: VisibleCpuSocket[];
   activeCoreCount: number;
@@ -720,11 +809,17 @@ export interface VisibleHardwareMetrics {
   deadlockPressure: VisibleDeadlockPressure;
   systemSchedulerWatchdog: SchedulerWatchdogPreview | null;
   powerUsedWatts: number;
+  billedPowerWatts: number;
   powerHeadroomWatts: number;
   psuStress: number;
   powerReliability: number;
+  powerEfficiency: number;
+  ramEfficiency: number;
+  cpuEfficiency: number;
   coolingReliabilityBonus: number;
   powerCostPerMinute: number;
+  powerState: PowerStateId;
+  powerTransitionSeconds: number;
   cacheResidency: CacheResidencySegment[];
 }
 
@@ -739,6 +834,7 @@ export interface VisibleState {
   activeTasks: VisibleActiveTask[];
   activeJobs: VisibleActiveJob[];
   queue: TaskId[];
+  cron: VisibleCronState;
   tasks: VisibleTask[];
   jobs: VisibleJob[];
   upgrades: VisibleUpgrade[];

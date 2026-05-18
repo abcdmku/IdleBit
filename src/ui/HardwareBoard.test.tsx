@@ -5,10 +5,13 @@ import {
   applyAction,
   createInitialGameState,
   deriveVisibleState,
+  serializeSave,
   tickGame,
   type GameState,
   type VisibleState,
 } from "../game";
+import { idleBitPersistence } from "../platform";
+import { App } from "./App";
 import { HardwareBoard, ResearchPanel, ResourceHud, TaskBay } from "./HardwareBoard";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
@@ -95,6 +98,585 @@ describe("ResourceHud", () => {
     });
 
     expect(container.querySelector(".resource-gain-flyout")).toBeNull();
+  });
+});
+
+describe("HardwareBoard second CPU system management", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  type VisibleOverrides = Omit<
+    Partial<VisibleState>,
+    "flags" | "hardware" | "metrics" | "upgrades"
+  > & {
+    flags?: Record<string, unknown>;
+    hardware?: Record<string, unknown>;
+    metrics?: Record<string, unknown>;
+    upgrades?: unknown[];
+  };
+
+  const makeSecondCpuVisible = (overrides: VisibleOverrides = {}) => {
+    const base = deriveVisibleState(createInitialGameState());
+    const baseSocket = base.metrics.cpuSockets[0]!;
+    const baseCore = baseSocket.cores[0]!;
+    const secondSocket = {
+      ...baseSocket,
+      id: 2,
+      label: "CPU 2",
+      cores: [
+        {
+          ...baseCore,
+          id: 2,
+          label: "Core 2",
+          scheduler: {
+            ...baseCore.scheduler,
+            localQueue: [],
+          },
+        },
+      ],
+      schedulerSlots: 1,
+      queuedCount: 0,
+    };
+    const systemTask = {
+      ...base.tasks[0]!,
+      id: "tinyChecksum",
+      name: "Tiny Checksum",
+      category: "system",
+      operationCount: 8,
+      rewardCredits: 24,
+      rewardData: 1,
+      cacheNeedBits: 8,
+      ramNeedBits: 64,
+      canStart: true,
+      canQueue: true,
+      blockedReason: null,
+      queueBlockedReason: null,
+    };
+
+    return {
+      ...base,
+      ...overrides,
+      flags: {
+        ...base.flags,
+        secondCpu: true,
+        systemStats: true,
+        scheduler: true,
+        ...(overrides.flags ?? {}),
+      },
+      hardware: {
+        ...base.hardware,
+        secondCpu: true,
+        cores: 2,
+        ramLevel: 1,
+        ramBits: 1024,
+        ramBytes: 128,
+        systemSchedulerSlots: 2,
+        psuLevel: 1,
+        psuWatts: 65,
+        ...(overrides.hardware ?? {}),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [baseSocket, secondSocket],
+        activeCoreCount: 1,
+        idleCoreCount: 1,
+        ramUsedBits: 128,
+        ramUsedBytes: 16,
+        powerUsedWatts: 32,
+        powerHeadroomWatts: 33,
+        psuStress: 0.49,
+        powerReliability: 0.86,
+        powerCostPerMinute: 1,
+        ...(overrides.metrics ?? {}),
+      },
+      tasks: [systemTask],
+      upgrades: overrides.upgrades ?? [],
+    } as unknown as VisibleState;
+  };
+
+  const cronUpgrade = {
+    id: "cronMinInterval",
+    name: "CRON Minimum",
+    component: "scheduler",
+    accent: "violet",
+    costs: [{ resource: "data", amount: 10 }],
+    refunds: [],
+    canAfford: true,
+    canDowngrade: false,
+    downgradeBlockedReason: null,
+    purchaseCount: 0,
+  };
+
+  const psuUpgrade = {
+    id: "psu",
+    name: "PSU Capacity",
+    component: "psu",
+    accent: "amber",
+    costs: [{ resource: "credits", amount: 40 }],
+    refunds: [],
+    canAfford: true,
+    canDowngrade: false,
+    downgradeBlockedReason: null,
+    purchaseCount: 1,
+  };
+
+  const coolingUpgrade = {
+    id: "cooling",
+    name: "Cooling Loop",
+    component: "psu",
+    accent: "cyan",
+    costs: [{ resource: "credits", amount: 30 }],
+    refunds: [],
+    canAfford: true,
+    canDowngrade: false,
+    downgradeBlockedReason: null,
+    purchaseCount: 0,
+  };
+
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("renders CRON first with locked PSU and thermal notes after second CPU", () => {
+    const visible = makeSecondCpuVisible();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const flow = container.querySelector(".system-board-flow");
+    const cronSection = container.querySelector(".cron-section");
+    const schedulerSection = container.querySelector(".system-scheduler-section");
+    const ramSection = container.querySelector(".memory-section");
+
+    expect(flow?.firstElementChild?.className).toContain("cron-section");
+    expect(cronSection?.textContent).toContain("Research CRON Scheduler");
+    expect(container.querySelector(".psu-section")?.textContent).toContain(
+      "Research PSU Management",
+    );
+    expect(container.querySelector(".thermal-section")?.textContent).toContain(
+      "Research Thermal Control",
+    );
+    expect(schedulerSection?.textContent).toContain("System Scheduler");
+    expect(
+      cronSection?.compareDocumentPosition(schedulerSection!) ?? 0,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(
+      schedulerSection?.compareDocumentPosition(ramSection!) ?? 0,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("renders active CRON controls and clamps intervals to the unlocked minimum", () => {
+    const dispatch = vi.fn();
+    const visible = makeSecondCpuVisible({
+      flags: { cronScheduler: true },
+      upgrades: [cronUpgrade],
+    });
+    (visible as unknown as Record<string, unknown>).cron = {
+      unlocked: true,
+      minIntervalSeconds: 30,
+      minIntervalUpgradeId: "cronMinInterval",
+      schedules: [
+        {
+          id: "main",
+          taskId: "tinyChecksum",
+          enabled: true,
+          intervalSeconds: 45,
+          minIntervalSeconds: 30,
+          secondsRemaining: 12,
+          lastResult: "Queued",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="cron"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const taskSelect = container.querySelector<HTMLSelectElement>(
+      ".cron-task-control select",
+    );
+    const modeSelect = container.querySelector<HTMLSelectElement>(
+      ".cron-mode-control select",
+    );
+    const intervalInput = container.querySelector<HTMLInputElement>(
+      ".cron-interval-control input",
+    );
+    const range = container.querySelector<HTMLInputElement>(
+      ".cron-interval-range",
+    );
+    const toggle = container.querySelector<HTMLInputElement>(".cron-toggle input");
+
+    expect(taskSelect?.value).toBe("tinyChecksum");
+    expect(modeSelect?.value).toBe("seconds");
+    expect(intervalInput?.min).toBe("30");
+    expect(intervalInput?.value).toBe("45");
+    expect(range?.min).toBe("30");
+    expect(toggle?.checked).toBe(true);
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Automation",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain("Loop 1");
+    expect(container.querySelector(".cron-section")?.textContent).toContain("12s");
+    expect(container.querySelector(".cron-section")?.textContent).toContain("Queued");
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Min 30s",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Min interval",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "Power efficiency",
+    );
+    expect(container.querySelector(".psu-section .efficiency-readouts")?.textContent).toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".psu-section .efficiency-readouts")?.textContent).toContain(
+      "Power efficiency",
+    );
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(intervalInput, "20");
+      intervalInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setCronScheduleInterval",
+        scheduleId: "main",
+        intervalSeconds: 30,
+        intervalMode: "seconds",
+        intervalValue: 30,
+      }),
+    );
+
+    act(() => {
+      toggle?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setCronScheduleEnabled",
+      scheduleId: "main",
+      enabled: false,
+    });
+  });
+
+  it("shows active PSU power states, controls, readouts, and thermal upgrade", () => {
+    const dispatch = vi.fn();
+    const visible = makeSecondCpuVisible({
+      flags: {
+        psuManagement: true,
+        thermalControl: true,
+        cooling: true,
+      },
+      upgrades: [psuUpgrade, coolingUpgrade],
+      metrics: {
+        powerUsedWatts: 42,
+        powerCostPerMinute: 1.3,
+        psuStress: 0.52,
+        coolingStress: 0.41,
+        coolingStatus: "Warm",
+      },
+    });
+    (visible as unknown as Record<string, unknown>).systemStatus = {
+      powerState: "booting",
+      power: {
+        drawWatts: 42,
+        capacityWatts: 80,
+        costPerMinute: 1.3,
+      },
+      thermalStress: 0.41,
+      thermalStatus: "Warm",
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".power-state-chip.booting")?.textContent).toBe(
+      "Booting",
+    );
+    expect(buttons[0]?.disabled).toBe(true);
+    expect(buttons[1]?.disabled).toBe(false);
+    expect(container.querySelector(".psu-section")?.textContent).toContain("42 W");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("80 W");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
+    expect(container.querySelector(".psu-section")?.textContent).toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).toContain(
+      "Power efficiency",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).toContain(
+      "PSU Capacity",
+    );
+    expect(container.querySelector(".thermal-section")?.textContent).toContain("Warm");
+    expect(container.querySelector(".thermal-section")?.textContent).toContain(
+      "Cooling Loop",
+    );
+
+    act(() => {
+      buttons[1]?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setPowerState",
+      state: "off",
+    });
+
+    (visible as unknown as { systemStatus: Record<string, unknown> }).systemStatus = {
+      ...(visible as unknown as { systemStatus: Record<string, unknown> })
+        .systemStatus,
+      powerState: "off",
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const updatedButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".power-state-chip.off")?.textContent).toBe("Off");
+    expect(updatedButtons[0]?.disabled).toBe(false);
+    expect(updatedButtons[1]?.disabled).toBe(true);
+  });
+});
+
+describe("App second CPU guide", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let rafSpy: { mockRestore(): void };
+  let cancelRafSpy: { mockRestore(): void };
+  let originalMatchMedia: typeof window.matchMedia | undefined;
+
+  const makeSecondCpuSaveState = (): GameState => {
+    const base = createInitialGameState();
+    const primaryCpu = base.hardware.cpus[0]!;
+
+    return {
+      ...base,
+      flags: {
+        ...base.flags,
+        secondCpu: true,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        secondCpu: true,
+        cores: 2,
+        coreClockLevels: {
+          ...base.hardware.coreClockLevels,
+          2: base.hardware.clockLevel,
+        },
+        cpus: [
+          primaryCpu,
+          {
+            ...primaryCpu,
+            id: 2,
+            coreIds: [2],
+          },
+        ],
+        ramLevel: 1,
+        ramBits: 512,
+        ramBytes: 64,
+        psuLevel: 1,
+        psuWatts: 65,
+      },
+    };
+  };
+
+  const flushEffects = async () => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  beforeEach(async () => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    await idleBitPersistence.clear();
+    originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1);
+    cancelRafSpy = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    rafSpy.mockRestore();
+    cancelRafSpy.mockRestore();
+    if (originalMatchMedia) {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    } else {
+      Reflect.deleteProperty(window, "matchMedia");
+    }
+    await idleBitPersistence.clear();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("persists second CPU guide dismissal across remounts", async () => {
+    await idleBitPersistence.set(
+      "save-v2",
+      serializeSave(makeSecondCpuSaveState()),
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Automation comes online",
+    );
+    expect(container.querySelector(".second-cpu-guide-grid")).toBeNull();
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".second-cpu-guide-primary")
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "CRON keeps upkeep moving",
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".second-cpu-guide-primary")
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "The System Scheduler feeds the machine",
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".second-cpu-guide-primary")
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "RAM decides whether system work can flow",
+    );
+
+    for (let index = 0; index < 3; index += 1) {
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(".second-cpu-guide-primary")
+          ?.click();
+      });
+      await flushEffects();
+    }
+
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Thermal control keeps speed sustainable",
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".second-cpu-guide-primary")
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await expect(
+      idleBitPersistence.get<boolean>("ui.second-cpu-guide-seen-v1", false),
+    ).resolves.toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 

@@ -199,11 +199,31 @@ export const researchDefinitions: ResearchDefinition[] = [
     cost: () => [credits(520), data(24)],
   },
   {
+    id: "cronScheduler",
+    name: "CRON Scheduler",
+    description: "Unlock timed automation for repeatable system tasks.",
+    grants: ["cron", "autoRepeat"],
+    reveal: (state) => state.hardware.secondCpu,
+    requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
+    requirements: () => getSecondCpuInstalledRequirements(),
+    cost: () => [credits(360), data(28)],
+  },
+  {
+    id: "psuManagement",
+    name: "PSU Management",
+    description: "Unlock power readouts, power-state controls, and PSU capacity tuning.",
+    grants: ["psuManagement"],
+    reveal: (state) => state.hardware.secondCpu,
+    requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
+    requirements: () => getSecondCpuInstalledRequirements(),
+    cost: () => [credits(280), data(20)],
+  },
+  {
     id: "thermalControl",
     name: "Thermal Control",
     description: "Unlock cooling upgrades that improve system reliability.",
     grants: ["cooling"],
-    reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
+    reveal: (state) => state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getThermalControlRequirements()),
     requirements: () => getThermalControlRequirements(),
     cost: () => [credits(240), data(18)],
@@ -322,15 +342,18 @@ function getSystemBusRequirements() {
   ];
 }
 
-function getThermalControlRequirements() {
+function getSecondCpuInstalledRequirements() {
   return [
-    researchRequirement("systemBus", "Complete System Bus research"),
     hardwareRequirement(
       "second-cpu-installed",
       "Install the second CPU",
       (state) => state.hardware.secondCpu,
     ),
   ];
+}
+
+function getThermalControlRequirements() {
+  return getSecondCpuInstalledRequirements();
 }
 
 export const getResearchDefinition = (id: ResearchId) => {

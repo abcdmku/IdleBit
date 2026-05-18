@@ -120,6 +120,16 @@ const repeatTask = (state: GameState, taskId: TaskId, times: number) => {
   return nextState;
 };
 
+const tickSeconds = (state: GameState, seconds: number) => {
+  let nextState = state;
+
+  for (let elapsed = 0; elapsed < seconds; elapsed += 1) {
+    nextState = tickGame(nextState, 1000);
+  }
+
+  return nextState;
+};
+
 const buy = (
   state: GameState,
   upgradeId: UpgradeId,
@@ -2011,6 +2021,15 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.cpus[1]?.schedulerSlots).toBe(
       state.hardware.cpus[0]?.schedulerSlots,
     );
+    visible = deriveVisibleState(state);
+    expect(visible.research.map((item) => item.id)).toEqual(
+      expect.arrayContaining(["psuManagement", "cronScheduler", "thermalControl"]),
+    );
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("psu");
+
+    state = research(fund(state), "psuManagement");
+
+    expect(state.flags.psuManagement).toBe(true);
     expect(deriveVisibleState(state).upgrades.map((upgrade) => upgrade.id)).toContain(
       "psu",
     );
@@ -2506,6 +2525,125 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks[0]?.taskId).toBe("fetchBit");
   });
 
+  it("power transitions block starts, queue pulls, CRON, and active compute", () => {
+    let state = research(unlockSystemStats(), "psuManagement");
+
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    expect(state.activeTasks.map((task) => task.taskId)).toContain("tinyChecksum");
+
+    const activeInstanceId = state.activeTasks[0]?.instanceId;
+    const remainingBefore =
+      state.activeTasks[0]?.coreOperations[0]?.remainingCycles ?? 0;
+
+    state = applyAction(state, { type: "requestShutdown" });
+    expect(state.power.state).toBe("shuttingDown");
+
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
+
+    expect(state.activeTasks.map((task) => task.instanceId)).toContain(
+      activeInstanceId,
+    );
+    expect(state.activeTasks.map((task) => task.taskId)).not.toContain("fetchBit");
+    expect(state.queue.filter((taskId) => taskId === "fetchBit")).toHaveLength(0);
+
+    state = tickGame(state, 1000);
+
+    expect(state.activeTasks[0]?.coreOperations[0]?.remainingCycles).toBe(
+      remainingBefore,
+    );
+
+    state = tickSeconds(state, 8);
+    expect(state.power.state).toBe("off");
+    expect(deriveVisibleState(state).metrics.powerUsedWatts).toBe(0);
+
+    state = applyAction(state, { type: "requestStartup" });
+    expect(state.power.state).toBe("booting");
+
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    expect(state.activeTasks.map((task) => task.taskId)).not.toContain("fetchBit");
+
+    state = tickSeconds(state, 10);
+    expect(state.power.state).toBe("on");
+  });
+
+  it("CRON scheduler clamps intervals, queues visible system work, and skips duplicates", () => {
+    let state = unlockSystemStats();
+
+    state = runTask(state, "tinyChecksum");
+    state = research(fund(state), "cronScheduler");
+
+    expect(state.flags.cron).toBe(true);
+    expect(state.flags.autoRepeat).toBe(true);
+    expect(state.cron.schedules).toHaveLength(1);
+    expect(deriveVisibleState(state).cron.taskOptions.map((task) => task.id)).toEqual(
+      expect.arrayContaining([
+        "memoryScrub",
+        "queueCompaction",
+        "powerTelemetry",
+        "busMirror",
+        "thermalProbe",
+        "shardReconcile",
+      ]),
+    );
+
+    state = applyAction(state, {
+      type: "setCronInterval",
+      scheduleId: 1,
+      intervalMode: "seconds",
+      intervalValue: 1,
+    });
+
+    expect(state.cron.schedules[0]?.intervalValue).toBe(60);
+
+    state = buy(state, "cronInterval");
+    state = applyAction(state, {
+      type: "setCronInterval",
+      scheduleId: 1,
+      intervalMode: "seconds",
+      intervalValue: 1,
+    });
+
+    expect(state.cron.schedules[0]?.intervalValue).toBe(59);
+
+    state = applyAction(state, {
+      type: "setCronTask",
+      scheduleId: 1,
+      taskId: "memoryScrub",
+    });
+    state = applyAction(state, {
+      type: "setCronEnabled",
+      scheduleId: 1,
+      enabled: true,
+    });
+
+    state = tickSeconds(state, 59);
+
+    expect(state.activeTasks.map((task) => task.taskId)).toContain("memoryScrub");
+    expect(state.cron.schedules[0]?.lastResult).toMatchObject({
+      status: "queued",
+      taskId: "memoryScrub",
+    });
+    expect(state.cron.queuePowerSpikeSeconds).toBeGreaterThan(0);
+
+    state = {
+      ...state,
+      cron: {
+        ...state.cron,
+        schedules: state.cron.schedules.map((schedule) => ({
+          ...schedule,
+          remainingSeconds: 0,
+        })),
+      },
+    };
+    state = tickGame(state, 16);
+
+    expect(state.cron.schedules[0]?.lastResult).toMatchObject({
+      status: "skipped",
+      taskId: "memoryScrub",
+    });
+  });
+
   it("uses PSU stress for throttling and cooling without restarting work", () => {
     let state = unlockSystemStats();
 
@@ -2514,7 +2652,7 @@ describe("IdleBit simulation", () => {
       ...state,
       hardware: {
         ...state.hardware,
-        psuWatts: 45,
+        psuWatts: 35,
       },
     };
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });

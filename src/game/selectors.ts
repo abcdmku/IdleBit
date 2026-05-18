@@ -17,10 +17,15 @@ import {
   getHardwareCacheBits,
   getMemoryCapacityBits,
   getCoolingReliabilityBonus,
+  getBilledPowerWatts,
+  getCpuMatchEfficiency,
   getHardwareDrawWatts,
+  getPowerCostPerMinute,
+  getPowerEfficiency,
   getPsuCapacityWatts,
   getPsuStress,
   getRamLoadCycles,
+  getRamMatchEfficiency,
   getReservedMemoryBits,
   getPowerReliability,
   getSchedulerQueuedCount,
@@ -41,6 +46,7 @@ import {
 import {
   getAvailableTasks,
   getAvailableUpgrades,
+  getCronMinIntervalSeconds,
   getSchedulerWatchdogPreview,
   getVisibleRemainingSeconds,
 } from "./simulation";
@@ -172,6 +178,11 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return "System scheduler required.";
   }
 
+  if (state.power.state !== "on") {
+    if (state.power.state === "off") return "System powered off.";
+    return state.power.state === "booting" ? "System booting." : "System shutting down.";
+  }
+
   if (
     state.deadlockProcessLockout ||
     state.activeTasks.some((activeTask) =>
@@ -212,6 +223,10 @@ const getTaskCanQueue = (state: GameState, task: TaskDefinition) =>
 
 const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
   if (!canAcceptTask(state, task)) return getBlockedReason(state, task);
+  if (state.power.state !== "on") {
+    if (state.power.state === "off") return "System powered off.";
+    return state.power.state === "booting" ? "System booting." : "System shutting down.";
+  }
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
   }
@@ -1186,6 +1201,39 @@ const getVisibleDeadlockPressure = (state: GameState) => {
   };
 };
 
+const isCronTaskOption = (state: GameState, task: TaskDefinition) =>
+  task.kind === "task" &&
+  task.repeatable &&
+  isSystemScheduledTask(task) &&
+  isTaskRevealed(state, task);
+
+const getVisibleCron = (state: GameState) => {
+  const taskOptions = taskDefinitions
+    .filter((task) => isCronTaskOption(state, task))
+    .map((task) => ({ id: task.id, name: task.name }));
+  const taskNames = new Map(taskDefinitions.map((task) => [task.id, task.name]));
+
+  return {
+    unlocked: state.flags.cron,
+    minIntervalSeconds: getCronMinIntervalSeconds(state),
+    schedules: state.cron.schedules.map((schedule) => ({
+      id: schedule.id,
+      taskId: schedule.taskId,
+      taskName: schedule.taskId ? (taskNames.get(schedule.taskId) ?? null) : null,
+      enabled: schedule.enabled,
+      intervalMode: schedule.intervalMode,
+      intervalValue: schedule.intervalValue,
+      remainingSeconds: schedule.remainingSeconds,
+      lastResult: schedule.lastResult,
+    })),
+    taskOptions,
+    intervalUpgrade: state.flags.cron
+      ? getVisibleUpgrade(state, getUpgradeDefinition("cronInterval"))
+      : null,
+    queuePowerSpikeSeconds: state.cron.queuePowerSpikeSeconds,
+  };
+};
+
 export const deriveVisibleState = (state: GameState): VisibleState => {
   const syncedState = syncCoreSchedulers(state);
   const stage = getStage(syncedState);
@@ -1201,6 +1249,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const ramUsedBits = getRamUsedBits(syncedState);
   const ramUsedBytes = getRamUsedBytes(syncedState);
   const powerUsedWatts = getHardwareDrawWatts(syncedState);
+  const billedPowerWatts = getBilledPowerWatts(syncedState);
   const psuCapacityWatts = getPsuCapacityWatts(syncedState);
   const powerHeadroomWatts = Math.round((psuCapacityWatts - powerUsedWatts) * 10) / 10;
   const cacheResidency = getCacheResidencySegments(syncedState);
@@ -1240,12 +1289,18 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       deadlockPressure: getVisibleDeadlockPressure(syncedState),
       systemSchedulerWatchdog: getSchedulerWatchdogPreview(syncedState, "system"),
       powerUsedWatts,
+      billedPowerWatts,
       powerHeadroomWatts,
       psuStress: Math.round(getPsuStress(syncedState) * 1000) / 1000,
       powerReliability: getPowerReliability(syncedState),
+      powerEfficiency: getPowerEfficiency(syncedState),
+      ramEfficiency: getRamMatchEfficiency(syncedState),
+      cpuEfficiency: getCpuMatchEfficiency(syncedState),
       coolingReliabilityBonus:
         Math.round((getCoolingReliabilityBonus(syncedState) - 1) * 1000) / 1000,
-      powerCostPerMinute: Math.round(powerUsedWatts * 0.03 * 10) / 10,
+      powerCostPerMinute: getPowerCostPerMinute(syncedState),
+      powerState: syncedState.power.state,
+      powerTransitionSeconds: syncedState.power.transitionSeconds,
       cacheResidency,
     },
     flags: syncedState.flags,
@@ -1253,6 +1308,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     activeTasks,
     activeJobs,
     queue: syncedState.queue,
+    cron: getVisibleCron(syncedState),
     tasks: taskDefinitions
       .filter((task) => isPlayerFacingTask(task) && isTaskRevealed(syncedState, task))
       .map((task) => getTaskVisible(syncedState, task)),

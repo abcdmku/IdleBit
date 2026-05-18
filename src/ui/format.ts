@@ -33,9 +33,20 @@ export const formatBits = (bits: number) => {
 export const formatBitRate = (bitsPerSecond: number) =>
   `${formatBits(bitsPerSecond)}/s`;
 
+const formatUnitNumber = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: value >= 100 ? 0 : value >= 10 ? 1 : 2,
+  }).format(value);
+
 export const formatWatts = (watts: number) => {
-  if (watts >= 1_000) return `${formatNumber(watts / 1_000)} kW`;
-  return `${formatNumber(watts)} W`;
+  const absWatts = Math.abs(watts);
+  const sign = watts < 0 ? "-" : "";
+
+  if (absWatts === 0) return "0 W";
+  if (absWatts < 0.001) return `${sign}${formatUnitNumber(absWatts * 1_000_000)} uW`;
+  if (absWatts < 1) return `${sign}${formatUnitNumber(absWatts * 1_000)} mW`;
+  if (absWatts >= 1_000) return `${sign}${formatNumber(absWatts / 1_000)} kW`;
+  return `${sign}${formatNumber(absWatts)} W`;
 };
 
 export const formatCost = (costs: DisplayCost[]) =>

@@ -211,7 +211,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "psuManagement",
     name: "PSU Management",
-    description: "Unlock power readouts, power-state controls, and PSU capacity tuning.",
+    description: "Unlock PSU capacity tuning for higher sustained draw.",
     grants: ["psuManagement"],
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),

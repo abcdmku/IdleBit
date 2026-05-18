@@ -328,6 +328,7 @@ export interface CoreSchedulerState {
 export interface PowerRuntimeState {
   state: PowerStateId;
   transitionSeconds: number;
+  bootstrapGraceSeconds: number;
 }
 
 export interface CronRunResult {
@@ -820,6 +821,7 @@ export interface VisibleHardwareMetrics {
   powerCostPerSecond: number;
   powerState: PowerStateId;
   powerTransitionSeconds: number;
+  powerBootstrapGraceSeconds: number;
   cacheResidency: CacheResidencySegment[];
 }
 

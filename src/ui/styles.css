@@ -2252,6 +2252,72 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   letter-spacing: 0.04em;
 }
 
+.psu-section {
+  gap: 5px;
+  padding: 8px 9px;
+}
+
+.psu-section .hw-section-header {
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+}
+
+.psu-section .hw-section-header .hw-section-meta {
+  font-size: 0.62rem;
+}
+
+.psu-compact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.psu-compact-stat {
+  display: grid;
+  gap: 1px;
+  flex: 1 1 54px;
+  min-width: 50px;
+  font-family: var(--font-mono);
+}
+
+.psu-compact-stat small {
+  color: var(--muted);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.psu-compact-stat strong {
+  color: var(--text);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.psu-grace-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 5px;
+  border: 1px solid rgba(36, 231, 195, 0.24);
+  border-radius: var(--radius-sm);
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.07);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.psu-compact-row .power-control-buttons {
+  margin-left: auto;
+}
+
 .power-state-row {
   display: flex;
   gap: 8px;
@@ -2263,14 +2329,14 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .power-state-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 3px 8px;
+  min-height: 20px;
+  padding: 2px 6px;
   border: 1px solid rgba(242, 194, 78, 0.28);
   border-radius: var(--radius-sm);
   color: var(--amber);
   background: rgba(242, 194, 78, 0.08);
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2296,15 +2362,15 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 
 .power-control-buttons {
   display: inline-flex;
-  gap: 4px;
+  gap: 3px;
   flex: 0 0 auto;
 }
 
 .power-control-buttons button {
-  min-height: 24px;
-  padding: 3px 8px;
+  min-height: 20px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2313,14 +2379,22 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .power-stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  gap: 4px;
 }
 
 .power-stat-grid .module-stat {
-  padding: 6px 7px;
+  padding: 4px 5px;
   border: 1px solid rgba(242, 194, 78, 0.13);
   border-radius: var(--radius-sm);
   background: rgba(4, 8, 7, 0.26);
+}
+
+.psu-section .power-stat-grid .module-stat strong {
+  font-size: 0.72rem;
+}
+
+.psu-section .power-stat-grid .module-stat small {
+  font-size: 0.52rem;
 }
 
 .power-upgrade-row {
@@ -3684,12 +3758,12 @@ h1, h2, p, dl, dt, dd { margin: 0; }
       "toggle every mode";
   }
 
-  .power-state-row {
+  .psu-compact-row {
     align-items: stretch;
-    flex-direction: column;
   }
 
   .power-control-buttons {
+    margin-left: 0;
     width: 100%;
   }
 

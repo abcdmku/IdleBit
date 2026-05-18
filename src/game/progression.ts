@@ -37,6 +37,8 @@ export const getRamBytes = (level: number) => bitsToBytes(getRamBits(level));
 export const getRamSpeedMt = (level: number) =>
   level <= 0 ? 1 : 2 ** (level - 1);
 
+export const POWER_BOOTSTRAP_GRACE_SECONDS = 20;
+
 export const createRamStickState = (
   id: number,
   level: number,
@@ -83,7 +85,7 @@ const normalizeRamSticks = (state: GameState) => {
 };
 
 export const getPsuWatts = (level: number) =>
-  level <= 0 ? 0 : Math.round(45 * 1.55 ** (level - 1));
+  level <= 0 ? 0 : Math.round(0.012 * 1.7 ** (level - 1) * 1000) / 1000;
 
 export const getCoolingRating = (level: number) =>
   level <= 0 ? 0 : Math.round((1 + (level - 1) * 0.28) * 100) / 100;
@@ -390,8 +392,8 @@ export const createInitialGameState = (): GameState => ({
     ramSpeedMt: getRamSpeedMt(1),
     ramSticks: [],
     cronIntervalLevel: 0,
-    psuLevel: 0,
-    psuWatts: 0,
+    psuLevel: 1,
+    psuWatts: getPsuWatts(1),
     coolingLevel: 0,
     coolingRating: 0,
   },
@@ -413,6 +415,7 @@ export const createInitialGameState = (): GameState => ({
   power: {
     state: "on",
     transitionSeconds: 0,
+    bootstrapGraceSeconds: POWER_BOOTSTRAP_GRACE_SECONDS,
   },
   cron: {
     schedules: [],

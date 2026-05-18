@@ -38,6 +38,7 @@ import {
   getRamBytes,
   getRamSpeedMt,
   getOperationProgress,
+  POWER_BOOTSTRAP_GRACE_SECONDS,
   syncCoreSchedulers,
   updateProgressionFlags,
 } from "./progression";
@@ -61,6 +62,7 @@ import type {
 
 const POWER_SHUTDOWN_SECONDS = 8;
 const POWER_BOOT_SECONDS = 10;
+const POWER_BILLING_EPSILON = 0.000000001;
 const CRON_DEFAULT_INTERVAL_SECONDS = 60;
 const CRON_MAX_SECONDS_INTERVAL = 120;
 const CRON_MIN_MINUTES_INTERVAL = 1;
@@ -2127,21 +2129,72 @@ const advancePowerTransition = (state: GameState, deltaSeconds: number): GameSta
   return {
     ...state,
     power: {
+      ...state.power,
       state: state.power.state === "shuttingDown" ? "off" : "on",
       transitionSeconds: 0,
     },
   };
 };
 
-const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
-  const cost = getPowerCostPerSecond(state) * deltaSeconds;
-  if (cost <= 0) return state;
+const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
+  ...state,
+  resources: {
+    ...state.resources,
+    credits: 0,
+  },
+  power: {
+    ...state.power,
+    state: "off",
+    transitionSeconds: 0,
+    bootstrapGraceSeconds: 0,
+  },
+});
+
+const exitPowerGraceIfFunded = (state: GameState): GameState => {
+  if (state.resources.credits <= 0 || state.power.bootstrapGraceSeconds <= 0) {
+    return state;
+  }
 
   return {
     ...state,
+    power: {
+      ...state.power,
+      bootstrapGraceSeconds: 0,
+    },
+  };
+};
+
+const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
+  const graceSeconds = Math.max(0, state.power.bootstrapGraceSeconds ?? 0);
+  if (state.resources.credits <= 0 && graceSeconds > 0) {
+    const bootstrapGraceSeconds = Math.max(0, graceSeconds - deltaSeconds);
+
+    if (bootstrapGraceSeconds <= 0 && getPowerCostPerSecond(state) > 0) {
+      return forcePowerOffForUnpaidBill(state);
+    }
+
+    return {
+      ...state,
+      power: {
+        ...state.power,
+        bootstrapGraceSeconds,
+      },
+    };
+  }
+
+  const billableState = exitPowerGraceIfFunded(state);
+  const cost = getPowerCostPerSecond(billableState) * deltaSeconds;
+  if (cost <= 0) return billableState;
+
+  if (billableState.resources.credits + POWER_BILLING_EPSILON < cost) {
+    return forcePowerOffForUnpaidBill(billableState);
+  }
+
+  return {
+    ...billableState,
     resources: {
-      ...state.resources,
-      credits: state.resources.credits - cost,
+      ...billableState.resources,
+      credits: Math.max(0, billableState.resources.credits - cost),
     },
   };
 };
@@ -2303,7 +2356,7 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
 
   const cronTicked = tickCron(powered, deltaSeconds);
   const advanced = tickActiveTasks(cronTicked, deltaSeconds);
-  const settled = settleActiveTasks(advanced);
+  const settled = exitPowerGraceIfFunded(settleActiveTasks(advanced));
   const watched = applySchedulerWatchdogs(settled);
   const pressured = updateDeadlockPressure(watched, deltaSeconds);
 
@@ -2499,25 +2552,28 @@ const updateSchedulerConfig = (
     : updateCpuSchedulerConfig(state, cpuId, update);
 
 export const requestPowerOff = (state: GameState): GameState => {
-  if (!state.flags.psuManagement) return state;
   if (state.power.state !== "on") return state;
   return {
     ...state,
     power: {
+      ...state.power,
       state: "shuttingDown",
       transitionSeconds: POWER_SHUTDOWN_SECONDS,
+      bootstrapGraceSeconds: 0,
     },
   };
 };
 
 export const requestPowerOn = (state: GameState): GameState => {
-  if (!state.flags.psuManagement) return state;
   if (state.power.state !== "off") return state;
   return {
     ...state,
     power: {
+      ...state.power,
       state: "booting",
       transitionSeconds: POWER_BOOT_SECONDS,
+      bootstrapGraceSeconds:
+        state.resources.credits <= 0 ? POWER_BOOTSTRAP_GRACE_SECONDS : 0,
     },
   };
 };

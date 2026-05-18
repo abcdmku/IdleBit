@@ -211,8 +211,11 @@ Tasks do not require power directly. Power draw comes from the hardware doing th
 At system scale:
 
 - The PSU is a system reliability component, not a per-task requirement.
-- Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill.
-- The starting draw after PSU Management should be gentle so players can learn billing, stress, and shutdown controls before power becomes punitive.
+- The PSU is visible from the first screen so power is part of the opening earn-vs-idle balance.
+- Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill once the player has credits.
+- Starting draw should be mW/uW-scale and primarily tied to CPU frequency, so faster credit generation also increases operating cost.
+- If power billing reaches 0 credits, the system performs an emergency shutdown instead of allowing negative credits.
+- Powering on from 0 credits grants a short bootstrap grace window with no billing, enough to run starter work and recover.
 - If hardware draw approaches PSU capacity, stress increases and efficiency drops.
 - If hardware draw exceeds PSU capacity, effective clock can throttle, heat rises, and sustained throughput degrades.
 - Dense cores and additional CPUs increase draw nonlinearly. Packing more compute into one system should be powerful but harder to cool and power reliably.
@@ -399,15 +402,17 @@ Power cost accrues continuously while the system is powered on:
 
 `power_bill = active_hardware_draw * elapsed_seconds * power_price`
 
-The current prototype price is `0.06 cr/s` per billed watt, and PSU readouts show the live rate as `cr/s`.
+The prototype price should be tuned against the current mW/uW draw curve, and PSU readouts show the live rate as `cr/s`.
 
 There is no free wattage threshold. Low early draw should make the first bill forgiving, not free.
+
+Credits cannot go negative from power billing. If the next bill cannot be paid, the system immediately enters `off`, work stops progressing, and billing stops. From 0 credits, startup grants a short no-bill bootstrap grace period; earning any credits exits grace and normal billing resumes. If grace expires while credits are still 0, the system shuts down again.
 
 System power state controls whether work can run:
 
 | State | Work / CRON | Billing | Notes |
 |---|---|---|---|
-| `on` | Allowed | Draw-based billing over time | Normal running state |
+| `on` | Allowed | Draw-based billing over time unless bootstrap grace is active at 0 credits | Normal running state |
 | `shuttingDown` | New starts and CRON blocked | Bills until the shutdown delay completes | Makes power-off deliberate |
 | `off` | Blocked | Zero | Hardware configuration and purchases remain allowed |
 | `booting` | Blocked | Bills during startup delay | Returns to `on` after startup completes |
@@ -452,11 +457,11 @@ One tiny CPU doing primitive jobs.
 - Current task state.
 - Credits.
 - Data.
+- PSU draw, capacity, stress, state, and live billing.
 
 ### Hidden
 
 - RAM.
-- Power.
 - Heat.
 - Cooling.
 - Scheduler.
@@ -473,7 +478,7 @@ One tiny CPU doing primitive jobs.
 | Cache | 1 b |
 | Cache load rate | 1 Hz |
 | RAM | Hidden |
-| Power | Hidden |
+| Power | Visible PSU readouts, powered on |
 | Cooling | Hidden |
 | Scheduler | None |
 
@@ -528,7 +533,7 @@ The second CPU purchase reveals locked system modules, but the player still unlo
 | Research | Appears After | Unlocks |
 |---|---|---|
 | CRON Scheduler | Second CPU purchase | CRON v1 timer automation for visible repeatable system tasks |
-| PSU Management | Second CPU purchase | PSU controls, draw billing, and power states |
+| PSU Management | Second CPU purchase | Advanced PSU capacity tuning, efficiency detail, and power telemetry |
 | Thermal Control | Second CPU purchase | Thermal controls, cooling loop upgrades, and cooling tradeoffs |
 
 ### Progressive Task And Research Reveal
@@ -548,11 +553,12 @@ The second CPU purchase reveals locked system modules, but the player still unlo
 | Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
 | RAM Control research | Local Scheduler research | Appears alongside System Scheduler and unlocks 256 b RAM at 1 Hz |
 | System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
-| Locked CRON, PSU, and Thermal modules | Second CPU purchase | CRON sits at the top of the system board; PSU and Thermal reveal as locked system support modules |
+| PSU readouts | New save | Shows draw, capacity, stress, state, and cr/s from the first screen |
+| Locked CRON and Thermal modules | Second CPU purchase | CRON sits at the top of the system board; Thermal reveals as a locked support module |
 | Memory Scrub, Queue Compaction, and Power Telemetry | After first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
 | CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
 | Bus Mirror, Thermal Probe, and Shard Reconcile | Second CPU purchase | Later repeatable system tasks for multi-CPU system management |
-| PSU Management research | Second CPU purchase | Unlocks PSU controls, power billing, and shutdown/startup |
+| PSU Management research | Second CPU purchase | Unlocks advanced PSU tuning, capacity controls, and deeper efficiency readouts |
 | Thermal Control research | Second CPU purchase | Unlocks Thermal controls, cooling tradeoffs, and cooling loop upgrades |
 | Broad auto-repeat | Deferred until later scheduler/automation layers | CRON v1 is the scoped early timer; general task auto-repeat stays out of the bit-scale opening |
 
@@ -690,17 +696,17 @@ Second CPU unlocks after:
 
 ### Major Rule
 
-When the player buys the second CPU, locked CRON, PSU, and Thermal modules become visible. CRON sits at the top of the system board so automation status is visible before the player manages power support. RAM is already introduced by RAM Control before System Scheduler; the second CPU stage is where repeatable system tasks, PSU stress, power states, and broader system building become player-facing.
+When the player buys the second CPU, locked CRON and Thermal modules become visible. CRON sits at the top of the system board so automation status is visible before the player manages later system support. RAM is already introduced by RAM Control before System Scheduler, and PSU stress has been visible since the start; the second CPU stage is where repeatable system tasks, advanced PSU tuning, power-state strategy, and broader system building become player-facing.
 
 ### New Mechanics
 
 - CPU sockets.
 - Second CPU.
 - Matched CPU packages.
-- Locked CRON, PSU, and Thermal modules.
+- Locked CRON and Thermal modules.
 - CRON Scheduler, PSU Management, and Thermal Control research.
 - CRON v1 timer automation for repeatable system tasks.
-- Power supply and power state controls.
+- Advanced power supply tuning and power state controls.
 - System-level throttling.
 
 ### RAM Role
@@ -736,9 +742,9 @@ CRON v1 rules:
 
 ### Power Supply Role
 
-The PSU is visible but locked after the second CPU purchase. PSU Management research unlocks power controls, draw/billing readouts, and shutdown/startup controls. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
+The PSU is visible from the first screen. It shows draw, capacity, stress, state, and live billing so the player immediately understands that powered-on idle time has a cost. PSU Management research shifts from basic visibility to advanced tuning: capacity upgrades, efficiency details, and later automation-facing telemetry. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
 
-Power is paid over time while the system is powered on. The early draw curve should be gentle, but there is no free threshold: idle `on`, `booting`, and `shuttingDown` states can still bill from their actual draw. Fully `off` systems bill zero and may still be configured, but they cannot start work, dispatch queues, or run CRON.
+Power is paid over time while the system is powered on. The early draw curve should be tiny but meaningful: active starter work should be profitable, while idling with positive credits should slowly drain money. Fully `off` systems bill zero and may still be configured, but they cannot start work, dispatch queues, or run CRON. If billing would take credits below 0, the system emergency-shuts down and clamps credits at 0; starting again from 0 credits provides a short bootstrap grace window.
 
 If active draw exceeds PSU capacity:
 
@@ -1431,9 +1437,9 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 10 | RAM Control | Adds active/intermediate staging constraints before System Scheduler |
 | 11 | System Scheduler | Automates RAM-staged multicore task scheduling after 1 Kb RAM |
 | 12 | Matched CPU purchase | Transitions to full system building |
-| 13 | Locked CRON, PSU, and Thermal reveal | Shows system automation/support modules after the second CPU purchase, with CRON at the top |
+| 13 | Locked CRON and Thermal reveal | Shows later system automation/support modules after the second CPU purchase, with CRON at the top; PSU has been visible since the start |
 | 14 | CRON Scheduler | Adds scoped timer automation for visible repeatable system tasks |
-| 15 | PSU Management | Adds power billing, power states, efficiency readouts, and PSU controls |
+| 15 | PSU Management | Adds advanced PSU tuning, capacity control, and deeper efficiency readouts |
 | 16 | Thermal Control | Adds cooling controls and thermal/power tradeoffs |
 | 17 | Preconfigured systems | Reduces system micromanagement |
 | 18 | Expansion slots | Adds specialization |
@@ -1515,9 +1521,9 @@ A strong first vertical slice should include progression through:
 6. 1 Kb RAM gate for System Scheduler.
 7. System Scheduler unlock.
 8. Matched CPU unlock.
-9. Second CPU purchase reveals locked CRON, PSU, and Thermal modules, with CRON at the top of the board.
+9. Second CPU purchase reveals locked CRON and Thermal modules, with CRON at the top of the board; PSU has been visible since the start.
 10. CRON Scheduler unlocks CRON v1 for visible repeatable system tasks only.
-11. PSU Management introduces paid-over-time power, power states, and efficiency readouts.
+11. PSU Management introduces advanced capacity tuning and deeper efficiency readouts.
 12. Thermal Control introduces the cooling/power tradeoff.
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
@@ -1563,19 +1569,20 @@ Late game should include:
 5. RAM should become visible only when the player has enough parallelism for active/intermediate staging to matter.
 6. Cache, RAM, and storage load speeds should be meaningful upgrade paths.
 7. Tasks should not require power directly; active hardware creates power draw and stress.
-8. Power should be billed over time from actual draw with no free threshold, but the starting draw should be gentle.
+8. Power should be billed over time from actual draw with no free threshold; the starting draw should be tiny but meaningful.
 9. Dense cores and additional CPUs should increase power draw nonlinearly.
-10. Power state controls should make `off` useful for configuration and zero billing while clearly blocking work and CRON.
-11. Power should first show stress and throttle without rewinding tasks; hard failure risk belongs to later, higher-scale reliability systems.
-12. CRON v1 should repeat only visible repeatable system tasks, skip blocked or duplicate work, and never catch up missed runs.
-13. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability while adding an active-power tradeoff.
-14. Higher SLA jobs should pay more because they require safer infrastructure.
-15. Uptime should emerge from headroom, redundancy, routing, and load management.
-16. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
-17. Brute force should remain possible but inefficient.
-18. Operating cost should include maintenance, staff, monitoring, and automation.
-19. Every new scale should automate or abstract the previous scale.
-20. Broad auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
+10. Power billing should clamp at 0 credits, auto-shut down when unpaid, and provide a short no-bill bootstrap restart from 0 credits.
+11. Power state controls should make `off` useful for configuration and zero billing while clearly blocking work and CRON.
+12. Power should first show stress and throttle without rewinding tasks; hard failure risk belongs to later, higher-scale reliability systems.
+13. CRON v1 should repeat only visible repeatable system tasks, skip blocked or duplicate work, and never catch up missed runs.
+14. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability while adding an active-power tradeoff.
+15. Higher SLA jobs should pay more because they require safer infrastructure.
+16. Uptime should emerge from headroom, redundancy, routing, and load management.
+17. Availability zones should make high-SLA, low-latency, and coverage jobs easier than brute force.
+18. Brute force should remain possible but inefficient.
+19. Operating cost should include maintenance, staff, monitoring, and automation.
+20. Every new scale should automate or abstract the previous scale.
+21. Broad auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
 
 ---
 

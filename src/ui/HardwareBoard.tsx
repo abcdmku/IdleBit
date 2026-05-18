@@ -403,6 +403,10 @@ interface UiSystemStatus {
   powerStress?: number;
   powerEfficiency?: number;
   powerState?: string;
+  powerHeadroomWatts?: number;
+  powerBootstrapGraceSeconds?: number;
+  billingGraceSeconds?: number;
+  powerBillingGraceSeconds?: number;
   coolingStress?: number;
   thermalStress?: number;
   coolingStatus?: string;
@@ -426,10 +430,24 @@ interface UiSystemStatus {
   cooling?: { status?: string; stress?: number };
   power?: {
     state?: string;
+    lifecycle?: string;
     drawWatts?: number;
     capacityWatts?: number;
+    headroomWatts?: number;
     costPerSecond?: number;
     efficiency?: number;
+    bootstrapGraceSeconds?: number;
+    powerBootstrapGraceSeconds?: number;
+    billingGraceSeconds?: number;
+    powerBillingGraceSeconds?: number;
+    controlsAvailable?: boolean;
+    canControl?: boolean;
+    canPowerOn?: boolean;
+    canPowerOff?: boolean;
+    canRequestPowerOn?: boolean;
+    canRequestPowerOff?: boolean;
+    canTurnOn?: boolean;
+    canTurnOff?: boolean;
   };
 }
 
@@ -468,8 +486,21 @@ interface UiPowerState {
   lifecycle?: string;
   drawWatts?: number;
   capacityWatts?: number;
+  headroomWatts?: number;
   costPerSecond?: number;
   efficiency?: number;
+  bootstrapGraceSeconds?: number;
+  powerBootstrapGraceSeconds?: number;
+  billingGraceSeconds?: number;
+  powerBillingGraceSeconds?: number;
+  controlsAvailable?: boolean;
+  canControl?: boolean;
+  canPowerOn?: boolean;
+  canPowerOff?: boolean;
+  canRequestPowerOn?: boolean;
+  canRequestPowerOff?: boolean;
+  canTurnOn?: boolean;
+  canTurnOff?: boolean;
 }
 
 type UiCore = VisibleCore & { activeTask?: UiActiveTask | null };
@@ -509,6 +540,9 @@ type UiVisibleState = VisibleState & {
     psuStress?: number;
     powerStress?: number;
     powerEfficiency?: number;
+    powerBootstrapGraceSeconds?: number;
+    billingGraceSeconds?: number;
+    powerBillingGraceSeconds?: number;
     ramCpuMatch?: number;
     matchingEfficiency?: number;
     thermalStress?: number;
@@ -578,8 +612,22 @@ const normalizeRatio = (value: number | null | undefined) => {
 const formatPercent = (ratio: number | null) =>
   ratio === null ? "N/A" : `${formatNumber(Math.max(0, ratio) * 100)}%`;
 
+const formatPowerRate = (creditsPerSecond: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: creditsPerSecond >= 1 ? 1 : 3,
+  }).format(creditsPerSecond);
+
 const firstNumber = (...values: Array<number | null | undefined>) =>
   values.find((value): value is number => typeof value === "number");
+
+const firstPositiveNumber = (...values: Array<number | null | undefined>) =>
+  values.find(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value > 0,
+  );
+
+const firstBoolean = (...values: Array<boolean | null | undefined>) =>
+  values.find((value): value is boolean => typeof value === "boolean");
 
 const bytesToBits = (bytes: number | null | undefined) =>
   typeof bytes === "number" ? bytes * 8 : undefined;
@@ -1739,14 +1787,23 @@ const getPowerStats = (visible: VisibleState) => {
     ui.power ??
     ui.hardware.power;
   const state = getPowerState(visible);
-  const capacityWatts = Math.max(
-    firstNumber(power?.capacityWatts, visible.hardware.psuWatts) ?? 1,
-    1,
+  const rawDrawWatts = Math.max(
+    0,
+    firstNumber(power?.drawWatts, visible.metrics.powerUsedWatts) ?? 0,
   );
-  const drawWatts =
-    state === "off"
-      ? 0
-      : Math.max(0, firstNumber(power?.drawWatts, visible.metrics.powerUsedWatts) ?? 0);
+  const headroomWatts = firstNumber(
+    power?.headroomWatts,
+    ui.systemStatus?.powerHeadroomWatts,
+    visible.metrics.powerHeadroomWatts,
+  );
+  const capacityWatts =
+    firstPositiveNumber(
+      power?.capacityWatts,
+      visible.hardware.psuWatts,
+      typeof headroomWatts === "number" ? rawDrawWatts + headroomWatts : undefined,
+      rawDrawWatts,
+    ) ?? 65;
+  const drawWatts = state === "off" ? 0 : rawDrawWatts;
   const stress =
     normalizeRatio(
       firstNumber(
@@ -1763,8 +1820,58 @@ const getPowerStats = (visible: VisibleState) => {
       ui.systemStatus?.power?.costPerSecond,
       visible.metrics.powerCostPerSecond,
     ) ?? Math.round(drawWatts * 0.06 * 1000) / 1000;
+  const billingGraceSeconds = Math.max(
+    0,
+    firstNumber(
+      power?.bootstrapGraceSeconds,
+      power?.powerBootstrapGraceSeconds,
+      power?.billingGraceSeconds,
+      power?.powerBillingGraceSeconds,
+      ui.systemStatus?.powerBootstrapGraceSeconds,
+      ui.systemStatus?.billingGraceSeconds,
+      ui.systemStatus?.powerBillingGraceSeconds,
+      ui.metrics.powerBootstrapGraceSeconds,
+      ui.metrics.billingGraceSeconds,
+      ui.metrics.powerBillingGraceSeconds,
+    ) ?? 0,
+  );
 
-  return { state, drawWatts, capacityWatts, stress, costPerSecond };
+  return {
+    state,
+    drawWatts,
+    capacityWatts,
+    stress,
+    costPerSecond,
+    billingGraceSeconds,
+  };
+};
+
+const getPowerControls = (visible: VisibleState, state: PowerLifecycleState) => {
+  const ui = asUiVisible(visible);
+  const power =
+    ui.systemStatus?.power ??
+    ui.systemManagement?.power ??
+    ui.power ??
+    ui.hardware.power;
+  const explicitCanPowerOn = firstBoolean(
+    power?.canPowerOn,
+    power?.canRequestPowerOn,
+    power?.canTurnOn,
+  );
+  const explicitCanPowerOff = firstBoolean(
+    power?.canPowerOff,
+    power?.canRequestPowerOff,
+    power?.canTurnOff,
+  );
+  const controlsAvailable = firstBoolean(power?.controlsAvailable, power?.canControl);
+  const controlsAllowed = controlsAvailable ?? true;
+  const showControls = controlsAvailable ?? true;
+
+  return {
+    showControls,
+    canPowerOn: explicitCanPowerOn ?? (controlsAllowed && state === "off"),
+    canPowerOff: explicitCanPowerOff ?? (controlsAllowed && state === "on"),
+  };
 };
 
 const getEfficiencyMetrics = (visible: VisibleState) => {
@@ -2006,9 +2113,9 @@ export function HardwareBoard({
   const cronVisible = secondCpuSystemVisible;
   const systemSchedulerVisible = visible.flags.scheduler;
   const memoryVisible = hasSystemMemory(visible);
-  const psuManagementUnlocked = hasPsuManagement(visible);
+  const psuAdvancedControlsVisible = hasPsuManagement(visible);
   const thermalControlUnlocked = hasThermalControl(visible);
-  const psuVisible = secondCpuSystemVisible || visible.hardware.psuLevel > 0;
+  const psuVisible = true;
   const thermalVisible = secondCpuSystemVisible || thermalControlUnlocked;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
@@ -2213,7 +2320,7 @@ export function HardwareBoard({
               onSelect={() => onSelectComponent("psu")}
               upgrades={psuUpgrades}
               dispatch={dispatch}
-              unlocked={psuManagementUnlocked}
+              advancedControls={psuAdvancedControlsVisible}
             />
           )}
           {thermalVisible && (
@@ -4436,43 +4543,34 @@ function PsuSection({
   onSelect,
   upgrades,
   dispatch,
-  unlocked,
+  advancedControls,
 }: {
   visible: VisibleState;
   selected: boolean;
   onSelect: () => void;
   upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
-  unlocked: boolean;
+  advancedControls: boolean;
 }) {
   const power = getPowerStats(visible);
+  const powerControls = getPowerControls(visible, power.state);
   const tone = getStressTone(power.stress);
   const efficiency = getEfficiencyMetrics(visible);
   const psuUpgrade = upgrades.find((upgrade) => upgrade.id === "psu");
   const otherUpgrades = upgrades.filter(
     (upgrade) => upgrade.id !== "psu" && upgrade.id !== "cooling",
   );
+  const expandedTelemetry =
+    selected ||
+    advancedControls ||
+    power.state !== "on" ||
+    power.stress >= 0.75;
   const stateLabel = {
     on: "On",
     off: "Off",
     booting: "Booting",
     shuttingDown: "Shutting down",
   }[power.state];
-
-  if (!unlocked) {
-    return (
-      <LockedSystemSection
-        className="psu-section"
-        Icon={Power}
-        title="PSU"
-        note="Research PSU Management"
-        selected={selected}
-        onSelect={onSelect}
-      >
-        <EfficiencyReadouts visible={visible} />
-      </LockedSystemSection>
-    );
-  }
 
   return (
     <section
@@ -4488,56 +4586,67 @@ function PsuSection({
         </span>
       </button>
 
-      <div className="power-state-row">
+      <div className="psu-compact-row">
         <span className={`power-state-chip ${power.state}`}>{stateLabel}</span>
-        <div className="power-control-buttons" aria-label="Power controls">
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "setPowerState", state: "on" })}
-            disabled={power.state === "on" || power.state === "booting"}
-          >
-            On
-          </button>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "setPowerState", state: "off" })}
-            disabled={power.state === "off" || power.state === "shuttingDown"}
-          >
-            Off
-          </button>
-        </div>
-      </div>
-
-      <div className="power-stat-grid">
-        <div className="module-stat">
-          <strong>{formatWatts(power.drawWatts)}</strong>
+        <span className="psu-compact-stat">
           <small>draw</small>
-        </div>
-        <div className="module-stat">
-          <strong>{formatWatts(power.capacityWatts)}</strong>
-          <small>capacity</small>
-        </div>
-        <div className="module-stat">
-          <strong>{formatPercent(power.stress)}</strong>
-          <small>stress</small>
-        </div>
-        <div className="module-stat">
-          <strong>{formatNumber(power.costPerSecond)}</strong>
+          <strong>{formatWatts(power.drawWatts)}</strong>
+        </span>
+        <span className="psu-compact-stat">
           <small>cr/s</small>
-        </div>
-        <div className="module-stat">
-          <strong>{formatPercent(efficiency.ramCpuMatch)}</strong>
-          <small>RAM/CPU match</small>
-        </div>
-        <div className="module-stat">
-          <strong>{formatPercent(efficiency.powerEfficiency)}</strong>
-          <small>Power efficiency</small>
-        </div>
+          <strong>{formatPowerRate(power.costPerSecond)}</strong>
+        </span>
+        {power.billingGraceSeconds > 0 && (
+          <span className="psu-grace-chip">
+            {formatCountdownSeconds(power.billingGraceSeconds)} grace
+          </span>
+        )}
+        {powerControls.showControls && (
+          <div className="power-control-buttons" aria-label="Power controls">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "setPowerState", state: "on" })}
+              disabled={!powerControls.canPowerOn}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "setPowerState", state: "off" })}
+              disabled={!powerControls.canPowerOff}
+            >
+              Off
+            </button>
+          </div>
+        )}
       </div>
 
       <ModuleMeter value={power.drawWatts / power.capacityWatts} />
 
-      {psuUpgrade && (
+      {expandedTelemetry && (
+        <div className="power-stat-grid">
+          <div className="module-stat">
+            <strong>{formatWatts(power.capacityWatts)}</strong>
+            <small>capacity</small>
+          </div>
+          <div className="module-stat">
+            <strong>{formatPercent(power.stress)}</strong>
+            <small>stress</small>
+          </div>
+          {power.billingGraceSeconds > 0 && (
+            <div className="module-stat">
+              <strong>{formatCountdownSeconds(power.billingGraceSeconds)}</strong>
+              <small>grace</small>
+            </div>
+          )}
+          <div className="module-stat">
+            <strong>{formatPercent(efficiency.powerEfficiency)}</strong>
+            <small>efficiency</small>
+          </div>
+        </div>
+      )}
+
+      {advancedControls && psuUpgrade && (
         <div className="power-upgrade-row">
           <UpgradeStepper
             upgrade={psuUpgrade}
@@ -4549,7 +4658,7 @@ function PsuSection({
         </div>
       )}
 
-      {selected && otherUpgrades.length > 0 && (
+      {advancedControls && selected && otherUpgrades.length > 0 && (
         <InlineUpgradeRow
           upgrades={otherUpgrades}
           resources={visible.resources}

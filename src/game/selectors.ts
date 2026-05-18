@@ -1251,7 +1251,8 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const powerUsedWatts = getHardwareDrawWatts(syncedState);
   const billedPowerWatts = getBilledPowerWatts(syncedState);
   const psuCapacityWatts = getPsuCapacityWatts(syncedState);
-  const powerHeadroomWatts = Math.round((psuCapacityWatts - powerUsedWatts) * 10) / 10;
+  const powerHeadroomWatts =
+    Math.round((psuCapacityWatts - powerUsedWatts) * 1000) / 1000;
   const cacheResidency = getCacheResidencySegments(syncedState);
   const ramResidency = getRamResidencySegments(syncedState);
   const ramSlots = getRamSlots(syncedState, ramUsedBits);
@@ -1301,6 +1302,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       powerCostPerSecond: getPowerCostPerSecond(syncedState),
       powerState: syncedState.power.state,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
+      powerBootstrapGraceSeconds: syncedState.power.bootstrapGraceSeconds,
       cacheResidency,
     },
     flags: syncedState.flags,

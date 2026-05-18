@@ -491,10 +491,16 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.ramSpeedMt).toBe(1);
     expect(getRamLoadRate(state)).toBe(1);
     expect(state.hardware.cores).toBe(1);
+    expect(state.hardware.psuLevel).toBe(1);
+    expect(state.hardware.psuWatts).toBeGreaterThan(0);
     expect(state.hardware.schedulerSlots).toBe(0);
     expect(state.hardware.systemSchedulerSlots).toBe(0);
     expect(visible.stage).toBe("primitiveCpu");
     expect(visible.flags.systemStats).toBe(false);
+    expect(visible.metrics.powerUsedWatts).toBeGreaterThan(0);
+    expect(visible.metrics.billedPowerWatts).toBe(visible.metrics.powerUsedWatts);
+    expect(visible.metrics.powerCostPerSecond).toBeGreaterThan(0);
+    expect(visible.metrics.powerBootstrapGraceSeconds).toBeGreaterThan(0);
     expect(visible.tasks.map((task) => task.id)).toEqual([
       "fetchBit",
       "decodeBit",
@@ -2587,7 +2593,8 @@ describe("IdleBit simulation", () => {
     state = runTask(state, "multiCoreBenchmark");
 
     expect(task.rewardCredits).toBe(task.operationCount);
-    expect(state.resources.credits - beforeCredits).toBe(task.rewardCredits);
+    expect(state.resources.credits - beforeCredits).toBeGreaterThan(0);
+    expect(state.resources.credits - beforeCredits).toBeLessThan(task.rewardCredits);
     expect(state.resources.data - beforeData).toBe(task.rewardData);
     expect(state.completedTasks.multiCoreBenchmark).toBe(1);
   });
@@ -2803,20 +2810,149 @@ describe("IdleBit simulation", () => {
     expect(state.power.state).toBe("on");
   });
 
-  it("bills power in credits per second", () => {
-    let state = research(unlockSystemStats(), "psuManagement");
+  it("idle power billing drains positive credits from the first screen", () => {
+    const initial = createInitialGameState();
+    let state: GameState = {
+      ...initial,
+      resources: { credits: 10, data: 0 },
+      power: {
+        ...initial.power,
+        bootstrapGraceSeconds: 0,
+      },
+    };
     const expectedCostPerSecond = getPowerCostPerSecond(state);
-    const beforeCredits = state.resources.credits;
 
+    expect(expectedCostPerSecond).toBeGreaterThan(0);
     expect(deriveVisibleState(state).metrics.powerCostPerSecond).toBe(
       expectedCostPerSecond,
     );
 
+    state = tickSeconds(state, 5);
+
+    expect(state.power.state).toBe("on");
+    expect(10 - state.resources.credits).toBeCloseTo(expectedCostPerSecond * 5);
+  });
+
+  it("clamps credits at 0 when power billing overruns the balance", () => {
+    const initial = createInitialGameState();
+    const costPerSecond = getPowerCostPerSecond(initial);
+    let state: GameState = {
+      ...initial,
+      resources: { credits: costPerSecond / 2, data: 0 },
+      power: {
+        ...initial.power,
+        bootstrapGraceSeconds: 0,
+      },
+    };
+
     state = tickSeconds(state, 1);
 
-    expect(beforeCredits - state.resources.credits).toBeCloseTo(
-      expectedCostPerSecond,
-    );
+    expect(state.resources.credits).toBe(0);
+    expect(state.resources.credits).toBeGreaterThanOrEqual(0);
+  });
+
+  it("auto-shuts down immediately on an unpaid bill and pauses active work", () => {
+    let state = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+    state = {
+      ...state,
+      resources: {
+        credits: getPowerCostPerSecond(state) / 2,
+        data: 0,
+      },
+      power: {
+        ...state.power,
+        bootstrapGraceSeconds: 0,
+      },
+    };
+    const operationBefore = state.activeTasks[0]?.coreOperations[0];
+    const remainingBefore =
+      (operationBefore?.remainingCycles ?? 0) +
+      (operationBefore?.remainingLoadCycles ?? 0);
+
+    state = tickSeconds(state, 1);
+
+    const operationAfter = state.activeTasks[0]?.coreOperations[0];
+    const remainingAfter =
+      (operationAfter?.remainingCycles ?? 0) +
+      (operationAfter?.remainingLoadCycles ?? 0);
+
+    expect(state.power.state).toBe("off");
+    expect(state.power.transitionSeconds).toBe(0);
+    expect(state.resources.credits).toBe(0);
+    expect(remainingAfter).toBe(remainingBefore);
+  });
+
+  it("grants bootstrap grace when starting up at 0 credits", () => {
+    const initial = createInitialGameState();
+    let state: GameState = {
+      ...initial,
+      power: {
+        ...initial.power,
+        state: "off",
+        transitionSeconds: 0,
+        bootstrapGraceSeconds: 0,
+      },
+    };
+
+    state = applyAction(state, { type: "requestPowerOn" });
+
+    expect(state.power.state).toBe("booting");
+    expect(state.power.bootstrapGraceSeconds).toBeGreaterThan(0);
+
+    const graceBefore = state.power.bootstrapGraceSeconds;
+    state = tickSeconds(state, 1);
+
+    expect(state.power.state).toBe("booting");
+    expect(state.resources.credits).toBe(0);
+    expect(state.power.bootstrapGraceSeconds).toBeLessThan(graceBefore);
+  });
+
+  it("exits bootstrap grace after earning credits", () => {
+    let state = createInitialGameState();
+
+    expect(state.power.bootstrapGraceSeconds).toBeGreaterThan(0);
+
+    state = runTask(state, "fetchBit");
+
+    expect(state.resources.credits).toBeGreaterThan(0);
+    expect(state.power.bootstrapGraceSeconds).toBe(0);
+
+    const beforeCredits = state.resources.credits;
+    state = tickSeconds(state, 1);
+
+    expect(state.resources.credits).toBeLessThan(beforeCredits);
+  });
+
+  it("expires bootstrap grace into an immediate shutdown at 0 credits", () => {
+    const initial = createInitialGameState();
+    let state: GameState = {
+      ...initial,
+      power: {
+        ...initial.power,
+        bootstrapGraceSeconds: 1,
+      },
+    };
+
+    state = tickSeconds(state, 1);
+
+    expect(state.power.state).toBe("off");
+    expect(state.power.transitionSeconds).toBe(0);
+    expect(state.resources.credits).toBe(0);
+  });
+
+  it("increases power draw and billing cost with core clock upgrades", () => {
+    let state = fund(createInitialGameState());
+    const before = deriveVisibleState(state).metrics;
+
+    state = buy(state, "clock");
+
+    const after = deriveVisibleState(state).metrics;
+
+    expect(after.powerUsedWatts).toBeGreaterThan(before.powerUsedWatts);
+    expect(after.powerCostPerSecond).toBeGreaterThan(before.powerCostPerSecond);
   });
 
   it("CRON scheduler clamps intervals, queues visible system work, and skips duplicates", () => {
@@ -2904,7 +3040,7 @@ describe("IdleBit simulation", () => {
       ...state,
       hardware: {
         ...state.hardware,
-        psuWatts: 35,
+        psuWatts: 0.01,
       },
     };
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
@@ -2921,7 +3057,7 @@ describe("IdleBit simulation", () => {
       ...state,
       hardware: {
         ...state.hardware,
-        psuWatts: 8,
+        psuWatts: 0.004,
       },
     };
 

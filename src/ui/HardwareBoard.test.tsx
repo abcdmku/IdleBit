@@ -13,6 +13,7 @@ import {
 import { idleBitPersistence } from "../platform";
 import { App } from "./App";
 import { HardwareBoard, ResearchPanel, ResourceHud, TaskBay } from "./HardwareBoard";
+import { formatWatts } from "./format";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -98,6 +99,79 @@ describe("ResourceHud", () => {
     });
 
     expect(container.querySelector(".resource-gain-flyout")).toBeNull();
+  });
+});
+
+describe("power formatting", () => {
+  it("scales watt readouts through startup and rack units", () => {
+    expect(formatWatts(0.00042)).toBe("420 uW");
+    expect(formatWatts(0.42)).toBe("420 mW");
+    expect(formatWatts(42)).toBe("42 W");
+    expect(formatWatts(4_200)).toBe("4.2 kW");
+  });
+});
+
+describe("HardwareBoard power telemetry", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("shows PSU readouts and recovery controls on the first screen", () => {
+    const initial = deriveVisibleState(createInitialGameState());
+    const drawWatts = 0.00042;
+    const capacityWatts = initial.hardware.psuWatts || 65;
+    const visible = {
+      ...initial,
+      metrics: {
+        ...initial.metrics,
+        powerUsedWatts: drawWatts,
+        powerHeadroomWatts: capacityWatts - drawWatts,
+        psuStress: drawWatts / capacityWatts,
+        powerCostPerSecond: 0,
+      },
+    } as VisibleState;
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const psuSection = container.querySelector(".psu-section");
+
+    expect(psuSection?.textContent).toContain("PSU");
+    expect(psuSection?.textContent).toContain("On");
+    expect(psuSection?.textContent).toContain("420 uW");
+    expect(psuSection?.textContent).not.toContain(formatWatts(capacityWatts));
+    expect(psuSection?.textContent).toContain("grace");
+    expect(psuSection?.textContent).not.toContain("stress");
+    expect(psuSection?.textContent).toContain("cr/s");
+    expect(psuSection?.textContent).not.toContain("Research PSU Management");
+    const buttons = Array.from(
+      psuSection?.querySelectorAll<HTMLButtonElement>(".power-control-buttons button") ?? [],
+    );
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.disabled).toBe(true);
+    expect(buttons[1]?.disabled).toBe(false);
   });
 });
 
@@ -247,7 +321,7 @@ describe("HardwareBoard second CPU system management", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("renders CRON first with locked PSU and thermal notes after second CPU", () => {
+  it("renders CRON first with PSU telemetry and thermal notes after second CPU", () => {
     const visible = makeSecondCpuVisible();
 
     act(() => {
@@ -265,12 +339,16 @@ describe("HardwareBoard second CPU system management", () => {
     const cronSection = container.querySelector(".cron-section");
     const schedulerSection = container.querySelector(".system-scheduler-section");
     const ramSection = container.querySelector(".memory-section");
+    const psuSection = container.querySelector(".psu-section");
 
     expect(flow?.firstElementChild?.className).toContain("cron-section");
     expect(cronSection?.textContent).toContain("Research CRON Scheduler");
-    expect(container.querySelector(".psu-section")?.textContent).toContain(
-      "Research PSU Management",
-    );
+    expect(psuSection?.textContent).toContain("32 W");
+    expect(psuSection?.textContent).not.toContain("65 W");
+    expect(psuSection?.textContent).toContain("On");
+    expect(psuSection?.textContent).toContain("cr/s");
+    expect(psuSection?.textContent).not.toContain("Research PSU Management");
+    expect(psuSection?.querySelector(".power-control-buttons")).not.toBeNull();
     expect(container.querySelector(".thermal-section")?.textContent).toContain(
       "Research Thermal Control",
     );
@@ -355,10 +433,10 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".cron-section")?.textContent).not.toContain(
       "Power efficiency",
     );
-    expect(container.querySelector(".psu-section .efficiency-readouts")?.textContent).toContain(
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
       "RAM/CPU match",
     );
-    expect(container.querySelector(".psu-section .efficiency-readouts")?.textContent).toContain(
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
       "Power efficiency",
     );
 
@@ -560,6 +638,7 @@ describe("HardwareBoard second CPU system management", () => {
         drawWatts: 42,
         capacityWatts: 80,
         costPerSecond: 1.3,
+        billingGraceSeconds: 4,
       },
       thermalStress: 0.41,
       thermalStatus: "Warm",
@@ -584,17 +663,17 @@ describe("HardwareBoard second CPU system management", () => {
       "Booting",
     );
     expect(buttons[0]?.disabled).toBe(true);
-    expect(buttons[1]?.disabled).toBe(false);
+    expect(buttons[1]?.disabled).toBe(true);
     expect(container.querySelector(".psu-section")?.textContent).toContain("42 W");
     expect(container.querySelector(".psu-section")?.textContent).toContain("80 W");
     expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
     expect(container.querySelector(".psu-section")?.textContent).toContain("cr/s");
-    expect(container.querySelector(".psu-section")?.textContent).toContain(
+    expect(container.querySelector(".psu-section")?.textContent).toContain("4s");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("grace");
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
       "RAM/CPU match",
     );
-    expect(container.querySelector(".psu-section")?.textContent).toContain(
-      "Power efficiency",
-    );
+    expect(container.querySelector(".psu-section")?.textContent).toContain("efficiency");
     expect(container.querySelector(".psu-section")?.textContent).toContain(
       "PSU Capacity",
     );
@@ -603,8 +682,33 @@ describe("HardwareBoard second CPU system management", () => {
       "Cooling Loop",
     );
 
+    (visible as unknown as { systemStatus: Record<string, unknown> }).systemStatus = {
+      ...(visible as unknown as { systemStatus: Record<string, unknown> })
+        .systemStatus,
+      powerState: "on",
+    };
+
     act(() => {
-      buttons[1]?.click();
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const runningButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".power-state-chip.on")?.textContent).toBe("On");
+    expect(runningButtons[0]?.disabled).toBe(true);
+    expect(runningButtons[1]?.disabled).toBe(false);
+
+    act(() => {
+      runningButtons[1]?.click();
     });
 
     expect(dispatch).toHaveBeenCalledWith({
@@ -1301,6 +1405,11 @@ describe("HardwareBoard cache meter", () => {
     });
 
     const text = container.textContent ?? "";
+    const boardTextWithoutRail = Array.from(
+      container.querySelectorAll(".system-board-flow > :not(.system-rail)"),
+    )
+      .map((node) => node.textContent ?? "")
+      .join("");
     const grid = container.querySelector<HTMLElement>(".queue-preview-list");
 
     expect(text).toContain("Cores");
@@ -1309,10 +1418,10 @@ describe("HardwareBoard cache meter", () => {
     expect(text).not.toContain("used");
     expect(text).not.toContain("2 open");
     expect(text).not.toContain("Queue");
-    expect(text).not.toContain("CPU");
-    expect(text).not.toContain("CPU A");
-    expect(text).not.toContain("CPU A Cache");
-    expect(text).not.toContain("CPU A Scheduler");
+    expect(boardTextWithoutRail).not.toContain("CPU");
+    expect(boardTextWithoutRail).not.toContain("CPU A");
+    expect(boardTextWithoutRail).not.toContain("CPU A Cache");
+    expect(boardTextWithoutRail).not.toContain("CPU A Scheduler");
     expect(container.querySelector(".scheduler-status-meter")).toBeNull();
     expect(container.querySelector(".queue-preview-header")).toBeNull();
     expect(container.querySelector(".scheduler-capacity-bar")).toBeNull();

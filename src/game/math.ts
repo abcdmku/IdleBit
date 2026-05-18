@@ -498,21 +498,25 @@ const getOperationActivityDrawWatts = (
   runtime: ActiveCoreOperation,
 ) => {
   const baseDraw =
-    operation.kind === "memory" ? 1.35 : operation.kind === "barrier" ? 0.45 : 1.85;
-  const parallelOverhead = operation.parallel ? 0.35 : 0;
+    operation.kind === "memory"
+      ? 0.00034
+      : operation.kind === "barrier"
+        ? 0.00008
+        : 0.00048;
+  const parallelOverhead = operation.parallel ? 0.00008 : 0;
   const memoryLoadDraw =
     runtime.status === "loadingCache"
-      ? 0.45
+      ? 0.00016
       : runtime.status === "loadingRam"
-        ? 0.75
+        ? 0.00024
         : 0;
 
   return baseDraw + parallelOverhead + memoryLoadDraw;
 };
 
-const roundTenth = (value: number) => Math.round(value * 10) / 10;
-
 const roundThousandth = (value: number) => Math.round(value * 1000) / 1000;
+
+const roundMillionth = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 
 const getUniqueCount = <T,>(values: T[]) => new Set(values).size;
 
@@ -559,7 +563,7 @@ const getPowerStateDrawMultiplier = (state: GameState) => {
 };
 
 const getCronQueueSpikeWatts = (state: GameState) =>
-  state.cron.queuePowerSpikeSeconds > 0 ? 7.5 : 0;
+  state.cron.queuePowerSpikeSeconds > 0 ? 0.0012 : 0;
 
 export const getActiveOperationDefinition = (
   state: GameState,
@@ -581,14 +585,19 @@ export const getActiveOperationDefinition = (
 
 export const getHardwareDrawWatts = (state: GameState) => {
   const socketCount = Math.max(1, state.hardware.cpus.length);
-  const boardWatts = state.flags.systemStats ? 8 : 4;
-  const socketWatts = socketCount * 5.5;
+  const boardWatts = state.flags.systemStats ? 0.0007 : 0.00035;
+  const socketWatts = socketCount * 0.00018;
   const coreIdleWatts = Array.from(
     { length: state.hardware.cores },
     (_, index) => {
       const coreId = index + 1;
       const level = getCoreClockLevel(state, coreId);
-      return 0.5 + 0.32 * level ** 1.3;
+      const clockHz = getCoreClockHz(state, coreId);
+      return (
+        0.00016 +
+        0.00052 * clockHz * level ** 0.28 +
+        0.00009 * level ** 1.25
+      );
     },
   ).reduce((sum, watts) => sum + watts, 0);
   const activeCoreWatts = state.activeTasks
@@ -598,7 +607,8 @@ export const getHardwareDrawWatts = (state: GameState) => {
       if (!definition) return sum;
 
       const level = getCoreClockLevel(state, operation.coreId);
-      const clockDraw = 0.24 * level ** 1.42;
+      const clockHz = getCoreClockHz(state, operation.coreId);
+      const clockDraw = 0.00022 * clockHz * level ** 0.32;
       return (
         sum +
         (getOperationActivityDrawWatts(definition, operation) + clockDraw) *
@@ -610,21 +620,22 @@ export const getHardwareDrawWatts = (state: GameState) => {
       sum +
       (cpu.cacheLevel <= 0
         ? 0
-        : 0.12 * cpu.cacheLevel ** 1.42 + 0.06 * cpu.cacheSpeedLevel ** 1.36),
+        : 0.00006 * cpu.cacheLevel ** 1.18 +
+          0.00003 * cpu.cacheSpeedLevel ** 1.16),
     0,
   );
   const ramWatts = getInstalledRamSticks(state).reduce(
     (sum, stick) =>
       sum +
-      0.65 +
-      0.08 * Math.max(1, stick.level) ** 1.28 +
-      0.1 * Math.max(1, stick.speedLevel) ** 1.22,
+      0.00018 +
+      0.00004 * Math.max(1, stick.level) ** 1.18 +
+      0.00005 * Math.max(1, stick.speedLevel) ** 1.14,
     0,
   );
   const coolingWatts =
     state.hardware.coolingLevel <= 0
       ? 0
-      : 0.35 * state.hardware.coolingLevel ** 1.18;
+      : 0.00018 * state.hardware.coolingLevel ** 1.12;
   const rawDraw =
     boardWatts +
     socketWatts +
@@ -636,14 +647,14 @@ export const getHardwareDrawWatts = (state: GameState) => {
     getCronQueueSpikeWatts(state);
   const draw = (rawDraw / getPowerEfficiency(state)) * getPowerStateDrawMultiplier(state);
 
-  return roundTenth(draw);
+  return roundMillionth(draw);
 };
 
 export const getPsuCapacityWatts = (state: GameState) =>
-  state.hardware.psuWatts > 0 ? state.hardware.psuWatts : 65;
+  state.hardware.psuWatts > 0 ? state.hardware.psuWatts : 0.012;
 
 export const getPsuStress = (state: GameState) =>
-  getHardwareDrawWatts(state) / Math.max(1, getPsuCapacityWatts(state));
+  getHardwareDrawWatts(state) / Math.max(0.001, getPsuCapacityWatts(state));
 
 export const getCoolingReliabilityBonus = (state: GameState) =>
   1 + state.hardware.coolingRating * 0.36;
@@ -658,10 +669,10 @@ export const getPowerReliability = (state: GameState) => {
 };
 
 export const getBilledPowerWatts = (state: GameState) =>
-  state.flags.psuManagement && state.hardware.secondCpu ? getHardwareDrawWatts(state) : 0;
+  getHardwareDrawWatts(state);
 
 export const getPowerCostPerSecond = (state: GameState) =>
-  roundThousandth(getBilledPowerWatts(state) * 0.06);
+  roundThousandth(getBilledPowerWatts(state) * 25);
 
 export const getReservedMemoryBytes = (state: GameState) =>
   bitsToBytes(getReservedMemoryBits(state));

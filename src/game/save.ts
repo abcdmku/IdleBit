@@ -8,6 +8,7 @@ import {
   getCacheBytes,
   getClockHz,
   getCoolingRating,
+  POWER_BOOTSTRAP_GRACE_SECONDS,
   getPsuWatts,
   getRamBytes,
   getRamBits,
@@ -341,8 +342,10 @@ const normalizeState = (state: LegacyState): GameState => {
             },
           ),
         ];
-  const psuLevel =
-    hardware.psuLevel ?? (hardware.psuWatts ? 1 : fresh.hardware.psuLevel);
+  const psuLevel = Math.max(
+    1,
+    hardware.psuLevel ?? (hardware.psuWatts ? 1 : fresh.hardware.psuLevel),
+  );
   const coolingLevel = hardware.coolingLevel ?? fresh.hardware.coolingLevel;
   const coreClockLevels: Record<number, number> =
     hardware.coreClockLevels ??
@@ -368,6 +371,21 @@ const normalizeState = (state: LegacyState): GameState => {
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
   );
+  const resources = {
+    ...fresh.resources,
+    ...state.resources,
+  };
+  const powerState =
+    state.power?.state === "shuttingDown" ||
+    state.power?.state === "off" ||
+    state.power?.state === "booting"
+      ? state.power.state
+      : "on";
+  const bootstrapGraceSeconds =
+    state.power?.bootstrapGraceSeconds ??
+    (resources.credits <= 0 && powerState !== "off"
+      ? POWER_BOOTSTRAP_GRACE_SECONDS
+      : 0);
   const normalized: GameState = {
     ...fresh,
     ...state,
@@ -398,11 +416,10 @@ const normalizeState = (state: LegacyState): GameState => {
       cronIntervalLevel:
         hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
       psuLevel,
-      psuWatts: hardware.psuLevel
-        ? (hardware.psuWatts ?? getPsuWatts(psuLevel))
-        : psuLevel > 0
-          ? getPsuWatts(psuLevel)
-          : 0,
+      psuWatts:
+        hardware.psuWatts && hardware.psuWatts > 0
+          ? hardware.psuWatts
+          : getPsuWatts(psuLevel),
       coolingLevel,
       coolingRating:
         hardware.coolingRating ??
@@ -412,18 +429,11 @@ const normalizeState = (state: LegacyState): GameState => {
       ...fresh.flags,
       ...state.flags,
     },
-    resources: {
-      ...fresh.resources,
-      ...state.resources,
-    },
+    resources,
     power: {
-      state:
-        state.power?.state === "shuttingDown" ||
-        state.power?.state === "off" ||
-        state.power?.state === "booting"
-          ? state.power.state
-          : "on",
+      state: powerState,
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
+      bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
     },
     cron: {
       schedules: normalizeCronSchedules(state.cron?.schedules),

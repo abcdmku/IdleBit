@@ -138,6 +138,7 @@ export function App() {
   const [secondCpuGuideOpen, setSecondCpuGuideOpen] = useState(false);
   const stateRef = useRef(state);
   const pausedRef = useRef(false);
+  const persistenceReadyRef = useRef(false);
   const previousSecondCpuRef = useRef(false);
   const visible = useMemo(() => deriveVisibleState(state), [state]);
 
@@ -161,7 +162,9 @@ export function App() {
         seenSecondCpuGuide,
       ]) => {
         if (!cancelled) {
-          setState(deserializeSave(rawSave));
+          const restoredState = deserializeSave(rawSave);
+          stateRef.current = restoredState;
+          setState(restoredState);
           setDeadlockHelpSeen(Boolean(seenDeadlockHelp));
           setDeadlockCooldownHelpSeen(Boolean(seenDeadlockCooldownHelp));
           setSecondCpuGuideSeen(Boolean(seenSecondCpuGuide));
@@ -170,6 +173,7 @@ export function App() {
       .catch(() => undefined)
       .finally(() => {
         if (!cancelled) {
+          persistenceReadyRef.current = true;
           setResourceEffectsReady(true);
         }
       });
@@ -197,11 +201,16 @@ export function App() {
   }, []);
 
   const save = async (nextState: GameState) => {
-    await idleBitPersistence.set(SAVE_KEY, serializeSave(nextState));
+    try {
+      await idleBitPersistence.set(SAVE_KEY, serializeSave(nextState));
+    } catch {
+      // A failed save should never crash the renderer or wipe the in-memory run.
+    }
   };
 
   useEffect(() => {
     const interval = window.setInterval(() => {
+      if (!persistenceReadyRef.current) return;
       void save(stateRef.current);
     }, 4000);
 
@@ -276,6 +285,7 @@ export function App() {
     const freshState = createInitialGameState();
     setSelectedComponent("core:1");
     setSecondCpuGuideOpen(false);
+    stateRef.current = freshState;
     setState(freshState);
     await idleBitPersistence.set(SAVE_KEY, serializeSave(freshState));
   };

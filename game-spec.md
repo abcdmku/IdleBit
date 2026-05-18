@@ -399,6 +399,8 @@ Power cost accrues continuously while the system is powered on:
 
 `power_bill = active_hardware_draw * elapsed_seconds * power_price`
 
+The current prototype price is `0.06 cr/s` per billed watt, and PSU readouts show the live rate as `cr/s`.
+
 There is no free wattage threshold. Low early draw should make the first bill forgiving, not free.
 
 System power state controls whether work can run:

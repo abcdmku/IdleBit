@@ -20,7 +20,7 @@ import {
   getBilledPowerWatts,
   getCpuMatchEfficiency,
   getHardwareDrawWatts,
-  getPowerCostPerMinute,
+  getPowerCostPerSecond,
   getPowerEfficiency,
   getPsuCapacityWatts,
   getPsuStress,
@@ -1298,7 +1298,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       cpuEfficiency: getCpuMatchEfficiency(syncedState),
       coolingReliabilityBonus:
         Math.round((getCoolingReliabilityBonus(syncedState) - 1) * 1000) / 1000,
-      powerCostPerMinute: getPowerCostPerMinute(syncedState),
+      powerCostPerSecond: getPowerCostPerSecond(syncedState),
       powerState: syncedState.power.state,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
       cacheResidency,

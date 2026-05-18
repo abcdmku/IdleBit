@@ -185,7 +185,7 @@ describe("HardwareBoard second CPU system management", () => {
         powerHeadroomWatts: 33,
         psuStress: 0.49,
         powerReliability: 0.86,
-        powerCostPerMinute: 1,
+        powerCostPerSecond: 1,
         ...(overrides.metrics ?? {}),
       },
       tasks: [systemTask],
@@ -320,34 +320,34 @@ describe("HardwareBoard second CPU system management", () => {
     const taskSelect = container.querySelector<HTMLSelectElement>(
       ".cron-task-control select",
     );
-    const modeSelect = container.querySelector<HTMLSelectElement>(
-      ".cron-mode-control select",
+    const modeButtons = container.querySelectorAll<HTMLButtonElement>(
+      ".cron-mode-control button",
+    );
+    const activeMode = Array.from(modeButtons).find(
+      (button) => button.getAttribute("aria-pressed") === "true",
     );
     const intervalInput = container.querySelector<HTMLInputElement>(
       ".cron-interval-control input",
     );
-    const range = container.querySelector<HTMLInputElement>(
-      ".cron-interval-range",
-    );
     const toggle = container.querySelector<HTMLInputElement>(".cron-toggle input");
 
     expect(taskSelect?.value).toBe("tinyChecksum");
-    expect(modeSelect?.value).toBe("seconds");
+    expect(activeMode?.textContent).toBe("s");
     expect(intervalInput?.min).toBe("30");
     expect(intervalInput?.value).toBe("45");
-    expect(range?.min).toBe("30");
     expect(toggle?.checked).toBe(true);
     expect(container.querySelector(".cron-section")?.textContent).toContain(
-      "Automation",
+      "System Automation",
     );
-    expect(container.querySelector(".cron-section")?.textContent).toContain("Loop 1");
     expect(container.querySelector(".cron-section")?.textContent).toContain("12s");
-    expect(container.querySelector(".cron-section")?.textContent).toContain("Queued");
     expect(container.querySelector(".cron-section")?.textContent).toContain(
       "Min 30s",
     );
     expect(container.querySelector(".cron-section")?.textContent).toContain(
       "Min interval",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "Queued",
     );
     expect(container.querySelector(".cron-section")?.textContent).not.toContain(
       "RAM/CPU match",
@@ -392,6 +392,151 @@ describe("HardwareBoard second CPU system management", () => {
     });
   });
 
+  it("keeps concise CPU cards focused on scheduler and core selection", () => {
+    const onSelectComponent = vi.fn();
+    const visible = makeSecondCpuVisible();
+    visible.tasks = visible.tasks.map((task) =>
+      task.id === "tinyChecksum"
+        ? {
+            ...task,
+            cacheNeedBits: 999_999,
+          }
+        : task,
+    );
+    visible.metrics.cpuSockets = visible.metrics.cpuSockets.map((socket, index) =>
+      index === 0
+        ? {
+            ...socket,
+            schedulerSlots: 4,
+            queuedCount: 1,
+            schedulerConfig: {
+              ...socket.schedulerConfig,
+              policy: "deadlockSafe",
+            },
+            cores: socket.cores.map((core, coreIndex) =>
+              coreIndex === 0
+                ? {
+                    ...core,
+                    scheduler: {
+                      ...core.scheduler,
+                      localQueue: ["tinyChecksum"],
+                    },
+                  }
+                : core,
+            ),
+          }
+        : socket,
+    );
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={onSelectComponent}
+        />,
+      );
+    });
+
+    const card = container.querySelector<HTMLElement>(".cpu-summary-card");
+    const queue = card?.querySelector<HTMLElement>(".cpu-summary-queue");
+    const fullViewButton =
+      card?.querySelector<HTMLButtonElement>(".cpu-summary-open");
+    const coreButton =
+      card?.querySelector<HTMLButtonElement>(".cpu-summary-core-cell");
+
+    expect(queue?.classList.contains("slots-1")).toBe(true);
+    expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
+    expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
+    expect(card?.querySelector(".cpu-summary-queue-state")?.textContent).toBe(
+      "CACHE",
+    );
+    expect(card?.textContent).not.toContain("Open");
+    expect(card?.querySelector(".cpu-summary-upgrades")).toBeNull();
+
+    act(() => {
+      card?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+    expect(container.querySelector(".cpu-bank-grid")).not.toBeNull();
+
+    act(() => {
+      coreButton?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("core:1");
+    expect(container.querySelector(".cpu-bank-grid")).not.toBeNull();
+
+    act(() => {
+      fullViewButton?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+    expect(container.querySelector(".cpu-bank-stack")).not.toBeNull();
+    expect(container.querySelector(".cpu-bank-grid")).toBeNull();
+  });
+
+  it("labels cores locally within each CPU socket", () => {
+    const visible = makeSecondCpuVisible();
+    const [firstSocket, secondSocket] = visible.metrics.cpuSockets;
+    const coreTemplate = firstSocket!.cores[0]!;
+    const makeCore = (id: number) => ({
+      ...coreTemplate,
+      id,
+      scheduler: {
+        ...coreTemplate.scheduler,
+        coreId: id,
+        localQueue: [],
+      },
+    });
+
+    visible.hardware.cores = 8;
+    visible.metrics.cpuSockets = [
+      {
+        ...firstSocket!,
+        label: "CPU A",
+        cores: [1, 2, 3, 4].map(makeCore),
+        schedulerSlots: 4,
+      },
+      {
+        ...secondSocket!,
+        label: "CPU B",
+        cores: [5, 6, 7, 8].map(makeCore),
+        schedulerSlots: 4,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const cards = container.querySelectorAll<HTMLElement>(".cpu-summary-card");
+    const secondCardLabels = Array.from(
+      cards[1]?.querySelectorAll(".cpu-summary-core-tag") ?? [],
+    ).map((label) => label.textContent);
+
+    expect(secondCardLabels).toEqual(["C1", "C2", "C3", "C4"]);
+
+    act(() => {
+      cards[1]?.querySelector<HTMLButtonElement>(".cpu-summary-open")?.click();
+    });
+
+    const fullViewLabels = Array.from(
+      container.querySelectorAll(".cpu-bank-stack .core-label"),
+    ).map((label) => label.textContent);
+
+    expect(fullViewLabels).toEqual(["C1", "C2", "C3", "C4"]);
+  });
+
   it("shows active PSU power states, controls, readouts, and thermal upgrade", () => {
     const dispatch = vi.fn();
     const visible = makeSecondCpuVisible({
@@ -403,7 +548,7 @@ describe("HardwareBoard second CPU system management", () => {
       upgrades: [psuUpgrade, coolingUpgrade],
       metrics: {
         powerUsedWatts: 42,
-        powerCostPerMinute: 1.3,
+        powerCostPerSecond: 1.3,
         psuStress: 0.52,
         coolingStress: 0.41,
         coolingStatus: "Warm",
@@ -414,7 +559,7 @@ describe("HardwareBoard second CPU system management", () => {
       power: {
         drawWatts: 42,
         capacityWatts: 80,
-        costPerMinute: 1.3,
+        costPerSecond: 1.3,
       },
       thermalStress: 0.41,
       thermalStatus: "Warm",
@@ -443,6 +588,7 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".psu-section")?.textContent).toContain("42 W");
     expect(container.querySelector(".psu-section")?.textContent).toContain("80 W");
     expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("cr/s");
     expect(container.querySelector(".psu-section")?.textContent).toContain(
       "RAM/CPU match",
     );
@@ -2175,6 +2321,7 @@ describe("HardwareBoard cache meter", () => {
     const base = deriveVisibleState(createInitialGameState());
     const cases = [
       [4, "2x2", "2", "64px", "30px"],
+      [6, "3x2", "3", "64px", "30px"],
       [8, "4x2", "4", "64px", "30px"],
       [16, "4x4", "4", "108px", "24px"],
       [24, "6x4", "6", "108px", "24px"],

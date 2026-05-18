@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
     "dev:web": "vite --host 127.0.0.1",
-    "dev:electron": "wait-on http://127.0.0.1:5173 && npm run electron:compile && electron dist-electron/main.js",
+    "dev:electron": "wait-on http://127.0.0.1:6173 && npm run electron:compile && electron dist-electron/main.js",
     "build": "tsc -p tsconfig.app.json && vite build && npm run electron:compile",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
@@ -34,4 +34,3 @@
     "wait-on": "^8.0.1"
   }
 }
-

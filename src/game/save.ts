@@ -16,13 +16,17 @@ import {
   syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
+import { taskDefinitions } from "./content/tasks";
 import type {
   ActiveCoreOperation,
   ActiveTask,
+  CronIntervalMode,
   GameFlags,
   GameState,
+  MemoryRuntimeState,
   OperationRuntimeStatus,
   ResearchId,
+  TaskId,
 } from "./types";
 
 export interface SaveEnvelope {
@@ -86,6 +90,40 @@ const validResearchIds = [
   "thermalControl",
 ] satisfies ResearchId[];
 
+const validTaskIds = new Set<TaskId>(taskDefinitions.map((task) => task.id));
+
+const isTaskId = (id: unknown): id is TaskId =>
+  typeof id === "string" && validTaskIds.has(id as TaskId);
+
+const toFiniteNumber = (value: unknown, fallback = 0) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const toNonNegativeNumber = (value: unknown, fallback = 0) =>
+  Math.max(0, toFiniteNumber(value, fallback));
+
+const toInteger = (value: unknown, fallback = 0) =>
+  Math.trunc(toFiniteNumber(value, fallback));
+
+const normalizeTaskIdList = (values: unknown): TaskId[] =>
+  Array.isArray(values) ? values.filter(isTaskId) : [];
+
+const normalizeTaskCounts = (
+  counts: unknown,
+): Partial<Record<TaskId, number>> => {
+  if (!counts || typeof counts !== "object" || Array.isArray(counts)) return {};
+
+  return Object.fromEntries(
+    Object.entries(counts)
+      .filter(([taskId, count]) => isTaskId(taskId) && toNonNegativeNumber(count) > 0)
+      .map(([taskId, count]) => [taskId, toNonNegativeNumber(count)]),
+  ) as Partial<Record<TaskId, number>>;
+};
+
+const normalizeTaskId = <T extends TaskId | null>(
+  taskId: unknown,
+  fallback: T,
+): TaskId | T => (isTaskId(taskId) ? taskId : fallback);
+
 const normalizeResearchCompleted = (
   completed: readonly unknown[] = [],
 ): ResearchId[] => {
@@ -104,7 +142,7 @@ const isActiveTask = (value: unknown): value is ActiveTask => {
   const candidate = value as Partial<ActiveTask>;
   return (
     typeof candidate.instanceId === "string" &&
-    typeof candidate.taskId === "string" &&
+    isTaskId(candidate.taskId) &&
     Array.isArray(candidate.assignedCoreIds) &&
     Array.isArray(candidate.coreOperations)
   );
@@ -127,27 +165,131 @@ const normalizeOperationStatus = (status: unknown): OperationRuntimeStatus => {
   return "complete";
 };
 
+const normalizeMemoryState = (
+  memoryState: unknown,
+  status: OperationRuntimeStatus,
+): MemoryRuntimeState => {
+  if (status === "deadlocked") return "deadlock";
+  if (memoryState === "rerun" || memoryState === "restart") return "ready";
+  if (
+    memoryState === "idle" ||
+    memoryState === "cacheLoad" ||
+    memoryState === "ramLoad" ||
+    memoryState === "waiting" ||
+    memoryState === "ready" ||
+    memoryState === "deadlock"
+  ) {
+    return memoryState;
+  }
+
+  return status === "complete" ? "idle" : "ready";
+};
+
 const normalizeActiveOperation = (
   operation: ActiveCoreOperation,
 ): ActiveCoreOperation => {
   const status = normalizeOperationStatus(operation.status);
-  const rawMemoryState = operation.memoryState as string;
-  const memoryState =
-    status === "deadlocked"
-      ? "deadlock"
-      : rawMemoryState === "rerun" || rawMemoryState === "restart"
-        ? "ready"
-        : operation.memoryState;
+  const remainingCycles = toNonNegativeNumber(operation.remainingCycles);
+  const totalCycles = Math.max(
+    remainingCycles,
+    toNonNegativeNumber(operation.totalCycles),
+  );
+  const remainingLoadCycles = toNonNegativeNumber(operation.remainingLoadCycles);
+  const totalLoadCycles = Math.max(
+    remainingLoadCycles,
+    toNonNegativeNumber(operation.totalLoadCycles),
+  );
+  const memoryReservedBits = toNonNegativeNumber(operation.memoryReservedBits);
 
   return {
     ...operation,
+    coreId: toInteger(operation.coreId, 1),
+    operationIndex: toInteger(operation.operationIndex),
     status,
-    memoryState,
+    memoryState: normalizeMemoryState(operation.memoryState, status),
+    remainingCycles,
+    totalCycles,
+    remainingLoadCycles,
+    totalLoadCycles,
+    memoryReservedBits,
+    memoryReservedBytes: toNonNegativeNumber(operation.memoryReservedBytes),
     lockResource: operation.lockResource ?? null,
     lockReason: operation.lockReason ?? null,
-    deadlockSeconds: operation.deadlockSeconds ?? 0,
+    deadlockSeconds: toNonNegativeNumber(operation.deadlockSeconds),
   };
 };
+
+const normalizeCoreIds = (coreIds: unknown[], availableCoreIds: number[]) => {
+  const available = new Set(availableCoreIds);
+  const normalized = coreIds
+    .map((coreId) => toInteger(coreId, NaN))
+    .filter((coreId) => Number.isFinite(coreId) && available.has(coreId));
+
+  return Array.from(new Set(normalized));
+};
+
+const normalizeActiveTask = (
+  task: ActiveTask,
+  availableCoreIds: number[],
+): ActiveTask | null => {
+  const assignedCoreIds = normalizeCoreIds(task.assignedCoreIds, availableCoreIds);
+  if (assignedCoreIds.length === 0) return null;
+
+  const coreOperationIds = new Set(assignedCoreIds);
+  const coreOperations = task.coreOperations
+    .map(normalizeActiveOperation)
+    .filter((operation) => coreOperationIds.has(operation.coreId));
+  if (coreOperations.length === 0) return null;
+
+  const remainingCycles = coreOperations.reduce(
+    (total, operation) => total + operation.remainingCycles + operation.remainingLoadCycles,
+    0,
+  );
+  const totalCycles = coreOperations.reduce(
+    (total, operation) => total + operation.totalCycles + operation.totalLoadCycles,
+    0,
+  );
+
+  return {
+    ...task,
+    taskId: task.taskId,
+    jobId: normalizeTaskId(task.jobId, task.taskId),
+    schedulerQueued: task.schedulerQueued === true,
+    coreId: assignedCoreIds.includes(task.coreId)
+      ? task.coreId
+      : (assignedCoreIds[0] ?? 1),
+    assignedCoreIds,
+    coreOperations,
+    remainingCycles,
+    totalCycles: Math.max(remainingCycles, totalCycles),
+  };
+};
+
+const normalizeCronIntervalMode = (
+  mode: unknown,
+): CronIntervalMode => (mode === "minutes" ? "minutes" : "seconds");
+
+const normalizeCronSchedules = (
+  schedules: unknown,
+): GameState["cron"]["schedules"] =>
+  Array.isArray(schedules)
+    ? schedules
+        .filter((schedule): schedule is Partial<GameState["cron"]["schedules"][number]> =>
+          Boolean(schedule && typeof schedule === "object"),
+        )
+        .map((schedule, index) => {
+          const taskId = normalizeTaskId(schedule.taskId, null);
+          return {
+            id: Math.max(1, toInteger(schedule.id, index + 1)),
+            taskId,
+            enabled: schedule.enabled === true && taskId !== null,
+            intervalMode: normalizeCronIntervalMode(schedule.intervalMode),
+            intervalValue: toNonNegativeNumber(schedule.intervalValue, 60),
+            remainingSeconds: toNonNegativeNumber(schedule.remainingSeconds, 60),
+            lastResult: null,
+          };
+        })
+    : [];
 
 const normalizeState = (state: LegacyState): GameState => {
   const fresh = createInitialGameState();
@@ -214,14 +356,15 @@ const normalizeState = (state: LegacyState): GameState => {
     hardware.clockLevel ?? fresh.hardware.clockLevel,
     ...Object.values(coreClockLevels),
   );
-  const completedTasks = state.completedTasks ?? state.completedJobs ?? {};
+  const availableCoreIds = cpus.flatMap((cpu) => cpu.coreIds);
+  const completedTasks = normalizeTaskCounts(
+    state.completedTasks ?? state.completedJobs,
+  );
+  const completedJobs = normalizeTaskCounts(state.completedJobs ?? completedTasks);
   const activeTasks = (state.activeTasks ?? state.activeJobs ?? [])
     .filter(isActiveTask)
-    .map((task) => ({
-      ...task,
-      schedulerQueued: task.schedulerQueued === true,
-      coreOperations: task.coreOperations.map(normalizeActiveOperation),
-    }));
+    .map((task) => normalizeActiveTask(task, availableCoreIds))
+    .filter((task): task is ActiveTask => task !== null);
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
   );
@@ -283,7 +426,7 @@ const normalizeState = (state: LegacyState): GameState => {
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
     },
     cron: {
-      schedules: state.cron?.schedules ?? fresh.cron.schedules,
+      schedules: normalizeCronSchedules(state.cron?.schedules),
       nextScheduleId: Math.max(
         1,
         state.cron?.nextScheduleId ?? fresh.cron.nextScheduleId,
@@ -305,15 +448,17 @@ const normalizeState = (state: LegacyState): GameState => {
       ...state.reliability,
     },
     completedTasks,
-    completedJobs: state.completedJobs ?? completedTasks,
-    completedBenchmarks: state.completedBenchmarks ?? fresh.completedBenchmarks,
+    completedJobs,
+    completedBenchmarks: normalizeTaskIdList(
+      state.completedBenchmarks ?? fresh.completedBenchmarks,
+    ),
     activeTasks,
     activeJobs: activeTasks,
     cacheResidency: [],
     coreSchedulers:
       state.coreSchedulers ?? createCoreSchedulers(hardware.cores ?? fresh.hardware.cores),
-    queue: state.queue ?? fresh.queue,
-    autoRepeatJobId: state.autoRepeatJobId ?? null,
+    queue: normalizeTaskIdList(state.queue ?? fresh.queue),
+    autoRepeatJobId: normalizeTaskId(state.autoRepeatJobId, null),
   };
 
   return syncCronSchedules(updateProgressionFlags(syncHardwarePackages(normalized)));

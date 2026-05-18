@@ -20,7 +20,7 @@ import {
   getHardwareCacheBits,
   getMemoryCapacityBits,
   getOperationEffectiveClock,
-  getPowerCostPerMinute,
+  getPowerCostPerSecond,
   getRamLoadCycles,
   getRamLoadCyclesForOperationTick,
   getReservedCacheBits,
@@ -2134,7 +2134,7 @@ const advancePowerTransition = (state: GameState, deltaSeconds: number): GameSta
 };
 
 const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
-  const cost = (getPowerCostPerMinute(state) * deltaSeconds) / 60;
+  const cost = getPowerCostPerSecond(state) * deltaSeconds;
   if (cost <= 0) return state;
 
   return {

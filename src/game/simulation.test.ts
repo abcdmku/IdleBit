@@ -6,11 +6,12 @@ import {
   deserializeSave,
   tickGame,
 } from "./index";
-import { getTaskDefinition } from "./content/tasks";
+import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
   getCacheLoadCycles,
   getCacheLoadCyclesForBits,
   getCacheLoadRate,
+  getPowerCostPerSecond,
   getRamLoadCycles,
   getRamLoadRate,
 } from "./math";
@@ -25,7 +26,9 @@ import type {
   OperationRuntimeStatus,
   ResearchId,
   SchedulerPolicy,
+  TaskDefinition,
   TaskId,
+  TaskOperationDefinition,
   UpgradeId,
 } from "./types";
 
@@ -119,6 +122,114 @@ const repeatTask = (state: GameState, taskId: TaskId, times: number) => {
 
   return nextState;
 };
+
+const getTaskCoreCount = (task: TaskDefinition) => task.maxCores ?? task.minCores;
+
+const getCoreIndexes = (task: TaskDefinition) =>
+  Array.from({ length: Math.max(1, getTaskCoreCount(task)) }, (_, index) => index);
+
+const isOperationAssignedToCoreIndex = (
+  operation: TaskOperationDefinition,
+  coreIndex: number,
+) => operation.parallel || operation.kind === "barrier" || coreIndex === 0;
+
+const getOperationAssignedCoreCount = (
+  task: TaskDefinition,
+  operation: TaskOperationDefinition,
+) =>
+  getCoreIndexes(task).filter((coreIndex) =>
+    isOperationAssignedToCoreIndex(operation, coreIndex),
+  ).length;
+
+const getExpectedCpuWork = (task: TaskDefinition) =>
+  task.operations.reduce(
+    (total, operation) =>
+      total + operation.cycles * getOperationAssignedCoreCount(task, operation),
+    0,
+  );
+
+const getExpectedCacheLoadWork = (task: TaskDefinition) =>
+  task.operations.reduce(
+    (total, operation) =>
+      total + operation.cacheBits * getOperationAssignedCoreCount(task, operation),
+    0,
+  );
+
+const getExpectedCacheNeedBits = (task: TaskDefinition) => {
+  const coreSegments = getCoreIndexes(task).map((): number[] => []);
+  let peakBits = 0;
+
+  for (const operation of task.operations) {
+    for (const coreIndex of getCoreIndexes(task)) {
+      if (!isOperationAssignedToCoreIndex(operation, coreIndex)) continue;
+      if (operation.cacheBits <= 0) continue;
+
+      const segments = coreSegments[coreIndex] ?? [];
+      const usedBits = segments.reduce((total, bits) => total + bits, 0);
+
+      if (operation.kind === "memory" && operation.memoryAction !== "overwrite") {
+        segments.push(operation.cacheBits);
+      } else if (operation.cacheBits > usedBits) {
+        segments.push(operation.cacheBits - usedBits);
+      }
+    }
+
+    peakBits = Math.max(
+      peakBits,
+      coreSegments.reduce(
+        (total, segments) =>
+          total + segments.reduce((segmentTotal, bits) => segmentTotal + bits, 0),
+        0,
+      ),
+    );
+  }
+
+  return peakBits;
+};
+
+const getExpectedRamProfile = (task: TaskDefinition) => {
+  let coreStates = getCoreIndexes(task).map(() => ({ ready: false, bits: 0 }));
+  let loadWork = 0;
+  let peakBits = 0;
+
+  for (const operation of task.operations) {
+    const activeBits = getCoreIndexes(task).map((coreIndex) => {
+      if (!isOperationAssignedToCoreIndex(operation, coreIndex)) return 0;
+      if (operation.ramBits <= 0) return 0;
+
+      const state = coreStates[coreIndex] ?? { ready: false, bits: 0 };
+      if (!state.ready || state.bits < operation.ramBits) {
+        loadWork += operation.ramBits;
+      }
+
+      return operation.ramBits;
+    });
+
+    peakBits = Math.max(
+      peakBits,
+      activeBits.reduce((total, bits) => total + bits, 0),
+    );
+
+    coreStates = coreStates.map((_state, coreIndex) => {
+      if (!isOperationAssignedToCoreIndex(operation, coreIndex)) {
+        return { ready: false, bits: 0 };
+      }
+
+      if (operation.ramBits <= 0 || !operation.memoryAction) {
+        return { ready: false, bits: 0 };
+      }
+
+      return { ready: true, bits: operation.ramBits };
+    });
+  }
+
+  return { loadWork, peakBits };
+};
+
+const getExpectedTaskOperationCount = (task: TaskDefinition) =>
+  getExpectedCpuWork(task) +
+  getExpectedCacheLoadWork(task) +
+  getExpectedRamProfile(task).loadWork;
 
 const tickSeconds = (state: GameState, seconds: number) => {
   let nextState = state;
@@ -510,6 +621,35 @@ describe("IdleBit simulation", () => {
     }
   });
 
+  it("derives task resource needs from per-core operation residency", () => {
+    const mismatches = taskDefinitions
+      .map((task) => {
+        const ramProfile = getExpectedRamProfile(task);
+
+        return {
+          taskId: task.id,
+          operationCount: task.operationCount,
+          expectedOperationCount: getExpectedTaskOperationCount(task),
+          cacheNeedBits: task.cacheNeedBits,
+          expectedCacheNeedBits: getExpectedCacheNeedBits(task),
+          ramNeedBits: task.ramNeedBits,
+          expectedRamNeedBits: ramProfile.peakBits,
+        };
+      })
+      .filter(
+        (summary) =>
+          summary.operationCount !== summary.expectedOperationCount ||
+          summary.cacheNeedBits !== summary.expectedCacheNeedBits ||
+          summary.ramNeedBits !== summary.expectedRamNeedBits,
+      );
+
+    expect(mismatches).toEqual([]);
+    expect(getTaskDefinition("busMirror").ramNeedBits).toBe(1024);
+    expect(getTaskDefinition("shardReconcile").ramNeedBits).toBe(4096);
+    expect(getTaskDefinition("shardReconcile").cacheNeedBits).toBe(40);
+    expect(getTaskDefinition("multiCoreBenchmark").cacheNeedBits).toBe(10);
+  });
+
   it("models Byte Copy as counted bit-scale work", () => {
     const task = getTaskDefinition("byteCopy");
 
@@ -559,7 +699,7 @@ describe("IdleBit simulation", () => {
     expect(getTaskDefinition("tinyChecksum").cacheNeedBits).toBe(8);
     expect(getTaskDefinition("microBenchmark").cacheNeedBits).toBe(4);
     expect(getTaskDefinition("parallelismBenchmark").cacheNeedBits).toBe(4);
-    expect(getTaskDefinition("multiCoreBenchmark").cacheNeedBits).toBe(8);
+    expect(getTaskDefinition("multiCoreBenchmark").cacheNeedBits).toBe(10);
   });
 
   it("loads counted Byte Copy cache by touched bits rather than count squared", () => {
@@ -825,6 +965,75 @@ describe("IdleBit simulation", () => {
     expect(restored.flags.scheduler).toBe(true);
   });
 
+  it("drops stale task references from pre-live saves before render and tick", () => {
+    const runningState = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+    const activeTask = runningState.activeTasks[0]!;
+    const staleTaskId = "removedTask" as TaskId;
+    const savedState: GameState = {
+      ...runningState,
+      flags: {
+        ...runningState.flags,
+        cron: true,
+      },
+      completedTasks: {
+        fetchBit: 2,
+        [staleTaskId]: 9,
+      },
+      completedJobs: {
+        [staleTaskId]: 4,
+      },
+      completedBenchmarks: [staleTaskId],
+      activeTasks: [
+        {
+          ...activeTask,
+          taskId: staleTaskId,
+          jobId: staleTaskId,
+        },
+        activeTask,
+      ],
+      activeJobs: [],
+      queue: [staleTaskId, "decodeBit"],
+      cron: {
+        schedules: [
+          {
+            id: 1,
+            taskId: staleTaskId,
+            enabled: true,
+            intervalMode: "seconds",
+            intervalValue: 60,
+            remainingSeconds: 1,
+            lastResult: null,
+          },
+        ],
+        nextScheduleId: 2,
+        queuePowerSpikeSeconds: 0,
+      },
+      autoRepeatJobId: staleTaskId,
+    };
+
+    const restored = deserializeSave(
+      JSON.stringify({
+        version: 1,
+        savedAt: new Date().toISOString(),
+        state: savedState,
+      }),
+    );
+
+    expect(restored.completedTasks).toEqual({ fetchBit: 2 });
+    expect(restored.completedJobs).toEqual({});
+    expect(restored.completedBenchmarks).toEqual([]);
+    expect(restored.activeTasks.map((task) => task.taskId)).toEqual(["fetchBit"]);
+    expect(restored.queue).toEqual(["decodeBit"]);
+    expect(restored.cron.schedules[0]?.taskId).toBeNull();
+    expect(restored.cron.schedules[0]?.enabled).toBe(false);
+    expect(restored.autoRepeatJobId).toBeNull();
+    expect(() => deriveVisibleState(restored)).not.toThrow();
+    expect(() => tickGame(restored, 1000)).not.toThrow();
+  });
+
   it("completes the starter ladder and gates cache behind byte operations", () => {
     let state = completeStarterLadder();
 
@@ -909,6 +1118,33 @@ describe("IdleBit simulation", () => {
         ?.computeTasks.find((task) => task.id === "multiCoreBenchmark")
         ?.blockedReason,
     ).toBe("Cache capacity too low.");
+
+    const shardReconcile = getTaskDefinition("shardReconcile");
+    const shardState = withRamCapacity(unlockSystemStats(), 1024);
+    const lowShardRamState = {
+      ...shardState,
+      hardware: {
+        ...shardState.hardware,
+        cacheBits: shardReconcile.cacheNeedBits,
+        cacheBytes: Math.ceil(shardReconcile.cacheNeedBits / 8),
+        cpus: shardState.hardware.cpus.map((cpu) => ({
+          ...cpu,
+          cacheBits: shardReconcile.cacheNeedBits,
+          cacheBytes: Math.ceil(shardReconcile.cacheNeedBits / 8),
+        })),
+      },
+    };
+    expect(
+      applyAction(lowShardRamState, {
+        type: "startTask",
+        taskId: "shardReconcile",
+      }).activeTasks,
+    ).toHaveLength(0);
+    expect(
+      deriveVisibleState(lowShardRamState).tasks.find(
+        (task) => task.id === "shardReconcile",
+      )?.blockedReason,
+    ).toBe("RAM capacity too low.");
   });
 
   it("starts system-scheduled work into RAM deadlock when free RAM is exhausted", () => {
@@ -2565,6 +2801,22 @@ describe("IdleBit simulation", () => {
 
     state = tickSeconds(state, 10);
     expect(state.power.state).toBe("on");
+  });
+
+  it("bills power in credits per second", () => {
+    let state = research(unlockSystemStats(), "psuManagement");
+    const expectedCostPerSecond = getPowerCostPerSecond(state);
+    const beforeCredits = state.resources.credits;
+
+    expect(deriveVisibleState(state).metrics.powerCostPerSecond).toBe(
+      expectedCostPerSecond,
+    );
+
+    state = tickSeconds(state, 1);
+
+    expect(beforeCredits - state.resources.credits).toBeCloseTo(
+      expectedCostPerSecond,
+    );
   });
 
   it("CRON scheduler clamps intervals, queues visible system work, and skips duplicates", () => {

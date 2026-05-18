@@ -5,11 +5,12 @@ import { fileURLToPath } from "node:url";
 import { registerPersistenceIpc } from "./persistence.js";
 
 let mainWindow: BrowserWindow | null = null;
+const defaultRendererDevUrl = "http://127.0.0.1:6173";
 
 const rendererDevUrl =
   process.env.VITE_DEV_SERVER_URL ??
   process.env.ELECTRON_RENDERER_URL ??
-  (app.isPackaged ? undefined : "http://127.0.0.1:5173");
+  (app.isPackaged ? undefined : defaultRendererDevUrl);
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 function rendererHtmlPath(): string {

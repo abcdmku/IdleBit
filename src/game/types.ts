@@ -817,7 +817,7 @@ export interface VisibleHardwareMetrics {
   ramEfficiency: number;
   cpuEfficiency: number;
   coolingReliabilityBonus: number;
-  powerCostPerMinute: number;
+  powerCostPerSecond: number;
   powerState: PowerStateId;
   powerTransitionSeconds: number;
   cacheResidency: CacheResidencySegment[];

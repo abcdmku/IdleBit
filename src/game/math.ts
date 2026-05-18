@@ -660,8 +660,8 @@ export const getPowerReliability = (state: GameState) => {
 export const getBilledPowerWatts = (state: GameState) =>
   state.flags.psuManagement && state.hardware.secondCpu ? getHardwareDrawWatts(state) : 0;
 
-export const getPowerCostPerMinute = (state: GameState) =>
-  roundThousandth(getBilledPowerWatts(state) * 0.006);
+export const getPowerCostPerSecond = (state: GameState) =>
+  roundThousandth(getBilledPowerWatts(state) * 0.06);
 
 export const getReservedMemoryBytes = (state: GameState) =>
   bitsToBytes(getReservedMemoryBits(state));

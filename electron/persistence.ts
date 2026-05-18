@@ -9,6 +9,7 @@ const STORE_FILENAME = "persistence.json";
 const KEY_PATTERN = /^[a-zA-Z0-9._:-]+$/;
 const MAX_KEY_LENGTH = 160;
 const MAX_VALUE_BYTES = 5 * 1024 * 1024;
+let writeQueue: Promise<void> = Promise.resolve();
 
 const CHANNELS = {
   clear: "idlebit:persistence:clear",
@@ -89,6 +90,15 @@ async function writeStore(store: PersistenceStore): Promise<void> {
   await fs.rename(temporaryPath, targetPath);
 }
 
+async function enqueueStoreWrite<T>(write: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(write, write);
+  writeQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export function registerPersistenceIpc(): void {
   ipcMain.handle(CHANNELS.get, async (_event, key: unknown) => {
     assertStorageKey(key);
@@ -100,35 +110,43 @@ export function registerPersistenceIpc(): void {
     assertStorageKey(key);
     assertStorageValue(value);
 
-    const store = await readStore();
-    store[key] = value;
-    await writeStore(store);
+    await enqueueStoreWrite(async () => {
+      const store = await readStore();
+      store[key] = value;
+      await writeStore(store);
+    });
   });
 
   ipcMain.handle(CHANNELS.remove, async (_event, key: unknown) => {
     assertStorageKey(key);
 
-    const store = await readStore();
-    delete store[key];
-    await writeStore(store);
+    await enqueueStoreWrite(async () => {
+      const store = await readStore();
+      delete store[key];
+      await writeStore(store);
+    });
   });
 
   ipcMain.handle(CHANNELS.clear, async (_event, keyPrefix?: unknown) => {
     if (keyPrefix === undefined) {
-      await writeStore({});
+      await enqueueStoreWrite(async () => {
+        await writeStore({});
+      });
       return;
     }
 
     assertStorageKey(keyPrefix);
 
-    const store = await readStore();
+    await enqueueStoreWrite(async () => {
+      const store = await readStore();
 
-    for (const key of Object.keys(store)) {
-      if (key.startsWith(keyPrefix)) {
-        delete store[key];
+      for (const key of Object.keys(store)) {
+        if (key.startsWith(keyPrefix)) {
+          delete store[key];
+        }
       }
-    }
 
-    await writeStore(store);
+      await writeStore(store);
+    });
   });
 }

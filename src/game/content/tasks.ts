@@ -100,31 +100,117 @@ const dagNode = (
   ramBytes: bitsToBytes(update.ramBits),
 });
 
-const getProvisionedCacheBits = (
-  operations: TaskOperationDefinition[],
-  parallelCoreCount = 1,
+const createCoreRange = (parallelCoreCount: number) =>
+  Array.from({ length: Math.max(1, parallelCoreCount) }, (_, index) => index);
+
+const isOperationAssignedToCoreIndex = (
+  operation: TaskOperationDefinition,
+  coreIndex: number,
+) => operation.parallel || operation.kind === "barrier" || coreIndex === 0;
+
+const getOperationCoreIndexes = (
+  operation: TaskOperationDefinition,
+  parallelCoreCount: number,
 ) =>
-  operations.reduce((provisionedBits, operation) => {
-    if (operation.cacheBits <= 0) return provisionedBits;
+  createCoreRange(parallelCoreCount).filter((coreIndex) =>
+    isOperationAssignedToCoreIndex(operation, coreIndex),
+  );
 
-    const operationCacheBits =
-      operation.cacheBits * (operation.parallel ? parallelCoreCount : 1);
+const getSegmentBits = (segments: number[]) =>
+  segments.reduce((total, bits) => total + bits, 0);
 
-    if (operation.kind !== "memory") {
-      return Math.max(provisionedBits, operationCacheBits);
+const addOperationCacheBits = (
+  segments: number[],
+  operation: TaskOperationDefinition,
+) => {
+  if (operation.cacheBits <= 0) return;
+
+  if (operation.kind === "memory" && operation.memoryAction !== "overwrite") {
+    segments.push(operation.cacheBits);
+    return;
+  }
+
+  const missingBits = operation.cacheBits - getSegmentBits(segments);
+  if (missingBits > 0) segments.push(missingBits);
+};
+
+const getRuntimeCachePeakBits = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) => {
+  const coreSegments = createCoreRange(parallelCoreCount).map((): number[] => []);
+  let peakBits = 0;
+
+  for (const operation of operations) {
+    for (const coreIndex of getOperationCoreIndexes(operation, parallelCoreCount)) {
+      addOperationCacheBits(coreSegments[coreIndex] ?? [], operation);
     }
 
-    if (operation.memoryAction === "overwrite") {
-      return Math.max(provisionedBits, operationCacheBits);
-    }
+    peakBits = Math.max(
+      peakBits,
+      coreSegments.reduce((total, segments) => total + getSegmentBits(segments), 0),
+    );
+  }
 
-    return provisionedBits + operationCacheBits;
-  }, 0);
+  return peakBits;
+};
+
+type CoreRamState = {
+  ready: boolean;
+  bits: number;
+};
+
+const emptyCoreRamState = (): CoreRamState => ({ ready: false, bits: 0 });
+
+const createCoreRamStates = (parallelCoreCount: number) =>
+  createCoreRange(parallelCoreCount).map(emptyCoreRamState);
+
+const summarizeRamRuntime = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+  initialStates = createCoreRamStates(parallelCoreCount),
+) => {
+  let coreStates = initialStates.map((state) => ({ ...state }));
+  let loadWork = 0;
+  let peakBits = 0;
+
+  for (const operation of operations) {
+    const activeBits = createCoreRange(parallelCoreCount).map((coreIndex) => {
+      if (!isOperationAssignedToCoreIndex(operation, coreIndex)) return 0;
+      if (operation.ramBits <= 0) return 0;
+
+      const state = coreStates[coreIndex] ?? emptyCoreRamState();
+      const retained = state.ready && state.bits >= operation.ramBits;
+      if (!retained) loadWork += operation.ramBits;
+
+      return operation.ramBits;
+    });
+
+    peakBits = Math.max(
+      peakBits,
+      activeBits.reduce((total, bits) => total + bits, 0),
+    );
+
+    coreStates = coreStates.map((state, coreIndex) => {
+      if (!isOperationAssignedToCoreIndex(operation, coreIndex)) {
+        return emptyCoreRamState();
+      }
+
+      if (operation.ramBits <= 0 || !operation.memoryAction) {
+        return emptyCoreRamState();
+      }
+
+      return { ready: true, bits: operation.ramBits };
+    });
+  }
+
+  return { loadWork, peakBits, coreStates };
+};
 
 const getOperationCoreMultiplier = (
   operation: TaskOperationDefinition,
   parallelCoreCount: number,
-) => (operation.parallel ? parallelCoreCount : 1);
+) => getOperationCoreIndexes(operation, parallelCoreCount).length;
 
 const getOperationCpuWork = (
   operation: TaskOperationDefinition,
@@ -135,11 +221,6 @@ const getOperationCacheLoadWork = (
   operation: TaskOperationDefinition,
   parallelCoreCount: number,
 ) => operation.cacheBits * getOperationCoreMultiplier(operation, parallelCoreCount);
-
-const getOperationRamLoadWork = (
-  operation: TaskOperationDefinition,
-  parallelCoreCount: number,
-) => operation.ramBits * getOperationCoreMultiplier(operation, parallelCoreCount);
 
 const getOperationsCpuWork = (
   operations: TaskOperationDefinition[],
@@ -163,12 +244,7 @@ const getOperationsCacheLoadWork = (
 const getOperationsRamLoadWork = (
   operations: TaskOperationDefinition[],
   parallelCoreCount: number,
-) =>
-  operations.reduce(
-    (largest, operation) =>
-      Math.max(largest, getOperationRamLoadWork(operation, parallelCoreCount)),
-    0,
-  );
+) => summarizeRamRuntime(operations, parallelCoreCount).loadWork;
 
 const getOperationsWorkCount = (
   operations: TaskOperationDefinition[],
@@ -184,11 +260,8 @@ const summarizeOperations = (
 ) => ({
   operationCount: getOperationsWorkCount(operations, parallelCoreCount),
   cycles: getOperationsCpuWork(operations, parallelCoreCount),
-  cacheBits: getProvisionedCacheBits(operations, parallelCoreCount),
-  ramBits: operations.reduce(
-    (largest, operation) => Math.max(largest, operation.ramBits),
-    0,
-  ),
+  cacheBits: getRuntimeCachePeakBits(operations, parallelCoreCount),
+  ramBits: summarizeRamRuntime(operations, parallelCoreCount).peakBits,
 });
 
 const summarizeGraphNodes = (
@@ -200,7 +273,7 @@ const summarizeGraphNodes = (
     cycles: nodes
       .filter((node) => node.kind === "execute" || node.kind === "recipe")
       .reduce((total, node) => total + node.cycles, 0),
-    cacheBits: getProvisionedCacheBits(
+    cacheBits: getRuntimeCachePeakBits(
       nodes
         .filter((node) => node.kind === "execute" || node.kind === "recipe")
         .flatMap((node) => node.operations),
@@ -1062,6 +1135,7 @@ const deriveDagNodes = (
   taskId: TaskId,
   recipe: RawRecipeStep[],
   recipeNodes: TaskSubtaskDefinition[],
+  parallelCoreCount: number,
 ) => {
   const nodes: TaskSubtaskDefinition[] = [
     dagNode({
@@ -1083,7 +1157,7 @@ const deriveDagNodes = (
   );
   const terminalNodeByStepId = new Map<string, string>();
   const dependedStepIds = new Set<string>();
-  let loadedRamBits = 0;
+  let ramStates = createCoreRamStates(parallelCoreCount);
 
   for (const [index, step] of recipe.entries()) {
     const recipeNode = recipeNodeByStepId.get(step.id);
@@ -1105,7 +1179,12 @@ const deriveDagNodes = (
       terminalNodeByStepId,
     );
 
-    if (recipeNode.cacheBits > 0) {
+    const cacheLoadWork = getOperationsCacheLoadWork(
+      recipeNode.operations,
+      parallelCoreCount,
+    );
+
+    if (cacheLoadWork > 0) {
       const id = `${taskId}:cache:${step.id}`;
       const cacheOperations = recipeNode.operations.filter(
         (operation) => operation.cacheBits > 0,
@@ -1120,7 +1199,7 @@ const deriveDagNodes = (
           operationIds: cacheOperations.map((operation) => operation.id),
           operations: cacheOperations,
           subtasks: [],
-          operationCount: recipeNode.cacheBits,
+          operationCount: cacheLoadWork,
           cycles: 0,
           cacheBits: recipeNode.cacheBits,
           ramBits: 0,
@@ -1129,7 +1208,14 @@ const deriveDagNodes = (
       dependencyIds = [id];
     }
 
-    if (recipeNode.ramBits > loadedRamBits) {
+    const ramRuntime = summarizeRamRuntime(
+      recipeNode.operations,
+      parallelCoreCount,
+      ramStates,
+    );
+    ramStates = ramRuntime.coreStates;
+
+    if (ramRuntime.loadWork > 0) {
       const id = `${taskId}:ram:${step.id}`;
       const ramOperations = recipeNode.operations.filter(
         (operation) => operation.ramBits > 0,
@@ -1144,14 +1230,13 @@ const deriveDagNodes = (
           operationIds: ramOperations.map((operation) => operation.id),
           operations: ramOperations,
           subtasks: [],
-          operationCount: recipeNode.ramBits,
+          operationCount: ramRuntime.loadWork,
           cycles: 0,
           cacheBits: 0,
           ramBits: recipeNode.ramBits,
         }),
       );
       dependencyIds = [id];
-      loadedRamBits = recipeNode.ramBits;
     }
 
     const executeId = `${taskId}:execute:${step.id}`;
@@ -1216,7 +1301,7 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     operations,
     parallelCoreCount,
   );
-  const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks);
+  const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks, parallelCoreCount);
   const summary = summarizeGraphNodes(dagNodes, parallelCoreCount);
   const definition: TaskDefinition = {
     id: raw.id,

@@ -14,13 +14,19 @@ import { SystemWorkbench, type SelectedComponent } from "./components";
 import type { UiGameAction } from "./uiActions";
 
 const SAVE_KEY = "save-v2";
+const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
+const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());
   const [selectedComponent, setSelectedComponent] =
     useState<SelectedComponent>("core:1");
   const [resourceEffectsReady, setResourceEffectsReady] = useState(false);
+  const [deadlockHelpSeen, setDeadlockHelpSeen] = useState<boolean | null>(null);
+  const [deadlockCooldownHelpSeen, setDeadlockCooldownHelpSeen] =
+    useState<boolean | null>(null);
   const stateRef = useRef(state);
+  const pausedRef = useRef(false);
   const visible = useMemo(() => deriveVisibleState(state), [state]);
 
   useEffect(() => {
@@ -30,11 +36,16 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
 
-    idleBitPersistence
-      .get<string>(SAVE_KEY)
-      .then((rawSave) => {
+    Promise.all([
+      idleBitPersistence.get<string>(SAVE_KEY),
+      idleBitPersistence.get<boolean>(DEADLOCK_HELP_KEY, false),
+      idleBitPersistence.get<boolean>(DEADLOCK_COOLDOWN_HELP_KEY, false),
+    ])
+      .then(([rawSave, seenDeadlockHelp, seenDeadlockCooldownHelp]) => {
         if (!cancelled) {
           setState(deserializeSave(rawSave));
+          setDeadlockHelpSeen(Boolean(seenDeadlockHelp));
+          setDeadlockCooldownHelpSeen(Boolean(seenDeadlockCooldownHelp));
         }
       })
       .catch(() => undefined)
@@ -56,7 +67,9 @@ export function App() {
     const run = (time: number) => {
       const delta = time - previous;
       previous = time;
-      setState((current) => tickGame(current, delta));
+      if (!pausedRef.current) {
+        setState((current) => tickGame(current, delta));
+      }
       frame = requestAnimationFrame(run);
     };
 
@@ -80,6 +93,36 @@ export function App() {
     setState((current) => applyAction(current, action as GameAction));
   };
 
+  const primaryDeadlockResource =
+    resourceEffectsReady && deadlockHelpSeen === false
+      ? (visible.metrics.deadlocks[0]?.resource ?? null)
+      : null;
+  const cooldownHelpResource =
+    resourceEffectsReady &&
+    deadlockHelpSeen === true &&
+    deadlockCooldownHelpSeen === false
+      ? (visible.metrics.deadlocks[0]?.resource ?? null)
+      : null;
+  const watchdogActive =
+    Boolean(visible.metrics.systemSchedulerWatchdog) ||
+    visible.metrics.cpuSockets.some((socket) => Boolean(socket.watchdog));
+
+  useEffect(() => {
+    pausedRef.current = Boolean(
+      (primaryDeadlockResource || cooldownHelpResource) && !watchdogActive,
+    );
+  }, [primaryDeadlockResource, cooldownHelpResource, watchdogActive]);
+
+  const dismissDeadlockHelp = () => {
+    setDeadlockHelpSeen(true);
+    void idleBitPersistence.set(DEADLOCK_HELP_KEY, true);
+  };
+
+  const dismissDeadlockCooldownHelp = () => {
+    setDeadlockCooldownHelpSeen(true);
+    void idleBitPersistence.set(DEADLOCK_COOLDOWN_HELP_KEY, true);
+  };
+
   const reset = async () => {
     const freshState = createInitialGameState();
     setSelectedComponent("core:1");
@@ -96,6 +139,10 @@ export function App() {
         onSelectComponent={setSelectedComponent}
         onReset={() => void reset()}
         animateResourceGains={resourceEffectsReady}
+        deadlockHelpResource={primaryDeadlockResource}
+        deadlockCooldownHelpResource={cooldownHelpResource}
+        onDismissDeadlockHelp={dismissDeadlockHelp}
+        onDismissDeadlockCooldownHelp={dismissDeadlockCooldownHelp}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import type { GameAction } from "../game";
+import type { GameAction, SchedulerKillPolicy, SchedulerPolicy } from "../game";
 
 export type UiGameAction =
   | GameAction
@@ -7,6 +7,24 @@ export type UiGameAction =
   | { type: "queueTask"; taskId: string; cpuId?: number }
   | { type: "cancelTask"; taskId: string; instanceId?: string }
   | { type: "cancelQueuedTask"; taskId: string }
+  | {
+      type: "setSchedulerPolicy";
+      target: "cpu" | "system";
+      policy: SchedulerPolicy;
+      cpuId?: number;
+    }
+  | {
+      type: "setSchedulerAutoKill";
+      target: "cpu" | "system";
+      enabled: boolean;
+      cpuId?: number;
+    }
+  | {
+      type: "setSchedulerKillPolicy";
+      target: "cpu" | "system";
+      killPolicy: SchedulerKillPolicy;
+      cpuId?: number;
+    }
   | { type: "buyResearch"; researchId: string }
   | {
       type: "buyUpgrade";

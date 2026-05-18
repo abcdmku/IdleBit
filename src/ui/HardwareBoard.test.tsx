@@ -117,18 +117,31 @@ describe("HardwareBoard cache meter", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("renders buffering cache with dashed CPU progress and solid cache progress", () => {
+  it("renders cache buffer only when CPU issue outruns cache writes", () => {
+    const initial = createInitialGameState();
     const state = tickGame(
-      applyAction(createInitialGameState(), {
-        type: "startTask",
-        taskId: "fetchBit",
-      }),
+      applyAction(
+        {
+          ...initial,
+          hardware: {
+            ...initial.hardware,
+            clockLevel: 5,
+            coreClockLevels: {
+              1: 5,
+            },
+            cacheSpeedLevel: 1,
+          },
+        },
+        {
+          type: "startTask",
+          taskId: "fetchBit",
+        },
+      ),
       500,
     );
 
     const visible = deriveVisibleState(state);
-    const cpuProgress =
-      (visible.activeTasks[0]?.coreProgress[0]?.progress ?? 0) * 100;
+    const residency = visible.metrics.cacheResidency[0];
 
     act(() => {
       root.render(
@@ -150,17 +163,20 @@ describe("HardwareBoard cache meter", () => {
     expect(segment).not.toBeNull();
     expect(buffer).not.toBeNull();
     expect(fill).not.toBeNull();
-    expect(segment?.style.width).toBe("100%");
+    expect(residency?.readyBits).toBeCloseTo(0.5);
+    expect(residency?.bufferBits).toBeCloseTo(0.5);
+    expect(residency?.committedBits).toBeCloseTo(1);
+    expect(segment?.style.width).toBe("50%");
     expect(
       Number.parseFloat(
         segment?.style.getPropertyValue("--cache-buffer-progress") ?? "0",
       ),
-    ).toBeCloseTo(cpuProgress);
+    ).toBeCloseTo(100);
     expect(
       Number.parseFloat(
         segment?.style.getPropertyValue("--cache-write-progress") ?? "0",
       ),
-    ).toBeCloseTo(cpuProgress);
+    ).toBeCloseTo(0);
 
     const bufferBadge = container.querySelector<HTMLElement>(
       ".cache-state-badge.buffering",
@@ -208,6 +224,8 @@ describe("HardwareBoard cache meter", () => {
       guard += 1;
     }
 
+    state = tickGame(state, 500);
+
     const visible = deriveVisibleState(state);
 
     act(() => {
@@ -225,7 +243,8 @@ describe("HardwareBoard cache meter", () => {
       container.querySelectorAll<HTMLElement>(".cache-pressure-segment"),
     );
 
-    expect(visible.metrics.cacheUsedBits).toBe(16);
+    expect(visible.metrics.cacheUsedBits).toBeGreaterThan(8);
+    expect(visible.metrics.cacheUsedBits).toBeLessThan(16);
     expect(segments).toHaveLength(2);
 
     const readSegment = segments.find((segment) =>
@@ -237,8 +256,9 @@ describe("HardwareBoard cache meter", () => {
 
     expect(readSegment?.className).toContain("loaded");
     expect(readSegment?.style.width).toBe("50%");
-    expect(writeSegment?.className).toContain("buffering");
-    expect(writeSegment?.style.width).toBe("50%");
+    expect(writeSegment?.className).toContain("loaded");
+    expect(Number.parseFloat(writeSegment?.style.width ?? "0")).toBeGreaterThan(0);
+    expect(Number.parseFloat(writeSegment?.style.width ?? "0")).toBeLessThan(50);
   });
 
   it("uses core-style controls for cache capacity and speed upgrades", () => {
@@ -262,10 +282,14 @@ describe("HardwareBoard cache meter", () => {
     );
 
     expect(controls.map((control) => control.textContent)).toEqual([
-      expect.stringContaining("Cache cap"),
-      expect.stringContaining("Cache Hz"),
+      expect.stringContaining("Size"),
+      expect.stringContaining("Freq"),
     ]);
-    expect(container.querySelectorAll(".cache-pipeline-row")).toHaveLength(3);
+    expect(container.querySelector(".cache-stat-row")?.textContent).toContain(
+      "0 b / 1 b",
+    );
+    expect(container.querySelector(".cache-capacity-stat strong")).not.toBeNull();
+    expect(container.querySelectorAll(".cache-pipeline-row")).toHaveLength(2);
     expect(controls[0]?.querySelector(".resource-token.dimmed")).not.toBeNull();
     expect(container.querySelector(".cache-stat-row .upgrade-chips")).toBeNull();
   });
@@ -299,14 +323,14 @@ describe("HardwareBoard cache meter", () => {
         ".cache-control-strip .upgrade-stepper.green",
       ),
     );
-    const cacheCap = steppers.find((stepper) =>
-      stepper.textContent?.includes("Cache cap"),
+    const cacheSize = steppers.find((stepper) =>
+      stepper.textContent?.includes("Size"),
     );
     const buttons = Array.from(
-      cacheCap?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+      cacheSize?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
 
-    expect(cacheCap).not.toBeUndefined();
+    expect(cacheSize).not.toBeUndefined();
     expect(buttons).toHaveLength(2);
     expect(buttons[0]?.className).toContain("minus");
     expect(buttons[1]?.className).toContain("plus");
@@ -406,6 +430,110 @@ describe("HardwareBoard cache meter", () => {
     ).toBe("64 b");
   });
 
+  it("uses module, size, and frequency labels for RAM controls", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const makeRamUpgrade = (
+      id: "ram" | "ramCapacity" | "ramSpeed",
+    ): VisibleState["upgrades"][number] => ({
+      id,
+      name: id,
+      component: "ram",
+      accent: "green",
+      costs: [],
+      refunds: [],
+      canAfford: true,
+      canDowngrade: false,
+      downgradeBlockedReason: null,
+      purchaseCount: 0,
+    });
+    const ramCapacityUpgrade = makeRamUpgrade("ramCapacity");
+    const ramSpeedUpgrade = makeRamUpgrade("ramSpeed");
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 2,
+        ramBits: 512,
+        ramBytes: 64,
+        ramSpeedLevel: 1,
+        ramSpeedMt: 128,
+      },
+      metrics: {
+        ...base.metrics,
+        ramUsedBits: 0,
+        ramUsedBytes: 0,
+        ramSlots: [
+          {
+            id: 1,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 64,
+            capacityUpgrade: ramCapacityUpgrade,
+            speedUpgrade: ramSpeedUpgrade,
+          },
+          {
+            id: 2,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 64,
+            capacityUpgrade: ramCapacityUpgrade,
+            speedUpgrade: ramSpeedUpgrade,
+          },
+        ],
+      },
+      upgrades: [makeRamUpgrade("ram")],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="ramStick:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const statLabels = Array.from(
+      container.querySelectorAll<HTMLElement>(".ram-stat-row .stat small"),
+    ).map((label) => label.textContent);
+    const statValues = Array.from(
+      container.querySelectorAll<HTMLElement>(".ram-stat-row .stat strong"),
+    ).map((label) => label.textContent);
+    const controlText = Array.from(
+      container.querySelectorAll<HTMLElement>(".ram-control-strip .upgrade-stepper"),
+    ).map((control) => control.textContent ?? "");
+    const stickText = container.querySelector(".ram-stick-card-stats")?.textContent ?? "";
+    const ramText = container.querySelector(".memory-section")?.textContent ?? "";
+
+    expect(statLabels).toEqual(["Capacity", "Module Freq", "Modules"]);
+    expect(statValues).toEqual(["512 b", "64 Hz", "2"]);
+    expect(controlText).toEqual([
+      expect.stringContaining("Module"),
+      expect.stringContaining("R1 Size"),
+      expect.stringContaining("R1 Freq"),
+    ]);
+    expect(stickText).toContain("Size");
+    expect(stickText).toContain("Freq");
+    expect(ramText).not.toContain("128 Hz");
+    expect(ramText).not.toContain("New stick");
+    expect(ramText).not.toContain("R1 cap");
+    expect(ramText).not.toContain("R1 Hz");
+  });
+
   it("uses standalone pre-RAM hardware labels and a compact scheduler grid", () => {
     const base = deriveVisibleState(createInitialGameState());
     const visible: VisibleState = {
@@ -450,7 +578,7 @@ describe("HardwareBoard cache meter", () => {
     expect(text).toContain("Cores");
     expect(text).toContain("Cache");
     expect(text).toContain("Scheduler");
-    expect(text).toContain("1/3 used");
+    expect(text).not.toContain("used");
     expect(text).not.toContain("2 open");
     expect(text).not.toContain("Queue");
     expect(text).not.toContain("CPU");
@@ -466,6 +594,628 @@ describe("HardwareBoard cache meter", () => {
     expect(grid?.style.getPropertyValue("--scheduler-grid-height")).toBe("64px");
     expect(grid?.style.getPropertyValue("--scheduler-slot-height")).toBe("30px");
     expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(3);
+  });
+
+  it("renders deadlocked hardware red with the first-time help caption", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dismiss = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      metrics: {
+        ...base.metrics,
+        deadlocks: [
+          {
+            taskId: "fetchBit",
+            taskName: "Fetch Bit",
+            coreIds: [1],
+            cpuId: 1,
+            resource: "cache",
+            reason: "Deadlock: cache full.",
+            schedulerQueued: false,
+          },
+        ],
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: true,
+            deadlockResource: "cache",
+            cores: socket.cores.map((core) =>
+              core.id === 1
+                ? { ...core, deadlocked: true, deadlockResource: "cache" }
+                : core,
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cache"
+          onSelectComponent={() => undefined}
+          deadlockHelpResource="cache"
+          onDismissDeadlockHelp={dismiss}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".cache-section.deadlocked")).not.toBeNull();
+    expect(container.querySelector(".core-die.deadlocked")).not.toBeNull();
+    expect(container.querySelector(".deadlock-help-caption")?.textContent).toContain(
+      "Deadlock: this task is waiting for cache/RAM held by other work.",
+    );
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".deadlock-help-caption button")?.click();
+    });
+
+    expect(dismiss).toHaveBeenCalled();
+  });
+
+  it("shows the CPU deadlock countdown in the cores header before CPU packages", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      metrics: {
+        ...base.metrics,
+        deadlockPressure: {
+          seconds: 4,
+          limitSeconds: 10,
+          remainingSeconds: 6,
+          progress: 0.4,
+          cooldownRate: 1,
+          resource: "cache",
+          cpuId: 1,
+          active: true,
+          lockout: false,
+        },
+        deadlocks: [
+          {
+            taskId: "fetchBit",
+            taskName: "Fetch Bit",
+            coreIds: [1],
+            cpuId: 1,
+            resource: "cache",
+            reason: "Deadlock: cache full.",
+            schedulerQueued: false,
+          },
+        ],
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: true,
+            deadlockResource: "cache",
+            cores: socket.cores.map((core) =>
+              core.id === 1
+                ? { ...core, deadlocked: true, deadlockResource: "cache" }
+                : core,
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".core-array-header .deadlock-countdown")?.textContent,
+    ).toBe("6s fail");
+    expect(
+      container.querySelector<HTMLElement>(
+        ".core-array-header .deadlock-countdown-meter span",
+      )?.style.width,
+    ).toBe("40%");
+    expect(container.querySelector(".core-die .deadlock-countdown")).toBeNull();
+    expect(container.querySelector(".cpu-package-header .deadlock-countdown")).toBeNull();
+  });
+
+  it("moves the CPU deadlock countdown to the CPU header after RAM unlocks", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 1,
+        ramBits: 256,
+        ramBytes: 32,
+      },
+      metrics: {
+        ...base.metrics,
+        deadlockPressure: {
+          seconds: 4,
+          limitSeconds: 10,
+          remainingSeconds: 6,
+          progress: 0.4,
+          cooldownRate: 1,
+          resource: "cache",
+          cpuId: 1,
+          active: true,
+          lockout: false,
+        },
+        deadlocks: [
+          {
+            taskId: "fetchBit",
+            taskName: "Fetch Bit",
+            coreIds: [1],
+            cpuId: 1,
+            resource: "cache",
+            reason: "Deadlock: cache full.",
+            schedulerQueued: false,
+          },
+        ],
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: true,
+            deadlockResource: "cache",
+            cores: socket.cores.map((core) =>
+              core.id === 1
+                ? { ...core, deadlocked: true, deadlockResource: "cache" }
+                : core,
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cpu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
+    ).toBe("6s fail");
+    expect(
+      container.querySelector<HTMLElement>(
+        ".cpu-package-header .deadlock-countdown-meter span",
+      )?.style.width,
+    ).toBe("40%");
+    expect(container.querySelector(".core-array-header .deadlock-countdown")).toBeNull();
+    expect(container.querySelector(".core-die .deadlock-countdown")).toBeNull();
+  });
+
+  it("keeps a resolved CPU deadlock cooldown visible until it reaches zero", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 1,
+        ramBits: 256,
+        ramBytes: 32,
+      },
+      metrics: {
+        ...base.metrics,
+        deadlockPressure: {
+          seconds: 3,
+          limitSeconds: 10,
+          remainingSeconds: 7,
+          progress: 0.3,
+          cooldownRate: 1,
+          resource: "cache",
+          cpuId: 1,
+          active: false,
+          lockout: false,
+        },
+        deadlocks: [],
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: false,
+            deadlockResource: null,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cpu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
+    ).toBe("3s cool");
+    expect(
+      container.querySelector<HTMLElement>(
+        ".cpu-package-header .deadlock-countdown-meter span",
+      )?.style.width,
+    ).toBe("30%");
+    expect(container.querySelector(".cpu-package.cooling-down")).toBeNull();
+    expect(container.querySelector(".cache-section.cooling-down")).toBeNull();
+    expect(container.querySelector(".cpu-package.deadlocked")).toBeNull();
+    expect(container.querySelector(".cache-section.deadlocked")).toBeNull();
+  });
+
+  it("shows deadlock lockout reset as a draining progress bar", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const makeVisible = (seconds: number): VisibleState => ({
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 1,
+        ramBits: 256,
+        ramBytes: 32,
+      },
+      metrics: {
+        ...base.metrics,
+        deadlockPressure: {
+          seconds,
+          limitSeconds: 10,
+          remainingSeconds: 10 - seconds,
+          progress: seconds / 10,
+          cooldownRate: 1,
+          resource: "cache",
+          cpuId: 1,
+          active: false,
+          lockout: true,
+        },
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: false,
+            deadlockResource: null,
+          },
+        ],
+      },
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={makeVisible(7)}
+          dispatch={() => undefined}
+          selectedComponent="cpu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const meter = () =>
+      container.querySelector<HTMLElement>(
+        ".cpu-package-header .deadlock-countdown-meter span",
+      );
+
+    expect(
+      container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
+    ).toBe("7s lock");
+    expect(meter()?.style.width).toBe("70%");
+    expect(container.querySelector(".cpu-package.cooling-down")).not.toBeNull();
+    expect(container.querySelector(".cache-section.cooling-down")).not.toBeNull();
+    expect(container.querySelector(".cpu-package.deadlocked")).toBeNull();
+    expect(container.querySelector(".cache-section.deadlocked")).toBeNull();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={makeVisible(3)}
+          dispatch={() => undefined}
+          selectedComponent="cpu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
+    ).toBe("3s lock");
+    expect(meter()?.style.width).toBe("30%");
+  });
+
+  it("shows the one-time cooldown help after the deadlock caption", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dismiss = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      metrics: {
+        ...base.metrics,
+        deadlockPressure: {
+          seconds: 4,
+          limitSeconds: 10,
+          remainingSeconds: 6,
+          progress: 0.4,
+          cooldownRate: 1,
+          resource: "cache",
+          cpuId: 1,
+          active: true,
+          lockout: false,
+        },
+        deadlocks: [
+          {
+            taskId: "fetchBit",
+            taskName: "Fetch Bit",
+            coreIds: [1],
+            cpuId: 1,
+            resource: "cache",
+            reason: "Deadlock: cache full.",
+            schedulerQueued: false,
+          },
+        ],
+        cpuSockets: [
+          {
+            ...socket,
+            deadlocked: true,
+            deadlockResource: "cache",
+            cores: socket.cores.map((core) =>
+              core.id === 1
+                ? { ...core, deadlocked: true, deadlockResource: "cache" }
+                : core,
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cache"
+          onSelectComponent={() => undefined}
+          deadlockCooldownHelpResource="cache"
+          onDismissDeadlockCooldownHelp={dismiss}
+        />,
+      );
+    });
+
+    const caption = container.querySelector(".deadlock-help-caption");
+
+    expect(caption?.textContent).toContain("if the timer reaches 10s");
+    expect(caption?.textContent).toContain(
+      "the lockout must drain to 0 before work can start again",
+    );
+
+    act(() => {
+      caption?.querySelector<HTMLButtonElement>("button")?.click();
+    });
+
+    expect(dismiss).toHaveBeenCalled();
+  });
+
+  it("shows scheduler controls after research and dispatches scheduler actions", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        schedulerWatchdog: true,
+        schedulerPolicies: true,
+      },
+      hardware: {
+        ...base.hardware,
+        schedulerSlots: 1,
+        cpus: base.hardware.cpus.map((cpu) => ({ ...cpu, schedulerSlots: 1 })),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 1,
+            schedulerConfig: {
+              policy: "fifo",
+              autoKillEnabled: false,
+              killPolicy: "deadlockedTask",
+            },
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const selects = container.querySelectorAll<HTMLSelectElement>(
+      ".scheduler-control select",
+    );
+    const autoKill = container.querySelector<HTMLInputElement>(
+      ".scheduler-control.checkbox input",
+    );
+    const headerControls = container.querySelector(
+      ".scheduler-section .hw-section-header-row .scheduler-controls",
+    );
+    const bodyControls = container.querySelector(
+      ".scheduler-section > .scheduler-controls",
+    );
+    const titleButton = container.querySelector(
+      ".scheduler-section .hw-section-header",
+    );
+    const controlLabels = Array.from(
+      container.querySelectorAll<HTMLElement>(".scheduler-controls .scheduler-control > span"),
+    ).map((label) => label.textContent);
+
+    expect(container.textContent).toContain("Policy");
+    expect(container.textContent).toContain("Auto-kill");
+    expect(headerControls).not.toBeNull();
+    expect(bodyControls).toBeNull();
+    expect(titleButton?.textContent).toBe("Scheduler");
+    expect(controlLabels).toEqual(["Policy", "Auto-kill", "Kill"]);
+
+    act(() => {
+      selects[0]!.value = "deadlockSafe";
+      selects[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "deadlockSafe",
+    });
+
+    act(() => {
+      autoKill?.click();
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setSchedulerAutoKill",
+      target: "cpu",
+      cpuId: 1,
+      enabled: true,
+    });
+  });
+
+  it("shows scheduler watchdog victim and countdown", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const makeVisible = (
+      secondsRemaining: number,
+      progress: number,
+    ): VisibleState => ({
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        schedulerWatchdog: true,
+      },
+      hardware: {
+        ...base.hardware,
+        schedulerSlots: 1,
+        cpus: base.hardware.cpus.map((cpu) => ({ ...cpu, schedulerSlots: 1 })),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 1,
+            schedulerConfig: {
+              policy: "fifo",
+              autoKillEnabled: true,
+              killPolicy: "deadlockedTask",
+            },
+            watchdog: {
+              target: "cpu",
+              cpuId: 1,
+              resource: "cache",
+              killPolicy: "deadlockedTask",
+              deadlockedTaskId: "byteCopy",
+              deadlockedTaskName: "Byte Copy",
+              deadlockedInstanceId: "task-2",
+              victimTaskId: "byteCopy",
+              victimTaskName: "Byte Copy",
+              victimInstanceId: "task-2",
+              victimCoreIds: [1],
+              secondsRemaining,
+              progress,
+            },
+          },
+        ],
+      },
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={makeVisible(1.5, 0.5)}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const status = container.querySelector<HTMLElement>(
+      ".scheduler-watchdog-status",
+    );
+    const headerStatus = container.querySelector(
+      ".scheduler-section .hw-section-header-row .scheduler-watchdog-status",
+    );
+    const bodyStatus = container.querySelector(
+      ".scheduler-section > .scheduler-watchdog-status",
+    );
+    const headerChildren = Array.from(
+      container.querySelectorAll(".scheduler-section .scheduler-header-row > *"),
+    );
+
+    expect(status?.textContent).toContain("Byte Copy");
+    expect(status?.textContent).toContain("C1");
+    expect(status?.textContent).toContain("in 1.5s");
+    expect(headerStatus).not.toBeNull();
+    expect(bodyStatus).toBeNull();
+    expect(headerChildren[0]?.className).toContain("hw-section-header");
+    expect(headerChildren[1]?.className).toContain("scheduler-watchdog-status");
+    expect(headerChildren[2]?.className).toContain("scheduler-controls");
+    expect(
+      status?.querySelector<HTMLElement>(".scheduler-watchdog-meter span")?.style
+        .width,
+    ).toBe("50%");
+    expect(
+      status
+        ?.querySelector<HTMLElement>(".scheduler-watchdog-meter")
+        ?.getAttribute("aria-valuenow"),
+    ).toBe("50");
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={makeVisible(0.75, 0.75)}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const updatedMeter = container.querySelector<HTMLElement>(
+      ".scheduler-watchdog-meter",
+    );
+
+    expect(updatedMeter?.querySelector<HTMLElement>("span")?.style.width).toBe("75%");
+    expect(updatedMeter?.getAttribute("aria-valuenow")).toBe("75");
   });
 
   it("keeps cores standalone before RAM and wraps CPU modules after RAM unlock", () => {
@@ -585,7 +1335,7 @@ describe("HardwareBoard cache meter", () => {
     expect(
       container.querySelector(".core-array-section .upgrade-stepper")?.textContent,
     ).toContain(
-      "C1 clock",
+      "C1 Freq",
     );
   });
 
@@ -658,7 +1408,7 @@ describe("HardwareBoard cache meter", () => {
 
     const groupedStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("All clocks"));
+    ).find((stepper) => stepper.textContent?.includes("All Freq"));
     const groupButtons = Array.from(
       groupedStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
@@ -703,7 +1453,7 @@ describe("HardwareBoard cache meter", () => {
 
     const downgradableStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("All clocks"));
+    ).find((stepper) => stepper.textContent?.includes("All Freq"));
     const downgradeButtons = Array.from(
       downgradableStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
@@ -787,7 +1537,7 @@ describe("HardwareBoard cache meter", () => {
       queue: ["fetchBit"],
       tasks: base.tasks.map((task) =>
         task.id === "fetchBit"
-          ? { ...task, blockedReason: "Not enough free cache." }
+          ? { ...task, blockedReason: "No idle core available." }
           : task,
       ),
       hardware: {
@@ -834,7 +1584,7 @@ describe("HardwareBoard cache meter", () => {
 
     expect(queuedTask?.getAttribute("title")).toContain("Fetch Bit");
     expect(queuedTask?.querySelector(".queue-slot-state")?.textContent).toBe(
-      "Not enough free cache.",
+      "No idle core available.",
     );
     expect(cancelButton).not.toBeNull();
   });
@@ -1034,6 +1784,7 @@ describe("HardwareBoard cache meter", () => {
     expect(button?.textContent).toContain("Cache capacity too low.");
     expect(meta?.textContent).toContain("ops");
     expect(meta?.querySelector(".resource-token.credits")).not.toBeNull();
+    expect(taskCard?.querySelector(".task-progress")).toBeNull();
   });
 
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {
@@ -1250,9 +2001,8 @@ describe("HardwareBoard cache meter", () => {
           memoryState: "ready",
           activeOperationName: "Checksum Step",
           coreProgress: [],
-          restarts: 0,
-          reruns: 0,
-          corruptions: 0,
+          lockResource: null,
+          lockReason: null,
         },
       ],
       tasks: [
@@ -1321,35 +2071,139 @@ describe("HardwareBoard cache meter", () => {
     });
   });
 
-  it("dispatches cancel actions from active task cards and queue previews", () => {
+  it("bubbles CPU scheduler wait reasons up to system scheduler slots", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        systemSchedulerSlots: 1,
+        systemSchedulerConfig: {
+          policy: "fifo",
+          autoKillEnabled: false,
+          killPolicy: "deadlockedTask",
+        },
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            cacheBits: 32,
+            cacheUsedBits: 31.5,
+            schedulerSlots: 4,
+            queuedCount: 1,
+            schedulerConfig: {
+              policy: "deadlockSafe",
+              autoKillEnabled: false,
+              killPolicy: "deadlockedTask",
+            },
+            cores: socket.cores.map((core, index) => ({
+              ...core,
+              scheduler: {
+                ...core.scheduler,
+                localQueue: index === 0 ? ["tinyChecksum"] : [],
+              },
+            })),
+          },
+        ],
+      },
+      queue: ["tinyChecksum"],
+      tasks: [
+        {
+          ...base.tasks[0]!,
+          id: "tinyChecksum",
+          name: "Tiny Checksum",
+          category: "system",
+          operationCount: 332,
+          rewardCredits: 332,
+          rewardData: 2,
+          cacheNeedBits: 8,
+          ramNeedBits: 256,
+          requiredCores: 1,
+          canStart: false,
+          canQueue: false,
+          blockedReason: null,
+          queueBlockedReason: "System scheduler slots full.",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="scheduler"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const systemStatus = container.querySelector(
+      ".system-scheduler-section .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+    const cpuStatus = container.querySelector(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+
+    expect(systemStatus).toBe("Waiting for CPU cache.");
+    expect(cpuStatus).toBe("Waiting for CPU cache.");
+    expect(container.textContent).not.toContain("System scheduler slots full.");
+  });
+
+  it("shows active cancel on cores instead of task cards and keeps queue preview cancel", () => {
     let state = applyAction(createInitialGameState(), {
       type: "startTask",
       taskId: "fetchBit",
     });
     const dispatch = vi.fn();
+    const activeVisible = deriveVisibleState(state);
 
     act(() => {
       root.render(
         <TaskBay
-          visible={deriveVisibleState(state)}
+          visible={activeVisible}
           selectedComponent={null}
           dispatch={dispatch}
         />,
       );
     });
 
-    const activeCancel = container.querySelector<HTMLButtonElement>(
-      ".task-cancel-button",
-    );
     const activeTaskCard = container.querySelector(".task-card.active");
 
-    expect(activeCancel).not.toBeNull();
+    expect(container.querySelector(".task-cancel-button")).toBeNull();
     expect(activeTaskCard?.querySelector(".task-state-pill")).toBeNull();
     expect(activeTaskCard?.querySelector(".task-status-line")).toBeNull();
     expect(activeTaskCard?.textContent).not.toContain("Active");
 
     act(() => {
-      activeCancel?.click();
+      root.render(
+        <HardwareBoard
+          visible={activeVisible}
+          dispatch={dispatch}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const coreCancel = container.querySelector<HTMLButtonElement>(
+      ".core-cancel-button",
+    );
+
+    expect(coreCancel).not.toBeNull();
+
+    act(() => {
+      coreCancel?.click();
     });
 
     expect(dispatch).toHaveBeenCalledWith({
@@ -1409,5 +2263,37 @@ describe("HardwareBoard cache meter", () => {
       type: "cancelQueuedTask",
       taskId: "fetchBit",
     });
+  });
+
+  it("keeps deadlocked tasks neutral in the task list", () => {
+    const state = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+    const visible = deriveVisibleState(state);
+    const deadlockedVisible: VisibleState = {
+      ...visible,
+      activeTasks: visible.activeTasks.map((task) => ({
+        ...task,
+        status: "deadlocked",
+        memoryState: "deadlock",
+        lockResource: "cache",
+        lockReason: "Deadlock: cache full.",
+      })),
+    };
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={deadlockedVisible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".task-card.deadlock")).toBeNull();
+    expect(container.querySelector(".task-card.active")).not.toBeNull();
+    expect(container.querySelector(".task-cancel-button")).toBeNull();
   });
 });

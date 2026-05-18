@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Activity, Cpu, ListTodo } from "lucide-react";
-import type { VisibleState } from "../game";
+import type { DeadlockResource, VisibleState } from "../game";
 import {
   HardwareBoard,
   ResearchPanel,
@@ -21,6 +21,10 @@ interface SystemWorkbenchProps {
   onSelectComponent: (component: SelectedComponent) => void;
   onReset: () => void;
   animateResourceGains: boolean;
+  deadlockHelpResource?: DeadlockResource | null;
+  deadlockCooldownHelpResource?: DeadlockResource | null;
+  onDismissDeadlockHelp?: () => void;
+  onDismissDeadlockCooldownHelp?: () => void;
 }
 
 function useIsMobile(breakpoint = 760) {
@@ -59,6 +63,10 @@ export function SystemWorkbench({
   onSelectComponent,
   onReset,
   animateResourceGains,
+  deadlockHelpResource = null,
+  deadlockCooldownHelpResource = null,
+  onDismissDeadlockHelp,
+  onDismissDeadlockCooldownHelp,
 }: SystemWorkbenchProps) {
   const component = getVisibleSelection(visible, selectedComponent);
   const isMobile = useIsMobile();
@@ -67,6 +75,13 @@ export function SystemWorkbench({
   const taskCount = getTaskCount(visible);
   const researchCount = getResearchCount(visible);
   const coreCount = visible.hardware.cores;
+
+  useEffect(() => {
+    const helpResource = deadlockHelpResource ?? deadlockCooldownHelpResource;
+    if (!isMobile || !helpResource) return;
+    setActiveSection("hardware");
+    onSelectComponent(helpResource === "cache" ? "cache" : "ram");
+  }, [deadlockHelpResource, deadlockCooldownHelpResource, isMobile, onSelectComponent]);
 
   return (
     <main className="workbench" aria-label="IdleBit system workbench">
@@ -146,6 +161,10 @@ export function SystemWorkbench({
               dispatch={dispatch}
               selectedComponent={component}
               onSelectComponent={onSelectComponent}
+              deadlockHelpResource={deadlockHelpResource}
+              deadlockCooldownHelpResource={deadlockCooldownHelpResource}
+              onDismissDeadlockHelp={onDismissDeadlockHelp}
+              onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
             />
           </div>
         </section>

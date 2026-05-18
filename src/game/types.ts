@@ -30,6 +30,8 @@ export type ResearchId =
   | "benchmarkHarness"
   | "multiCore"
   | "localScheduler"
+  | "schedulerWatchdog"
+  | "schedulerPolicies"
   | "systemScheduler"
   | "ramControl"
   | "systemBus"
@@ -47,6 +49,7 @@ export type UpgradeId =
   | "scheduler"
   | "secondCpu"
   | "matchedCpu"
+  | "deadlockRecovery"
   | "ram"
   | "ramCapacity"
   | "ramSpeed"
@@ -67,6 +70,8 @@ export type UnlockId =
   | "benchmarks"
   | "multiCore"
   | "basicQueue"
+  | "schedulerWatchdog"
+  | "schedulerPolicies"
   | "scheduler"
   | "secondCpu"
   | "systemStats"
@@ -86,8 +91,7 @@ export type OperationRuntimeStatus =
   | "running"
   | "waitingMemory"
   | "waitingBarrier"
-  | "rerunning"
-  | "restarting"
+  | "deadlocked"
   | "complete";
 
 export type MemoryRuntimeState =
@@ -96,8 +100,42 @@ export type MemoryRuntimeState =
   | "ramLoad"
   | "waiting"
   | "ready"
-  | "rerun"
-  | "restart";
+  | "deadlock";
+
+export type DeadlockResource = "cache" | "ram";
+
+export type SchedulerPolicy =
+  | "fifo"
+  | "deadlockSafe"
+  | "shortestTask"
+  | "smallestMemory";
+
+export type SchedulerKillPolicy =
+  | "deadlockedTask"
+  | "newestBlocker"
+  | "lowestProgress";
+
+export interface SchedulerConfig {
+  policy: SchedulerPolicy;
+  autoKillEnabled: boolean;
+  killPolicy: SchedulerKillPolicy;
+}
+
+export interface SchedulerWatchdogPreview {
+  target: "cpu" | "system";
+  cpuId: number | null;
+  resource: DeadlockResource;
+  killPolicy: SchedulerKillPolicy;
+  deadlockedTaskId: TaskId;
+  deadlockedTaskName: string;
+  deadlockedInstanceId: string;
+  victimTaskId: TaskId;
+  victimTaskName: string;
+  victimInstanceId: string;
+  victimCoreIds: number[];
+  secondsRemaining: number;
+  progress: number;
+}
 
 export interface ResourceBag {
   credits: number;
@@ -239,9 +277,9 @@ export interface ActiveCoreOperation {
   totalLoadCycles: number;
   memoryReservedBits: number;
   memoryReservedBytes: number;
-  reruns: number;
-  restarts: number;
-  corruptions: number;
+  lockResource: DeadlockResource | null;
+  lockReason: string | null;
+  deadlockSeconds: number;
 }
 
 export interface ActiveTask {
@@ -254,9 +292,6 @@ export interface ActiveTask {
   coreOperations: ActiveCoreOperation[];
   remainingCycles: number;
   totalCycles: number;
-  restarts: number;
-  reruns: number;
-  corruptions: number;
 }
 
 export type ActiveJob = ActiveTask;
@@ -281,6 +316,8 @@ export interface GameFlags {
   secondCpu: boolean;
   systemStats: boolean;
   cooling: boolean;
+  schedulerWatchdog: boolean;
+  schedulerPolicies: boolean;
 }
 
 export interface HardwareState {
@@ -295,6 +332,8 @@ export interface HardwareState {
   cores: number;
   schedulerSlots: number;
   systemSchedulerSlots: number;
+  systemSchedulerConfig: SchedulerConfig;
+  deadlockRecoveryLevel: number;
   secondCpu: boolean;
   ramLevel: number;
   ramBits: number;
@@ -325,6 +364,7 @@ export interface CpuHardwareState {
   cacheBits: number;
   cacheBytes: number;
   schedulerSlots: number;
+  schedulerConfig: SchedulerConfig;
 }
 
 export interface ResearchState {
@@ -332,23 +372,15 @@ export interface ResearchState {
 }
 
 export interface ReliabilityState {
-  restartDebt: number;
-  corruptionDebt: number;
-  totalRestarts: number;
-  totalCorruptions: number;
-  lastEvent:
-    | {
-        tick: number;
-        kind: "restart" | "corruption";
-        coreId: number;
-        taskId: TaskId;
-      }
-    | null;
+  lastEvent: null;
 }
 
 export interface CacheResidencySegment {
   coreId: number;
   bits: number;
+  bufferBits?: number;
+  readyBits?: number;
+  committedBits?: number;
   memoryAction: TaskMemoryOperationKind | null;
   operationId?: string | null;
   state?: "buffering" | "loading" | "loaded";
@@ -369,6 +401,10 @@ export interface GameState {
   version: 1;
   tick: number;
   nextInstanceId: number;
+  deadlockPressureSeconds: number;
+  deadlockPressureResource: DeadlockResource | null;
+  deadlockPressureCpuId: number | null;
+  deadlockProcessLockout: boolean;
   resources: ResourceBag;
   hardware: HardwareState;
   flags: GameFlags;
@@ -391,6 +427,24 @@ export type GameAction =
   | { type: "queueTask"; taskId: TaskId; cpuId?: number }
   | { type: "cancelTask"; taskId: TaskId; instanceId?: string }
   | { type: "cancelQueuedTask"; taskId: TaskId }
+  | {
+      type: "setSchedulerPolicy";
+      target: "cpu" | "system";
+      policy: SchedulerPolicy;
+      cpuId?: number;
+    }
+  | {
+      type: "setSchedulerAutoKill";
+      target: "cpu" | "system";
+      enabled: boolean;
+      cpuId?: number;
+    }
+  | {
+      type: "setSchedulerKillPolicy";
+      target: "cpu" | "system";
+      killPolicy: SchedulerKillPolicy;
+      cpuId?: number;
+    }
   | { type: "buyResearch"; researchId: ResearchId }
   | {
       type: "buyUpgrade";
@@ -542,9 +596,9 @@ export interface VisibleCoreTaskProgress {
   cacheBits: number;
   memoryReservedBits: number;
   memoryReservedBytes: number;
-  reruns: number;
-  restarts: number;
-  corruptions: number;
+  lockResource: DeadlockResource | null;
+  lockReason: string | null;
+  deadlockSeconds: number;
 }
 
 export interface VisibleActiveTask {
@@ -560,9 +614,8 @@ export interface VisibleActiveTask {
   memoryState: MemoryRuntimeState;
   activeOperationName: string | null;
   coreProgress: VisibleCoreTaskProgress[];
-  restarts: number;
-  reruns: number;
-  corruptions: number;
+  lockResource: DeadlockResource | null;
+  lockReason: string | null;
 }
 
 export interface VisibleActiveJob extends VisibleActiveTask {
@@ -578,6 +631,8 @@ export interface VisibleCore {
   scheduler: CoreSchedulerState;
   activeTask: VisibleActiveTask | null;
   activeJob: VisibleActiveJob | null;
+  deadlocked: boolean;
+  deadlockResource: DeadlockResource | null;
 }
 
 export interface VisibleCpuSocket {
@@ -593,6 +648,11 @@ export interface VisibleCpuSocket {
   cacheResidency: CacheResidencySegment[];
   schedulerSlots: number;
   queuedCount: number;
+  schedulerConfig: SchedulerConfig;
+  watchdog: SchedulerWatchdogPreview | null;
+  deadlocked: boolean;
+  deadlockResource: DeadlockResource | null;
+  deadlockRecoveryUpgrade: VisibleUpgrade | null;
   allCoreClockUpgrade: VisibleUpgrade | null;
   coreUpgrade: VisibleUpgrade | null;
   cacheUpgrade: VisibleUpgrade | null;
@@ -618,8 +678,29 @@ export interface VisibleMemoryPipeline {
   cacheLoads: number;
   ramLoads: number;
   waits: number;
-  reruns: number;
-  restarts: number;
+  deadlocks: number;
+}
+
+export interface VisibleDeadlockSummary {
+  taskId: TaskId;
+  taskName: string;
+  coreIds: number[];
+  cpuId: number;
+  resource: DeadlockResource;
+  reason: string;
+  schedulerQueued: boolean;
+}
+
+export interface VisibleDeadlockPressure {
+  seconds: number;
+  limitSeconds: number;
+  remainingSeconds: number;
+  progress: number;
+  cooldownRate: number;
+  resource: DeadlockResource | null;
+  cpuId: number | null;
+  active: boolean;
+  lockout: boolean;
 }
 
 export interface VisibleHardwareMetrics {
@@ -635,11 +716,13 @@ export interface VisibleHardwareMetrics {
   allRamSpeedUpgrade: VisibleUpgrade | null;
   ramResidency: RamResidencySegment[];
   memory: VisibleMemoryPipeline;
+  deadlocks: VisibleDeadlockSummary[];
+  deadlockPressure: VisibleDeadlockPressure;
+  systemSchedulerWatchdog: SchedulerWatchdogPreview | null;
   powerUsedWatts: number;
   powerHeadroomWatts: number;
   psuStress: number;
-  restartReliability: number;
-  corruptionRisk: number;
+  powerReliability: number;
   coolingReliabilityBonus: number;
   powerCostPerMinute: number;
   cacheResidency: CacheResidencySegment[];

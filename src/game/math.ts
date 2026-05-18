@@ -9,6 +9,7 @@ import {
 } from "./progression";
 import type {
   ActiveCoreOperation,
+  ActiveTask,
   GameState,
   TaskDefinition,
   TaskOperationDefinition,
@@ -16,6 +17,11 @@ import type {
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+
+export const DEADLOCK_FAILURE_SECONDS = 10;
+
+export const getDeadlockCooldownRate = (state: GameState) =>
+  1 + Math.max(0, state.hardware.deadlockRecoveryLevel ?? 0) * 0.5;
 
 export const getHardwareCacheBits = (state: GameState) =>
   Math.max(
@@ -25,12 +31,123 @@ export const getHardwareCacheBits = (state: GameState) =>
     ...state.hardware.cpus.map((cpu) => getCpuHardware(state, cpu.id).cacheBits),
   );
 
+const getSegmentBits = (segments: number[]) =>
+  segments.reduce((total, bits) => total + bits, 0);
+
+const overlayCacheBits = (segments: number[], bits: number) => {
+  let remainingBits = bits;
+
+  for (let index = segments.length - 1; index >= 0 && remainingBits > 0; index -= 1) {
+    const segmentBits = segments[index] ?? 0;
+    const overlaidBits = Math.min(segmentBits, remainingBits);
+
+    remainingBits -= overlaidBits;
+  }
+
+  if (remainingBits > 0) segments.push(remainingBits);
+};
+
+const isTaskOperationAssignedToCore = (
+  activeTask: ActiveTask,
+  operation: TaskOperationDefinition,
+  coreId: number,
+) => operation.parallel || operation.kind === "barrier" || coreId === activeTask.coreId;
+
+const isCurrentOperationCacheResident = (runtime: ActiveCoreOperation) =>
+  [
+    "loadingCache",
+    "loadingRam",
+    "running",
+    "waitingBarrier",
+    "deadlocked",
+  ].includes(runtime.status);
+
+const getCacheProgress = (remaining: number, total: number) => {
+  if (total <= 0) return 1;
+  return clamp(1 - remaining / total, 0, 1);
+};
+
+const isCacheLoadingRuntime = (runtime: ActiveCoreOperation) =>
+  runtime.status === "loadingCache" ||
+  (runtime.status === "deadlocked" && runtime.lockResource === "cache");
+
+const getRuntimeOperationCacheBits = (
+  state: GameState,
+  operation: TaskOperationDefinition,
+  runtime: ActiveCoreOperation,
+  loaded: boolean,
+) => {
+  if (operation.cacheBits <= 0) return 0;
+  if (loaded || !isCacheLoadingRuntime(runtime)) return operation.cacheBits;
+
+  const writeProgress = getCacheProgress(
+    runtime.remainingLoadCycles,
+    getCacheLoadCycles(state, operation),
+  );
+  if (!operation.memoryAction) return operation.cacheBits * writeProgress;
+
+  const issueProgress = getCacheProgress(
+    runtime.remainingCycles,
+    runtime.totalCycles,
+  );
+  return operation.cacheBits * issueProgress;
+};
+
+export const getActiveOperationCacheBits = (
+  state: GameState,
+  activeTask: ActiveTask,
+  runtime: ActiveCoreOperation,
+) => {
+  if (runtime.status === "complete") return 0;
+
+  const definition = getTaskDefinition(activeTask.taskId);
+  const segments: number[] = [];
+
+  for (
+    let operationIndex = 0;
+    operationIndex <= runtime.operationIndex;
+    operationIndex += 1
+  ) {
+    const operation = definition.operations[operationIndex];
+    if (!operation) continue;
+    if (!isTaskOperationAssignedToCore(activeTask, operation, runtime.coreId)) {
+      continue;
+    }
+
+    const loaded = operationIndex < runtime.operationIndex;
+    if (!loaded && !isCurrentOperationCacheResident(runtime)) continue;
+
+    const bits = getRuntimeOperationCacheBits(state, operation, runtime, loaded);
+    if (bits <= 0) continue;
+
+    if (operation.kind !== "memory") {
+      const missingBits = bits - getSegmentBits(segments);
+      if (missingBits > 0) segments.push(missingBits);
+      continue;
+    }
+
+    if (operation.memoryAction === "overwrite") {
+      overlayCacheBits(segments, bits);
+      continue;
+    }
+
+    segments.push(bits);
+  }
+
+  return getSegmentBits(segments);
+};
+
 export const getReservedCacheBits = (state: GameState, cpuId?: number) =>
   state.activeTasks.reduce(
     (sum, task) =>
-      cpuId !== undefined && getCpuForCore(state, task.coreId).id !== cpuId
-        ? sum
-        : sum + getTaskDefinition(task.taskId).cacheNeedBits,
+      sum +
+      task.coreOperations.reduce((operationSum, operation) => {
+        if (cpuId !== undefined && getCpuForCore(state, operation.coreId).id !== cpuId) {
+          return operationSum;
+        }
+
+        return operationSum + getActiveOperationCacheBits(state, task, operation);
+      }, 0),
     0,
   );
 
@@ -116,8 +233,144 @@ export const getAvailableSystemSchedulerSlots = (state: GameState) =>
 export const getMemoryCapacityBytes = (state: GameState) =>
   bitsToBytes(getMemoryCapacityBits(state));
 
-export const getMemorySpeedMt = (state: GameState) =>
-  state.hardware.ramSpeedMt > 0 ? state.hardware.ramSpeedMt : 1;
+const getInstalledRamSticks = (state: GameState) => {
+  if (state.hardware.ramSticks.length > 0) return state.hardware.ramSticks;
+
+  const ramBits = getHardwareRamBits(state);
+  if (ramBits <= 0) return [];
+
+  return [
+    {
+      id: 1,
+      level: Math.max(1, state.hardware.ramLevel),
+      bits: ramBits,
+      bytes: bitsToBytes(ramBits),
+      speedLevel: Math.max(1, state.hardware.ramSpeedLevel),
+      speedMt: state.hardware.ramSpeedMt > 0 ? state.hardware.ramSpeedMt : 1,
+    },
+  ];
+};
+
+export const getMemorySpeedMt = (state: GameState) => {
+  const speeds = getInstalledRamSticks(state).map((stick) => stick.speedMt);
+  if (speeds.length > 0) return Math.max(1, ...speeds);
+
+  return state.hardware.ramSpeedMt > 0 ? state.hardware.ramSpeedMt : 1;
+};
+
+const getCountedRamBits = (operation: ActiveCoreOperation) =>
+  operation.status === "complete" || operation.status === "waitingMemory"
+    ? 0
+    : operation.memoryReservedBits;
+
+const isSameActiveOperation = (
+  task: ActiveTask,
+  candidateTask: ActiveTask,
+  operation: ActiveCoreOperation,
+  candidate: ActiveCoreOperation,
+) =>
+  candidate === operation ||
+  (candidateTask.instanceId === task.instanceId &&
+    candidate.coreId === operation.coreId &&
+    candidate.operationIndex === operation.operationIndex &&
+    candidate.operationId === operation.operationId);
+
+const getRamBitOffsetForOperation = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+) => {
+  let offset = 0;
+
+  for (const activeTask of state.activeTasks) {
+    for (const candidate of activeTask.coreOperations) {
+      if (isSameActiveOperation(task, activeTask, operation, candidate)) {
+        return offset + operation.memoryReservedBits;
+      }
+
+      offset += getCountedRamBits(candidate);
+    }
+  }
+
+  return Math.max(0, getReservedMemoryBits(state) - operation.memoryReservedBits);
+};
+
+const getRamStickSpanAtOffset = (state: GameState, bitOffset: number) => {
+  const sticks = getInstalledRamSticks(state);
+  let startBits = 0;
+
+  for (const stick of sticks) {
+    const endBits = startBits + stick.bits;
+    if (bitOffset < endBits) {
+      return {
+        endBits,
+        speedMt: Math.max(1, stick.speedMt),
+      };
+    }
+
+    startBits = endBits;
+  }
+
+  return null;
+};
+
+export const getRamLoadCyclesForOperationTick = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+  deltaSeconds: number,
+) => {
+  let remainingSeconds = Math.max(0, deltaSeconds);
+  let remainingLoadCycles = Math.max(0, operation.remainingLoadCycles);
+  let bitOffset = getRamBitOffsetForOperation(state, task, operation);
+  let loadCycles = 0;
+
+  while (remainingSeconds > 0 && remainingLoadCycles > 0) {
+    const span = getRamStickSpanAtOffset(state, bitOffset);
+    const speedMt = span?.speedMt ?? getMemorySpeedMt(state);
+    const bitsUntilNextStick = span
+      ? Math.max(0, span.endBits - bitOffset)
+      : Number.POSITIVE_INFINITY;
+    const requestedCycles = speedMt * remainingSeconds;
+    const appliedCycles = Math.min(
+      remainingLoadCycles,
+      bitsUntilNextStick,
+      requestedCycles,
+    );
+
+    if (appliedCycles <= 0) break;
+
+    loadCycles += appliedCycles;
+    remainingLoadCycles -= appliedCycles;
+    bitOffset += appliedCycles;
+    remainingSeconds -= appliedCycles / speedMt;
+  }
+
+  return loadCycles;
+};
+
+const estimateRamLoadSeconds = (state: GameState, ramBits: number) => {
+  let remainingBits = Math.max(0, ramBits);
+  let bitOffset = 0;
+  let seconds = 0;
+
+  while (remainingBits > 0) {
+    const span = getRamStickSpanAtOffset(state, bitOffset);
+    const speedMt = span?.speedMt ?? getMemorySpeedMt(state);
+    const bitsUntilNextStick = span
+      ? Math.max(0, span.endBits - bitOffset)
+      : remainingBits;
+    const appliedBits = Math.min(remainingBits, bitsUntilNextStick);
+
+    if (appliedBits <= 0) break;
+
+    seconds += appliedBits / speedMt;
+    remainingBits -= appliedBits;
+    bitOffset += appliedBits;
+  }
+
+  return seconds;
+};
 
 export const getCacheMultiplier = (state: GameState, task: TaskDefinition) => {
   if (task.cacheNeedBits <= 0) return 1;
@@ -206,7 +459,10 @@ export const estimateTaskSeconds = (
         : getOperationEffectiveClock(state, operation, coreId));
     const cacheSeconds =
       getCacheLoadCycles(state, operation) / getCacheLoadRate(state, coreId);
-    const ramSeconds = getRamLoadCycles(state, operation) / getRamLoadRate(state);
+    const ramSeconds = estimateRamLoadSeconds(
+      state,
+      getRamLoadCycles(state, operation),
+    );
     if (operation.memoryAction) {
       return seconds + Math.max(cpuSeconds, cacheSeconds) + ramSeconds;
     }
@@ -224,14 +480,16 @@ export const estimateActiveRemainingSeconds = (
 export const estimateJobSeconds = estimateTaskSeconds;
 
 const activeOperationPowerMultiplier = (operation: ActiveCoreOperation) => {
-  if (operation.status === "complete" || operation.status === "waitingMemory") {
+  if (
+    operation.status === "complete" ||
+    operation.status === "waitingMemory" ||
+    operation.status === "deadlocked"
+  ) {
     return 0;
   }
   if (operation.status === "waitingBarrier") return 0.12;
   if (operation.status === "loadingCache") return 0.38;
   if (operation.status === "loadingRam") return 0.55;
-  if (operation.status === "restarting") return 0.9;
-  if (operation.status === "rerunning") return 1.08;
   return 1;
 };
 
@@ -328,31 +586,11 @@ export const getPsuStress = (state: GameState) =>
 export const getCoolingReliabilityBonus = (state: GameState) =>
   1 + state.hardware.coolingRating * 0.18;
 
-export const getRestartReliability = (state: GameState) => {
+export const getPowerReliability = (state: GameState) => {
   const overload = Math.max(0, getPsuStress(state) - 0.85);
   const penalty = overload ** 1.35 / getCoolingReliabilityBonus(state);
 
   return Math.round(clamp(1 - penalty, 0.05, 1) * 1000) / 1000;
-};
-
-export const getRestartRiskPerSecond = (state: GameState) =>
-  Math.max(0, 1 - getRestartReliability(state)) * 0.8;
-
-export const getCorruptionRiskPerSecond = (state: GameState) => {
-  if (!state.flags.multiCore) return 0;
-
-  const hasParallelWork = state.activeTasks.some(
-    (task) =>
-      task.assignedCoreIds.length > 1 &&
-      task.coreOperations.some((operation) => operation.status !== "complete"),
-  );
-
-  if (!hasParallelWork) return 0;
-
-  const pressure = Math.max(0, getPsuStress(state) - 0.75);
-  return Math.round(
-    (pressure ** 1.25 / getCoolingReliabilityBonus(state)) * 1000,
-  ) / 1000;
 };
 
 export const getReservedMemoryBytes = (state: GameState) =>
@@ -363,7 +601,8 @@ export const getReservedMemoryBits = (state: GameState) =>
     .flatMap((task) => task.coreOperations)
     .reduce(
       (sum, operation) =>
-        operation.status === "complete" || operation.status === "waitingMemory"
+        operation.status === "complete" ||
+        operation.status === "waitingMemory"
           ? sum
           : sum + operation.memoryReservedBits,
       0,

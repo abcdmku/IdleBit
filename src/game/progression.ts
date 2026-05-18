@@ -5,6 +5,7 @@ import type {
   GameState,
   OperationRuntimeStatus,
   RamStickState,
+  SchedulerConfig,
   StageId,
 } from "./types";
 
@@ -85,6 +86,14 @@ export const getPsuWatts = (level: number) =>
 export const getCoolingRating = (level: number) =>
   level <= 0 ? 0 : Math.round((1 + (level - 1) * 0.28) * 100) / 100;
 
+export const createSchedulerConfig = (
+  template?: Partial<SchedulerConfig>,
+): SchedulerConfig => ({
+  policy: template?.policy ?? "fifo",
+  autoKillEnabled: template?.autoKillEnabled ?? false,
+  killPolicy: template?.killPolicy ?? "deadlockedTask",
+});
+
 export const createCpuHardwareState = (
   id: number,
   coreIds: number[],
@@ -101,6 +110,7 @@ export const createCpuHardwareState = (
     cacheBits: template?.cacheBits ?? getCacheBits(cacheLevel),
     cacheBytes: template?.cacheBytes ?? getCacheBytes(cacheLevel),
     schedulerSlots: template?.schedulerSlots ?? 0,
+    schedulerConfig: createSchedulerConfig(template?.schedulerConfig),
   };
 };
 
@@ -194,7 +204,7 @@ export const syncHardwarePackages = (state: GameState): GameState => {
       : (state.hardware.ramSpeedLevel ?? 1);
   const ramSpeedMt =
     ramSticks.length > 0
-      ? ramSticks.reduce((total, stick) => total + stick.speedMt, 0)
+      ? Math.max(...ramSticks.map((stick) => stick.speedMt))
       : getRamSpeedMt(ramSpeedLevel);
 
   return {
@@ -264,6 +274,10 @@ export const createInitialGameState = (): GameState => ({
   version: 1,
   tick: 0,
   nextInstanceId: 1,
+  deadlockPressureSeconds: 0,
+  deadlockPressureResource: null,
+  deadlockPressureCpuId: null,
+  deadlockProcessLockout: false,
   resources: {
     credits: 0,
     data: 0,
@@ -282,6 +296,8 @@ export const createInitialGameState = (): GameState => ({
     cores: 1,
     schedulerSlots: 0,
     systemSchedulerSlots: 0,
+    systemSchedulerConfig: createSchedulerConfig(),
+    deadlockRecoveryLevel: 0,
     secondCpu: false,
     ramLevel: 0,
     ramBits: 0,
@@ -304,15 +320,13 @@ export const createInitialGameState = (): GameState => ({
     secondCpu: false,
     systemStats: false,
     cooling: false,
+    schedulerWatchdog: false,
+    schedulerPolicies: false,
   },
   research: {
     completed: [],
   },
   reliability: {
-    restartDebt: 0,
-    corruptionDebt: 0,
-    totalRestarts: 0,
-    totalCorruptions: 0,
     lastEvent: null,
   },
   completedTasks: {},
@@ -427,6 +441,10 @@ export const updateProgressionFlags = (state: GameState): GameState => {
       multiCore: state.flags.multiCore || researched.includes("multiCore"),
       basicQueue:
         state.flags.basicQueue || researched.includes("localScheduler"),
+      schedulerWatchdog:
+        state.flags.schedulerWatchdog || researched.includes("schedulerWatchdog"),
+      schedulerPolicies:
+        state.flags.schedulerPolicies || researched.includes("schedulerPolicies"),
       scheduler:
         state.flags.scheduler || researched.includes("systemScheduler"),
       secondCpu: state.flags.secondCpu || researched.includes("systemBus"),
@@ -461,6 +479,6 @@ export const getMilestone = (state: GameState) => {
   }
   if (!state.flags.secondCpu) return "Research the system bus.";
   if (!state.hardware.secondCpu) return "Install the second CPU.";
-  if (!state.flags.cooling) return "Research thermal control for safer restarts.";
+  if (!state.flags.cooling) return "Research thermal control for safer sustained load.";
   return "Balance RAM, PSU, and cooling under load.";
 };

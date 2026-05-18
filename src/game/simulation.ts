@@ -8,24 +8,26 @@ import {
 } from "./content/upgrades";
 import { addRewards, canAfford, spend } from "./economy";
 import {
+  DEADLOCK_FAILURE_SECONDS,
   estimateActiveRemainingSeconds,
-  getAvailableCacheBits,
+  estimateTaskSeconds,
   getAvailableMemoryBits,
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
   getCacheLoadCycles,
   getCacheLoadRate,
-  getCorruptionRiskPerSecond,
+  getDeadlockCooldownRate,
   getHardwareCacheBits,
   getMemoryCapacityBits,
   getOperationEffectiveClock,
   getRamLoadCycles,
-  getRamLoadRate,
-  getReservedMemoryBits,
-  getRestartRiskPerSecond,
+  getRamLoadCyclesForOperationTick,
+  getReservedCacheBits,
 } from "./math";
 import {
+  bitsToBytes,
   createRamStickState,
+  createSchedulerConfig,
   getAllCoreIds,
   getCpuForCore,
   getCpuHardware,
@@ -42,10 +44,14 @@ import type {
   ActiveCoreOperation,
   ActiveTask,
   Cost,
+  DeadlockResource,
   GameAction,
   GameState,
-  OperationRuntimeStatus,
   ResearchId,
+  SchedulerConfig,
+  SchedulerKillPolicy,
+  SchedulerPolicy,
+  SchedulerWatchdogPreview,
   TaskDefinition,
   TaskId,
   TaskOperationDefinition,
@@ -103,26 +109,10 @@ const refreshTaskTotals = (task: ActiveTask): ActiveTask => {
       sum + getRuntimeWork(getOperation(task, operation.operationIndex), operation).total,
     0,
   );
-  const restarts = task.coreOperations.reduce(
-    (sum, operation) => sum + operation.restarts,
-    0,
-  );
-  const reruns = task.coreOperations.reduce(
-    (sum, operation) => sum + operation.reruns,
-    0,
-  );
-  const corruptions = task.coreOperations.reduce(
-    (sum, operation) => sum + operation.corruptions,
-    0,
-  );
-
   return {
     ...task,
     remainingCycles,
     totalCycles,
-    restarts,
-    reruns,
-    corruptions,
   };
 };
 
@@ -135,13 +125,73 @@ const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
   task.ramNeedBits <= getMemoryCapacityBits(state);
 
+const taskFitsCpuHardware = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId?: number,
+) => {
+  if (cpuId === undefined) return taskFitsHardware(state, task);
+  return (
+    task.cacheNeedBits <= getCpuHardware(state, cpuId).cacheBits &&
+    task.ramNeedBits <= getMemoryCapacityBits(state)
+  );
+};
+
+const taskFitsFreeCacheStaging = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId?: number,
+) => task.cacheNeedBits <= getDeadlockSafeAvailableCacheBits(state, cpuId);
+
+const taskFitsFreeMemoryStaging = (
+  state: GameState,
+  task: TaskDefinition,
+) => task.ramNeedBits <= getDeadlockSafeAvailableMemoryBits(state);
+
 const taskFitsFreeStaging = (
   state: GameState,
   task: TaskDefinition,
   cpuId?: number,
 ) =>
-  task.cacheNeedBits <= getAvailableCacheBits(state, cpuId) &&
-  task.ramNeedBits <= getAvailableMemoryBits(state);
+  taskFitsFreeCacheStaging(state, task, cpuId) &&
+  taskFitsFreeMemoryStaging(state, task);
+
+const activeTaskRunsOnCpu = (state: GameState, task: ActiveTask, cpuId: number) =>
+  task.assignedCoreIds.some((coreId) => getCpuIdForCore(state, coreId) === cpuId);
+
+const getActiveCpuCacheFootprintBits = (state: GameState, cpuId: number) =>
+  state.activeTasks.reduce((sum, activeTask) => {
+    if (!activeTaskRunsOnCpu(state, activeTask, cpuId)) return sum;
+    return sum + getTaskDefinition(activeTask.taskId).cacheNeedBits;
+  }, 0);
+
+const getActiveMemoryFootprintBits = (state: GameState) =>
+  state.activeTasks.reduce(
+    (sum, activeTask) => sum + getTaskDefinition(activeTask.taskId).ramNeedBits,
+    0,
+  );
+
+const getDeadlockSafeAvailableCacheBits = (state: GameState, cpuId?: number) => {
+  if (cpuId !== undefined) {
+    const cpu = getCpuHardware(state, cpuId);
+    return Math.max(0, cpu.cacheBits - getActiveCpuCacheFootprintBits(state, cpu.id));
+  }
+
+  return Math.max(
+    0,
+    ...state.hardware.cpus.map((cpu) => {
+      const normalizedCpu = getCpuHardware(state, cpu.id);
+      return Math.max(
+        0,
+        normalizedCpu.cacheBits -
+          getActiveCpuCacheFootprintBits(state, normalizedCpu.id),
+      );
+    }),
+  );
+};
+
+const getDeadlockSafeAvailableMemoryBits = (state: GameState) =>
+  Math.max(0, getMemoryCapacityBits(state) - getActiveMemoryFootprintBits(state));
 
 const canAcceptTask = (state: GameState, taskId: TaskId) => {
   const task = getTaskDefinition(taskId);
@@ -153,10 +203,41 @@ const canAcceptTask = (state: GameState, taskId: TaskId) => {
 const isSystemScheduledTask = (task: TaskDefinition) =>
   task.category === "system" || task.category === "distributed";
 
+const hasActiveDeadlock = (state: GameState) =>
+  state.activeTasks.some((task) =>
+    task.coreOperations.some((operation) => operation.status === "deadlocked"),
+  );
+
+const getActiveDeadlockPressureScope = (state: GameState) => {
+  for (const task of state.activeTasks) {
+    const operation = task.coreOperations.find(
+      (coreOperation) => coreOperation.status === "deadlocked",
+    );
+    if (!operation?.lockResource) continue;
+
+    return {
+      resource: operation.lockResource,
+      cpuId:
+        operation.lockResource === "cache"
+          ? getCpuIdForCore(state, operation.coreId)
+          : null,
+    };
+  }
+
+  return null;
+};
+
+const isDeadlockStartBlocked = (state: GameState) =>
+  hasActiveDeadlock(state) || state.deadlockProcessLockout === true;
+
 const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
 
-  return canAcceptTask(state, taskId) && taskFitsFreeStaging(state, task, cpuId);
+  return (
+    !isDeadlockStartBlocked(state) &&
+    canAcceptTask(state, taskId) &&
+    taskFitsCpuHardware(state, task, cpuId)
+  );
 };
 
 const getCpuSchedulerWidth = (state: GameState, cpuId: number) =>
@@ -260,16 +341,41 @@ const selectCoreIdsForTask = (
   return ordered.slice(0, Math.max(requiredCores, wantedCores));
 };
 
-const canReserveMemory = (
-  state: GameState,
-  operation: ActiveCoreOperation,
-  neededBits: number,
-) => {
-  const reservedWithoutOperation =
-    getReservedMemoryBits(state) - operation.memoryReservedBits;
+const getDeadlockReason = (resource: DeadlockResource) =>
+  resource === "cache" ? "Deadlock: cache full." : "Deadlock: RAM full.";
 
-  return reservedWithoutOperation + neededBits <= getMemoryCapacityBits(state);
+const getRamDeadlockOperation = (state: GameState) =>
+  state.activeTasks
+    .flatMap((task) => task.coreOperations)
+    .find(
+      (operation) =>
+        operation.status === "deadlocked" && operation.lockResource === "ram",
+    ) ?? null;
+
+const getCacheDeadlockedCpuIds = (state: GameState) =>
+  new Set(
+    state.activeTasks
+      .flatMap((task) => task.coreOperations)
+      .filter(
+        (operation) =>
+          operation.status === "deadlocked" && operation.lockResource === "cache",
+      )
+      .map((operation) => getCpuIdForCore(state, operation.coreId)),
+  );
+
+const getDeadlockScopeResource = (
+  state: GameState,
+  activeTask: ActiveTask,
+): DeadlockResource | null => {
+  if (getRamDeadlockOperation(state)) return "ram";
+  return getCacheDeadlockedCpuIds(state).has(getCpuIdForCore(state, activeTask.coreId))
+    ? "cache"
+    : null;
 };
+
+const schedulerCanDispatchOnCpu = (state: GameState, cpuId: number) =>
+  !isDeadlockStartBlocked(state) &&
+  !getRamDeadlockOperation(state) && !getCacheDeadlockedCpuIds(state).has(cpuId);
 
 const idleCoreOperation = (
   coreId: number,
@@ -287,9 +393,9 @@ const idleCoreOperation = (
   totalLoadCycles: 0,
   memoryReservedBits: 0,
   memoryReservedBytes: 0,
-  reruns: 0,
-  restarts: 0,
-  corruptions: 0,
+  lockResource: null,
+  lockReason: null,
+  deadlockSeconds: 0,
 });
 
 const enterOperation = (
@@ -297,7 +403,6 @@ const enterOperation = (
   task: ActiveTask,
   coreOperation: ActiveCoreOperation,
   operationIndex: number,
-  statusOverride?: "rerunning",
 ): ActiveCoreOperation => {
   const operation = getOperation(task, operationIndex);
 
@@ -315,6 +420,9 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      lockResource: null,
+      lockReason: null,
+      deadlockSeconds: 0,
     };
   }
 
@@ -332,6 +440,9 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      lockResource: null,
+      lockReason: null,
+      deadlockSeconds: 0,
     };
   }
 
@@ -349,6 +460,9 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      lockResource: null,
+      lockReason: null,
+      deadlockSeconds: 0,
     };
   }
 
@@ -360,41 +474,6 @@ const enterOperation = (
     coreOperation.memoryReservedBits >= operationRamBits
       ? operationRamBits
       : 0;
-
-  if (!canReserveMemory(state, coreOperation, operationRamBits)) {
-    return {
-      ...coreOperation,
-      operationIndex,
-      operationId: operation.id,
-      operationName: operation.name,
-      status: "waitingMemory",
-      memoryState: "waiting",
-      remainingCycles: operation.cycles,
-      totalCycles: operation.cycles,
-      remainingLoadCycles: 0,
-      totalLoadCycles: 0,
-      memoryReservedBits: 0,
-      memoryReservedBytes: 0,
-    };
-  }
-
-  if (statusOverride === "rerunning") {
-    return {
-      ...coreOperation,
-      operationIndex,
-      operationId: operation.id,
-      operationName: operation.name,
-      status: "rerunning",
-      memoryState: "rerun",
-      remainingCycles: operation.cycles,
-      totalCycles: operation.cycles,
-      remainingLoadCycles: 0,
-      totalLoadCycles: 0,
-      memoryReservedBits: operationRamBits,
-      memoryReservedBytes: operationRamBytes,
-      reruns: coreOperation.reruns + 1,
-    };
-  }
 
   const cacheLoadCycles = getCacheLoadCycles(state, operation);
   const ramLoadCycles =
@@ -416,8 +495,11 @@ const enterOperation = (
       totalCycles: operation.cycles,
       remainingLoadCycles: cacheLoadCycles,
       totalLoadCycles,
-      memoryReservedBits: operationRamBits,
-      memoryReservedBytes: operationRamBytes,
+      memoryReservedBits: retainedRamBits,
+      memoryReservedBytes: bitsToBytes(retainedRamBits),
+      lockResource: null,
+      lockReason: null,
+      deadlockSeconds: 0,
     };
   }
 
@@ -433,8 +515,11 @@ const enterOperation = (
       totalCycles: operation.cycles,
       remainingLoadCycles: ramLoadCycles,
       totalLoadCycles,
-      memoryReservedBits: operationRamBits,
-      memoryReservedBytes: operationRamBytes,
+      memoryReservedBits: retainedRamBits,
+      memoryReservedBytes: bitsToBytes(retainedRamBits),
+      lockResource: null,
+      lockReason: null,
+      deadlockSeconds: 0,
     };
   }
 
@@ -451,6 +536,9 @@ const enterOperation = (
     totalLoadCycles,
     memoryReservedBits: operationRamBits,
     memoryReservedBytes: operationRamBytes,
+    lockResource: null,
+    lockReason: null,
+    deadlockSeconds: 0,
   };
 };
 
@@ -473,31 +561,17 @@ const createActiveTask = (
     coreOperations: [],
     remainingCycles: taskDefinition.requiredCycles,
     totalCycles: taskDefinition.requiredCycles,
-    restarts: 0,
-    reruns: 0,
-    corruptions: 0,
   };
-  let reservedBits = getReservedMemoryBits(state);
-  const capacityBits = getMemoryCapacityBits(state);
-  const coreOperations = assignedCoreIds.map((coreId) => {
-    const seeded = idleCoreOperation(coreId, 0);
-    const operation = taskDefinition.operations[0];
-    if (operation && operation.ramBits + reservedBits > capacityBits) {
-      const waitingOperation: ActiveCoreOperation = {
-        ...seeded,
-        operationId: operation.id,
-        operationName: operation.name,
-        status: "waitingMemory",
-        memoryState: "waiting",
-        remainingCycles: operation.cycles,
-        totalCycles: operation.cycles,
-      };
-      return waitingOperation;
-    }
+  const coreOperations: ActiveCoreOperation[] = [];
 
-    const entered = enterOperation(state, shell, seeded, 0);
-    reservedBits += entered.memoryReservedBits;
-    return entered;
+  assignedCoreIds.forEach((coreId) => {
+    const seeded = idleCoreOperation(coreId, 0);
+    const stagedTask = { ...shell, coreOperations };
+    const stagedState = {
+      ...state,
+      activeTasks: [...state.activeTasks, stagedTask],
+    };
+    coreOperations.push(enterOperation(stagedState, stagedTask, seeded, 0));
   });
 
   return [
@@ -551,9 +625,14 @@ const selectQueueCoreId = (state: GameState, cpuId?: number) => {
   const candidateCoreIds =
     cpuId === undefined
       ? state.hardware.cpus
-          .filter((cpu) => getAvailableSchedulerSlots(state, cpu.id) > 0)
+          .filter(
+            (cpu) =>
+              getAvailableSchedulerSlots(state, cpu.id) > 0 &&
+              schedulerCanDispatchOnCpu(state, cpu.id),
+          )
           .flatMap((cpu) => cpu.coreIds)
-      : getAvailableSchedulerSlots(state, cpuId) > 0
+      : getAvailableSchedulerSlots(state, cpuId) > 0 &&
+          schedulerCanDispatchOnCpu(state, cpuId)
         ? getCpuHardware(state, cpuId).coreIds
         : [];
   const schedulers = candidateCoreIds
@@ -799,11 +878,25 @@ const selectQueuedTaskCpuId = (
   if (queuedCpuId !== undefined) return queuedCpuId;
   if (!isSystemScheduledTask(task)) return undefined;
 
-  return state.hardware.cpus.find(
-    (cpu) =>
-      getAvailableSchedulerSlots(state, cpu.id) > 0 &&
-      cpuCanProvisionTask(state, task, cpu.id) &&
-      canStartTask(state, task.id, cpu.id),
+  const candidates = state.hardware.cpus.filter((cpu) => {
+    const normalizedCpu = getCpuHardware(state, cpu.id);
+    return (
+      schedulerCanDispatchOnCpu(state, normalizedCpu.id) &&
+      getAvailableSchedulerSlots(state, normalizedCpu.id) > 0 &&
+      cpuCanProvisionTask(
+        state,
+        task,
+        normalizedCpu.id,
+        normalizedCpu.coreIds.length,
+      ) &&
+      canStartTask(state, task.id, normalizedCpu.id)
+    );
+  });
+
+  return (
+    candidates.find(
+      (cpu) => availableCoreIds(state, cpu.id).length >= task.minCores,
+    ) ?? candidates[0]
   )?.id;
 };
 
@@ -829,6 +922,143 @@ const reserveSystemScheduledCpuWork = (
   );
 };
 
+interface QueuedDispatchCandidate {
+  index: number;
+  taskId: TaskId;
+  task: TaskDefinition;
+  cpuId?: number;
+  queuedCpuId?: number;
+  policy: SchedulerPolicy;
+  rank: number;
+}
+
+const getSchedulerConfigForQueuedTask = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId?: number,
+): SchedulerConfig => {
+  if (isSystemScheduledTask(task)) {
+    return createSchedulerConfig(state.hardware.systemSchedulerConfig);
+  }
+
+  if (cpuId === undefined) return createSchedulerConfig();
+  return createSchedulerConfig(getCpuHardware(state, cpuId).schedulerConfig);
+};
+
+const canPolicyDispatchTask = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId: number | undefined,
+  policy: SchedulerPolicy,
+) => {
+  if (policy !== "deadlockSafe") return true;
+  if (isSystemScheduledTask(task)) return taskFitsFreeMemoryStaging(state, task);
+  return taskFitsFreeStaging(state, task, cpuId);
+};
+
+const canCpuSchedulerDispatchSystemTask = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId: number | undefined,
+) => {
+  if (!isSystemScheduledTask(task) || cpuId === undefined) return true;
+
+  const cpuPolicy = getCpuHardware(state, cpuId).schedulerConfig.policy;
+  return (
+    cpuPolicy !== "deadlockSafe" || taskFitsFreeCacheStaging(state, task, cpuId)
+  );
+};
+
+const shouldReserveSystemTaskOnCpuScheduler = (
+  state: GameState,
+  candidate: QueuedDispatchCandidate,
+) =>
+  isSystemScheduledTask(candidate.task) &&
+  candidate.queuedCpuId === undefined &&
+  candidate.cpuId !== undefined &&
+  (availableCoreIds(state, candidate.cpuId).length < candidate.task.minCores ||
+    !canCpuSchedulerDispatchSystemTask(state, candidate.task, candidate.cpuId));
+
+const getDispatchRank = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId: number | undefined,
+  policy: SchedulerPolicy,
+  index: number,
+) => {
+  if (policy === "shortestTask") {
+    return estimateTaskSeconds(
+      state,
+      task,
+      cpuId === undefined ? 1 : getCpuHardware(state, cpuId).coreIds[0] ?? 1,
+    );
+  }
+
+  if (policy === "smallestMemory") {
+    return task.cacheNeedBits + task.ramNeedBits;
+  }
+
+  return index;
+};
+
+const getQueuedDispatchCandidates = (
+  state: GameState,
+  queue: TaskId[],
+): QueuedDispatchCandidate[] =>
+  queue.flatMap((taskId, index) => {
+    if (isQueueEntryReservedByActiveTask(state, queue, index)) return [];
+
+    const task = getTaskDefinition(taskId);
+    const occurrenceIndex = getQueueOccurrenceIndex(queue, taskId, index);
+    const queuedCpuId = getQueuedTaskCpuId(state, taskId, occurrenceIndex);
+    const candidateCpuId =
+      queuedCpuId ?? (isSystemScheduledTask(task) ? undefined : selectCpuIdForTask(state, task));
+    const cpuId = selectQueuedTaskCpuId(state, task, candidateCpuId);
+    if (isSystemScheduledTask(task) && cpuId === undefined) return [];
+    if (cpuId !== undefined && !schedulerCanDispatchOnCpu(state, cpuId)) return [];
+    if (
+      (!isSystemScheduledTask(task) || queuedCpuId !== undefined) &&
+      availableCoreIds(state, cpuId).length < task.minCores
+    ) {
+      return [];
+    }
+
+    const policy = getSchedulerConfigForQueuedTask(state, task, cpuId).policy;
+    if (!canPolicyDispatchTask(state, task, cpuId, policy)) return [];
+    if (
+      queuedCpuId !== undefined &&
+      !canCpuSchedulerDispatchSystemTask(state, task, cpuId)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        index,
+        taskId,
+        task,
+        cpuId,
+        queuedCpuId,
+        policy,
+        rank: getDispatchRank(state, task, cpuId, policy, index),
+      },
+    ];
+  });
+
+const selectQueuedDispatchCandidate = (
+  state: GameState,
+  queue: TaskId[],
+): QueuedDispatchCandidate | null => {
+  const candidates = getQueuedDispatchCandidates(state, queue);
+  if (candidates.length === 0) return null;
+
+  return candidates.reduce((best, candidate) => {
+    if (candidate.rank < best.rank) return candidate;
+    if (candidate.rank === best.rank && candidate.index < best.index) return candidate;
+    return best;
+  });
+};
+
 const pullQueue = (state: GameState): GameState => {
   if (!state.flags.basicQueue && !state.flags.scheduler) return syncCoreSchedulers(state);
 
@@ -839,29 +1069,38 @@ const pullQueue = (state: GameState): GameState => {
   while (nextQueue.length > 0 && startedQueuedTask) {
     startedQueuedTask = false;
 
-    for (let index = 0; index < nextQueue.length; index += 1) {
-      const taskId = nextQueue[index];
-      if (!taskId) continue;
-      if (isQueueEntryReservedByActiveTask(nextState, nextQueue, index)) continue;
+    const candidate = selectQueuedDispatchCandidate(nextState, nextQueue);
+    if (!candidate) break;
 
-      const task = getTaskDefinition(taskId);
-      const occurrenceIndex = getQueueOccurrenceIndex(nextQueue, taskId, index);
-      const queuedCpuId = getQueuedTaskCpuId(nextState, taskId, occurrenceIndex);
-      const cpuId = selectQueuedTaskCpuId(nextState, task, queuedCpuId);
-      if (isSystemScheduledTask(task) && cpuId === undefined) continue;
-      if (availableCoreIds(nextState, cpuId).length < task.minCores) continue;
+    const attemptState = { ...nextState, queue: nextQueue };
+    if (shouldReserveSystemTaskOnCpuScheduler(attemptState, candidate)) {
+      if (candidate.cpuId === undefined) break;
 
-      const attemptState = { ...nextState, queue: nextQueue };
-      const started = assignTaskToIdleCores(attemptState, taskId, cpuId, true);
-      if (started === attemptState) continue;
+      const reserved = reserveTaskOnCpuScheduler(
+        attemptState,
+        candidate.taskId,
+        candidate.cpuId,
+      );
+      if (reserved === attemptState) break;
 
-      nextState =
-        isSystemScheduledTask(task) && queuedCpuId === undefined
-          ? reserveSystemScheduledCpuWork(attemptState, taskId, started)
-          : started;
+      nextState = reserved;
       startedQueuedTask = true;
-      break;
+      continue;
     }
+
+    const started = assignTaskToIdleCores(
+      attemptState,
+      candidate.taskId,
+      candidate.cpuId,
+      true,
+    );
+    if (started === attemptState) break;
+
+    nextState =
+      isSystemScheduledTask(candidate.task) && candidate.queuedCpuId === undefined
+        ? reserveSystemScheduledCpuWork(attemptState, candidate.taskId, started)
+        : started;
+    startedQueuedTask = true;
   }
 
   return syncCoreSchedulers({ ...nextState, queue: nextQueue });
@@ -902,6 +1141,120 @@ const advanceCoreOperation = (
   nextOperationIndex: number,
 ) => enterOperation(state, task, operation, nextOperationIndex);
 
+const deadlockLoadOperation = (
+  operation: ActiveCoreOperation,
+  resource: DeadlockResource,
+  update: Partial<ActiveCoreOperation> = {},
+): ActiveCoreOperation => ({
+  ...operation,
+  ...update,
+  status: "deadlocked",
+  memoryState: "deadlock",
+  lockResource: resource,
+  lockReason: getDeadlockReason(resource),
+  deadlockSeconds:
+    operation.status === "deadlocked" && operation.lockResource === resource
+      ? operation.deadlockSeconds
+      : 0,
+});
+
+const getCacheUsedWithOperation = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+) => {
+  const updatedTask = {
+    ...task,
+    coreOperations: task.coreOperations.map((coreOperation) =>
+      coreOperation.coreId === operation.coreId ? operation : coreOperation,
+    ),
+  };
+  const activeTasks = state.activeTasks.some(
+    (activeTask) => activeTask.instanceId === task.instanceId,
+  )
+    ? state.activeTasks.map((activeTask) =>
+        activeTask.instanceId === task.instanceId ? updatedTask : activeTask,
+      )
+    : [...state.activeTasks, updatedTask];
+
+  return getReservedCacheBits(
+    { ...state, activeTasks, activeJobs: activeTasks },
+    getCpuIdForCore(state, operation.coreId),
+  );
+};
+
+const CACHE_CAPACITY_EPSILON = 0.000001;
+
+const getAllowedCacheProgressCycles = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+  requestedLoadCycles: number,
+  requestedCpuCycles: number,
+) => {
+  if (requestedLoadCycles <= 0 && requestedCpuCycles <= 0) {
+    return { loadCycles: 0, cpuCycles: 0, exhausted: false };
+  }
+
+  const capacity = getCpuHardware(
+    state,
+    getCpuIdForCore(state, operation.coreId),
+  ).cacheBits;
+  const getUpdatedOperation = (scale: number) => ({
+    ...operation,
+    remainingLoadCycles: Math.max(
+      0,
+      operation.remainingLoadCycles - requestedLoadCycles * scale,
+    ),
+    remainingCycles: Math.max(
+      0,
+      operation.remainingCycles - requestedCpuCycles * scale,
+    ),
+  });
+  const usedAfterFullLoad = getCacheUsedWithOperation(
+    state,
+    task,
+    getUpdatedOperation(1),
+  );
+
+  if (usedAfterFullLoad <= capacity) {
+    return {
+      loadCycles: requestedLoadCycles,
+      cpuCycles: requestedCpuCycles,
+      exhausted: false,
+    };
+  }
+
+  let low = 0;
+  let high = 1;
+  for (let index = 0; index < 40; index += 1) {
+    const midpoint = (low + high) / 2;
+    const used = getCacheUsedWithOperation(
+      state,
+      task,
+      getUpdatedOperation(midpoint),
+    );
+
+    if (used <= capacity) {
+      low = midpoint;
+    } else {
+      high = midpoint;
+    }
+  }
+  const allowedOperation = getUpdatedOperation(low);
+  const usedAfterAllowedProgress = getCacheUsedWithOperation(
+    state,
+    task,
+    allowedOperation,
+  );
+
+  return {
+    loadCycles: requestedLoadCycles * low,
+    cpuCycles: requestedCpuCycles * low,
+    exhausted: usedAfterAllowedProgress >= capacity - CACHE_CAPACITY_EPSILON,
+  };
+};
+
 const tickLoad = (
   state: GameState,
   task: ActiveTask,
@@ -911,28 +1264,78 @@ const tickLoad = (
   const operationDefinition = getOperation(task, operation.operationIndex);
   if (!operationDefinition) return operation;
 
-  const loadRate =
+  const requestedLoadCycles = Math.min(
+    operation.remainingLoadCycles,
     operation.status === "loadingCache"
-      ? getCacheLoadRate(state, operation.coreId)
-      : getRamLoadRate(state);
+      ? getCacheLoadRate(state, operation.coreId) * deltaSeconds
+      : getRamLoadCyclesForOperationTick(state, task, operation, deltaSeconds),
+  );
+  const requestedCpuCycles =
+    operation.status === "loadingCache" && operationDefinition.memoryAction
+      ? Math.min(
+          operation.remainingCycles,
+          getCoreClockHz(state, operation.coreId) * deltaSeconds,
+        )
+      : 0;
+  const cacheProgress =
+    operation.status === "loadingCache"
+      ? getAllowedCacheProgressCycles(
+          state,
+          task,
+          operation,
+          requestedLoadCycles,
+          requestedCpuCycles,
+        )
+      : null;
+  const availableLoadCycles =
+    operation.status === "loadingCache" ? 0 : getAvailableMemoryBits(state);
+  const appliedLoadCycles =
+    cacheProgress?.loadCycles ??
+    Math.max(0, Math.min(requestedLoadCycles, availableLoadCycles));
   const remainingLoadCycles = Math.max(
     0,
-    operation.remainingLoadCycles - loadRate * deltaSeconds,
+    operation.remainingLoadCycles - appliedLoadCycles,
   );
-  const cpuCyclesDone =
-    operation.status === "loadingCache" && operationDefinition.memoryAction
-      ? getCoreClockHz(state, operation.coreId) * deltaSeconds
-      : 0;
+  const cpuCyclesDone = cacheProgress?.cpuCycles ?? 0;
   const remainingCycles = Math.max(0, operation.remainingCycles - cpuCyclesDone);
+  const memoryReservedBits =
+    operation.status === "loadingRam"
+      ? Math.min(
+          operationDefinition.ramBits,
+          operation.memoryReservedBits + appliedLoadCycles,
+        )
+      : operation.memoryReservedBits;
+  const memoryReservedBytes = bitsToBytes(memoryReservedBits);
 
   const waitsForCpuIssue =
     operation.status === "loadingCache" && Boolean(operationDefinition.memoryAction);
+  const cacheProgressBlocked =
+    operation.status === "loadingCache" && Boolean(cacheProgress?.exhausted);
+
+  if (
+    (cacheProgressBlocked ||
+      (operation.status === "loadingRam" && appliedLoadCycles < requestedLoadCycles)) &&
+    remainingLoadCycles > 0
+  ) {
+    return deadlockLoadOperation(
+      operation,
+      operation.status === "loadingCache" ? "cache" : "ram",
+      {
+        remainingLoadCycles,
+        remainingCycles,
+        memoryReservedBits,
+        memoryReservedBytes,
+      },
+    );
+  }
 
   if (remainingLoadCycles > 0 || (waitsForCpuIssue && remainingCycles > 0)) {
     return {
       ...operation,
       remainingLoadCycles,
       remainingCycles,
+      memoryReservedBits,
+      memoryReservedBytes,
     };
   }
 
@@ -979,6 +1382,8 @@ const tickLoad = (
         memoryState: "ready",
         remainingCycles: 0,
         remainingLoadCycles: 0,
+        memoryReservedBits: operationDefinition.ramBits,
+        memoryReservedBytes: operationDefinition.ramBytes,
       },
       operation.operationIndex + 1,
     );
@@ -990,6 +1395,14 @@ const tickLoad = (
     memoryState: "ready",
     remainingCycles,
     remainingLoadCycles: 0,
+    memoryReservedBits:
+      operation.status === "loadingRam"
+        ? operationDefinition.ramBits
+        : memoryReservedBits,
+    memoryReservedBytes:
+      operation.status === "loadingRam"
+        ? operationDefinition.ramBytes
+        : memoryReservedBytes,
   };
 };
 
@@ -1027,24 +1440,6 @@ const tickRunning = (
   );
 };
 
-const tickRestart = (
-  state: GameState,
-  task: ActiveTask,
-  operation: ActiveCoreOperation,
-  deltaSeconds: number,
-): ActiveCoreOperation => {
-  const remainingLoadCycles = operation.remainingLoadCycles - 36 * deltaSeconds;
-
-  if (remainingLoadCycles > 0) {
-    return {
-      ...operation,
-      remainingLoadCycles,
-    };
-  }
-
-  return enterOperation(state, task, operation, operation.operationIndex);
-};
-
 const tickWaitingMemory = (
   state: GameState,
   task: ActiveTask,
@@ -1052,22 +1447,72 @@ const tickWaitingMemory = (
 ): ActiveCoreOperation =>
   enterOperation(state, task, operation, operation.operationIndex);
 
+const tickDeadlocked = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+  deltaSeconds: number,
+): ActiveCoreOperation => {
+  const agedOperation = {
+    ...operation,
+    deadlockSeconds: operation.deadlockSeconds + deltaSeconds,
+  };
+  const operationDefinition = getOperation(task, operation.operationIndex);
+
+  if (!operationDefinition || !operation.lockResource) return agedOperation;
+
+  const retryOperation: ActiveCoreOperation = {
+    ...agedOperation,
+    status: operation.lockResource === "cache" ? "loadingCache" : "loadingRam",
+    memoryState:
+      operation.lockResource === "cache" &&
+      operationDefinition.ramBits > 0 &&
+      agedOperation.memoryReservedBits >= operationDefinition.ramBits
+        ? "ready"
+        : operation.lockResource === "cache"
+          ? "cacheLoad"
+          : "ramLoad",
+    lockResource: null,
+    lockReason: null,
+  };
+
+  const retriedOperation = tickLoad(state, task, retryOperation, deltaSeconds);
+
+  if (retriedOperation.status === "deadlocked") {
+    return {
+      ...retriedOperation,
+      deadlockSeconds: agedOperation.deadlockSeconds,
+    };
+  }
+
+  return {
+    ...retriedOperation,
+    lockResource: null,
+    lockReason: null,
+    deadlockSeconds: 0,
+  };
+};
+
 const tickActiveTask = (
   state: GameState,
   activeTask: ActiveTask,
   deltaSeconds: number,
 ): ActiveTask => {
+  const deadlockScope = getDeadlockScopeResource(state, activeTask);
+  const recoveryActive = state.deadlockProcessLockout === true;
   const coreOperations: ActiveCoreOperation[] = activeTask.coreOperations.map((operation) => {
+    if (operation.status === "deadlocked") {
+      return tickDeadlocked(state, activeTask, operation, deltaSeconds);
+    }
+
+    if (deadlockScope !== null || recoveryActive) return operation;
+
     if (operation.status === "loadingCache" || operation.status === "loadingRam") {
       return tickLoad(state, activeTask, operation, deltaSeconds);
     }
 
-    if (operation.status === "running" || operation.status === "rerunning") {
+    if (operation.status === "running") {
       return tickRunning(state, activeTask, operation, deltaSeconds);
-    }
-
-    if (operation.status === "restarting") {
-      return tickRestart(state, activeTask, operation, deltaSeconds);
     }
 
     if (operation.status === "waitingMemory") {
@@ -1119,67 +1564,12 @@ const shouldReleaseWaitingOperation = (
   });
 };
 
-const corruptBarrierShard = (
-  state: GameState,
-  task: ActiveTask,
-  barrierIndex: number,
-): [GameState, ActiveTask] => {
-  const previousIndex = barrierIndex - 1;
-  const previousOperation = getOperation(task, previousIndex);
-  if (
-    !previousOperation?.parallel ||
-    !state.flags.multiCore ||
-    state.reliability.corruptionDebt < 1
-  ) {
-    return [state, task];
-  }
-
-  const targetCoreId = Math.max(...task.assignedCoreIds);
-  const target = task.coreOperations.find(
-    (operation) => operation.coreId === targetCoreId,
-  );
-  if (!target) return [state, task];
-
-  const nextTarget = enterOperation(
-    state,
-    task,
-    {
-      ...target,
-      corruptions: target.corruptions + 1,
-    },
-    previousIndex,
-    "rerunning",
-  );
-  const nextTask = refreshTaskTotals({
-    ...task,
-    coreOperations: task.coreOperations.map((operation) =>
-      operation.coreId === targetCoreId ? nextTarget : operation,
-    ),
-  });
-
-  return [
-    {
-      ...state,
-      reliability: {
-        ...state.reliability,
-        corruptionDebt: Math.max(0, state.reliability.corruptionDebt - 1),
-        totalCorruptions: state.reliability.totalCorruptions + 1,
-        lastEvent: {
-          tick: state.tick,
-          kind: "corruption",
-          coreId: targetCoreId,
-          taskId: task.taskId,
-        },
-      },
-    },
-    nextTask,
-  ];
-};
-
 const settleTaskBarriers = (
   state: GameState,
   activeTask: ActiveTask,
 ): [GameState, ActiveTask] => {
+  if (getDeadlockScopeResource(state, activeTask) !== null) return [state, activeTask];
+
   let nextState = state;
   let nextTask = activeTask;
   let changed = true;
@@ -1188,31 +1578,6 @@ const settleTaskBarriers = (
   while (changed && guard < 20) {
     changed = false;
     guard += 1;
-
-    const barrierIndex = nextTask.coreOperations.find((operation) => {
-      const definition = getTaskDefinition(nextTask.taskId).operations[
-        operation.operationIndex
-      ];
-      return (
-        definition?.kind === "barrier" &&
-        operation.status === "waitingBarrier" &&
-        shouldReleaseWaitingOperation(nextTask, operation)
-      );
-    })?.operationIndex;
-
-    if (barrierIndex !== undefined) {
-      const [corruptionState, corruptionTask] = corruptBarrierShard(
-        nextState,
-        nextTask,
-        barrierIndex,
-      );
-      if (corruptionTask !== nextTask) {
-        nextState = corruptionState;
-        nextTask = corruptionTask;
-        changed = true;
-        continue;
-      }
-    }
 
     const coreOperations = nextTask.coreOperations.map((operation) => {
       if (!shouldReleaseWaitingOperation(nextTask, operation)) return operation;
@@ -1263,110 +1628,353 @@ const settleActiveTasks = (state: GameState): GameState => {
   });
 };
 
-const findRestartTarget = (state: GameState) => {
-  const candidates = state.activeTasks.flatMap((task) =>
-    task.coreOperations
-      .filter((operation) =>
-        [
-          "loadingCache",
-          "loadingRam",
-          "running",
-          "rerunning",
-        ].includes(operation.status),
-      )
-      .map((operation) => ({ task, operation })),
-  );
+export const DEADLOCK_WATCHDOG_SECONDS = 3;
 
-  return candidates.sort((a, b) => a.operation.coreId - b.operation.coreId)[0];
+const getPendingDeadlockedOperation = (task: ActiveTask) =>
+  task.coreOperations.find(
+    (operation) =>
+      operation.status === "deadlocked" &&
+      operation.lockResource !== null,
+  ) ?? null;
+
+const getDeadlockedOperation = (task: ActiveTask) => {
+  const operation = getPendingDeadlockedOperation(task);
+  return operation && operation.deadlockSeconds >= DEADLOCK_WATCHDOG_SECONDS
+    ? operation
+    : null;
 };
 
-const restartOperation = (
+const getSchedulerKeyForTask = (
   state: GameState,
   task: ActiveTask,
-  operation: ActiveCoreOperation,
+  resource?: DeadlockResource | null,
+) =>
+  isSystemScheduledTask(getTaskDefinition(task.taskId)) && resource !== "cache"
+    ? "system"
+    : `cpu:${getCpuIdForCore(state, task.coreId)}`;
+
+const getSchedulerConfigForActiveTask = (
+  state: GameState,
+  task: ActiveTask,
+  resource?: DeadlockResource | null,
+): SchedulerConfig =>
+  isSystemScheduledTask(getTaskDefinition(task.taskId)) && resource !== "cache"
+    ? createSchedulerConfig(state.hardware.systemSchedulerConfig)
+    : createSchedulerConfig(
+        getCpuHardware(state, getCpuIdForCore(state, task.coreId)).schedulerConfig,
+      );
+
+const getSchedulerKeyForTarget = (
+  target: "cpu" | "system",
+  cpuId?: number,
+) => (target === "system" ? "system" : cpuId === undefined ? null : `cpu:${cpuId}`);
+
+const getSchedulerConfigForTarget = (
+  state: GameState,
+  target: "cpu" | "system",
+  cpuId?: number,
 ) => {
-  const restartedOperation: ActiveCoreOperation = {
-    ...operation,
-    status: "restarting",
-    memoryState: "restart",
-    remainingCycles: operation.totalCycles,
-    remainingLoadCycles: 24,
-    totalLoadCycles: Math.max(operation.totalLoadCycles, 24),
-    memoryReservedBits: 0,
-    memoryReservedBytes: 0,
-    restarts: operation.restarts + 1,
-  };
-  const nextTask = refreshTaskTotals({
-    ...task,
-    coreOperations: task.coreOperations.map((coreOperation) =>
-      coreOperation.coreId === operation.coreId
-        ? restartedOperation
-        : coreOperation,
-    ),
+  if (target === "system") {
+    return createSchedulerConfig(state.hardware.systemSchedulerConfig);
+  }
+
+  if (cpuId === undefined) return null;
+  return createSchedulerConfig(getCpuHardware(state, cpuId).schedulerConfig);
+};
+
+const taskHoldsResource = (
+  task: ActiveTask,
+  resource: DeadlockResource,
+  cpuId?: number,
+  state?: GameState,
+) => {
+  if (resource === "ram") {
+    return task.coreOperations.some(
+      (operation) =>
+        operation.status !== "deadlocked" && operation.memoryReservedBits > 0,
+    );
+  }
+
+  return (
+    state !== undefined &&
+    cpuId !== undefined &&
+    getCpuIdForCore(state, task.coreId) === cpuId &&
+    !task.coreOperations.some(
+      (operation) =>
+        operation.status === "deadlocked" && operation.lockResource === "cache",
+    ) &&
+    getTaskDefinition(task.taskId).cacheNeedBits > 0
+  );
+};
+
+const taskIsInDeadlockScope = (
+  state: GameState,
+  task: ActiveTask,
+  resource: DeadlockResource,
+  cpuId?: number,
+) =>
+  resource === "ram" ||
+  (cpuId !== undefined && getCpuIdForCore(state, task.coreId) === cpuId);
+
+const getInstanceSequence = (task: ActiveTask) =>
+  Number(task.instanceId.match(/\d+$/)?.[0] ?? 0);
+
+const getTaskProgress = (task: ActiveTask) => {
+  if (task.totalCycles <= 0) return 1;
+  return Math.min(1, Math.max(0, 1 - task.remainingCycles / task.totalCycles));
+};
+
+const getWatchdogVictimPool = (
+  state: GameState,
+  deadlockedTask: ActiveTask,
+  resource: DeadlockResource,
+  includeDeadlockedTask: boolean,
+) => {
+  const cpuId =
+    resource === "cache" ? getCpuIdForCore(state, deadlockedTask.coreId) : undefined;
+  const schedulerKey = getSchedulerKeyForTask(state, deadlockedTask, resource);
+  const pool = state.activeTasks.filter((task) => {
+    if (!task.schedulerQueued) return false;
+    if (getSchedulerKeyForTask(state, task, resource) !== schedulerKey) return false;
+    if (!taskIsInDeadlockScope(state, task, resource, cpuId)) return false;
+    if (task.instanceId === deadlockedTask.instanceId) return includeDeadlockedTask;
+    return taskHoldsResource(task, resource, cpuId, state);
   });
 
-  return {
-    ...state,
-    activeTasks: state.activeTasks.map((activeTask) =>
-      activeTask.instanceId === task.instanceId ? nextTask : activeTask,
-    ),
-    activeJobs: state.activeTasks.map((activeTask) =>
-      activeTask.instanceId === task.instanceId ? nextTask : activeTask,
-    ),
-    reliability: {
-      ...state.reliability,
-      totalRestarts: state.reliability.totalRestarts + 1,
-      lastEvent: {
-        tick: state.tick,
-        kind: "restart" as const,
-        coreId: operation.coreId,
-        taskId: task.taskId,
-      },
+  return pool.length > 0 ? pool : [deadlockedTask];
+};
+
+const selectWatchdogVictim = (
+  state: GameState,
+  deadlockedTask: ActiveTask,
+  resource: DeadlockResource,
+  killPolicy: SchedulerKillPolicy,
+) => {
+  if (killPolicy === "newestBlocker") {
+    const pool = getWatchdogVictimPool(state, deadlockedTask, resource, false);
+    return pool.reduce((newest, task) =>
+      getInstanceSequence(task) > getInstanceSequence(newest) ? task : newest,
+    );
+  }
+
+  const pool = getWatchdogVictimPool(state, deadlockedTask, resource, true);
+
+  if (killPolicy === "lowestProgress") {
+    return pool.reduce((lowest, task) =>
+      getTaskProgress(task) < getTaskProgress(lowest) ? task : lowest,
+    );
+  }
+
+  return deadlockedTask;
+};
+
+export const getSchedulerWatchdogPreview = (
+  state: GameState,
+  target: "cpu" | "system",
+  cpuId?: number,
+): SchedulerWatchdogPreview | null => {
+  if (!state.flags.schedulerWatchdog) return null;
+
+  const schedulerKey = getSchedulerKeyForTarget(target, cpuId);
+  if (!schedulerKey) return null;
+
+  const config = getSchedulerConfigForTarget(state, target, cpuId);
+  if (!config?.autoKillEnabled) return null;
+
+  const deadlockedTask = state.activeTasks.find(
+    (task) => {
+      if (!task.schedulerQueued) return false;
+
+      const operation = getPendingDeadlockedOperation(task);
+      return (
+        operation !== null &&
+        getSchedulerKeyForTask(state, task, operation.lockResource) === schedulerKey
+      );
     },
+  );
+  if (!deadlockedTask) return null;
+
+  const deadlockedOperation = getPendingDeadlockedOperation(deadlockedTask);
+  if (!deadlockedOperation?.lockResource) return null;
+
+  const victim = selectWatchdogVictim(
+    state,
+    deadlockedTask,
+    deadlockedOperation.lockResource,
+    config.killPolicy,
+  );
+  const elapsedSeconds = Math.max(0, deadlockedOperation.deadlockSeconds);
+  const progress = Math.min(1, elapsedSeconds / DEADLOCK_WATCHDOG_SECONDS);
+
+  return {
+    target,
+    cpuId: target === "cpu" ? (cpuId ?? null) : null,
+    resource: deadlockedOperation.lockResource,
+    killPolicy: config.killPolicy,
+    deadlockedTaskId: deadlockedTask.taskId,
+    deadlockedTaskName: getTaskDefinition(deadlockedTask.taskId).name,
+    deadlockedInstanceId: deadlockedTask.instanceId,
+    victimTaskId: victim.taskId,
+    victimTaskName: getTaskDefinition(victim.taskId).name,
+    victimInstanceId: victim.instanceId,
+    victimCoreIds: victim.assignedCoreIds,
+    secondsRemaining: Math.max(0, DEADLOCK_WATCHDOG_SECONDS - elapsedSeconds),
+    progress,
   };
 };
 
-const applyReliability = (state: GameState, deltaSeconds: number) => {
-  if (state.activeTasks.length === 0) return state;
+const applySchedulerWatchdogs = (state: GameState): GameState => {
+  if (!state.flags.schedulerWatchdog) return state;
 
-  let nextState: GameState = {
-    ...state,
-    reliability: {
-      ...state.reliability,
-      restartDebt: Math.min(
-        3,
-        state.reliability.restartDebt +
-          getRestartRiskPerSecond(state) * deltaSeconds,
-      ),
-      corruptionDebt: Math.min(
-        3,
-        state.reliability.corruptionDebt +
-          getCorruptionRiskPerSecond(state) * deltaSeconds,
-      ),
-    },
-  };
+  let nextState = state;
+  const handledSchedulers = new Set<string>();
+  const deadlockedTasks = state.activeTasks.filter(
+    (task) => task.schedulerQueued && getDeadlockedOperation(task),
+  );
 
-  while (nextState.reliability.restartDebt >= 1) {
-    const target = findRestartTarget(nextState);
-    if (!target) break;
+  for (const deadlockedTask of deadlockedTasks) {
+    const liveDeadlockedTask = nextState.activeTasks.find(
+      (task) => task.instanceId === deadlockedTask.instanceId,
+    );
+    if (!liveDeadlockedTask) continue;
 
-    nextState = restartOperation(nextState, target.task, target.operation);
-    nextState = {
-      ...nextState,
-      reliability: {
-        ...nextState.reliability,
-        restartDebt: Math.max(0, nextState.reliability.restartDebt - 1),
-      },
-    };
+    const deadlockedOperation = getDeadlockedOperation(liveDeadlockedTask);
+    const schedulerKey = getSchedulerKeyForTask(
+      nextState,
+      liveDeadlockedTask,
+      deadlockedOperation?.lockResource,
+    );
+    if (handledSchedulers.has(schedulerKey)) continue;
+
+    const config = getSchedulerConfigForActiveTask(
+      nextState,
+      liveDeadlockedTask,
+      deadlockedOperation?.lockResource,
+    );
+    if (
+      !config.autoKillEnabled ||
+      !deadlockedOperation?.lockResource ||
+      deadlockedOperation.deadlockSeconds < DEADLOCK_WATCHDOG_SECONDS
+    ) {
+      continue;
+    }
+
+    const victim = selectWatchdogVictim(
+      nextState,
+      liveDeadlockedTask,
+      deadlockedOperation.lockResource,
+      config.killPolicy,
+    );
+    nextState = cancelActiveTask(nextState, victim.taskId, victim.instanceId);
+    handledSchedulers.add(schedulerKey);
   }
 
   return syncCoreSchedulers(nextState);
 };
 
-const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
-  const activeTasks = state.activeTasks.map((activeTask) =>
-    tickActiveTask(state, activeTask, deltaSeconds),
+const cancelAllActiveTasksForDeadlockFailure = (state: GameState): GameState => {
+  let nextState: GameState = {
+    ...state,
+    activeTasks: [],
+    activeJobs: [],
+    cacheResidency: [],
+  };
+
+  for (let index = state.activeTasks.length - 1; index >= 0; index -= 1) {
+    const activeTask = state.activeTasks[index];
+    if (!activeTask?.schedulerQueued) continue;
+
+    const occurrenceIndex =
+      state.activeTasks
+        .slice(0, index + 1)
+        .filter(
+          (task) => task.schedulerQueued && task.taskId === activeTask.taskId,
+        ).length - 1;
+
+    nextState = removeQueuedTaskReservation(
+      nextState,
+      activeTask.taskId,
+      occurrenceIndex,
+    );
+  }
+
+  return syncCoreSchedulers({
+    ...nextState,
+    deadlockPressureSeconds: DEADLOCK_FAILURE_SECONDS,
+    deadlockProcessLockout: true,
+  });
+};
+
+const updateDeadlockPressure = (
+  state: GameState,
+  deltaSeconds: number,
+): GameState => {
+  const currentPressure = Math.max(0, state.deadlockPressureSeconds ?? 0);
+  const activeScope = getActiveDeadlockPressureScope(state);
+
+  if (activeScope) {
+    const pressureSeconds = Math.min(
+      DEADLOCK_FAILURE_SECONDS,
+      currentPressure + deltaSeconds,
+    );
+
+    if (pressureSeconds >= DEADLOCK_FAILURE_SECONDS) {
+      return cancelAllActiveTasksForDeadlockFailure({
+        ...state,
+        deadlockPressureResource: activeScope.resource,
+        deadlockPressureCpuId: activeScope.cpuId,
+      });
+    }
+
+    return {
+      ...state,
+      deadlockPressureSeconds: pressureSeconds,
+      deadlockPressureResource: activeScope.resource,
+      deadlockPressureCpuId: activeScope.cpuId,
+    };
+  }
+
+  if (currentPressure <= 0) {
+    return state.deadlockProcessLockout ||
+      state.deadlockPressureResource !== null ||
+      state.deadlockPressureCpuId !== null
+      ? {
+          ...state,
+          deadlockProcessLockout: false,
+          deadlockPressureResource: null,
+          deadlockPressureCpuId: null,
+        }
+      : state;
+  }
+
+  const deadlockPressureSeconds = Math.max(
+    0,
+    currentPressure - getDeadlockCooldownRate(state) * deltaSeconds,
   );
+
+  return {
+    ...state,
+    deadlockPressureSeconds,
+    deadlockPressureResource:
+      deadlockPressureSeconds > 0 ? state.deadlockPressureResource : null,
+    deadlockPressureCpuId:
+      deadlockPressureSeconds > 0 ? state.deadlockPressureCpuId : null,
+    deadlockProcessLockout:
+      deadlockPressureSeconds > 0 ? state.deadlockProcessLockout : false,
+  };
+};
+
+const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
+  const activeTasks: ActiveTask[] = [];
+
+  state.activeTasks.forEach((activeTask, index) => {
+    const stagedState = {
+      ...state,
+      activeTasks: [...activeTasks, ...state.activeTasks.slice(index)],
+      activeJobs: [...activeTasks, ...state.activeTasks.slice(index)],
+    };
+    activeTasks.push(tickActiveTask(stagedState, activeTask, deltaSeconds));
+  });
 
   return syncCoreSchedulers({
     ...state,
@@ -1383,10 +1991,11 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
     cacheResidency: [],
   };
   const advanced = tickActiveTasks(ticked, deltaSeconds);
-  const reliable = applyReliability(advanced, deltaSeconds);
-  const settled = settleActiveTasks(reliable);
+  const settled = settleActiveTasks(advanced);
+  const watched = applySchedulerWatchdogs(settled);
+  const pressured = updateDeadlockPressure(watched, deltaSeconds);
 
-  return pullQueue(updateProgressionFlags(settled));
+  return pullQueue(updateProgressionFlags(pressured));
 };
 
 export const startTask = (state: GameState, taskId: TaskId) => {
@@ -1525,6 +2134,58 @@ export const startJobOnCore = startTaskOnCore;
 
 export const queueJob = queueTask;
 
+const updateCpuSchedulerConfig = (
+  state: GameState,
+  cpuId: number | undefined,
+  update: Partial<SchedulerConfig>,
+) => {
+  if (cpuId === undefined || !state.hardware.cpus.some((cpu) => cpu.id === cpuId)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    hardware: {
+      ...state.hardware,
+      cpus: state.hardware.cpus.map((cpu) =>
+        cpu.id === cpuId
+          ? {
+              ...cpu,
+              schedulerConfig: createSchedulerConfig({
+                ...cpu.schedulerConfig,
+                ...update,
+              }),
+            }
+          : cpu,
+      ),
+    },
+  };
+};
+
+const updateSystemSchedulerConfig = (
+  state: GameState,
+  update: Partial<SchedulerConfig>,
+) => ({
+  ...state,
+  hardware: {
+    ...state.hardware,
+    systemSchedulerConfig: createSchedulerConfig({
+      ...state.hardware.systemSchedulerConfig,
+      ...update,
+    }),
+  },
+});
+
+const updateSchedulerConfig = (
+  state: GameState,
+  target: "cpu" | "system",
+  update: Partial<SchedulerConfig>,
+  cpuId?: number,
+) =>
+  target === "system"
+    ? updateSystemSchedulerConfig(state, update)
+    : updateCpuSchedulerConfig(state, cpuId, update);
+
 export const applyAction = (state: GameState, action: GameAction): GameState => {
   if (action.type === "startTask") return startTask(state, action.taskId);
   if (action.type === "startTaskOnCore") {
@@ -1567,6 +2228,35 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
     return startTaskOnCore(state, action.jobId, action.coreId);
   }
   if (action.type === "queueJob") return queueTask(state, action.jobId, action.cpuId);
+  if (action.type === "setSchedulerPolicy") {
+    if (!state.flags.schedulerPolicies) return state;
+    return pullQueue(
+      updateSchedulerConfig(
+        state,
+        action.target,
+        { policy: action.policy },
+        action.cpuId,
+      ),
+    );
+  }
+  if (action.type === "setSchedulerAutoKill") {
+    if (!state.flags.schedulerWatchdog) return state;
+    return updateSchedulerConfig(
+      state,
+      action.target,
+      { autoKillEnabled: action.enabled },
+      action.cpuId,
+    );
+  }
+  if (action.type === "setSchedulerKillPolicy") {
+    if (!state.flags.schedulerWatchdog) return state;
+    return updateSchedulerConfig(
+      state,
+      action.target,
+      { killPolicy: action.killPolicy },
+      action.cpuId,
+    );
+  }
   if (action.type === "setAutoRepeat") {
     return {
       ...state,

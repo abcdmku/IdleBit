@@ -148,6 +148,26 @@ export const researchDefinitions: ResearchDefinition[] = [
     cost: () => [credits(140), data(10)],
   },
   {
+    id: "schedulerWatchdog",
+    name: "Scheduler Watchdog",
+    description: "Unlock scheduler controls that can kill deadlocked queued work.",
+    grants: ["schedulerWatchdog"],
+    reveal: (state) => hasResearch(state, "localScheduler"),
+    requirement: (state) => requirementsMet(state, getSchedulerWatchdogRequirements()),
+    requirements: () => getSchedulerWatchdogRequirements(),
+    cost: () => [credits(190), data(12)],
+  },
+  {
+    id: "schedulerPolicies",
+    name: "Scheduling Policy",
+    description: "Unlock scheduler dispatch policies that can avoid risky starts.",
+    grants: ["schedulerPolicies"],
+    reveal: (state) => hasResearch(state, "schedulerWatchdog"),
+    requirement: (state) => requirementsMet(state, getSchedulerPolicyRequirements()),
+    requirements: () => getSchedulerPolicyRequirements(),
+    cost: () => [credits(230), data(14)],
+  },
+  {
     id: "systemScheduler",
     name: "System Scheduler",
     description: "Unlock barrier-aware system task scheduling.",
@@ -181,7 +201,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "thermalControl",
     name: "Thermal Control",
-    description: "Unlock cooling upgrades that improve restart reliability.",
+    description: "Unlock cooling upgrades that improve system reliability.",
     grants: ["cooling"],
     reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getThermalControlRequirements()),
@@ -257,6 +277,18 @@ function getLocalSchedulerRequirements() {
       "Install 2 CPU cores",
       (state) => state.hardware.cores >= 2,
     ),
+  ];
+}
+
+function getSchedulerWatchdogRequirements() {
+  return [
+    researchRequirement("localScheduler", "Complete Local Scheduler research"),
+  ];
+}
+
+function getSchedulerPolicyRequirements() {
+  return [
+    researchRequirement("schedulerWatchdog", "Complete Scheduler Watchdog research"),
   ];
 }
 

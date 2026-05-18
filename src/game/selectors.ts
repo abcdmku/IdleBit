@@ -8,22 +8,21 @@ import {
 } from "./content/upgrades";
 import { canAfford } from "./economy";
 import {
+  DEADLOCK_FAILURE_SECONDS,
   estimateJobSeconds,
-  getAvailableCacheBits,
-  getAvailableMemoryBits,
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
   getCacheLoadCycles,
+  getDeadlockCooldownRate,
   getHardwareCacheBits,
   getMemoryCapacityBits,
   getCoolingReliabilityBonus,
-  getCorruptionRiskPerSecond,
   getHardwareDrawWatts,
   getPsuCapacityWatts,
   getPsuStress,
   getRamLoadCycles,
   getReservedMemoryBits,
-  getRestartReliability,
+  getPowerReliability,
   getSchedulerQueuedCount,
   getSchedulerSlotCapacity,
   getSystemSchedulerSlotCapacity,
@@ -33,6 +32,7 @@ import {
   getCoreClockHz,
   getCoreClockLevel,
   getCpuHardware,
+  getCpuIdForCore,
   getMilestone,
   getStage,
   getStageLabel,
@@ -41,6 +41,7 @@ import {
 import {
   getAvailableTasks,
   getAvailableUpgrades,
+  getSchedulerWatchdogPreview,
   getVisibleRemainingSeconds,
 } from "./simulation";
 import type {
@@ -62,6 +63,7 @@ import type {
   VisibleRamSlot,
   VisibleResearchComputeTask,
   VisibleState,
+  VisibleDeadlockSummary,
   VisibleTask,
   VisibleTaskSubtask,
   VisibleUpgrade,
@@ -130,10 +132,6 @@ const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
   task.ramNeedBits <= getMemoryCapacityBits(state);
 
-const taskFitsFreeStaging = (state: GameState, task: TaskDefinition) =>
-  task.cacheNeedBits <= getAvailableCacheBits(state) &&
-  task.ramNeedBits <= getAvailableMemoryBits(state);
-
 const canAcceptTask = (state: GameState, task: TaskDefinition) =>
   taskMeetsRequirements(state, task) && taskFitsHardware(state, task);
 
@@ -174,6 +172,17 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return "System scheduler required.";
   }
 
+  if (
+    state.deadlockProcessLockout ||
+    state.activeTasks.some((activeTask) =>
+      activeTask.coreOperations.some((operation) => operation.status === "deadlocked"),
+    )
+  ) {
+    return state.deadlockProcessLockout
+      ? "Deadlock lockout cooling down."
+      : "Deadlock active.";
+  }
+
   const idleCoreCount = getMaxIdleCoresInCpu(state);
   if (idleCoreCount < task.minCores) {
     return task.minCores > 1
@@ -192,16 +201,11 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return `CPU scheduler needs ${task.minCores} slots.`;
   }
 
-  if (task.cacheNeedBits > getAvailableCacheBits(state)) return "Not enough free cache.";
-  if (task.ramNeedBits > getAvailableMemoryBits(state)) return "Not enough free RAM.";
-
   return null;
 };
 
 const getTaskCanStart = (state: GameState, task: TaskDefinition) =>
-  canAcceptTask(state, task) &&
-  taskFitsFreeStaging(state, task) &&
-  getBlockedReason(state, task) === null;
+  canAcceptTask(state, task) && getBlockedReason(state, task) === null;
 
 const getTaskCanQueue = (state: GameState, task: TaskDefinition) =>
   getQueueBlockedReason(state, task) === null;
@@ -307,16 +311,28 @@ const getRamUsedBytes = (state: GameState) =>
 const getRamUsedBits = (state: GameState) => getReservedMemoryBits(state);
 
 const combineStatus = (operations: ActiveCoreOperation[]): OperationRuntimeStatus => {
-  const active = operations.find((operation) => operation.status !== "complete");
-  return active?.status ?? "complete";
+  const priority: OperationRuntimeStatus[] = [
+    "deadlocked",
+    "waitingMemory",
+    "loadingRam",
+    "loadingCache",
+    "running",
+    "waitingBarrier",
+    "complete",
+  ];
+
+  return (
+    priority.find((status) =>
+      operations.some((operation) => operation.status === status),
+    ) ?? "complete"
+  );
 };
 
 const combineMemoryState = (
   operations: ActiveCoreOperation[],
 ): MemoryRuntimeState => {
   const priority: MemoryRuntimeState[] = [
-    "restart",
-    "rerun",
+    "deadlock",
     "waiting",
     "ramLoad",
     "cacheLoad",
@@ -328,6 +344,37 @@ const combineMemoryState = (
     priority.find((state) =>
       operations.some((operation) => operation.memoryState === state),
     ) ?? "idle"
+  );
+};
+
+const getRamDeadlockOperation = (state: GameState) =>
+  state.activeTasks
+    .flatMap((task) => task.coreOperations)
+    .find(
+      (operation) =>
+        operation.status === "deadlocked" && operation.lockResource === "ram",
+    ) ?? null;
+
+const getCacheDeadlockOperationForCpu = (state: GameState, cpuId: number) =>
+  state.activeTasks
+    .flatMap((task) => task.coreOperations)
+    .find(
+      (operation) =>
+        operation.status === "deadlocked" &&
+        operation.lockResource === "cache" &&
+        getCpuIdForCore(state, operation.coreId) === cpuId,
+    ) ?? null;
+
+const getTaskDeadlockScopeOperation = (
+  state: GameState,
+  activeTask: GameState["activeTasks"][number],
+) => {
+  const ramDeadlock = getRamDeadlockOperation(state);
+  if (ramDeadlock) return ramDeadlock;
+
+  return getCacheDeadlockOperationForCpu(
+    state,
+    getCpuIdForCore(state, activeTask.coreId),
   );
 };
 
@@ -347,33 +394,111 @@ const getCacheProgress = (
   return clampProgress(1 - remaining / total);
 };
 
-const getRuntimeCacheState = (
-  operation: TaskOperationDefinition,
-  runtime: ActiveCoreOperation,
-): NonNullable<CacheResidencySegment["state"]> => {
-  const bufferProgress = getCacheProgress(
-    runtime.remainingCycles,
-    runtime.totalCycles,
-  );
-
-  if (runtime.status === "loadingCache") {
-    return operation.memoryAction && bufferProgress < 1 ? "buffering" : "loading";
-  }
-
-  return "loaded";
-};
+const isCacheLoadingRuntime = (runtime: ActiveCoreOperation) =>
+  runtime.status === "loadingCache" ||
+  (runtime.status === "deadlocked" && runtime.lockResource === "cache");
 
 const isCurrentOperationCacheResident = (runtime: ActiveCoreOperation) =>
   [
     "loadingCache",
     "loadingRam",
     "running",
-    "rerunning",
     "waitingBarrier",
+    "deadlocked",
   ].includes(runtime.status);
+
+const getRuntimeCacheWriteProgress = (
+  state: GameState,
+  operation: TaskOperationDefinition,
+  runtime: ActiveCoreOperation,
+  loaded: boolean,
+) => {
+  if (loaded || !isCacheLoadingRuntime(runtime)) return 1;
+  return getCacheProgress(
+    runtime.remainingLoadCycles,
+    getCacheLoadCycles(state, operation),
+  );
+};
+
+const getRuntimeCacheIssueProgress = (
+  operation: TaskOperationDefinition,
+  runtime: ActiveCoreOperation,
+  loaded: boolean,
+) => {
+  if (loaded || !isCacheLoadingRuntime(runtime)) return 1;
+  if (!operation.memoryAction) {
+    return getCacheProgress(runtime.remainingLoadCycles, runtime.totalLoadCycles);
+  }
+
+  return getCacheProgress(runtime.remainingCycles, runtime.totalCycles);
+};
+
+const getRuntimeCacheState = (
+  operation: TaskOperationDefinition,
+  runtime: ActiveCoreOperation,
+  readyBits: number,
+  bufferBits: number,
+): NonNullable<CacheResidencySegment["state"]> => {
+  if (bufferBits > 0) return "buffering";
+  if (isCacheLoadingRuntime(runtime) && !operation.memoryAction && readyBits <= 0) {
+    return "loading";
+  }
+  return "loaded";
+};
 
 const getSegmentBits = (segments: CacheResidencySegment[]) =>
   segments.reduce((total, segment) => total + segment.bits, 0);
+
+const scaleCacheSegment = (
+  segment: CacheResidencySegment,
+  sourceBits: number,
+  targetBits: number,
+): CacheResidencySegment => {
+  const scale = sourceBits > 0 ? targetBits / sourceBits : 1;
+
+  return {
+    ...segment,
+    bits: targetBits,
+    readyBits:
+      segment.readyBits === undefined ? undefined : segment.readyBits * scale,
+    bufferBits:
+      segment.bufferBits === undefined ? undefined : segment.bufferBits * scale,
+    committedBits:
+      segment.committedBits === undefined
+        ? undefined
+        : segment.committedBits * scale,
+  };
+};
+
+const getSegmentCommittedBits = (segment: CacheResidencySegment) =>
+  segment.committedBits ?? segment.readyBits ?? segment.bits;
+
+const getSegmentReadyBits = (segment: CacheResidencySegment) =>
+  segment.readyBits ?? segment.committedBits ?? segment.bits;
+
+const mergeReusedCacheFootprint = (
+  existing: CacheResidencySegment,
+  update: CacheResidencySegment,
+): CacheResidencySegment => {
+  const committedBits = Math.max(
+    getSegmentCommittedBits(existing),
+    getSegmentCommittedBits(update),
+  );
+  const bufferBits = Math.min(update.bufferBits ?? 0, committedBits);
+  const readyBits = Math.min(
+    Math.max(0, committedBits - bufferBits),
+    Math.max(getSegmentReadyBits(existing), update.readyBits ?? 0),
+  );
+
+  return {
+    ...existing,
+    ...update,
+    state: bufferBits > 0 ? "buffering" : "loaded",
+    readyBits,
+    bufferBits,
+    committedBits: readyBits + bufferBits,
+  };
+};
 
 const overlayCacheSegment = (
   segments: CacheResidencySegment[],
@@ -387,17 +512,34 @@ const overlayCacheSegment = (
     if (!segment) continue;
 
     const overlaidBits = Math.min(segment.bits, remainingBits);
-    const overlaidSegment: CacheResidencySegment = {
-      ...segment,
-      ...update,
-      bits: overlaidBits,
-    };
+    const existingSegment = scaleCacheSegment(
+      segment,
+      segment.bits,
+      overlaidBits,
+    );
+    const updateSegment = scaleCacheSegment(
+      {
+        ...update,
+        bits,
+      },
+      bits,
+      overlaidBits,
+    );
+    const overlaidSegment = mergeReusedCacheFootprint(
+      existingSegment,
+      updateSegment,
+    );
+    const retainedSegment = scaleCacheSegment(
+      segment,
+      segment.bits,
+      segment.bits - overlaidBits,
+    );
 
     if (overlaidBits < segment.bits) {
       segments.splice(
         index,
         1,
-        { ...segment, bits: segment.bits - overlaidBits },
+        retainedSegment,
         overlaidSegment,
       );
     } else {
@@ -408,14 +550,21 @@ const overlayCacheSegment = (
   }
 
   if (remainingBits > 0) {
-    segments.push({
-      ...update,
-      bits: remainingBits,
-    });
+    segments.push(
+      scaleCacheSegment(
+        {
+          ...update,
+          bits,
+        },
+        bits,
+        remainingBits,
+      ),
+    );
   }
 };
 
 const applyCacheOperationSegment = (
+  state: GameState,
   segments: CacheResidencySegment[],
   operation: TaskOperationDefinition,
   runtime: ActiveCoreOperation,
@@ -423,30 +572,44 @@ const applyCacheOperationSegment = (
 ) => {
   if (operation.cacheBits <= 0) return;
 
-  const state = loaded ? "loaded" : getRuntimeCacheState(operation, runtime);
-  const progress = loaded
-    ? 1
-    : getCacheProgress(runtime.remainingLoadCycles, runtime.totalLoadCycles);
-  const bufferProgress = loaded
-    ? 1
-    : getCacheProgress(runtime.remainingCycles, runtime.totalCycles);
+  const progress = getRuntimeCacheWriteProgress(state, operation, runtime, loaded);
+  const bufferProgress = getRuntimeCacheIssueProgress(operation, runtime, loaded);
+  const readyProgress = Math.min(progress, bufferProgress);
+  const readyBits = operation.cacheBits * readyProgress;
+  const bufferBits = operation.cacheBits * Math.max(0, bufferProgress - readyProgress);
+  const committedBits = readyBits + bufferBits;
+  const segmentState = getRuntimeCacheState(
+    operation,
+    runtime,
+    readyBits,
+    bufferBits,
+  );
   const segmentBase = {
     coreId: runtime.coreId,
     memoryAction: operation.memoryAction,
     operationId: operation.id,
-    state,
+    state: segmentState,
     progress,
     bufferProgress,
+    readyBits,
+    bufferBits,
+    committedBits,
   };
 
   if (operation.kind !== "memory") {
     const missingBits = operation.cacheBits - getSegmentBits(segments);
 
     if (missingBits > 0) {
-      segments.push({
-        ...segmentBase,
-        bits: missingBits,
-      });
+      segments.push(
+        scaleCacheSegment(
+          {
+            ...segmentBase,
+            bits: operation.cacheBits,
+          },
+          operation.cacheBits,
+          missingBits,
+        ),
+      );
     } else if (!loaded) {
       overlayCacheSegment(segments, operation.cacheBits, segmentBase);
     }
@@ -487,15 +650,18 @@ const getCacheResidencySegments = (state: GameState): CacheResidencySegment[] =>
         const loaded = operationIndex < runtime.operationIndex;
         if (!loaded && !isCurrentOperationCacheResident(runtime)) continue;
 
-        applyCacheOperationSegment(segments, operation, runtime, loaded);
+        applyCacheOperationSegment(state, segments, operation, runtime, loaded);
       }
 
       return segments;
     });
   });
 
+const getCacheSegmentCommittedBits = (segment: CacheResidencySegment) =>
+  segment.committedBits ?? segment.bits;
+
 const getCacheUsedBits = (segments: CacheResidencySegment[]) =>
-  getSegmentBits(segments);
+  segments.reduce((total, segment) => total + getCacheSegmentCommittedBits(segment), 0);
 
 const getCacheUsedBytes = (segments: CacheResidencySegment[]) =>
   bitsToBytes(getCacheUsedBits(segments));
@@ -636,7 +802,6 @@ const getCpuExecutionProgress = (operation: ActiveCoreOperation) => {
   if (operation.status === "complete") return 1;
   if (
     operation.status !== "running" &&
-    operation.status !== "rerunning" &&
     operation.status !== "loadingCache"
   ) {
     return 0;
@@ -650,25 +815,32 @@ const getCpuExecutionProgress = (operation: ActiveCoreOperation) => {
 const getCoreProgress = (
   operation: ActiveCoreOperation,
   definition: TaskOperationDefinition | null,
-): VisibleCoreTaskProgress => ({
-  coreId: operation.coreId,
-  operationId: operation.operationId,
-  operationName: operation.operationName,
-  memoryAction: definition?.memoryAction ?? null,
-  status: operation.status,
-  memoryState: operation.memoryState,
-  progress: getCpuExecutionProgress(operation),
-  remainingCycles: operation.remainingCycles,
-  totalCycles: operation.totalCycles,
-  remainingLoadCycles: operation.remainingLoadCycles,
-  totalLoadCycles: operation.totalLoadCycles,
-  cacheBits: definition?.cacheBits ?? 0,
-  memoryReservedBytes: operation.memoryReservedBytes,
-  memoryReservedBits: operation.memoryReservedBits,
-  reruns: operation.reruns,
-  restarts: operation.restarts,
-  corruptions: operation.corruptions,
-});
+  deadlockScopeOperation: ActiveCoreOperation | null,
+): VisibleCoreTaskProgress => {
+  const halted =
+    deadlockScopeOperation !== null && operation.status !== "complete";
+  return {
+    coreId: operation.coreId,
+    operationId: operation.operationId,
+    operationName: operation.operationName,
+    memoryAction: definition?.memoryAction ?? null,
+    status: halted ? "deadlocked" : operation.status,
+    memoryState: halted ? "deadlock" : operation.memoryState,
+    progress: getCpuExecutionProgress(operation),
+    remainingCycles: operation.remainingCycles,
+    totalCycles: operation.totalCycles,
+    remainingLoadCycles: operation.remainingLoadCycles,
+    totalLoadCycles: operation.totalLoadCycles,
+    cacheBits: definition?.cacheBits ?? 0,
+    memoryReservedBytes: operation.memoryReservedBytes,
+    memoryReservedBits: operation.memoryReservedBits,
+    lockResource:
+      operation.lockResource ?? (halted ? deadlockScopeOperation.lockResource : null),
+    lockReason:
+      operation.lockReason ?? (halted ? deadlockScopeOperation.lockReason : null),
+    deadlockSeconds: operation.deadlockSeconds,
+  };
+};
 
 const getVisibleActiveTask = (
   state: GameState,
@@ -678,6 +850,11 @@ const getVisibleActiveTask = (
   const activeOperation =
     activeTask.coreOperations.find((operation) => operation.status !== "complete") ??
     activeTask.coreOperations[0];
+  const deadlockedOperation = activeTask.coreOperations.find(
+    (operation) => operation.status === "deadlocked",
+  );
+  const deadlockScopeOperation = getTaskDeadlockScopeOperation(state, activeTask);
+  const halted = deadlockScopeOperation !== null;
 
   return {
     instanceId: activeTask.instanceId,
@@ -688,18 +865,26 @@ const getVisibleActiveTask = (
     coreId: activeTask.coreId,
     assignedCoreIds: activeTask.assignedCoreIds,
     progress: getTaskRuntimeProgress(state, activeTask, definition),
-    status: combineStatus(activeTask.coreOperations),
-    memoryState: combineMemoryState(activeTask.coreOperations),
+    status: halted ? "deadlocked" : combineStatus(activeTask.coreOperations),
+    memoryState: halted ? "deadlock" : combineMemoryState(activeTask.coreOperations),
     activeOperationName: activeOperation?.operationName ?? null,
     coreProgress: activeTask.coreOperations.map((operation) =>
       getCoreProgress(
         operation,
         definition.operations[operation.operationIndex] ?? null,
+        deadlockScopeOperation,
       ),
     ),
-    restarts: activeTask.restarts,
-    reruns: activeTask.reruns,
-    corruptions: activeTask.corruptions,
+    lockResource:
+      deadlockedOperation?.lockResource ??
+      deadlockScopeOperation?.lockResource ??
+      activeOperation?.lockResource ??
+      null,
+    lockReason:
+      deadlockedOperation?.lockReason ??
+      deadlockScopeOperation?.lockReason ??
+      activeOperation?.lockReason ??
+      null,
   };
 };
 
@@ -723,8 +908,7 @@ const getMemoryPipeline = (state: GameState) => {
     cacheLoads: count("loadingCache"),
     ramLoads: count("loadingRam"),
     waits: count("waitingMemory"),
-    reruns: memoryStates.filter((state) => state === "rerun").length,
-    restarts: memoryStates.filter((state) => state === "restart").length,
+    deadlocks: memoryStates.filter((state) => state === "deadlock").length,
   };
 };
 
@@ -766,12 +950,16 @@ const getCpuSockets = (
   const cacheUpgrade = getUpgradeDefinition("cache");
   const cacheSpeedUpgrade = getUpgradeDefinition("cacheSpeed");
   const schedulerSlotUpgrade = getUpgradeDefinition("schedulerSlot");
+  const deadlockRecoveryUpgrade = getUpgradeDefinition("deadlockRecovery");
+  const primaryCpuId = state.hardware.cpus[0]?.id ?? 1;
 
   return state.hardware.cpus.map((cpu) => {
     const socketId = cpu.id;
     const socketCacheResidency = cacheResidency.filter((segment) =>
       cpu.coreIds.includes(segment.coreId),
     );
+    const socketDeadlock =
+      getRamDeadlockOperation(state) ?? getCacheDeadlockOperationForCpu(state, cpu.id);
 
     return {
       id: socketId,
@@ -785,6 +973,14 @@ const getCpuSockets = (
       cacheResidency: socketCacheResidency,
       schedulerSlots: cpu.schedulerSlots,
       queuedCount: getSchedulerQueuedCount(state, cpu.id),
+      schedulerConfig: cpu.schedulerConfig,
+      watchdog: getSchedulerWatchdogPreview(state, "cpu", cpu.id),
+      deadlocked: Boolean(socketDeadlock),
+      deadlockResource: socketDeadlock?.lockResource ?? null,
+      deadlockRecoveryUpgrade:
+        state.flags.schedulerWatchdog && cpu.id === primaryCpuId
+          ? getVisibleUpgrade(state, deadlockRecoveryUpgrade)
+          : null,
       allCoreClockUpgrade: getVisibleUpgrade(state, clockUpgrade, {
         coreIds: cpu.coreIds,
       }),
@@ -798,6 +994,16 @@ const getCpuSockets = (
           ? getVisibleUpgrade(state, schedulerSlotUpgrade, { cpuId: cpu.id })
           : null,
       cores: cpu.coreIds.map((coreId) => {
+          const activeTask =
+            activeTasks.find((task) => task.assignedCoreIds.includes(coreId)) ?? null;
+          const activeJob =
+            activeJobs.find((task) => task.assignedCoreIds.includes(coreId)) ?? null;
+          const coreDeadlock =
+            activeTask?.coreProgress.find(
+              (operation) =>
+                operation.coreId === coreId && operation.status === "deadlocked",
+            ) ?? null;
+
           return {
             id: coreId,
             socketId,
@@ -805,12 +1011,10 @@ const getCpuSockets = (
             clockHz: getCoreClockHz(state, coreId),
             clockUpgrade: getVisibleUpgrade(state, clockUpgrade, { coreId }),
             scheduler: state.coreSchedulers[coreId],
-            activeTask:
-              activeTasks.find((task) => task.assignedCoreIds.includes(coreId)) ??
-              null,
-            activeJob:
-              activeJobs.find((task) => task.assignedCoreIds.includes(coreId)) ??
-              null,
+            activeTask,
+            activeJob,
+            deadlocked: Boolean(coreDeadlock),
+            deadlockResource: coreDeadlock?.lockResource ?? null,
           };
         }),
     };
@@ -941,6 +1145,47 @@ const getVisibleJobs = (state: GameState): VisibleJob[] =>
     };
   });
 
+const getVisibleDeadlocks = (state: GameState): VisibleDeadlockSummary[] =>
+  state.activeTasks.flatMap((task) => {
+    const definition = getTaskDefinition(task.taskId);
+    const operation = task.coreOperations.find(
+      (coreOperation) =>
+        coreOperation.status === "deadlocked" &&
+        coreOperation.lockResource !== null,
+    );
+    if (!operation?.lockResource) return [];
+
+    return [
+      {
+        taskId: task.taskId,
+        taskName: definition.name,
+        coreIds: task.assignedCoreIds,
+        cpuId: getCpuIdForCore(state, task.coreId),
+        resource: operation.lockResource,
+        reason: operation.lockReason ?? "Deadlock.",
+        schedulerQueued: task.schedulerQueued,
+      },
+    ];
+  });
+
+const getVisibleDeadlockPressure = (state: GameState) => {
+  const seconds = Math.max(0, state.deadlockPressureSeconds ?? 0);
+
+  return {
+    seconds,
+    limitSeconds: DEADLOCK_FAILURE_SECONDS,
+    remainingSeconds: Math.max(0, DEADLOCK_FAILURE_SECONDS - seconds),
+    progress: Math.min(1, seconds / DEADLOCK_FAILURE_SECONDS),
+    cooldownRate: getDeadlockCooldownRate(state),
+    resource: state.deadlockPressureResource ?? null,
+    cpuId: state.deadlockPressureCpuId ?? null,
+    active: state.activeTasks.some((task) =>
+      task.coreOperations.some((operation) => operation.status === "deadlocked"),
+    ),
+    lockout: state.deadlockProcessLockout === true,
+  };
+};
+
 export const deriveVisibleState = (state: GameState): VisibleState => {
   const syncedState = syncCoreSchedulers(state);
   const stage = getStage(syncedState);
@@ -991,11 +1236,13 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
           : null,
       ramResidency,
       memory: getMemoryPipeline(syncedState),
+      deadlocks: getVisibleDeadlocks(syncedState),
+      deadlockPressure: getVisibleDeadlockPressure(syncedState),
+      systemSchedulerWatchdog: getSchedulerWatchdogPreview(syncedState, "system"),
       powerUsedWatts,
       powerHeadroomWatts,
       psuStress: Math.round(getPsuStress(syncedState) * 1000) / 1000,
-      restartReliability: getRestartReliability(syncedState),
-      corruptionRisk: getCorruptionRiskPerSecond(syncedState),
+      powerReliability: getPowerReliability(syncedState),
       coolingReliabilityBonus:
         Math.round((getCoolingReliabilityBonus(syncedState) - 1) * 1000) / 1000,
       powerCostPerMinute: Math.round(powerUsedWatts * 0.03 * 10) / 10,

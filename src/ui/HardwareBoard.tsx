@@ -4,6 +4,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -26,7 +28,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type {
+  DeadlockResource,
   HardwareComponentId,
+  SchedulerKillPolicy,
+  SchedulerPolicy,
+  SchedulerWatchdogPreview,
   UpgradeId,
   VisibleCore,
   VisibleCpuSocket,
@@ -50,7 +56,14 @@ import {
   SystemRail,
 } from "./MotherboardLayout";
 
-type TaskState = "active" | "waiting" | "rerun" | "restart" | "ready" | "locked";
+type TaskState =
+  | "active"
+  | "waiting"
+  | "deadlock"
+  | "rerun"
+  | "restart"
+  | "ready"
+  | "locked";
 type QueueMode = "core" | "scheduler" | "systemScheduler";
 type TaskRouteLayer = QueueMode;
 type ResourceKind = "data" | "credits";
@@ -66,6 +79,9 @@ interface CacheSegment {
   state: CacheSegmentState;
   coreId: number;
   bits: number;
+  bufferBits: number;
+  readyBits: number;
+  committedBits: number;
   progress: number;
   bufferProgress: number;
 }
@@ -302,10 +318,12 @@ interface UiActiveTask {
     cacheBits?: number;
     memoryReservedBits?: number;
     memoryReservedBytes?: number;
-    reruns?: number;
-    restarts?: number;
-    corruptions?: number;
+    lockResource?: DeadlockResource | null;
+    lockReason?: string | null;
+    deadlockSeconds?: number;
   }>;
+  lockResource?: DeadlockResource | null;
+  lockReason?: string | null;
 }
 
 interface UiResearchRequirement {
@@ -358,6 +376,7 @@ interface UiQueueDisplayItem {
   waitingReason: string;
   instanceId?: string;
   active: boolean;
+  deadlocked?: boolean;
 }
 
 interface UiSystemStatus {
@@ -421,6 +440,10 @@ interface HardwareBoardProps {
   dispatch: Dispatch;
   selectedComponent: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
+  deadlockHelpResource?: DeadlockResource | null;
+  deadlockCooldownHelpResource?: DeadlockResource | null;
+  onDismissDeadlockHelp?: () => void;
+  onDismissDeadlockCooldownHelp?: () => void;
 }
 
 function getSelectedCoreId(selection: SelectedComponent) {
@@ -583,26 +606,52 @@ const getCacheSegmentKind = (
         ? "read"
         : "compute";
 
+const getLegacyCacheReadyBits = (
+  bits: number,
+  state: CacheSegmentState,
+  progress: number,
+  bufferProgress: number,
+) => {
+  if (state === "loaded") return bits;
+  if (state === "buffering") return bits * Math.min(progress, bufferProgress);
+  return bits * progress;
+};
+
+const toCacheSegment = (segment: VisibleState["metrics"]["cacheResidency"][number]): CacheSegment => {
+  const state = segment.state ?? "loaded";
+  const progress = clampMeter(segment.progress ?? 1);
+  const bufferProgress = clampMeter(segment.bufferProgress ?? 1);
+  const readyBits =
+    segment.readyBits ?? getLegacyCacheReadyBits(segment.bits, state, progress, bufferProgress);
+  const bufferBits =
+    segment.bufferBits ??
+    (state === "buffering"
+      ? Math.max(0, segment.bits * bufferProgress - readyBits)
+      : 0);
+  const committedBits = segment.committedBits ?? readyBits + bufferBits;
+
+  return {
+    kind: getCacheSegmentKind(segment.memoryAction),
+    state: bufferBits > 0 ? "buffering" : "loaded",
+    coreId: segment.coreId,
+    bits: segment.bits,
+    readyBits,
+    bufferBits,
+    committedBits,
+    progress,
+    bufferProgress,
+  };
+};
+
 const getCacheReservation = (visible: VisibleState) => {
   const metricSegments = visible.metrics.cacheResidency ?? [];
   if (metricSegments.length > 0) {
-    const segments = metricSegments.map(
-      (segment): CacheSegment => ({
-        kind: getCacheSegmentKind(segment.memoryAction),
-        state: segment.state ?? "loaded",
-        coreId: segment.coreId,
-        bits: segment.bits,
-        progress: clampMeter(segment.progress ?? 1),
-        bufferProgress: clampMeter(segment.bufferProgress ?? 1),
-      }),
-    );
+    const segments = metricSegments.map(toCacheSegment);
 
     return {
       segments,
-      reservedBits: segments.reduce((total, segment) => total + segment.bits, 0),
-      loadingBits: segments
-        .filter((segment) => segment.state === "buffering" || segment.state === "loading")
-        .reduce((total, segment) => total + segment.bits, 0),
+      reservedBits: segments.reduce((total, segment) => total + segment.committedBits, 0),
+      loadingBits: segments.reduce((total, segment) => total + segment.bufferBits, 0),
     };
   }
 
@@ -674,18 +723,33 @@ const getCacheReservation = (visible: VisibleState) => {
             : "loaded";
       segments.push({
         kind,
-        state,
+        state: state === "buffering" ? "buffering" : "loaded",
         coreId: operation.coreId,
         bits: operationBits,
+        readyBits: operationBits * clampMeter(loadProgress),
+        bufferBits:
+          state === "buffering"
+            ? Math.max(
+                0,
+                operationBits * clampMeter(cpuProgress) -
+                  operationBits * clampMeter(loadProgress),
+              )
+            : 0,
+        committedBits:
+          state === "buffering"
+            ? operationBits * clampMeter(cpuProgress)
+            : operationBits * clampMeter(loadProgress),
         progress: clampMeter(loadProgress),
         bufferProgress: clampMeter(cpuProgress),
       });
-      reservedBits += operationBits;
+      const committedBits = segments[segments.length - 1]?.committedBits ?? 0;
+      const bufferBits = segments[segments.length - 1]?.bufferBits ?? 0;
+      reservedBits += committedBits;
       if (
         operation.status === "loadingCache" ||
         operation.memoryState === "cacheLoad"
       ) {
-        loadingBits += operationBits;
+        loadingBits += bufferBits;
       }
     }
   }
@@ -701,28 +765,20 @@ const emptyCacheStateBits = (): Record<CacheSegmentState, number> => ({
 
 const getCacheStateBits = (segments: CacheSegment[]) =>
   segments.reduce((totals, segment) => {
-    totals[segment.state] += getCacheSegmentFilledBits(segment);
+    totals.buffering += segment.bufferBits;
+    totals.loaded += segment.readyBits;
     return totals;
   }, emptyCacheStateBits());
 
 const getCachePrimaryState = (segments: CacheSegment[]) => {
-  if (segments.some((segment) => segment.state === "buffering")) return "Buffer";
-  if (segments.some((segment) => segment.state === "loading")) return "Load";
-  if (segments.some((segment) => segment.state === "loaded")) return "Ready";
+  if (segments.some((segment) => segment.bufferBits > 0)) return "Buffer";
+  if (segments.some((segment) => segment.readyBits > 0)) return "Ready";
   return "Idle";
 };
 
 const getCacheSegmentWriteProgress = (segment: CacheSegment) => {
   if (segment.state === "loaded") return 1;
   return clampMeter(segment.progress);
-};
-
-const getCacheSegmentFilledBits = (segment: CacheSegment) => {
-  if (segment.state === "loaded") return segment.bits;
-  if (segment.state === "buffering") {
-    return segment.bits * clampMeter(segment.bufferProgress);
-  }
-  return segment.bits * clampMeter(segment.progress);
 };
 
 const getRamReservation = (visible: VisibleState) => {
@@ -767,6 +823,23 @@ const getRamPrimaryState = (segments: RamSegment[]) => {
   if (segments.some((segment) => segment.state === "reserved")) return "Stage";
   if (segments.some((segment) => segment.state === "loaded")) return "Ready";
   return "Idle";
+};
+
+const getRamModuleFrequencyLabel = (
+  slots: VisibleRamSlot[],
+  fallbackSpeedMt: number,
+) => {
+  const speeds = Array.from(
+    new Set(
+      (slots.length > 0 ? slots.map((slot) => slot.speedMt) : [fallbackSpeedMt])
+        .filter((speed) => speed > 0),
+    ),
+  ).sort((a, b) => a - b);
+
+  if (speeds.length <= 0) return formatClock(1);
+  if (speeds.length === 1) return formatClock(speeds[0] ?? 1);
+
+  return `${formatClock(speeds[0] ?? 1)}-${formatClock(speeds.at(-1) ?? 1)}`;
 };
 
 const getRamSegmentsBySlot = (
@@ -884,6 +957,15 @@ const getVisibleRamUsedBits = (visible: VisibleState) => {
 const getVisibleSystemSchedulerSlots = (visible: VisibleState) =>
   Math.max(0, getHardware(visible).systemSchedulerSlots ?? 0);
 
+const getSocketAvailableSchedulerSlots = (socket: VisibleCpuSocket) =>
+  Math.max(0, socket.schedulerSlots - socket.queuedCount);
+
+const getSocketIdleCoreCount = (socket: VisibleCpuSocket) =>
+  socket.cores.filter((core) => !getCoreActiveTask(core)).length;
+
+const getVisibleAvailableRamBits = (visible: VisibleState) =>
+  Math.max(0, getVisibleRamBits(visible) - getVisibleRamUsedBits(visible));
+
 const hasSystemMemory = (visible: VisibleState) =>
   visible.flags.systemStats || visible.hardware.secondCpu || getVisibleRamBits(visible) > 0;
 
@@ -941,6 +1023,7 @@ const getTaskActionDisabledReason = (task: UiTask, mode: QueueMode) => {
 const taskStateFromText = (value: string | undefined): TaskState | null => {
   const normalized = value?.toLowerCase();
   if (!normalized) return null;
+  if (normalized.includes("deadlock")) return "deadlock";
   if (normalized.includes("rerun")) return "rerun";
   if (normalized.includes("restart")) return "restart";
   if (
@@ -1002,6 +1085,19 @@ const getActiveRuntimeLabel = (active: UiActiveTask) => {
   const cacheBits = operation?.cacheBits ?? 0;
   const cacheLabel = cacheBits > 0 ? ` ${formatBits(cacheBits)}` : "";
 
+  if (
+    raw.includes("deadlock") ||
+    active.lockResource ||
+    operation?.lockResource
+  ) {
+    const resource = active.lockResource ?? operation?.lockResource;
+    return resource === "cache"
+      ? "Deadlock: cache"
+      : resource === "ram"
+        ? "Deadlock: RAM"
+        : "Deadlock";
+  }
+
   if (raw.includes("cache")) {
     if (operation && totalCycles > 0 && completedCycles >= totalCycles) {
       return `Cache wait${cacheLabel}`;
@@ -1025,18 +1121,6 @@ const getActiveRuntimeLabel = (active: UiActiveTask) => {
 
 const getActiveTaskFor = (task: UiTask, activeTasks: UiActiveTask[]) =>
   activeTasks.find((candidate) => getActiveTaskId(candidate) === task.id) ?? null;
-
-const getTaskProgress = (
-  task: UiTask,
-  activeTasks: UiActiveTask[],
-  queue: UiQueueEntry[],
-) => {
-  const active = activeTasks.find((candidate) => getActiveTaskId(candidate) === task.id);
-  if (active) return clampMeter(active.progress);
-  if (typeof task.progress === "number") return clampMeter(task.progress);
-  if (queue.some((entry) => getQueueTaskId(entry) === task.id)) return 0;
-  return getTaskCompletedCount(task) > 0 ? 1 : 0;
-};
 
 const getTaskRewardCosts = (task: UiTask): DisplayCost[] => {
   const credits = firstNumber(task.rewardCredits, task.rewards?.credits);
@@ -1076,13 +1160,112 @@ function TaskMetaLine({
 const getQueueWaitingReason = (
   task: UiTask | undefined,
   activeTask?: UiActiveTask,
+  pendingReason?: string,
 ) => {
   if (activeTask) return getActiveRuntimeLabel(activeTask);
   return (
+    pendingReason?.trim() ||
     task?.blockedReason?.trim() ||
     task?.queueBlockedReason?.trim() ||
     "Waiting for scheduler dispatch."
   );
+};
+
+const getRequiredCoreCount = (task: UiTask | undefined) =>
+  Math.max(1, firstNumber(task?.requiredCores, task?.minCores) ?? 1);
+
+const getCpuSchedulerPendingReason = (
+  visible: VisibleState,
+  task: UiTask | undefined,
+  socket: VisibleCpuSocket,
+) => {
+  if (!task) return "Waiting for CPU scheduler dispatch.";
+  const blockedReason = task.blockedReason?.trim();
+  if (blockedReason && !/scheduler slots full/i.test(blockedReason)) {
+    return blockedReason;
+  }
+
+  if (socket.deadlocked) return "CPU deadlock active.";
+
+  const requiredCores = getRequiredCoreCount(task);
+  const idleCores = getSocketIdleCoreCount(socket);
+  if (idleCores < requiredCores) {
+    return requiredCores > 1
+      ? `Needs ${requiredCores} idle cores.`
+      : "No idle core available.";
+  }
+
+  if (requiredCores > 1 && socket.schedulerSlots < requiredCores) {
+    return `CPU scheduler needs ${requiredCores} slots.`;
+  }
+
+  if (socket.schedulerConfig.policy === "deadlockSafe") {
+    const availableCacheBits = Math.max(0, socket.cacheBits - socket.cacheUsedBits);
+    if (getTaskCacheBits(task) > availableCacheBits) {
+      return "Waiting for CPU cache.";
+    }
+
+    if (!isSystemQueueTask(task) && getTaskRamBits(task) > getVisibleAvailableRamBits(visible)) {
+      return "Waiting for RAM.";
+    }
+  }
+
+  return "Waiting for CPU scheduler dispatch.";
+};
+
+const getCpuQueueReservationMap = (visible: VisibleState) => {
+  const occurrences = new Map<string, number>();
+  const reservations = new Map<string, VisibleCpuSocket>();
+
+  visible.metrics.cpuSockets.forEach((socket) => {
+    socket.cores
+      .flatMap((core) => core.scheduler?.localQueue ?? [])
+      .forEach((taskId) => {
+        const occurrence = occurrences.get(taskId) ?? 0;
+        occurrences.set(taskId, occurrence + 1);
+        reservations.set(`${taskId}:${occurrence}`, socket);
+      });
+  });
+
+  return reservations;
+};
+
+const getSystemSchedulerPendingReason = (
+  visible: VisibleState,
+  task: UiTask | undefined,
+) => {
+  if (!task) return "Waiting for system scheduler dispatch.";
+
+  const blockedReason = task.blockedReason?.trim();
+  if (blockedReason && !/scheduler slots full/i.test(blockedReason)) {
+    return blockedReason;
+  }
+
+  if (visible.hardware.systemSchedulerConfig.policy === "deadlockSafe") {
+    if (getTaskRamBits(task) > getVisibleAvailableRamBits(visible)) {
+      return "Waiting for RAM.";
+    }
+  }
+
+  const compatibleSockets = visible.metrics.cpuSockets.filter((socket) => {
+    const requiredCores = getRequiredCoreCount(task);
+    return (
+      socket.cacheBits >= getTaskCacheBits(task) &&
+      socket.schedulerSlots >= requiredCores
+    );
+  });
+  if (compatibleSockets.length > 0) {
+    const socketWithSlot = compatibleSockets.find(
+      (socket) => getSocketAvailableSchedulerSlots(socket) > 0,
+    );
+    if (socketWithSlot) {
+      return getCpuSchedulerPendingReason(visible, task, socketWithSlot);
+    }
+
+    return "CPU scheduler slots full.";
+  }
+
+  return task.queueBlockedReason?.trim() || "Waiting for system scheduler dispatch.";
 };
 
 const getActiveTaskOccurrenceMap = (activeTasks: UiActiveTask[]) => {
@@ -1105,6 +1288,7 @@ const getQueueDisplayItem = (
   entry: UiQueueEntry,
   tasksById: Map<string, UiTask>,
   activeTask: UiActiveTask | undefined,
+  pendingReason?: string,
 ): UiQueueDisplayItem | null => {
   const taskId = getQueueTaskId(entry);
   const task = tasksById.get(taskId);
@@ -1116,9 +1300,13 @@ const getQueueDisplayItem = (
   return {
     id: taskId || name,
     name,
-    waitingReason: getQueueWaitingReason(task, activeTask),
+    waitingReason: getQueueWaitingReason(task, activeTask, pendingReason),
     instanceId: activeTask?.instanceId,
     active: Boolean(activeTask),
+    deadlocked:
+      activeTask?.status === "deadlocked" ||
+      activeTask?.memoryState === "deadlock" ||
+      Boolean(activeTask?.lockResource),
   };
 };
 
@@ -1126,6 +1314,12 @@ const getQueueDisplayItemsFromEntries = (
   entries: UiQueueEntry[],
   tasksById: Map<string, UiTask>,
   activeTasks: UiActiveTask[],
+  getPendingReason?: (
+    entry: UiQueueEntry,
+    occurrence: number,
+    task: UiTask | undefined,
+    activeTask: UiActiveTask | undefined,
+  ) => string | undefined,
 ) => {
   const activeByOccurrence = getActiveTaskOccurrenceMap(activeTasks);
   const queueOccurrences = new Map<string, number>();
@@ -1140,6 +1334,12 @@ const getQueueDisplayItemsFromEntries = (
         entry,
         tasksById,
         activeByOccurrence.get(`${taskId}:${occurrence}`),
+        getPendingReason?.(
+          entry,
+          occurrence,
+          tasksById.get(taskId),
+          activeByOccurrence.get(`${taskId}:${occurrence}`),
+        ),
       );
     })
     .filter(hasValue);
@@ -1164,7 +1364,13 @@ const getQueueDisplayItems = (visible: VisibleState, socket?: VisibleCpuSocket) 
     );
     const entries = socket.cores.flatMap((core) => core.scheduler?.localQueue ?? []);
 
-    return getQueueDisplayItemsFromEntries(entries, tasksById, socketActiveTasks);
+    return getQueueDisplayItemsFromEntries(
+      entries,
+      tasksById,
+      socketActiveTasks,
+      (_entry, _occurrence, task, activeTask) =>
+        activeTask ? undefined : getCpuSchedulerPendingReason(visible, task, socket),
+    );
   }
 
   return getQueueDisplayItemsFromEntries(
@@ -1179,6 +1385,7 @@ const isSystemQueueTask = (task: UiTask | undefined) =>
 
 const getSystemQueueDisplayItems = (visible: VisibleState) => {
   const tasksById = new Map(getQueueLookupTasks(visible).map((task) => [task.id, task]));
+  const cpuReservations = getCpuQueueReservationMap(visible);
   const systemActiveTasks = getActiveTasks(visible).filter((task) =>
     task.schedulerQueued && isSystemQueueTask(tasksById.get(task.taskId ?? "")),
   );
@@ -1186,7 +1393,19 @@ const getSystemQueueDisplayItems = (visible: VisibleState) => {
     isSystemQueueTask(tasksById.get(getQueueTaskId(entry))),
   );
 
-  return getQueueDisplayItemsFromEntries(entries, tasksById, systemActiveTasks);
+  return getQueueDisplayItemsFromEntries(
+    entries,
+    tasksById,
+    systemActiveTasks,
+    (entry, occurrence, task, activeTask) => {
+      if (activeTask) return undefined;
+
+      const socket = cpuReservations.get(`${getQueueTaskId(entry)}:${occurrence}`);
+      return socket
+        ? getCpuSchedulerPendingReason(visible, task, socket)
+        : getSystemSchedulerPendingReason(visible, task);
+    },
+  );
 };
 
 const getSystemLoad = (visible: VisibleState) => {
@@ -1429,6 +1648,10 @@ export function HardwareBoard({
   dispatch,
   selectedComponent,
   onSelectComponent,
+  deadlockHelpResource = null,
+  deadlockCooldownHelpResource = null,
+  onDismissDeadlockHelp,
+  onDismissDeadlockCooldownHelp,
 }: HardwareBoardProps) {
   const selectedCoreId = getSelectedCoreId(selectedComponent);
   const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
@@ -1457,6 +1680,15 @@ export function HardwareBoard({
 
   const primarySocket = visible.metrics.cpuSockets[0];
   const extraSockets = visible.metrics.cpuSockets.slice(1);
+  const cacheHelpCpuId =
+    (deadlockHelpResource === "cache" || deadlockCooldownHelpResource === "cache")
+      ? (visible.metrics.deadlocks.find((deadlock) => deadlock.resource === "cache")
+          ?.cpuId ?? null)
+      : null;
+  const showDeadlockHelp = (resource: DeadlockResource) =>
+    deadlockHelpResource === resource;
+  const showDeadlockCooldownHelp = (resource: DeadlockResource) =>
+    deadlockCooldownHelpResource === resource;
   const showSocketLabel = visible.metrics.cpuSockets.length > 1;
   const showEmptySocket = !visible.hardware.secondCpu && visible.flags.secondCpu;
   const railVisible = psuVisible || visible.flags.cooling;
@@ -1484,6 +1716,10 @@ export function HardwareBoard({
           onSelectAllSticks={() => onSelectComponent("ramSticks")}
           upgrades={ramUpgrades}
           dispatch={dispatch}
+          showDeadlockHelp={showDeadlockHelp("ram")}
+          showDeadlockCooldownHelp={showDeadlockCooldownHelp("ram")}
+          onDismissDeadlockHelp={onDismissDeadlockHelp}
+          onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
         />
       )}
 
@@ -1497,6 +1733,7 @@ export function HardwareBoard({
             cpuUpgrades={cpuUpgrades}
             resources={visible.resources}
             dispatch={dispatch}
+            deadlockPressure={visible.metrics.deadlockPressure}
           >
             <CpuModuleLayout
               socket={primarySocket}
@@ -1510,6 +1747,17 @@ export function HardwareBoard({
               onSelectComponent={onSelectComponent}
               cpuUpgrades={cpuUpgrades}
               dispatch={dispatch}
+              showCacheDeadlockHelp={
+                deadlockHelpResource === "cache" &&
+                cacheHelpCpuId === primarySocket.id
+              }
+              showCacheDeadlockCooldownHelp={
+                showDeadlockCooldownHelp("cache") &&
+                cacheHelpCpuId === primarySocket.id
+              }
+              onDismissDeadlockHelp={onDismissDeadlockHelp}
+              onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
+              showCoreDeadlockPressure={!memoryVisible}
             />
           </CpuPackage>
         ) : (
@@ -1525,6 +1773,16 @@ export function HardwareBoard({
             onSelectComponent={onSelectComponent}
             cpuUpgrades={cpuUpgrades}
             dispatch={dispatch}
+            showCacheDeadlockHelp={
+              deadlockHelpResource === "cache" &&
+              cacheHelpCpuId === primarySocket.id
+            }
+            showCacheDeadlockCooldownHelp={
+              showDeadlockCooldownHelp("cache") && cacheHelpCpuId === primarySocket.id
+            }
+            onDismissDeadlockHelp={onDismissDeadlockHelp}
+            onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
+            showCoreDeadlockPressure={!memoryVisible}
           />
         )
       )}
@@ -1540,6 +1798,7 @@ export function HardwareBoard({
               cpuUpgrades={cpuUpgrades}
               resources={visible.resources}
               dispatch={dispatch}
+              deadlockPressure={visible.metrics.deadlockPressure}
             >
               <CpuModuleLayout
                 socket={socket}
@@ -1553,6 +1812,15 @@ export function HardwareBoard({
                 onSelectComponent={onSelectComponent}
                 cpuUpgrades={cpuUpgrades}
                 dispatch={dispatch}
+                showCacheDeadlockHelp={
+                  deadlockHelpResource === "cache" && cacheHelpCpuId === socket.id
+                }
+                showCacheDeadlockCooldownHelp={
+                  showDeadlockCooldownHelp("cache") && cacheHelpCpuId === socket.id
+                }
+                onDismissDeadlockHelp={onDismissDeadlockHelp}
+                onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
+                showCoreDeadlockPressure={!memoryVisible}
               />
             </CpuPackage>
           ) : (
@@ -1568,6 +1836,15 @@ export function HardwareBoard({
               onSelectComponent={onSelectComponent}
               cpuUpgrades={cpuUpgrades}
               dispatch={dispatch}
+              showCacheDeadlockHelp={
+                deadlockHelpResource === "cache" && cacheHelpCpuId === socket.id
+              }
+              showCacheDeadlockCooldownHelp={
+                showDeadlockCooldownHelp("cache") && cacheHelpCpuId === socket.id
+              }
+              onDismissDeadlockHelp={onDismissDeadlockHelp}
+              onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
+              showCoreDeadlockPressure={!memoryVisible}
             />
           )}
         </Fragment>
@@ -1615,6 +1892,11 @@ function CpuModuleLayout({
   onSelectComponent,
   cpuUpgrades,
   dispatch,
+  showCacheDeadlockHelp,
+  showCacheDeadlockCooldownHelp,
+  onDismissDeadlockHelp,
+  onDismissDeadlockCooldownHelp,
+  showCoreDeadlockPressure,
 }: {
   socket: VisibleCpuSocket;
   visible: VisibleState;
@@ -1627,6 +1909,11 @@ function CpuModuleLayout({
   onSelectComponent: (component: SelectedComponent) => void;
   cpuUpgrades: VisibleUpgrade[];
   dispatch: Dispatch;
+  showCacheDeadlockHelp?: boolean;
+  showCacheDeadlockCooldownHelp?: boolean;
+  onDismissDeadlockHelp?: () => void;
+  onDismissDeadlockCooldownHelp?: () => void;
+  showCoreDeadlockPressure?: boolean;
 }) {
   const grid = getCoreGridMetrics(socket.cores.length);
   const scheduler = schedulerVisible ? (
@@ -1645,6 +1932,11 @@ function CpuModuleLayout({
       onSelect={() => onSelectComponent("cache")}
       resources={visible.resources}
       dispatch={dispatch}
+      deadlockPressure={visible.metrics.deadlockPressure}
+      showDeadlockHelp={showCacheDeadlockHelp}
+      showDeadlockCooldownHelp={showCacheDeadlockCooldownHelp}
+      onDismissDeadlockHelp={onDismissDeadlockHelp}
+      onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
     />
   );
   const cores = (
@@ -1658,6 +1950,9 @@ function CpuModuleLayout({
       cpuUpgrades={cpuUpgrades}
       resources={visible.resources}
       dispatch={dispatch}
+      deadlockPressure={
+        showCoreDeadlockPressure ? visible.metrics.deadlockPressure : null
+      }
     />
   );
 
@@ -1684,6 +1979,60 @@ function CpuModuleLayout({
   );
 }
 
+function DeadlockCountdown({
+  pressure,
+  compact = false,
+}: {
+  pressure: VisibleState["metrics"]["deadlockPressure"];
+  compact?: boolean;
+}) {
+  if (pressure.seconds <= 0) return null;
+
+  const label = pressure.active
+    ? `${formatCountdownSeconds(pressure.remainingSeconds)} fail`
+    : pressure.lockout
+      ? `${formatCountdownSeconds(pressure.seconds)} lock`
+    : `${formatCountdownSeconds(pressure.seconds)} cool`;
+  const meterPercent = `${Math.round(clampMeter(pressure.progress) * 1000) / 10}%`;
+  const title = pressure.active
+    ? "Time left before all active processes are lost"
+    : pressure.lockout
+      ? "Processes cannot start until deadlock lockout reaches 0"
+      : `Deadlock cooldown draining at ${formatNumber(pressure.cooldownRate)}x`;
+
+  return (
+    <span
+      role="progressbar"
+      className={`deadlock-countdown ${compact ? "compact" : ""} ${
+        pressure.active ? "danger" : "cooldown"
+      }`}
+      title={title}
+      aria-label={title}
+      aria-valuemin={0}
+      aria-valuemax={pressure.limitSeconds}
+      aria-valuenow={Math.round(pressure.seconds * 10) / 10}
+      aria-valuetext={label}
+    >
+      <span className="deadlock-countdown-meter" aria-hidden="true">
+        <span style={{ width: meterPercent }} />
+      </span>
+      <span className="deadlock-countdown-label">{label}</span>
+    </span>
+  );
+}
+
+const shouldShowCacheDeadlockPressure = (
+  socket: VisibleCpuSocket,
+  pressure: VisibleState["metrics"]["deadlockPressure"],
+) =>
+  pressure.seconds > 0 &&
+  pressure.resource === "cache" &&
+  (pressure.cpuId === null || pressure.cpuId === socket.id);
+
+const shouldShowRamDeadlockPressure = (
+  pressure: VisibleState["metrics"]["deadlockPressure"],
+) => pressure.seconds > 0 && pressure.resource === "ram";
+
 function CpuPackage({
   socket,
   selected,
@@ -1692,6 +2041,7 @@ function CpuPackage({
   cpuUpgrades,
   resources,
   dispatch,
+  deadlockPressure,
   children,
 }: {
   socket: VisibleCpuSocket;
@@ -1701,6 +2051,7 @@ function CpuPackage({
   cpuUpgrades: VisibleUpgrade[];
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  deadlockPressure: VisibleState["metrics"]["deadlockPressure"];
   children: ReactNode;
 }) {
   const otherCpuUpgrades = cpuUpgrades.filter(
@@ -1708,9 +2059,16 @@ function CpuPackage({
   );
   const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
   const label = showSocketLabel ? socket.label : "CPU";
+  const cooldownActive =
+    shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
+    deadlockPressure.lockout;
 
   return (
-    <section className={`cpu-package ${selected ? "selected" : ""}`}>
+    <section
+      className={`cpu-package ${selected ? "selected" : ""} ${
+        socket.deadlocked ? "deadlocked" : ""
+      } ${cooldownActive ? "cooling-down" : ""}`}
+    >
       <button
         type="button"
         className="cpu-package-header"
@@ -1718,6 +2076,9 @@ function CpuPackage({
       >
         <Cpu size={14} />
         <span>{label}</span>
+        {shouldShowCacheDeadlockPressure(socket, deadlockPressure) && (
+          <DeadlockCountdown pressure={deadlockPressure} compact />
+        )}
         <span className="cpu-package-meta">
           <strong>{activeCount}</strong>/{socket.cores.length} active
         </span>
@@ -1819,6 +2180,7 @@ function CoreArraySection({
   cpuUpgrades,
   resources,
   dispatch,
+  deadlockPressure,
 }: {
   socket: VisibleCpuSocket;
   selectedCoreId: number | null;
@@ -1829,6 +2191,7 @@ function CoreArraySection({
   cpuUpgrades: VisibleUpgrade[];
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  deadlockPressure?: VisibleState["metrics"]["deadlockPressure"] | null;
 }) {
   const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
   const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
@@ -1845,19 +2208,31 @@ function CoreArraySection({
     ? socket.cores.map((core) => core.id)
     : undefined;
   const selectedClockCoreId = selectedAllCores ? undefined : selectedCore?.id;
+  const cooldownActive = deadlockPressure
+    ? shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
+      deadlockPressure.lockout
+    : false;
 
   return (
-    <section className={`core-array-section ${grid.fullWidth ? "full-width" : ""}`}>
+    <section
+      className={`core-array-section ${grid.fullWidth ? "full-width" : ""} ${
+        cooldownActive ? "cooling-down" : ""
+      }`}
+    >
       <div className="core-array-header">
         <span>Cores</span>
+        {deadlockPressure &&
+          shouldShowCacheDeadlockPressure(socket, deadlockPressure) && (
+            <DeadlockCountdown pressure={deadlockPressure} compact />
+          )}
         {allCoreTuningVisible && (
           <button
             type="button"
             className={`core-select-all-button ${selectedAllCores ? "active" : ""}`}
             onClick={onSelectAllCores}
             aria-pressed={selectedAllCores}
-            aria-label="Tune all core clocks"
-            title="Tune all core clocks"
+            aria-label="Tune all core frequencies"
+            title="Tune all core frequencies"
           >
             All
           </button>
@@ -1879,6 +2254,7 @@ function CoreArraySection({
             density={grid.density}
             selected={selectedAllCores || selectedCoreId === core.id}
             onSelect={() => onSelectCore(core.id)}
+            dispatch={dispatch}
           />
         ))}
       </div>
@@ -1891,7 +2267,7 @@ function CoreArraySection({
               dispatch={dispatch}
               coreId={selectedClockCoreId}
               coreIds={selectedClockCoreIds}
-              label={selectedAllCores ? "All clocks" : `C${selectedCore?.id ?? 1} clock`}
+              label={selectedAllCores ? "All Freq" : `C${selectedCore?.id ?? 1} Freq`}
               resources={resources}
             />
           )}
@@ -1914,28 +2290,62 @@ function CoreDie({
   density,
   selected,
   onSelect,
+  dispatch,
 }: {
   core: VisibleCore;
   density: CoreGridDensity;
   selected: boolean;
   onSelect: () => void;
+  dispatch: Dispatch;
 }) {
   const active = getCoreActiveTask(core);
   const progress =
     active?.coreProgress?.find((operation) => operation.coreId === core.id)?.progress ?? 0;
   const work = active?.name ?? "Idle";
+  const cancelActiveTask = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!active) return;
+
+    dispatch({
+      type: "cancelTask",
+      taskId: active.taskId,
+      instanceId: active.instanceId,
+    });
+  };
+  const selectOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onSelect();
+  };
 
   return (
-    <button
-      type="button"
-      className={`core-die ${active ? "running" : ""} ${selected ? "selected" : ""}`}
+    <div
+      role="button"
+      tabIndex={0}
+      className={`core-die ${active ? "running" : ""} ${
+        core.deadlocked ? "deadlocked" : ""
+      } ${selected ? "selected" : ""}`}
       onClick={onSelect}
+      onKeyDown={selectOnKeyDown}
       aria-pressed={selected}
-      title={`C${core.id} - ${formatClock(core.clockHz)} - ${work}`}
+      title={`C${core.id} - ${formatClock(core.clockHz)} - ${
+        core.deadlocked ? "Deadlocked" : work
+      }`}
     >
       <span className="core-die-head">
         <span className="core-label">C{core.id}</span>
         <span className="core-status-dot" aria-hidden="true" />
+        {active && (
+          <button
+            type="button"
+            className="core-cancel-button"
+            onClick={cancelActiveTask}
+            title={`Cancel ${active.name}`}
+            aria-label={`Cancel ${active.name} on core ${core.id}`}
+          >
+            <X size={11} />
+          </button>
+        )}
       </span>
       <span className="core-clock">
         <strong>{formatClock(core.clockHz)}</strong>
@@ -1948,7 +2358,7 @@ function CoreDie({
       <span className="die-progress" aria-hidden="true">
         <span style={{ width: `${clampMeter(progress) * 100}%` }} />
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -2012,43 +2422,88 @@ function EmptySocketSection({
 
 /* ============ CACHE SECTION ============ */
 
+function DeadlockHelpCaption({
+  kind = "deadlock",
+  onDismiss,
+}: {
+  kind?: "deadlock" | "cooldown";
+  onDismiss?: () => void;
+}) {
+  return (
+    <aside className="deadlock-help-caption" aria-live="polite">
+      {kind === "deadlock" ? (
+        <p>
+          Deadlock: this task is waiting for cache/RAM held by other work.
+          Cancel a task or add capacity to let it continue. Later scheduler
+          research can avoid or clean this up.
+        </p>
+      ) : (
+        <p>
+          Deadlock cooldown: if the timer reaches 10s, every active process is
+          lost and the lockout must drain to 0 before work can start again.
+          Resolve earlier to keep work running while the timer cools down.
+          Upgrade Deadlock Cooldown to drain it faster.
+        </p>
+      )}
+      <button type="button" onClick={onDismiss}>
+        Got it
+      </button>
+    </aside>
+  );
+}
+
 function CacheSection({
   socket,
   selected,
   onSelect,
   resources,
   dispatch,
+  deadlockPressure,
+  showDeadlockHelp,
+  showDeadlockCooldownHelp,
+  onDismissDeadlockHelp,
+  onDismissDeadlockCooldownHelp,
 }: {
   socket: VisibleCpuSocket;
   selected: boolean;
   onSelect: () => void;
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  deadlockPressure: VisibleState["metrics"]["deadlockPressure"];
+  showDeadlockHelp?: boolean;
+  showDeadlockCooldownHelp?: boolean;
+  onDismissDeadlockHelp?: () => void;
+  onDismissDeadlockCooldownHelp?: () => void;
 }) {
   const capacity = Math.max(socket.cacheBits, 1);
+  const cacheSegments = socket.cacheResidency.map(toCacheSegment);
   const cacheReservation = {
-    segments: socket.cacheResidency.map(
-      (segment): CacheSegment => ({
-        kind: getCacheSegmentKind(segment.memoryAction),
-        state: segment.state ?? "loaded",
-        coreId: segment.coreId,
-        bits: segment.bits,
-        progress: clampMeter(segment.progress ?? 1),
-        bufferProgress: clampMeter(segment.bufferProgress ?? 1),
-      }),
-    ),
+    segments: cacheSegments,
     reservedBits: socket.cacheUsedBits,
-    loadingBits: socket.cacheResidency
-      .filter((segment) => segment.state === "buffering" || segment.state === "loading")
-      .reduce((total, segment) => total + segment.bits, 0),
+    loadingBits: cacheSegments.reduce(
+      (total, segment) => total + segment.bufferBits,
+      0,
+    ),
   };
   const cacheUpgrade = socket.cacheUpgrade;
   const cacheSpeedUpgrade = socket.cacheSpeedUpgrade;
   const stateBits = getCacheStateBits(cacheReservation.segments);
-  const cacheState = getCachePrimaryState(cacheReservation.segments);
+  const cacheDeadlocked = socket.deadlockResource === "cache";
+  const cooldownActive =
+    shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
+    deadlockPressure.lockout;
+  const cacheState = cacheDeadlocked
+    ? "Deadlock"
+    : cooldownActive
+      ? "Cooldown"
+    : getCachePrimaryState(cacheReservation.segments);
 
   return (
-    <section className={`hw-section cache-section ${selected ? "selected" : ""}`}>
+    <section
+      className={`hw-section cache-section ${selected ? "selected" : ""} ${
+        cacheDeadlocked ? "deadlocked" : ""
+      } ${cooldownActive ? "cooling-down" : ""}`}
+    >
       <button type="button" className="hw-section-header" onClick={onSelect}>
         <HardDrive size={14} />
         <span>Cache</span>
@@ -2056,14 +2511,25 @@ function CacheSection({
           <strong>{cacheState}</strong>
         </span>
       </button>
+      {showDeadlockHelp && (
+        <DeadlockHelpCaption onDismiss={onDismissDeadlockHelp} />
+      )}
+      {!showDeadlockHelp && showDeadlockCooldownHelp && (
+        <DeadlockHelpCaption
+          kind="cooldown"
+          onDismiss={onDismissDeadlockCooldownHelp}
+        />
+      )}
 
       <div className="cache-stat-row">
-        <span className="stat">
-          <small>Cap</small>
-          <strong>{formatBits(capacity)}</strong>
+        <span className="stat cache-capacity-stat">
+          <small>Capacity</small>
+          <strong>
+            {formatBits(cacheReservation.reservedBits)} / {formatBits(capacity)}
+          </strong>
         </span>
         <span className="stat">
-          <small>Rate</small>
+          <small>Frequency</small>
           <strong>{formatClock(Math.round(1 * 1.45 ** (socket.cacheSpeedLevel - 1) * 10) / 10)}</strong>
         </span>
       </div>
@@ -2081,7 +2547,7 @@ function CacheSection({
               upgrade={cacheUpgrade}
               dispatch={dispatch}
               cpuId={socket.id}
-              label="Cache cap"
+              label="Size"
               control
               resources={resources}
             />
@@ -2091,7 +2557,7 @@ function CacheSection({
               upgrade={cacheSpeedUpgrade}
               dispatch={dispatch}
               cpuId={socket.id}
-              label="Cache Hz"
+              label="Freq"
               control
               resources={resources}
             />
@@ -2141,6 +2607,158 @@ function UpgradeChip({
 
 /* ============ SCHEDULER SECTION ============ */
 
+const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
+  fifo: "FIFO",
+  deadlockSafe: "Deadlock-safe",
+  shortestTask: "Shortest",
+  smallestMemory: "Smallest memory",
+};
+
+const schedulerKillPolicyLabels: Record<SchedulerKillPolicy, string> = {
+  deadlockedTask: "Deadlocked",
+  newestBlocker: "Newest blocker",
+  lowestProgress: "Lowest progress",
+};
+
+const formatCountdownSeconds = (seconds: number) =>
+  `${formatNumber(Math.max(0, seconds))}s`;
+
+const formatCoreTarget = (coreIds: number[]) => {
+  if (coreIds.length === 0) return "C?";
+  if (coreIds.length <= 2) return coreIds.map((coreId) => `C${coreId}`).join("+");
+
+  return `C${coreIds[0]}+${coreIds.length - 1}`;
+};
+
+function SchedulerWatchdogStatus({
+  watchdog,
+}: {
+  watchdog: SchedulerWatchdogPreview | null;
+}) {
+  if (!watchdog) return null;
+
+  const progress = clampMeter(watchdog.progress);
+  const progressPercent = Math.round(progress * 1000) / 10;
+  const coreTarget = formatCoreTarget(watchdog.victimCoreIds);
+  const title =
+    watchdog.victimInstanceId === watchdog.deadlockedInstanceId
+      ? `Auto-kill ${watchdog.victimTaskName} on ${coreTarget} to clear ${watchdog.resource} deadlock`
+      : `Auto-kill ${watchdog.victimTaskName} on ${coreTarget} blocking ${watchdog.deadlockedTaskName}`;
+
+  return (
+    <div className="scheduler-watchdog-status" aria-live="polite" title={title}>
+      <div className="scheduler-watchdog-copy">
+        <span>Auto-kill</span>
+        <em>{coreTarget}</em>
+        <strong>{watchdog.victimTaskName}</strong>
+        <small>in {formatCountdownSeconds(watchdog.secondsRemaining)}</small>
+      </div>
+      <div
+        className="scheduler-watchdog-meter"
+        role="progressbar"
+        aria-label={`Auto-kill countdown ${progressPercent}%`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progressPercent}
+      >
+        <span style={{ width: `${progressPercent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function SchedulerControls({
+  visible,
+  config,
+  target,
+  cpuId,
+  dispatch,
+}: {
+  visible: VisibleState;
+  config: VisibleCpuSocket["schedulerConfig"];
+  target: "cpu" | "system";
+  cpuId?: number;
+  dispatch: Dispatch;
+}) {
+  const showAutoKill = visible.flags.schedulerWatchdog;
+  const showPolicy = visible.flags.schedulerPolicies;
+  const showKillPolicy = visible.flags.schedulerWatchdog;
+
+  if (!showAutoKill && !showPolicy && !showKillPolicy) {
+    return null;
+  }
+
+  return (
+    <div className="scheduler-controls" aria-label="Scheduler controls">
+      {showPolicy && (
+        <label className="scheduler-control">
+          <span>Policy</span>
+          <select
+            value={config.policy}
+            onChange={(event) =>
+              dispatch({
+                type: "setSchedulerPolicy",
+                target,
+                cpuId,
+                policy: event.target.value as SchedulerPolicy,
+              })
+            }
+          >
+            {(Object.keys(schedulerPolicyLabels) as SchedulerPolicy[]).map((policy) => (
+              <option key={policy} value={policy}>
+                {schedulerPolicyLabels[policy]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {showAutoKill && (
+        <label className="scheduler-control checkbox">
+          <input
+            type="checkbox"
+            checked={config.autoKillEnabled}
+            onChange={(event) =>
+              dispatch({
+                type: "setSchedulerAutoKill",
+                target,
+                cpuId,
+                enabled: event.target.checked,
+              })
+            }
+          />
+          <span>Auto-kill</span>
+        </label>
+      )}
+
+      {showKillPolicy && (
+        <label className="scheduler-control">
+          <span>Kill</span>
+          <select
+            value={config.killPolicy}
+            onChange={(event) =>
+              dispatch({
+                type: "setSchedulerKillPolicy",
+                target,
+                cpuId,
+                killPolicy: event.target.value as SchedulerKillPolicy,
+              })
+            }
+          >
+            {(Object.keys(schedulerKillPolicyLabels) as SchedulerKillPolicy[]).map(
+              (policy) => (
+                <option key={policy} value={policy}>
+                  {schedulerKillPolicyLabels[policy]}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+}
+
 function SchedulerSection({
   socket,
   visible,
@@ -2155,19 +2773,32 @@ function SchedulerSection({
   dispatch: Dispatch;
 }) {
   const queueItems = getQueueDisplayItems(visible, socket);
-  const waitingCount = socket.queuedCount;
   const slotCapacity = socket.schedulerSlots;
-  const schedulerUpgrade = socket.schedulerSlotUpgrade;
+  const schedulerUpgrades = [
+    socket.schedulerSlotUpgrade,
+    socket.deadlockRecoveryUpgrade,
+  ].filter((upgrade): upgrade is VisibleUpgrade => Boolean(upgrade));
 
   return (
-    <section className={`hw-section scheduler-section ${selected ? "selected" : ""}`}>
-      <button type="button" className="hw-section-header" onClick={onSelect}>
-        <ListTodo size={14} />
-        <span>Scheduler</span>
-        <span className="hw-section-meta">
-          <strong>{formatNumber(waitingCount)}</strong>/{formatNumber(slotCapacity)} used
-        </span>
-      </button>
+    <section
+      className={`hw-section scheduler-section ${selected ? "selected" : ""} ${
+        socket.deadlocked ? "deadlocked" : ""
+      }`}
+    >
+      <div className="hw-section-header-row scheduler-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <ListTodo size={14} />
+          <span>Scheduler</span>
+        </button>
+        <SchedulerWatchdogStatus watchdog={socket.watchdog} />
+        <SchedulerControls
+          visible={visible}
+          config={socket.schedulerConfig}
+          target="cpu"
+          cpuId={socket.id}
+          dispatch={dispatch}
+        />
+      </div>
 
       <QueuePreview
         items={queueItems}
@@ -2176,9 +2807,9 @@ function SchedulerSection({
         dispatch={dispatch}
       />
 
-      {schedulerUpgrade && (
+      {schedulerUpgrades.length > 0 && (
         <InlineUpgradeRow
-          upgrades={[schedulerUpgrade]}
+          upgrades={schedulerUpgrades}
           resources={visible.resources}
           dispatch={dispatch}
           cpuId={socket.id}
@@ -2291,7 +2922,9 @@ function QueuePreview({
 
             return (
               <small
-                className={`queue-slot-cell ${item.active ? "active" : "pending"}`}
+                className={`queue-slot-cell ${item.active ? "active" : "pending"} ${
+                  item.deadlocked ? "deadlocked" : ""
+                }`}
                 key={`${item.id}-${index}`}
                 title={`${item.name}: ${item.waitingReason}`}
               >
@@ -2344,16 +2977,27 @@ function SystemSchedulerSection({
 }) {
   const queueItems = getSystemQueueDisplayItems(visible);
   const slotCapacity = getVisibleSystemSchedulerSlots(visible);
+  const deadlocked = queueItems.some((item) => item.deadlocked);
 
   return (
-    <section className={`hw-section scheduler-section system-scheduler-section ${selected ? "selected" : ""}`}>
-      <button type="button" className="hw-section-header" onClick={onSelect}>
-        <ListTodo size={14} />
-        <span>System Scheduler</span>
-        <span className="hw-section-meta">
-          <strong>{formatNumber(queueItems.length)}</strong>/{formatNumber(slotCapacity)}
-        </span>
-      </button>
+    <section
+      className={`hw-section scheduler-section system-scheduler-section ${
+        selected ? "selected" : ""
+      } ${deadlocked ? "deadlocked" : ""}`}
+    >
+      <div className="hw-section-header-row scheduler-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <ListTodo size={14} />
+          <span>System Scheduler</span>
+        </button>
+        <SchedulerWatchdogStatus watchdog={visible.metrics.systemSchedulerWatchdog} />
+        <SchedulerControls
+          visible={visible}
+          config={visible.hardware.systemSchedulerConfig}
+          target="system"
+          dispatch={dispatch}
+        />
+      </div>
 
       <QueuePreview
         items={queueItems}
@@ -2384,6 +3028,10 @@ function RamSection({
   onSelectAllSticks,
   upgrades,
   dispatch,
+  showDeadlockHelp,
+  showDeadlockCooldownHelp,
+  onDismissDeadlockHelp,
+  onDismissDeadlockCooldownHelp,
 }: {
   visible: VisibleState;
   selected: boolean;
@@ -2394,6 +3042,10 @@ function RamSection({
   onSelectAllSticks: () => void;
   upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
+  showDeadlockHelp?: boolean;
+  showDeadlockCooldownHelp?: boolean;
+  onDismissDeadlockHelp?: () => void;
+  onDismissDeadlockCooldownHelp?: () => void;
 }) {
   const status = getSystemLoad(visible);
   const capacity = Math.max(getVisibleRamBits(visible), 1);
@@ -2402,6 +3054,10 @@ function RamSection({
   const ramReservation = getRamReservation(visible);
   const ramSlots = visible.metrics.ramSlots;
   const ramSegmentsBySlot = getRamSegmentsBySlot(ramSlots, ramReservation.segments);
+  const moduleFrequencyLabel = getRamModuleFrequencyLabel(
+    ramSlots,
+    visible.hardware.ramSpeedMt,
+  );
   const stickCount = ramSlots.length;
   const selectedSlot =
     ramSlots.find((slot) => slot.id === selectedRamStickId) ?? ramSlots[0] ?? null;
@@ -2421,28 +3077,50 @@ function RamSection({
     : selectedSlot
       ? `R${selectedSlot.id}`
       : "RAM";
+  const ramDeadlocked = visible.metrics.deadlocks.some(
+    (deadlock) => deadlock.resource === "ram",
+  );
+  const cooldownActive =
+    shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) &&
+    visible.metrics.deadlockPressure.lockout;
 
   return (
-    <section className={`hw-section memory-section ${tone} ${selected ? "selected" : ""}`}>
+    <section
+      className={`hw-section memory-section ${tone} ${selected ? "selected" : ""} ${
+        ramDeadlocked ? "deadlocked" : ""
+      } ${cooldownActive ? "cooling-down" : ""}`}
+    >
       <button type="button" className="hw-section-header" onClick={onSelect}>
         <MemoryStick size={14} />
         <span>RAM</span>
+        {shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) && (
+          <DeadlockCountdown pressure={visible.metrics.deadlockPressure} compact />
+        )}
         <span className="hw-section-meta">
           <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
         </span>
       </button>
+      {showDeadlockHelp && (
+        <DeadlockHelpCaption onDismiss={onDismissDeadlockHelp} />
+      )}
+      {!showDeadlockHelp && showDeadlockCooldownHelp && (
+        <DeadlockHelpCaption
+          kind="cooldown"
+          onDismiss={onDismissDeadlockCooldownHelp}
+        />
+      )}
 
       <div className="cache-stat-row ram-stat-row">
         <span className="stat">
-          <small>Cap</small>
+          <small>Capacity</small>
           <strong>{formatBits(capacity)}</strong>
         </span>
         <span className="stat">
-          <small>Bus</small>
-          <strong>{formatClock(visible.hardware.ramSpeedMt)}</strong>
+          <small>Module Freq</small>
+          <strong>{moduleFrequencyLabel}</strong>
         </span>
         <span className="stat">
-          <small>Sticks</small>
+          <small>Modules</small>
           <strong>{formatNumber(stickCount)}</strong>
         </span>
         <button
@@ -2483,7 +3161,7 @@ function RamSection({
           {ramUpgrade && (
             <UpgradeChip
               upgrade={ramUpgrade}
-              label="New stick"
+              label="Module"
               control
               resources={visible.resources}
               dispatch={dispatch}
@@ -2492,7 +3170,7 @@ function RamSection({
           {ramCapacityUpgrade && (
             <UpgradeChip
               upgrade={ramCapacityUpgrade}
-              label={`${upgradeTargetLabel} cap`}
+              label={`${upgradeTargetLabel} Size`}
               control
               ramStickId={selectedAllRamSticks ? undefined : selectedSlot?.id}
               ramStickIds={selectedAllRamSticks ? selectedStickIds : undefined}
@@ -2503,7 +3181,7 @@ function RamSection({
           {selectedRamSpeedUpgrade && (
             <UpgradeChip
               upgrade={selectedRamSpeedUpgrade}
-              label={`${upgradeTargetLabel} Hz`}
+              label={`${upgradeTargetLabel} Freq`}
               control
               ramStickId={selectedAllRamSticks ? undefined : selectedSlot?.id}
               ramStickIds={selectedAllRamSticks ? selectedStickIds : undefined}
@@ -2546,11 +3224,11 @@ function RamStickCard({
       </span>
       <span className="ram-stick-card-stats">
         <span>
-          <small>Cap</small>
+          <small>Size</small>
           <strong>{formatBits(slot.sizeBits)}</strong>
         </span>
         <span>
-          <small>Hz</small>
+          <small>Freq</small>
           <strong>{formatClock(slot.speedMt)}</strong>
         </span>
       </span>
@@ -2958,9 +3636,6 @@ export function TaskBay({
               </div>
               {group.tasks.map((task) => {
                 const canStart = getTaskCanUseAction(task, mode);
-                const activeTask = getActiveTaskFor(task, activeTasks);
-                const queued = queue.some((entry) => getQueueTaskId(entry) === task.id);
-                const canCancel = Boolean(activeTask) || queued;
                 const disabled = selectedCoreBusy || !canStart;
 
                 return (
@@ -2969,7 +3644,6 @@ export function TaskBay({
                     task={task}
                     mode={mode}
                     state={getTaskState(task, activeTasks, queue)}
-                    progress={getTaskProgress(task, activeTasks, queue)}
                     disabled={disabled}
                     disabledReason={
                       disabled
@@ -2979,19 +3653,6 @@ export function TaskBay({
                         : null
                     }
                     onRun={() => runTask(task)}
-                    canCancel={canCancel}
-                    onCancel={() => {
-                      if (activeTask) {
-                        dispatch({
-                          type: "cancelTask",
-                          taskId: task.id,
-                          instanceId: activeTask.instanceId,
-                        });
-                        return;
-                      }
-
-                      dispatch({ type: "cancelQueuedTask", taskId: task.id });
-                    }}
                     onInspect={() => setInspectedTaskId(task.id)}
                     memoryUnlocked={memoryUnlocked}
                   />
@@ -3018,24 +3679,18 @@ function TaskCard({
   task,
   mode,
   state,
-  progress,
   disabled,
   disabledReason,
   onRun,
-  canCancel,
-  onCancel,
   onInspect,
   memoryUnlocked,
 }: {
   task: UiTask;
   mode: QueueMode;
   state: TaskState;
-  progress: number;
   disabled: boolean;
   disabledReason: string | null;
   onRun: () => void;
-  canCancel: boolean;
-  onCancel: () => void;
   onInspect: () => void;
   memoryUnlocked: boolean;
 }) {
@@ -3050,9 +3705,10 @@ function TaskCard({
       ? "Queue"
       : "Assign";
   const buttonLabel = disabled && disabledReason ? disabledReason : commandLabel;
+  const cardState = state === "deadlock" ? "active" : state;
 
   return (
-    <article className={`task-card ${task.kind ?? "task"} ${state}`}>
+    <article className={`task-card ${task.kind ?? "task"} ${cardState}`}>
       <div className="task-row-top">
         <strong>{task.name}</strong>
       </div>
@@ -3068,10 +3724,6 @@ function TaskCard({
           {rewards.length > 0 && <ResourceCost costs={rewards} compact />}
       </div>
 
-      <span className="task-progress" aria-hidden="true">
-        <span style={{ width: `${progress * 100}%` }} />
-      </span>
-
       <div className="task-action-row">
         <button
           type="button"
@@ -3083,17 +3735,6 @@ function TaskCard({
           {!disabledReason && <Play size={11} />}
           <span>{buttonLabel}</span>
         </button>
-        {canCancel && (
-          <button
-            type="button"
-            className="task-cancel-button"
-            onClick={onCancel}
-            title={`Cancel ${task.name}`}
-            aria-label={`Cancel ${task.name}`}
-          >
-            <X size={13} />
-          </button>
-        )}
         <button
           type="button"
           className="task-inspect-button"
@@ -3592,7 +4233,7 @@ function getNodeRuntime(node: UiTaskGraphNode, activeTask: UiActiveTask | null) 
       return operation.status === "loadingRam" || operation.memoryState === "ramLoad";
     }
     if (node.kind === "execute") {
-      return operation.status === "running" || operation.status === "rerunning";
+      return operation.status === "running";
     }
     return true;
   };
@@ -3636,7 +4277,6 @@ const getCoreSegmentColor = (coreId: number, alpha: number) =>
 
 const cacheStateLabels: Array<{ state: CacheSegmentState; label: string }> = [
   { state: "buffering", label: "Buffer" },
-  { state: "loading", label: "Load" },
   { state: "loaded", label: "Ready" },
 ];
 
@@ -3676,11 +4316,27 @@ function CachePipeline({
   stateBits: Record<CacheSegmentState, number>;
   capacityBits: number;
 }) {
+  const getLaneSegments = (state: CacheSegmentState) =>
+    segments.flatMap((segment) => {
+      const bits = state === "buffering" ? segment.bufferBits : segment.readyBits;
+      if (bits <= 0) return [];
+
+      return [
+        {
+          ...segment,
+          state,
+          bits,
+          progress: state === "buffering" ? 0 : 1,
+          bufferProgress: state === "buffering" ? 1 : 0,
+        },
+      ];
+    });
+
   return (
     <div className="cache-meter-block cache-pipeline" aria-label="Cache states">
       {cacheStateLabels.map(({ state, label }) => {
         const bits = stateBits[state];
-        const laneSegments = segments.filter((segment) => segment.state === state);
+        const laneSegments = getLaneSegments(state);
 
         return (
           <div

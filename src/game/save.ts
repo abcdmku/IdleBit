@@ -3,6 +3,7 @@ import {
   createCpuHardwareState,
   createInitialGameState,
   createRamSticksForLevel,
+  createSchedulerConfig,
   getCacheBits,
   getCacheBytes,
   getClockHz,
@@ -14,7 +15,14 @@ import {
   syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
-import type { ActiveTask, GameFlags, GameState, ResearchId } from "./types";
+import type {
+  ActiveCoreOperation,
+  ActiveTask,
+  GameFlags,
+  GameState,
+  OperationRuntimeStatus,
+  ResearchId,
+} from "./types";
 
 export interface SaveEnvelope {
   version: 1;
@@ -47,6 +55,8 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.benchmarks) completed.push("benchmarkHarness");
   if (flags.multiCore) completed.push("multiCore");
   if (flags.basicQueue) completed.push("localScheduler");
+  if (flags.schedulerWatchdog) completed.push("schedulerWatchdog");
+  if (flags.schedulerPolicies) completed.push("schedulerPolicies");
   if (flags.scheduler) completed.push("systemScheduler");
   if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");
@@ -63,6 +73,8 @@ const validResearchIds = [
   "benchmarkHarness",
   "multiCore",
   "localScheduler",
+  "schedulerWatchdog",
+  "schedulerPolicies",
   "systemScheduler",
   "ramControl",
   "systemBus",
@@ -93,6 +105,45 @@ const isActiveTask = (value: unknown): value is ActiveTask => {
   );
 };
 
+const normalizeOperationStatus = (status: unknown): OperationRuntimeStatus => {
+  if (
+    status === "loadingCache" ||
+    status === "loadingRam" ||
+    status === "running" ||
+    status === "waitingMemory" ||
+    status === "waitingBarrier" ||
+    status === "deadlocked" ||
+    status === "complete"
+  ) {
+    return status;
+  }
+
+  if (status === "rerunning" || status === "restarting") return "running";
+  return "complete";
+};
+
+const normalizeActiveOperation = (
+  operation: ActiveCoreOperation,
+): ActiveCoreOperation => {
+  const status = normalizeOperationStatus(operation.status);
+  const rawMemoryState = operation.memoryState as string;
+  const memoryState =
+    status === "deadlocked"
+      ? "deadlock"
+      : rawMemoryState === "rerun" || rawMemoryState === "restart"
+        ? "ready"
+        : operation.memoryState;
+
+  return {
+    ...operation,
+    status,
+    memoryState,
+    lockResource: operation.lockResource ?? null,
+    lockReason: operation.lockReason ?? null,
+    deadlockSeconds: operation.deadlockSeconds ?? 0,
+  };
+};
+
 const normalizeState = (state: LegacyState): GameState => {
   const fresh = createInitialGameState();
   const hardware: LegacyHardwareState = state.hardware ?? {};
@@ -121,7 +172,12 @@ const normalizeState = (state: LegacyState): GameState => {
   );
   const cpus =
     hardware.cpus && hardware.cpus.length > 0
-      ? hardware.cpus
+      ? hardware.cpus.map((cpu) =>
+          createCpuHardwareState(cpu.id, cpu.coreIds, {
+            ...cpu,
+            schedulerConfig: createSchedulerConfig(cpu.schedulerConfig),
+          }),
+        )
       : [
           createCpuHardwareState(
             1,
@@ -159,6 +215,7 @@ const normalizeState = (state: LegacyState): GameState => {
     .map((task) => ({
       ...task,
       schedulerQueued: task.schedulerQueued === true,
+      coreOperations: task.coreOperations.map(normalizeActiveOperation),
     }));
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
@@ -178,6 +235,9 @@ const normalizeState = (state: LegacyState): GameState => {
       cpus,
       schedulerSlots,
       systemSchedulerSlots,
+      systemSchedulerConfig: createSchedulerConfig(hardware.systemSchedulerConfig),
+      deadlockRecoveryLevel:
+        hardware.deadlockRecoveryLevel ?? fresh.hardware.deadlockRecoveryLevel,
       ramLevel,
       ramBits,
       ramBytes: ramLevel > 0 ? getRamBytes(ramLevel) : 0,
@@ -206,6 +266,10 @@ const normalizeState = (state: LegacyState): GameState => {
       ...fresh.resources,
       ...state.resources,
     },
+    deadlockPressureSeconds: state.deadlockPressureSeconds ?? 0,
+    deadlockPressureResource: state.deadlockPressureResource ?? null,
+    deadlockPressureCpuId: state.deadlockPressureCpuId ?? null,
+    deadlockProcessLockout: state.deadlockProcessLockout ?? false,
     research: {
       completed: researchCompleted,
     },

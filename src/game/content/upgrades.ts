@@ -61,6 +61,11 @@ const systemSchedulerSlotCosts = (slotCount: number): Cost[] => [
   data(12 * 1.5 ** slotCount),
 ];
 
+const deadlockRecoveryCosts = (purchaseCount: number): Cost[] => [
+  credits(95 * 1.7 ** purchaseCount),
+  data(24 * 1.48 ** purchaseCount),
+];
+
 const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
   credits(3 * 1.45 ** purchaseCount),
   data(6 * 1.78 ** purchaseCount),
@@ -158,7 +163,7 @@ const getNextRamHardware = (
       : (state.hardware.ramSpeedLevel ?? 1);
   const ramSpeedMt =
     ramSticks.length > 0
-      ? ramSticks.reduce((total, stick) => total + stick.speedMt, 0)
+      ? Math.max(...ramSticks.map((stick) => stick.speedMt))
       : getRamSpeedMt(ramSpeedLevel);
 
   return {
@@ -292,6 +297,9 @@ const count = (
   }
   if (id === "systemSchedulerSlot") {
     return state.hardware.systemSchedulerSlots ?? 0;
+  }
+  if (id === "deadlockRecovery") {
+    return state.hardware.deadlockRecoveryLevel ?? 0;
   }
   if (id === "ram") return state.hardware.ramLevel;
   if (id === "ramCapacity") {
@@ -655,6 +663,33 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
 
       return setHardware(state, {
         systemSchedulerSlots: slots - 1,
+      });
+    },
+  },
+  {
+    id: "deadlockRecovery",
+    name: "Deadlock Cooldown",
+    component: "scheduler",
+    accent: "violet",
+    requirement: (state) => state.flags.schedulerWatchdog,
+    cost: (state) =>
+      deadlockRecoveryCosts(Math.max(0, state.hardware.deadlockRecoveryLevel ?? 0)),
+    buy: (state) =>
+      setHardware(state, {
+        deadlockRecoveryLevel: (state.hardware.deadlockRecoveryLevel ?? 0) + 1,
+      }),
+    refund: (state) =>
+      (state.hardware.deadlockRecoveryLevel ?? 0) > 0
+        ? halfRefund(
+            deadlockRecoveryCosts((state.hardware.deadlockRecoveryLevel ?? 1) - 1),
+          )
+        : [],
+    downgrade: (state) => {
+      const deadlockRecoveryLevel = state.hardware.deadlockRecoveryLevel ?? 0;
+      if (deadlockRecoveryLevel <= 0) return state;
+
+      return setHardware(state, {
+        deadlockRecoveryLevel: deadlockRecoveryLevel - 1,
       });
     },
   },

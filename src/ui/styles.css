@@ -4570,6 +4570,23 @@ h1, h2, p, dl, dt, dd { margin: 0; }
     overscroll-behavior: contain;
   }
 
+  /* section tabs already label the panel — hide the in-panel title chrome */
+  .hw-panel > .panel-header { display: none; }
+
+  .tasks-panel .panel-header > svg:first-child,
+  .tasks-panel .panel-header > span:first-of-type,
+  .research-panel .panel-header > svg:first-child,
+  .research-panel .panel-header > span:first-of-type,
+  .research-panel .panel-header > small {
+    display: none;
+  }
+
+  /* tighten the remaining controls in the header */
+  .tasks-panel .panel-header,
+  .research-panel .panel-header {
+    padding: 6px 10px;
+  }
+
   .panel-header { padding: 8px 12px; }
   .panel-body { padding: 10px; }
 
@@ -5623,19 +5640,17 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 }
 
 @media (max-width: 760px) {
+  /* on mobile, the floating bar joins the workbench flex column
+     so it takes its own vertical space rather than overlaying content */
   .pinned-task-bar.floating {
-    left: 6px;
-    right: 6px;
-    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
-    max-height: min(60vh, 320px);
-  }
-
-  /* leave room so the bottom bar doesn't cover scrollable content */
-  .app-shell:has(.pinned-task-bar.floating) .panel-body {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .app-shell:has(.pinned-task-bar.floating.expanded) .panel-body {
-    padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+    position: static;
+    flex: 0 0 auto;
+    margin: 0;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    max-height: min(45vh, 280px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

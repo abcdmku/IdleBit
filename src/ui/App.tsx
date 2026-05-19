@@ -3,6 +3,7 @@ import { Check, TriangleAlert, X } from "lucide-react";
 import {
   applyAction,
   createInitialGameState,
+  createRackReadyGameState,
   deriveVisibleState,
   deserializeSave,
   serializeSave,
@@ -22,6 +23,8 @@ const CREDIT_FAILURE_MODAL_SEEN_KEY = "ui.credit-failure-modal-seen-v1";
 const PINNED_TASKS_KEY = "ui.pinned-tasks-v1";
 const SEEN_TASKS_KEY = "ui.seen-tasks-v1";
 const SEEN_RESEARCH_KEY = "ui.seen-research-v1";
+const SEED_PARAM = "seed";
+const RACK_READY_SEED = "rack-ready";
 
 type UnlockSection = "tasks" | "research";
 
@@ -99,6 +102,54 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const seed = new URLSearchParams(window.location.search).get(SEED_PARAM);
+
+    if (seed === RACK_READY_SEED) {
+      void (async () => {
+        const seededState = createRackReadyGameState();
+
+        try {
+          await Promise.all([
+            idleBitPersistence.set(SAVE_KEY, serializeSave(seededState)),
+            idleBitPersistence.set(DEADLOCK_HELP_KEY, false),
+            idleBitPersistence.set(DEADLOCK_COOLDOWN_HELP_KEY, false),
+            idleBitPersistence.set(PSU_FAILURE_HELP_KEY, false),
+            idleBitPersistence.set(PSU_FAILURE_MODAL_SEEN_KEY, false),
+            idleBitPersistence.set(CREDIT_FAILURE_MODAL_SEEN_KEY, false),
+            idleBitPersistence.set(PINNED_TASKS_KEY, []),
+            idleBitPersistence.set(SEEN_TASKS_KEY, []),
+            idleBitPersistence.set(SEEN_RESEARCH_KEY, []),
+          ]);
+        } catch {
+          // Seeding should still work in memory if persistence is unavailable.
+        }
+
+        if (!cancelled) {
+          stateRef.current = seededState;
+          setState(seededState);
+          setSelectedComponent("core:1");
+          setDeadlockHelpSeen(false);
+          setDeadlockCooldownHelpSeen(false);
+          setPsuFailureHelpSeen(false);
+          setPsuFailureModalSeen(false);
+          setCreditFailureModalSeen(false);
+          setPinnedTaskIds([]);
+          setSeenTaskIds([]);
+          setSeenResearchIds([]);
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.hash}`,
+          );
+          persistenceReadyRef.current = true;
+          setResourceEffectsReady(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     Promise.all([
       idleBitPersistence.get<string>(SAVE_KEY),

@@ -1,0 +1,138 @@
+import { createInitialGameState, createSystemState, getCacheBytes, getClockHz } from "./progression";
+import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
+import type { GameState } from "./types";
+
+export const createRackReadyGameState = (): GameState => {
+  const base = createInitialGameState();
+  const hardware: GameState["hardware"] = {
+    ...base.hardware,
+    clockLevel: 4,
+    clockHz: getClockHz(4),
+    coreClockLevels: {
+      1: 4,
+      2: 4,
+      3: 4,
+      4: 4,
+    },
+    cpus: [
+      {
+        ...base.hardware.cpus[0]!,
+        coreIds: [1, 2, 3, 4],
+        cacheLevel: 7,
+        cacheBits: 64,
+        cacheBytes: getCacheBytes(7),
+        cacheSpeedLevel: 3,
+        schedulerSlots: 4,
+      },
+    ],
+    cacheLevel: 7,
+    cacheBits: 64,
+    cacheBytes: getCacheBytes(7),
+    cacheSpeedLevel: 3,
+    cores: 4,
+    schedulerSlots: 4,
+    systemSchedulerSlots: 2,
+    secondCpu: true,
+    ramLevel: 4,
+    ramBits: 1024,
+    ramBytes: 128,
+    ramSpeedLevel: 2,
+    ramSpeedMt: 2,
+    ramSticks: [1, 2, 3, 4].map((id) => ({
+      id,
+      level: 1,
+      bits: 256,
+      bytes: 32,
+      speedLevel: 2,
+      speedMt: 2,
+    })),
+    psuLevel: 9,
+    psuWatts: 0.86,
+  };
+  const firstSystem = createSystemState(
+    1,
+    "Rack-Ready Workstation",
+    "starterNode",
+    hardware,
+  );
+  const state: GameState = {
+    ...base,
+    resources: {
+      credits: 20_000,
+      data: 20_000,
+    },
+    selectedSystemId: 1,
+    rack: {
+      nextSystemId: 2,
+    },
+    systems: [firstSystem],
+    hardware,
+    flags: {
+      ...base.flags,
+      cache: true,
+      benchmarks: true,
+      multiCore: true,
+      basicQueue: true,
+      scheduler: true,
+      secondCpu: true,
+      systemStats: true,
+      cron: true,
+      systemCatalog: true,
+      customMachineAssembly: false,
+    },
+    research: {
+      completed: [
+        "decodeLogic",
+        "bitMutation",
+        "shiftOperations",
+        "byteOperations",
+        "cacheMapping",
+        "benchmarkHarness",
+        "multiCore",
+        "localScheduler",
+        "ramControl",
+        "systemScheduler",
+        "systemBus",
+        "cronScheduler",
+        "systemCatalog",
+      ],
+    },
+    completedTasks: {
+      fetchBit: 3,
+      decodeBit: 2,
+      bitFlip: 4,
+      bitShift: 4,
+      byteCopy: 2,
+      packetCheck: 1,
+      tinyChecksum: 1,
+      memoryScrub: 1,
+      queueCompaction: 1,
+      powerTelemetry: 1,
+      busMirror: 1,
+    },
+    completedJobs: {
+      fetchBit: 3,
+      decodeBit: 2,
+      bitFlip: 4,
+      bitShift: 4,
+      byteCopy: 2,
+      packetCheck: 1,
+      tinyChecksum: 1,
+      memoryScrub: 1,
+      queueCompaction: 1,
+      powerTelemetry: 1,
+      busMirror: 1,
+    },
+    completedBenchmarks: [
+      "microBenchmark",
+      "parallelismBenchmark",
+      "multiCoreBenchmark",
+    ],
+    activeTasks: [],
+    activeJobs: [],
+    cacheResidency: [],
+    queue: [],
+  };
+
+  return materializeSystem(syncSelectedSystemRuntime(state), 1);
+};

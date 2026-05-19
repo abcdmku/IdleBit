@@ -1,4 +1,5 @@
 export { createInitialGameState } from "./progression";
+export { createRackReadyGameState } from "./devSeeds";
 export {
   acknowledgePowerFailure,
   applyAction,

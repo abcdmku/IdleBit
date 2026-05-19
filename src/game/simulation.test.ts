@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAction,
   createInitialGameState,
+  createRackReadyGameState,
   deriveVisibleState,
   deserializeSave,
   tickGame,
@@ -1006,6 +1007,35 @@ describe("IdleBit simulation", () => {
     expect(restored.research.completed).toEqual([]);
     expect(restored.flags.scheduler).toBe(false);
     expect(restored.systems).toHaveLength(1);
+  });
+
+  it("creates a rack-ready seed just before multi-system expansion", () => {
+    const state = createRackReadyGameState();
+    const visible = deriveVisibleState(state);
+
+    expect(state.version).toBe(2);
+    expect(state.resources).toEqual({ credits: 20_000, data: 20_000 });
+    expect(state.flags.systemCatalog).toBe(true);
+    expect(state.flags.customMachineAssembly).toBe(false);
+    expect(state.systems).toHaveLength(1);
+    expect(state.rack.nextSystemId).toBe(2);
+    expect(visible.rack.unlocked).toBe(true);
+    expect(visible.rack.systems).toHaveLength(1);
+    expect(visible.rack.systems[0]?.name).toBe("Rack-Ready Workstation");
+    expect(visible.machineBuilder.templates.map((template) => template.id)).toEqual([
+      "starterNode",
+      "compileBox",
+    ]);
+    expect(visible.tasks.some((task) => task.id === "compileCode")).toBe(true);
+
+    const expanded = applyAction(state, {
+      type: "buyMachineTemplate",
+      templateId: "compileBox",
+    });
+
+    expect(expanded.systems).toHaveLength(2);
+    expect(expanded.selectedSystemId).toBe(2);
+    expect(expanded.resources.credits).toBeLessThan(state.resources.credits);
   });
 
   it("clean-resets stale pre-v2 task references before render and tick", () => {

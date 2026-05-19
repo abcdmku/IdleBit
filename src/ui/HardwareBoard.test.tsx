@@ -5,6 +5,7 @@ import {
   applyAction,
   createInitialGameState,
   deriveVisibleState,
+  deserializeSave,
   serializeSave,
   tickGame,
   type GameState,
@@ -1440,7 +1441,27 @@ describe("App failure modals", () => {
       Reflect.deleteProperty(window, "matchMedia");
     }
     await idleBitPersistence.clear();
+    window.history.replaceState(null, "", "/");
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("creates a rack-ready session from the seed URL", async () => {
+    window.history.pushState(null, "", "/?seed=rack-ready");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const rawSave = await idleBitPersistence.get<string>("save-v3");
+    const restored = deserializeSave(rawSave);
+
+    expect(window.location.search).toBe("");
+    expect(restored.resources).toEqual({ credits: 20_000, data: 20_000 });
+    expect(restored.flags.systemCatalog).toBe(true);
+    expect(restored.flags.customMachineAssembly).toBe(false);
+    expect(restored.systems).toHaveLength(1);
+    expect(container.textContent).toContain("Rack-Ready Workstation");
   });
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {

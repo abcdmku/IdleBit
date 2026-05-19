@@ -3,6 +3,7 @@ import { Activity, Cpu, ListTodo, TriangleAlert } from "lucide-react";
 import type { DeadlockResource, VisibleState } from "../game";
 import {
   HardwareBoard,
+  PinnedTaskBar,
   ResearchPanel,
   ResourceHud,
   TaskBay,
@@ -29,6 +30,10 @@ interface SystemWorkbenchProps {
   onDismissDeadlockCooldownHelp?: () => void;
   onDismissPsuFailureHelp?: () => void;
   onDismissPsuFailureNotice?: () => void;
+  pinnedTaskIds: string[];
+  onTogglePinnedTask: (taskId: string) => void;
+  onUnpinTask: (taskId: string) => void;
+  onClearPinnedTasks: () => void;
 }
 
 function useIsMobile(breakpoint = 760) {
@@ -75,6 +80,10 @@ export function SystemWorkbench({
   onDismissDeadlockCooldownHelp,
   onDismissPsuFailureHelp,
   onDismissPsuFailureNotice,
+  pinnedTaskIds,
+  onTogglePinnedTask,
+  onUnpinTask,
+  onClearPinnedTasks,
 }: SystemWorkbenchProps) {
   const component = getVisibleSelection(visible, selectedComponent);
   const isMobile = useIsMobile();
@@ -166,7 +175,19 @@ export function SystemWorkbench({
             selectedComponent={component}
             onSelectComponent={onSelectComponent}
             dispatch={dispatch}
+            pinnedTaskIds={pinnedTaskIds}
+            onTogglePinnedTask={onTogglePinnedTask}
           />
+          {!isMobile && (
+            <PinnedTaskBar
+              visible={visible}
+              pinnedTaskIds={pinnedTaskIds}
+              onUnpinTask={onUnpinTask}
+              onClearPinnedTasks={onClearPinnedTasks}
+              dispatch={dispatch}
+              variant="embedded"
+            />
+          )}
         </aside>
 
         <section
@@ -200,6 +221,16 @@ export function SystemWorkbench({
           <ResearchPanel visible={visible} dispatch={dispatch} />
         </aside>
       </section>
+      {isMobile && (
+        <PinnedTaskBar
+          visible={visible}
+          pinnedTaskIds={pinnedTaskIds}
+          onUnpinTask={onUnpinTask}
+          onClearPinnedTasks={onClearPinnedTasks}
+          dispatch={dispatch}
+          variant="floating"
+        />
+      )}
     </main>
   );
 }

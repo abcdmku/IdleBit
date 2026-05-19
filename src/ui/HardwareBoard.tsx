@@ -11,6 +11,8 @@ import {
 import {
   Activity,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Cpu,
   Database,
   Eye,
@@ -20,6 +22,8 @@ import {
   MemoryStick,
   Minus,
   Pause,
+  Pin,
+  PinOff,
   Play,
   Power,
   Plus,
@@ -2083,8 +2087,6 @@ export function ResourceHud({
   onReset: () => void;
   animateResourceGains: boolean;
 }) {
-  const activeCount = getActiveTasks(visible).length;
-  const queueCount = getQueueEntries(visible).length;
   const dataReadoutRef = useRef<HTMLDivElement>(null);
   const creditsReadoutRef = useRef<HTMLDivElement>(null);
   const previousResourcesRef = useRef(visible.resources);
@@ -2196,16 +2198,6 @@ export function ResourceHud({
         <Zap size={13} />
         <strong>{formatNumber(Math.floor(visible.resources.credits))}</strong>
         <span>cr</span>
-      </div>
-      <div className="resource-readout operations">
-        <Activity size={13} />
-        <strong>{formatNumber(activeCount)}</strong>
-        <span>active</span>
-      </div>
-      <div className="resource-readout waiting">
-        <ListTodo size={13} />
-        <strong>{formatNumber(queueCount)}</strong>
-        <span>queue</span>
       </div>
       <button
         type="button"
@@ -5240,11 +5232,15 @@ export function TaskBay({
   selectedComponent,
   onSelectComponent,
   dispatch,
+  pinnedTaskIds = [],
+  onTogglePinnedTask,
 }: {
   visible: VisibleState;
   selectedComponent: SelectedComponent;
   onSelectComponent?: (component: SelectedComponent) => void;
   dispatch: Dispatch;
+  pinnedTaskIds?: string[];
+  onTogglePinnedTask?: (taskId: string) => void;
 }) {
   const tasks = getTasks(visible);
   const activeTasks = getActiveTasks(visible);
@@ -5379,6 +5375,12 @@ export function TaskBay({
                     onRun={() => runTask(task)}
                     onInspect={() => setInspectedTaskId(task.id)}
                     memoryUnlocked={memoryUnlocked}
+                    pinned={pinnedTaskIds.includes(task.id)}
+                    onTogglePin={
+                      onTogglePinnedTask
+                        ? () => onTogglePinnedTask(task.id)
+                        : undefined
+                    }
                   />
                 );
               })}
@@ -5408,6 +5410,8 @@ function TaskCard({
   onRun,
   onInspect,
   memoryUnlocked,
+  pinned = false,
+  onTogglePin,
 }: {
   task: UiTask;
   mode: QueueMode;
@@ -5417,6 +5421,8 @@ function TaskCard({
   onRun: () => void;
   onInspect: () => void;
   memoryUnlocked: boolean;
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }) {
   const operationCount = getTaskOperationCount(task);
   const cacheBits = getTaskCacheBits(task);
@@ -5436,6 +5442,18 @@ function TaskCard({
     <article className={`task-card ${task.kind ?? "task"} ${cardState}`}>
       <div className="task-row-top">
         <strong>{task.name}</strong>
+        {onTogglePin && (
+          <button
+            type="button"
+            className={`task-pin-button ${pinned ? "pinned" : ""}`}
+            onClick={onTogglePin}
+            title={pinned ? `Unpin ${task.name}` : `Pin ${task.name}`}
+            aria-label={pinned ? `Unpin ${task.name}` : `Pin ${task.name}`}
+            aria-pressed={pinned}
+          >
+            {pinned ? <PinOff size={12} /> : <Pin size={12} />}
+          </button>
+        )}
       </div>
 
       <div className="task-meta-line">
@@ -5472,6 +5490,152 @@ function TaskCard({
         </button>
       </div>
     </article>
+  );
+}
+
+/* ============ PINNED TASK BAR ============ */
+
+export function PinnedTaskBar({
+  visible,
+  pinnedTaskIds,
+  onUnpinTask,
+  onClearPinnedTasks,
+  dispatch,
+  variant = "floating",
+}: {
+  visible: VisibleState;
+  pinnedTaskIds: string[];
+  onUnpinTask: (taskId: string) => void;
+  onClearPinnedTasks: () => void;
+  dispatch: Dispatch;
+  variant?: "embedded" | "floating";
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  if (pinnedTaskIds.length === 0) return null;
+
+  const tasks = getTasks(visible);
+  const activeTasks = getActiveTasks(visible);
+  const queue = getQueueEntries(visible);
+
+  const pinned = pinnedTaskIds
+    .map((id) => tasks.find((task) => task.id === id))
+    .filter(hasValue);
+
+  if (pinned.length === 0) return null;
+
+  return (
+    <aside
+      className={`pinned-task-bar ${variant} ${expanded ? "expanded" : "collapsed"}`}
+      aria-label="Pinned tasks"
+    >
+      <header className="pinned-task-bar-header">
+        <button
+          type="button"
+          className="pinned-task-bar-toggle"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse pinned tasks" : "Expand pinned tasks"}
+        >
+          <Pin size={12} />
+          <span>Pinned</span>
+          <span className="pinned-task-bar-count">{pinned.length}</span>
+          {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+        <button
+          type="button"
+          className="pinned-task-bar-clear"
+          onClick={onClearPinnedTasks}
+          title="Unpin all"
+          aria-label="Unpin all tasks"
+        >
+          <X size={13} />
+        </button>
+      </header>
+      {expanded && (
+        <ul className="pinned-task-bar-body">
+          {pinned.map((task) => {
+            const active = activeTasks.find(
+              (entry) => getActiveTaskId(entry) === task.id,
+            );
+            const queueIndex = queue.findIndex(
+              (entry) => getQueueTaskId(entry) === task.id,
+            );
+            const blockedReason =
+              task.lockedReason ??
+              task.lockReason ??
+              task.unlockReason ??
+              task.blockedReason ??
+              task.queueBlockedReason ??
+              null;
+            const canStart =
+              !active && (task.canStart ?? task.canRun ?? false);
+            const isBlocked = !active && queueIndex < 0 && !canStart;
+            const state: TaskState = active
+              ? "active"
+              : queueIndex >= 0
+                ? "waiting"
+                : isBlocked && blockedReason
+                  ? "locked"
+                  : "ready";
+            const progress = active
+              ? Math.max(0, Math.min(1, active.progress ?? 0))
+              : 0;
+            const statusLabel = active
+              ? active.activeOperationName
+                ? `${active.activeOperationName} · ${Math.round(progress * 100)}%`
+                : `${Math.round(progress * 100)}%`
+              : queueIndex >= 0
+                ? `Queued · #${queueIndex + 1}`
+                : isBlocked && blockedReason
+                  ? blockedReason
+                  : task.completed
+                    ? "Ready to repeat"
+                    : "Idle";
+
+            return (
+              <li className={`pinned-task-row ${state}`} key={task.id}>
+                <div className="pinned-task-row-text">
+                  <strong>{task.name}</strong>
+                  <small title={statusLabel}>{statusLabel}</small>
+                </div>
+                <div
+                  className="pinned-task-row-progress"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress * 100)}
+                >
+                  <span style={{ width: `${Math.round(progress * 100)}%` }} />
+                </div>
+                <div className="pinned-task-row-actions">
+                  {canStart && (
+                    <button
+                      type="button"
+                      className="pinned-task-run"
+                      onClick={() => dispatch({ type: "startTask", taskId: task.id })}
+                      title={`Run ${task.name}`}
+                      aria-label={`Run ${task.name}`}
+                    >
+                      <Play size={11} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="pinned-task-unpin"
+                    onClick={() => onUnpinTask(task.id)}
+                    title={`Unpin ${task.name}`}
+                    aria-label={`Unpin ${task.name}`}
+                  >
+                    <PinOff size={11} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </aside>
   );
 }
 

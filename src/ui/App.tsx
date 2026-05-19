@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, TriangleAlert, X } from "lucide-react";
 import {
   applyAction,
@@ -19,6 +19,7 @@ const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";
 const PSU_FAILURE_MODAL_SEEN_KEY = "ui.psu-failure-modal-seen-v1";
 const CREDIT_FAILURE_MODAL_SEEN_KEY = "ui.credit-failure-modal-seen-v1";
+const PINNED_TASKS_KEY = "ui.pinned-tasks-v1";
 
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());
@@ -34,6 +35,7 @@ export function App() {
     useState<boolean | null>(null);
   const [creditFailureModalSeen, setCreditFailureModalSeen] =
     useState<boolean | null>(null);
+  const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>([]);
   const stateRef = useRef(state);
   const pausedRef = useRef(false);
   const persistenceReadyRef = useRef(false);
@@ -53,6 +55,7 @@ export function App() {
       idleBitPersistence.get<boolean>(PSU_FAILURE_HELP_KEY, false),
       idleBitPersistence.get<boolean>(PSU_FAILURE_MODAL_SEEN_KEY, false),
       idleBitPersistence.get<boolean>(CREDIT_FAILURE_MODAL_SEEN_KEY, false),
+      idleBitPersistence.get<string[]>(PINNED_TASKS_KEY, []),
     ])
       .then(([
         rawSave,
@@ -61,6 +64,7 @@ export function App() {
         seenPsuFailureHelp,
         seenPsuFailureModal,
         seenCreditFailureModal,
+        savedPinnedTaskIds,
       ]) => {
         if (!cancelled) {
           const restoredState = deserializeSave(rawSave);
@@ -71,6 +75,11 @@ export function App() {
           setPsuFailureHelpSeen(Boolean(seenPsuFailureHelp));
           setPsuFailureModalSeen(Boolean(seenPsuFailureModal));
           setCreditFailureModalSeen(Boolean(seenCreditFailureModal));
+          if (Array.isArray(savedPinnedTaskIds)) {
+            setPinnedTaskIds(
+              savedPinnedTaskIds.filter((id): id is string => typeof id === "string"),
+            );
+          }
         }
       })
       .catch(() => undefined)
@@ -202,6 +211,42 @@ export function App() {
     dispatch({ type: "acknowledgePowerFailure" });
   };
 
+  const persistPinnedTaskIds = useCallback((next: string[]) => {
+    void idleBitPersistence.set(PINNED_TASKS_KEY, next);
+  }, []);
+
+  const togglePinnedTask = useCallback(
+    (taskId: string) => {
+      setPinnedTaskIds((current) => {
+        const next = current.includes(taskId)
+          ? current.filter((id) => id !== taskId)
+          : [...current, taskId];
+        persistPinnedTaskIds(next);
+        return next;
+      });
+    },
+    [persistPinnedTaskIds],
+  );
+
+  const unpinTask = useCallback(
+    (taskId: string) => {
+      setPinnedTaskIds((current) => {
+        if (!current.includes(taskId)) return current;
+        const next = current.filter((id) => id !== taskId);
+        persistPinnedTaskIds(next);
+        return next;
+      });
+    },
+    [persistPinnedTaskIds],
+  );
+
+  const clearPinnedTasks = useCallback(() => {
+    setPinnedTaskIds(() => {
+      persistPinnedTaskIds([]);
+      return [];
+    });
+  }, [persistPinnedTaskIds]);
+
   const reset = async () => {
     const freshState = createInitialGameState();
     setSelectedComponent("core:1");
@@ -227,6 +272,10 @@ export function App() {
         onDismissDeadlockCooldownHelp={dismissDeadlockCooldownHelp}
         onDismissPsuFailureHelp={dismissPsuFailureHelp}
         onDismissPsuFailureNotice={dismissPsuFailureBadge}
+        pinnedTaskIds={pinnedTaskIds}
+        onTogglePinnedTask={togglePinnedTask}
+        onUnpinTask={unpinTask}
+        onClearPinnedTasks={clearPinnedTasks}
       />
       {showPsuFailureModal && (
         <PsuFailureModal onDismiss={dismissPsuFailureModal} />

@@ -24,6 +24,11 @@ const hasCompleted = (state: GameState, taskId: TaskId) =>
 export const hasResearch = (state: GameState, id: ResearchId) =>
   state.research.completed.includes(id);
 
+export const systemCatalogResearchId: ResearchId = "systemCatalog";
+export const customMachineAssemblyResearchId: ResearchId = "customMachineAssembly";
+
+const compileCodeTaskId: TaskId = "compileCode";
+
 const hasAnyStarterTask = (state: GameState) =>
   hasCompleted(state, "fetchBit") || hasCompleted(state, "decodeBit");
 
@@ -208,6 +213,27 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirements: () => getSecondCpuInstalledRequirements(),
     cost: () => [credits(360), data(28)],
   },
+  {
+    id: systemCatalogResearchId,
+    name: "System Catalog",
+    description: "Unlock off-the-shelf system templates and larger local work.",
+    grants: ["systemCatalog"],
+    reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
+    requirement: (state) => requirementsMet(state, getSystemCatalogRequirements()),
+    requirements: () => getSystemCatalogRequirements(),
+    cost: () => [credits(680), data(36)],
+  },
+  {
+    id: customMachineAssemblyResearchId,
+    name: "Custom Machine Assembly",
+    description: "Unlock configurable machine templates for heavier local work.",
+    grants: ["customMachineAssembly"],
+    reveal: (state) => hasResearch(state, systemCatalogResearchId),
+    requirement: (state) =>
+      requirementsMet(state, getCustomMachineAssemblyRequirements()),
+    requirements: () => getCustomMachineAssemblyRequirements(),
+    cost: () => [credits(980), data(54)],
+  },
 ];
 
 function getDecodeLogicRequirements() {
@@ -328,6 +354,29 @@ function getSecondCpuInstalledRequirements() {
       "second-cpu-installed",
       "Install the second CPU",
       (state) => state.hardware.secondCpu,
+    ),
+  ];
+}
+
+function getSystemCatalogRequirements() {
+  return [
+    researchRequirement("systemBus", "Complete System Bus research"),
+    hardwareRequirement(
+      "second-cpu-installed",
+      "Install the second CPU",
+      (state) => state.hardware.secondCpu,
+    ),
+  ];
+}
+
+function getCustomMachineAssemblyRequirements() {
+  return [
+    researchRequirement(systemCatalogResearchId, "Complete System Catalog research"),
+    requirement(
+      "hardware:two-systems-or-compile",
+      "Own 2 systems or complete Compile Code",
+      "hardware",
+      (state) => (state.systems?.length ?? 1) >= 2 || hasCompleted(state, compileCodeTaskId),
     ),
   ];
 }

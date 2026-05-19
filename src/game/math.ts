@@ -57,6 +57,33 @@ const isTaskOperationAssignedToCore = (
   coreId: number,
 ) => operation.parallel || operation.kind === "barrier" || coreId === activeTask.coreId;
 
+const getRuntimeTaskOperation = (
+  activeTask: ActiveTask,
+  operation: TaskOperationDefinition,
+) => {
+  const definition = getTaskDefinition(activeTask.taskId);
+  if (
+    definition.coreScaling !== "elastic" ||
+    !operation.parallel ||
+    activeTask.assignedCoreIds.length <= 1
+  ) {
+    return operation;
+  }
+
+  const width = Math.max(1, activeTask.assignedCoreIds.length);
+  const cacheBits = Math.ceil(operation.cacheBits / width);
+  const ramBits = Math.ceil(operation.ramBits / width);
+
+  return {
+    ...operation,
+    cycles: Math.ceil(operation.cycles / width),
+    cacheBits,
+    cacheBytes: bitsToBytes(cacheBits),
+    ramBits,
+    ramBytes: bitsToBytes(ramBits),
+  };
+};
+
 const isCurrentOperationCacheResident = (runtime: ActiveCoreOperation) =>
   [
     "loadingCache",
@@ -112,11 +139,12 @@ export const getActiveOperationCacheBits = (
     operationIndex <= runtime.operationIndex;
     operationIndex += 1
   ) {
-    const operation = definition.operations[operationIndex];
-    if (!operation) continue;
-    if (!isTaskOperationAssignedToCore(activeTask, operation, runtime.coreId)) {
+    const rawOperation = definition.operations[operationIndex];
+    if (!rawOperation) continue;
+    if (!isTaskOperationAssignedToCore(activeTask, rawOperation, runtime.coreId)) {
       continue;
     }
+    const operation = getRuntimeTaskOperation(activeTask, rawOperation);
 
     const loaded = operationIndex < runtime.operationIndex;
     if (!loaded && !isCurrentOperationCacheResident(runtime)) continue;

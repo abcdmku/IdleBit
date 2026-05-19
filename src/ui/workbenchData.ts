@@ -7,9 +7,69 @@ export type SelectedComponent =
   | `core:${number}`
   | `cores:${number}`
   | `scheduler:${number}`
+  | `system:${string}`
   | `ramStick:${number}`
   | "ramSticks"
   | null;
+
+const SYSTEM_SELECTION_PREFIX = "system:";
+const SYSTEM_SELECTION_SEPARATOR = "::";
+
+type RecordLike = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is RecordLike =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const safeDecode = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const safeEncode = (value: string | number) =>
+  encodeURIComponent(String(value));
+
+export const parseSystemSelection = (selection: SelectedComponent) => {
+  if (!selection?.startsWith(SYSTEM_SELECTION_PREFIX)) return null;
+
+  const payload = selection.slice(SYSTEM_SELECTION_PREFIX.length);
+  const separatorIndex = payload.indexOf(SYSTEM_SELECTION_SEPARATOR);
+  const rawSystemId =
+    separatorIndex >= 0 ? payload.slice(0, separatorIndex) : payload;
+  const rawComponent =
+    separatorIndex >= 0
+      ? payload.slice(separatorIndex + SYSTEM_SELECTION_SEPARATOR.length)
+      : "";
+
+  return {
+    systemId: safeDecode(rawSystemId),
+    component: rawComponent.length > 0 ? (rawComponent as SelectedComponent) : null,
+  };
+};
+
+export const getSelectedSystemId = (selection: SelectedComponent) =>
+  parseSystemSelection(selection)?.systemId ?? null;
+
+export const getSelectedSystemComponent = (
+  selection: SelectedComponent,
+): SelectedComponent => parseSystemSelection(selection)?.component ?? selection;
+
+export const scopeSelectionToSystem = (
+  systemId: string | number | null | undefined,
+  selection: SelectedComponent,
+): SelectedComponent => {
+  if (systemId === null || systemId === undefined || systemId === "") {
+    return getSelectedSystemComponent(selection);
+  }
+
+  const component = getSelectedSystemComponent(selection);
+  const componentSuffix =
+    component === null ? "" : `${SYSTEM_SELECTION_SEPARATOR}${component}`;
+
+  return `${SYSTEM_SELECTION_PREFIX}${safeEncode(systemId)}${componentSuffix}`;
+};
 
 export const componentCopy: Record<
   string,
@@ -80,11 +140,105 @@ const hasSystemMemory = (visible: VisibleState) => {
 const hasCpuSchedulerUnlocked = (visible: VisibleState) =>
   visible.flags.basicQueue || visible.flags.scheduler;
 
+const getSystemId = (entry: RecordLike, fallback: string) => {
+  const id = entry.id ?? entry.systemId ?? entry.machineId;
+  return typeof id === "string" || typeof id === "number" ? String(id) : fallback;
+};
+
+const normalizeSystemEntries = (value: unknown): RecordLike[] => {
+  if (Array.isArray(value)) return value.filter(isRecord);
+
+  if (!isRecord(value)) return [];
+
+  const entries: RecordLike[] = [];
+  Object.entries(value).forEach(([id, entry]) => {
+    if (isRecord(entry)) entries.push({ ...entry, id: entry.id ?? id });
+  });
+  return entries;
+};
+
+const getSystemEntries = (visible: VisibleState) => {
+  const record = visible as unknown as RecordLike;
+  const rack = isRecord(record.rack) ? record.rack : null;
+  const systemRack = isRecord(record.systemRack) ? record.systemRack : null;
+  const systems =
+    normalizeSystemEntries(rack?.systems)[0] !== undefined
+      ? normalizeSystemEntries(rack?.systems)
+      : normalizeSystemEntries(rack?.ownedSystems)[0] !== undefined
+        ? normalizeSystemEntries(rack?.ownedSystems)
+        : normalizeSystemEntries(systemRack?.systems)[0] !== undefined
+          ? normalizeSystemEntries(systemRack?.systems)
+          : normalizeSystemEntries(record.systems);
+
+  return systems;
+};
+
+const mergeVisibleSystemState = (
+  visible: VisibleState,
+  system: RecordLike,
+): VisibleState => {
+  const nested =
+    (isRecord(system.visible) && system.visible) ||
+    (isRecord(system.visibleState) && system.visibleState) ||
+    (isRecord(system.state) && system.state) ||
+    {};
+  const source = { ...system, ...nested };
+
+  return {
+    ...visible,
+    ...source,
+    flags: isRecord(source.flags)
+      ? { ...visible.flags, ...source.flags }
+      : visible.flags,
+    hardware: isRecord(source.hardware)
+      ? { ...visible.hardware, ...source.hardware }
+      : visible.hardware,
+    metrics: isRecord(source.metrics)
+      ? { ...visible.metrics, ...source.metrics }
+      : visible.metrics,
+    cron: isRecord(source.cron) ? { ...visible.cron, ...source.cron } : visible.cron,
+  } as VisibleState;
+};
+
+const getVisibleSystemState = (visible: VisibleState, systemId: string) => {
+  const entries = getSystemEntries(visible);
+  const system = entries.find(
+    (entry, index) => getSystemId(entry, `system-${index + 1}`) === systemId,
+  );
+
+  return system ? mergeVisibleSystemState(visible, system) : null;
+};
+
 export function getVisibleSelection(
   visible: VisibleState,
   selectedComponent: SelectedComponent,
 ): SelectedComponent {
   if (selectedComponent === null) return null;
+
+  const systemSelection = parseSystemSelection(selectedComponent);
+  if (systemSelection) {
+    const entries = getSystemEntries(visible);
+    if (entries.length === 0) {
+      return getVisibleSelection(
+        visible,
+        systemSelection.component ?? ("core:1" as SelectedComponent),
+      );
+    }
+
+    const systemIds = entries.map((entry, index) =>
+      getSystemId(entry, `system-${index + 1}`),
+    );
+    const systemId = systemIds.includes(systemSelection.systemId)
+      ? systemSelection.systemId
+      : (systemIds[0] ?? systemSelection.systemId);
+    const systemVisible = getVisibleSystemState(visible, systemId) ?? visible;
+    const component = getVisibleSelection(
+      systemVisible,
+      systemSelection.component ?? ("core:1" as SelectedComponent),
+    );
+
+    return scopeSelectionToSystem(systemId, component);
+  }
 
   if (selectedComponent.startsWith("core:")) {
     const coreId = Number(selectedComponent.slice("core:".length));

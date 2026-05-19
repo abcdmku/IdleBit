@@ -5,7 +5,8 @@ export type StageId =
   | "singleCpu"
   | "multiCore"
   | "scheduler"
-  | "systemReveal";
+  | "systemReveal"
+  | "rack";
 
 export type TaskId =
   | "fetchBit"
@@ -21,6 +22,9 @@ export type TaskId =
   | "busMirror"
   | "thermalProbe"
   | "shardReconcile"
+  | "compileCode"
+  | "renderFrame"
+  | "regressionTest"
   | "microBenchmark"
   | "parallelismBenchmark"
   | "multiCoreBenchmark";
@@ -42,6 +46,8 @@ export type ResearchId =
   | "ramControl"
   | "systemBus"
   | "cronScheduler"
+  | "systemCatalog"
+  | "customMachineAssembly"
   | "psuManagement"
   | "thermalControl";
 
@@ -87,12 +93,16 @@ export type UnlockId =
   | "secondCpu"
   | "systemStats"
   | "cron"
+  | "systemCatalog"
+  | "customMachineAssembly"
   | "psuManagement"
   | "cooling";
 
 export type TaskKind = "task" | "job" | "benchmark";
 
 export type TaskCategory = "cpu" | "system" | "distributed";
+
+export type TaskCoreScaling = "fixed" | "elastic";
 
 export type TaskOperationKind = "memory" | "compute" | "barrier";
 
@@ -220,6 +230,7 @@ export interface TaskDefinition {
   rewardData: number;
   parallelizable: boolean;
   repeatable: boolean;
+  coreScaling: TaskCoreScaling;
   minCores: number;
   maxCores?: number;
   reveal: (state: GameState) => boolean;
@@ -279,6 +290,7 @@ export interface UpgradeContext {
   coreId?: number;
   coreIds?: number[];
   cpuId?: number;
+  systemId?: number;
   sourceCpuId?: number;
   ramStickId?: number;
   ramStickIds?: number[];
@@ -306,6 +318,7 @@ export interface ActiveTask {
   instanceId: string;
   taskId: TaskId;
   jobId: JobId;
+  systemId?: number;
   schedulerQueued: boolean;
   coreId: number;
   assignedCoreIds: number[];
@@ -358,6 +371,61 @@ export interface CronRuntimeState {
   queuePowerSpikeSeconds: number;
 }
 
+export type ComponentSkuType = "cpu" | "ram" | "scheduler" | "psu";
+
+export interface ComponentSkuDefinition {
+  id: string;
+  name: string;
+  type: ComponentSkuType;
+  description: string;
+  cost: Cost[];
+  coreCount?: number;
+  clockLevel?: number;
+  cacheLevel?: number;
+  cacheSpeedLevel?: number;
+  schedulerSlots?: number;
+  ramStickCount?: number;
+  ramLevel?: number;
+  ramSpeedLevel?: number;
+  psuLevel?: number;
+}
+
+export interface MachineComponentSelection {
+  cpu: string;
+  ram: string;
+  scheduler: string;
+  psu: string;
+}
+
+export interface MachineTemplateDefinition {
+  id: string;
+  name: string;
+  description: string;
+  components: MachineComponentSelection;
+}
+
+export interface SystemState {
+  id: number;
+  name: string;
+  templateId: string | null;
+  hardware: HardwareState;
+  power: PowerRuntimeState;
+  cron: CronRuntimeState;
+  activeTasks: ActiveTask[];
+  activeJobs: ActiveJob[];
+  cacheResidency: CacheResidencySegment[];
+  coreSchedulers: Record<number, CoreSchedulerState>;
+  queue: TaskId[];
+  deadlockPressureSeconds: number;
+  deadlockPressureResource: DeadlockResource | null;
+  deadlockPressureCpuId: number | null;
+  deadlockProcessLockout: boolean;
+}
+
+export interface RackState {
+  nextSystemId: number;
+}
+
 export interface GameFlags {
   cache: boolean;
   autoRepeat: boolean;
@@ -368,6 +436,8 @@ export interface GameFlags {
   secondCpu: boolean;
   systemStats: boolean;
   cron: boolean;
+  systemCatalog: boolean;
+  customMachineAssembly: boolean;
   psuManagement: boolean;
   cooling: boolean;
   schedulerWatchdog: boolean;
@@ -453,9 +523,12 @@ export interface RamResidencySegment {
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   tick: number;
   nextInstanceId: number;
+  selectedSystemId: number;
+  rack: RackState;
+  systems: SystemState[];
   deadlockPressureSeconds: number;
   deadlockPressureResource: DeadlockResource | null;
   deadlockPressureCpuId: number | null;
@@ -479,42 +552,49 @@ export interface GameState {
 }
 
 export type GameAction =
-  | { type: "startTask"; taskId: TaskId }
-  | { type: "startTaskOnCore"; taskId: TaskId; coreId: number }
-  | { type: "queueTask"; taskId: TaskId; cpuId?: number }
-  | { type: "cancelTask"; taskId: TaskId; instanceId?: string }
-  | { type: "cancelQueuedTask"; taskId: TaskId }
-  | { type: "requestShutdown" }
-  | { type: "requestStartup" }
-  | { type: "requestPowerOff" }
-  | { type: "requestPowerOn" }
-  | { type: "requestPowerKill" }
+  | { type: "startTask"; taskId: TaskId; systemId?: number }
+  | { type: "startTaskOnCore"; taskId: TaskId; coreId: number; systemId?: number }
+  | { type: "queueTask"; taskId: TaskId; cpuId?: number; systemId?: number }
+  | { type: "cancelTask"; taskId: TaskId; instanceId?: string; systemId?: number }
+  | { type: "cancelQueuedTask"; taskId: TaskId; systemId?: number }
+  | { type: "requestShutdown"; systemId?: number }
+  | { type: "requestStartup"; systemId?: number }
+  | { type: "requestPowerOff"; systemId?: number }
+  | { type: "requestPowerOn"; systemId?: number }
+  | { type: "requestPowerKill"; systemId?: number }
   | { type: "acknowledgePowerFailure" }
-  | { type: "setCronTask"; scheduleId: number; taskId: TaskId | null }
+  | { type: "selectSystem"; systemId: number }
+  | { type: "buyMachineTemplate"; templateId: string }
+  | { type: "buyCustomMachine"; components: MachineComponentSelection }
+  | { type: "setCronTask"; scheduleId: number; taskId: TaskId | null; systemId?: number }
   | {
       type: "setCronInterval";
       scheduleId: number;
       intervalMode: CronIntervalMode;
       intervalValue: number;
+      systemId?: number;
     }
-  | { type: "setCronEnabled"; scheduleId: number; enabled: boolean }
+  | { type: "setCronEnabled"; scheduleId: number; enabled: boolean; systemId?: number }
   | {
       type: "setSchedulerPolicy";
       target: "cpu" | "system";
       policy: SchedulerPolicy;
       cpuId?: number;
+      systemId?: number;
     }
   | {
       type: "setSchedulerAutoKill";
       target: "cpu" | "system";
       enabled: boolean;
       cpuId?: number;
+      systemId?: number;
     }
   | {
       type: "setSchedulerKillPolicy";
       target: "cpu" | "system";
       killPolicy: SchedulerKillPolicy;
       cpuId?: number;
+      systemId?: number;
     }
   | { type: "buyResearch"; researchId: ResearchId }
   | {
@@ -523,6 +603,7 @@ export type GameAction =
       coreId?: number;
       coreIds?: number[];
       cpuId?: number;
+      systemId?: number;
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
@@ -533,13 +614,14 @@ export type GameAction =
       coreId?: number;
       coreIds?: number[];
       cpuId?: number;
+      systemId?: number;
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
     }
-  | { type: "startJob"; jobId: JobId }
-  | { type: "startJobOnCore"; jobId: JobId; coreId: number }
-  | { type: "queueJob"; jobId: JobId; cpuId?: number }
+  | { type: "startJob"; jobId: JobId; systemId?: number }
+  | { type: "startJobOnCore"; jobId: JobId; coreId: number; systemId?: number }
+  | { type: "queueJob"; jobId: JobId; cpuId?: number; systemId?: number }
   | { type: "setAutoRepeat"; jobId: JobId | null };
 
 export interface VisibleOperation {
@@ -588,6 +670,7 @@ export interface VisibleTask {
   subtasks: VisibleTaskSubtask[];
   dagNodes: VisibleTaskSubtask[];
   requiredCores: number;
+  coreScaling: TaskCoreScaling;
   cacheFit: "bonus" | "met" | "low";
   canStart: boolean;
   canQueue: boolean;
@@ -677,6 +760,7 @@ export interface VisibleActiveTask {
   instanceId: string;
   taskId: TaskId;
   jobId: JobId;
+  systemId?: number;
   schedulerQueued: boolean;
   name: string;
   coreId: number;
@@ -810,6 +894,50 @@ export interface VisibleCronState {
   queuePowerSpikeSeconds: number;
 }
 
+export interface VisibleSystemSummary {
+  id: number;
+  name: string;
+  templateId: string | null;
+  selected: boolean;
+  powerState: PowerStateId;
+  coreCount: number;
+  activeTaskCount: number;
+  queueCount: number;
+  psuStress: number;
+  drawWatts: number;
+  ramBits: number;
+  ramUsedBits: number;
+}
+
+export interface VisibleRackState {
+  selectedSystemId: number;
+  systems: VisibleSystemSummary[];
+  templates?: VisibleMachineTemplate[];
+  preconfiguredSystems?: VisibleMachineTemplate[];
+  customBuilder?: unknown;
+  unlocked?: boolean;
+}
+
+export interface VisibleComponentSku extends ComponentSkuDefinition {
+  canAfford: boolean;
+}
+
+export interface VisibleMachineTemplate extends MachineTemplateDefinition {
+  cost: Cost[];
+  canAfford: boolean;
+}
+
+export interface VisibleMachineBuilder {
+  unlocked: boolean;
+  templates: VisibleMachineTemplate[];
+  components: {
+    cpu: VisibleComponentSku[];
+    ram: VisibleComponentSku[];
+    scheduler: VisibleComponentSku[];
+    psu: VisibleComponentSku[];
+  };
+}
+
 export interface VisibleHardwareMetrics {
   cpuSockets: VisibleCpuSocket[];
   activeCoreCount: number;
@@ -847,6 +975,10 @@ export interface VisibleState {
   stage: StageId;
   stageLabel: string;
   resources: ResourceBag;
+  rack: VisibleRackState;
+  systems: VisibleSystemSummary[];
+  selectedSystem: VisibleSystemSummary;
+  machineBuilder: VisibleMachineBuilder;
   hardware: HardwareState;
   metrics: VisibleHardwareMetrics;
   flags: GameFlags;

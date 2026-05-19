@@ -1,4 +1,9 @@
 import { getResearchDefinition, researchDefinitions } from "./content/research";
+import {
+  getComponentSku,
+  getMachineComponentSkus,
+  getMachineTemplate,
+} from "./content/machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
   getUpgradeDefinition,
@@ -31,13 +36,19 @@ import {
 import {
   bitsToBytes,
   createCoreSchedulerState,
+  createCpuHardwareState,
   createRamStickState,
   createSchedulerConfig,
+  createSystemState,
+  getCacheBits,
+  getCacheBytes,
   getAllCoreIds,
+  getClockHz,
   getCpuForCore,
   getCpuHardware,
   getCpuIdForCore,
   getCoreClockHz,
+  getPsuWatts,
   getRamBits,
   getRamBytes,
   getRamSpeedMt,
@@ -46,6 +57,13 @@ import {
   syncCoreSchedulers,
   updateProgressionFlags,
 } from "./progression";
+import {
+  ensureSystems,
+  materializeSystem,
+  replaceSystems,
+  syncSelectedSystemRuntime,
+  updateMaterializedSystem,
+} from "./systems";
 import type {
   ActiveCoreOperation,
   ActiveTask,
@@ -53,6 +71,7 @@ import type {
   DeadlockResource,
   GameAction,
   GameState,
+  MachineComponentSelection,
   PowerFailureReason,
   ResearchId,
   SchedulerConfig,
@@ -73,6 +92,88 @@ const CRON_MAX_SECONDS_INTERVAL = 120;
 const CRON_MIN_MINUTES_INTERVAL = 1;
 const CRON_MAX_MINUTES_INTERVAL = 60;
 const CRON_QUEUE_SPIKE_SECONDS = 5;
+
+const combineCosts = (costs: Cost[]) =>
+  costs.reduce<Cost[]>((combined, cost) => {
+    const existing = combined.find((item) => item.resource === cost.resource);
+    if (existing) {
+      existing.amount += cost.amount;
+      return combined;
+    }
+    combined.push({ ...cost });
+    return combined;
+  }, []);
+
+const getMachineSelectionCost = (selection: MachineComponentSelection) =>
+  combineCosts(getMachineComponentSkus(selection).flatMap((sku) => sku.cost));
+
+const getTemplateCost = (templateId: string) =>
+  getMachineSelectionCost(getMachineTemplate(templateId).components);
+
+const getSku = (selection: MachineComponentSelection, key: keyof MachineComponentSelection) =>
+  getComponentSku(selection[key]);
+
+const createHardwareFromMachineSelection = (
+  selection: MachineComponentSelection,
+): GameState["hardware"] => {
+  const cpu = getSku(selection, "cpu");
+  const ram = getSku(selection, "ram");
+  const scheduler = getSku(selection, "scheduler");
+  const psu = getSku(selection, "psu");
+  const coreCount = Math.max(1, cpu.coreCount ?? 1);
+  const clockLevel = Math.max(1, cpu.clockLevel ?? 1);
+  const cacheLevel = Math.max(1, cpu.cacheLevel ?? 1);
+  const cacheSpeedLevel = Math.max(1, cpu.cacheSpeedLevel ?? 1);
+  const schedulerSlots = Math.max(0, scheduler.schedulerSlots ?? 0);
+  const coreIds = Array.from({ length: coreCount }, (_, index) => index + 1);
+  const coreClockLevels = Object.fromEntries(
+    coreIds.map((coreId) => [coreId, clockLevel]),
+  ) as Record<number, number>;
+  const ramStickCount = Math.max(0, ram.ramStickCount ?? 0);
+  const ramLevel = Math.max(1, ram.ramLevel ?? 1);
+  const ramSpeedLevel = Math.max(1, ram.ramSpeedLevel ?? 1);
+  const ramSticks = Array.from({ length: ramStickCount }, (_, index) =>
+    createRamStickState(index + 1, ramLevel, ramSpeedLevel),
+  );
+  const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
+  const psuLevel = Math.max(1, psu.psuLevel ?? 1);
+
+  return {
+    clockLevel,
+    clockHz: getClockHz(clockLevel),
+    coreClockLevels,
+    cpus: [
+      createCpuHardwareState(1, coreIds, {
+        cacheLevel,
+        cacheSpeedLevel,
+        cacheBits: getCacheBits(cacheLevel),
+        cacheBytes: getCacheBytes(cacheLevel),
+        schedulerSlots,
+      }),
+    ],
+    cacheLevel,
+    cacheSpeedLevel,
+    cacheBits: getCacheBits(cacheLevel),
+    cacheBytes: getCacheBytes(cacheLevel),
+    cores: coreCount,
+    schedulerSlots,
+    systemSchedulerSlots: schedulerSlots,
+    systemSchedulerConfig: createSchedulerConfig({ policy: "deadlockSafe" }),
+    deadlockRecoveryLevel: 0,
+    secondCpu: false,
+    ramLevel: ramSticks.length,
+    ramBits,
+    ramBytes: bitsToBytes(ramBits),
+    ramSpeedLevel,
+    ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
+    ramSticks,
+    cronIntervalLevel: 0,
+    psuLevel,
+    psuWatts: getPsuWatts(psuLevel),
+    coolingLevel: 0,
+    coolingRating: 0,
+  };
+};
 
 export const getCronMinIntervalSeconds = (state: GameState) =>
   Math.max(1, CRON_DEFAULT_INTERVAL_SECONDS - Math.max(0, state.hardware.cronIntervalLevel ?? 0));
@@ -212,8 +313,32 @@ const isOperationAssignedToCore = (
   coreId: number,
 ) => operation.parallel || operation.kind === "barrier" || coreId === task.coreId;
 
-const getOperation = (task: ActiveTask, operationIndex: number) =>
-  getTaskDefinition(task.taskId).operations[operationIndex] ?? null;
+const getOperation = (task: ActiveTask, operationIndex: number) => {
+  const taskDefinition = getTaskDefinition(task.taskId);
+  const operation = taskDefinition.operations[operationIndex] ?? null;
+  if (!operation) return null;
+  if (
+    taskDefinition.coreScaling !== "elastic" ||
+    !operation.parallel ||
+    task.assignedCoreIds.length <= 1
+  ) {
+    return operation;
+  }
+
+  const width = Math.max(1, task.assignedCoreIds.length);
+  const cycles = Math.ceil(operation.cycles / width);
+  const cacheBits = Math.ceil(operation.cacheBits / width);
+  const ramBits = Math.ceil(operation.ramBits / width);
+
+  return {
+    ...operation,
+    cycles,
+    cacheBits,
+    ramBits,
+    cacheBytes: bitsToBytes(cacheBits),
+    ramBytes: bitsToBytes(ramBits),
+  };
+};
 
 const getRuntimeWork = (
   definition: TaskOperationDefinition | null,
@@ -689,6 +814,7 @@ const createActiveTask = (
     instanceId,
     taskId,
     jobId: taskId,
+    systemId: state.selectedSystemId,
     schedulerQueued,
     coreId: primaryCoreId,
     assignedCoreIds,
@@ -2450,7 +2576,7 @@ const tickCron = (state: GameState, deltaSeconds: number): GameState => {
   };
 };
 
-export const tickGame = (state: GameState, deltaMs: number): GameState => {
+const tickSingleSystem = (state: GameState, deltaMs: number): GameState => {
   const deltaSeconds = Math.max(0, Math.min(deltaMs / 1000, 2));
   const ticked = {
     ...ensureCronState(syncCoreSchedulers(updateProgressionFlags(state))),
@@ -2482,6 +2608,97 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
   return canAcceptPoweredWork(progressed)
     ? pullQueue(progressed)
     : syncCoreSchedulers(progressed);
+};
+
+const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState =>
+  replaceSystems(
+    {
+      ...state,
+      resources: {
+        ...state.resources,
+        credits: 0,
+      },
+    },
+    ensureSystems(state).systems.map((system) => {
+      if (system.power.state === "off") return system;
+      const localState = materializeSystem(state, system.id);
+      const poweredOff = forcePowerOffForUnpaidBill(localState);
+      return {
+        ...system,
+        power: poweredOff.power,
+        activeTasks: [],
+        activeJobs: [],
+        cacheResidency: [],
+        queue: [],
+        coreSchedulers: poweredOff.coreSchedulers,
+      };
+    }),
+  );
+
+export const tickGame = (state: GameState, deltaMs: number): GameState => {
+  const ensured = syncSelectedSystemRuntime(state);
+  const baseTick = ensured.tick;
+  let workingState = materializeSystem(ensured, ensured.selectedSystemId);
+  let unpaidBill = false;
+
+  const systems = ensured.systems.map((system) => {
+    const localInput = materializeSystem(
+      {
+        ...workingState,
+        systems: ensured.systems,
+        selectedSystemId: system.id,
+        tick: baseTick,
+      },
+      system.id,
+    );
+    const localOutput = tickSingleSystem(localInput, deltaMs);
+    if (
+      system.power.state !== "off" &&
+      localOutput.power.state === "off" &&
+      localOutput.power.lastFailureReason === "unpaidBill"
+    ) {
+      unpaidBill = true;
+    }
+    workingState = {
+      ...workingState,
+      resources: localOutput.resources,
+      research: localOutput.research,
+      flags: localOutput.flags,
+      completedTasks: localOutput.completedTasks,
+      completedJobs: localOutput.completedJobs,
+      completedBenchmarks: localOutput.completedBenchmarks,
+      nextInstanceId: localOutput.nextInstanceId,
+      tick: localOutput.tick,
+    };
+    return {
+      ...system,
+      hardware: localOutput.hardware,
+      power: localOutput.power,
+      cron: localOutput.cron,
+      activeTasks: localOutput.activeTasks,
+      activeJobs: localOutput.activeTasks,
+      cacheResidency: localOutput.cacheResidency,
+      coreSchedulers: localOutput.coreSchedulers,
+      queue: localOutput.queue,
+      deadlockPressureSeconds: localOutput.deadlockPressureSeconds,
+      deadlockPressureResource: localOutput.deadlockPressureResource,
+      deadlockPressureCpuId: localOutput.deadlockPressureCpuId,
+      deadlockProcessLockout: localOutput.deadlockProcessLockout,
+    };
+  });
+
+  const ticked = replaceSystems(
+    {
+      ...workingState,
+      systems,
+      selectedSystemId: ensured.selectedSystemId,
+      rack: ensured.rack,
+    },
+    systems,
+    ensured.selectedSystemId,
+  );
+
+  return unpaidBill ? hardPowerOffAllSystemsForUnpaidBill(ticked) : ticked;
 };
 
 export const startTask = (state: GameState, taskId: TaskId) => {
@@ -2793,7 +3010,7 @@ const setCronEnabled = (
     };
   });
 
-export const applyAction = (state: GameState, action: GameAction): GameState => {
+const applySingleSystemAction = (state: GameState, action: GameAction): GameState => {
   if (action.type === "startTask") return startTask(state, action.taskId);
   if (action.type === "startTaskOnCore") {
     return startTaskOnCore(state, action.taskId, action.coreId);
@@ -2892,6 +3109,91 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
   }
 
   return state;
+};
+
+const getActionSystemId = (state: GameState, action: GameAction) =>
+  "systemId" in action && typeof action.systemId === "number"
+    ? action.systemId
+    : state.selectedSystemId;
+
+const buyMachineFromSelection = (
+  state: GameState,
+  selection: MachineComponentSelection,
+  name: string,
+  templateId: string | null,
+) => {
+  const ensured = ensureSystems(state);
+  const costs = getMachineSelectionCost(selection);
+  if (!canAfford(ensured, costs)) return ensured;
+
+  const systemId = ensured.rack.nextSystemId;
+  const hardware = createHardwareFromMachineSelection(selection);
+  const system = createSystemState(systemId, name, templateId, hardware);
+
+  return replaceSystems(
+    spend(ensured, costs),
+    [...ensured.systems, system],
+    systemId,
+  );
+};
+
+const buyMachineTemplate = (state: GameState, templateId: string) => {
+  const ensured = ensureSystems(state);
+  if (!ensured.flags.systemCatalog) return ensured;
+
+  try {
+    const template = getMachineTemplate(templateId);
+    return buyMachineFromSelection(
+      ensured,
+      template.components,
+      template.name,
+      template.id,
+    );
+  } catch {
+    return ensured;
+  }
+};
+
+const buyCustomMachine = (
+  state: GameState,
+  components: MachineComponentSelection,
+) => {
+  const ensured = ensureSystems(state);
+  if (!ensured.flags.customMachineAssembly) return ensured;
+
+  try {
+    getMachineComponentSkus(components);
+    return buyMachineFromSelection(
+      ensured,
+      components,
+      `Custom ${ensured.rack.nextSystemId}`,
+      "custom",
+    );
+  } catch {
+    return ensured;
+  }
+};
+
+export const applyAction = (state: GameState, action: GameAction): GameState => {
+  const ensured = syncSelectedSystemRuntime(state);
+
+  if (action.type === "selectSystem") {
+    return materializeSystem(ensured, action.systemId);
+  }
+
+  if (action.type === "buyMachineTemplate") {
+    return buyMachineTemplate(ensured, action.templateId);
+  }
+
+  if (action.type === "buyCustomMachine") {
+    return buyCustomMachine(ensured, action.components);
+  }
+
+  const targetSystemId = getActionSystemId(ensured, action);
+  const materialized = materializeSystem(ensured, targetSystemId);
+  const updated = applySingleSystemAction(materialized, action);
+
+  return updateMaterializedSystem(ensured, updated, targetSystemId);
 };
 
 export const getAvailableTasks = (state: GameState) =>

@@ -367,6 +367,288 @@ describe("HardwareBoard power telemetry", () => {
   });
 });
 
+describe("HardwareBoard multi-system rack", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  const makeRackVisible = () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const baseSocket = base.metrics.cpuSockets[0]!;
+    const baseCore = baseSocket.cores[0]!;
+    const betaSocket = {
+      ...baseSocket,
+      cores: [
+        { ...baseCore, id: 1, label: "Core 1" },
+        { ...baseCore, id: 2, label: "Core 2" },
+      ],
+    };
+    const betaVisible = {
+      ...base,
+      hardware: {
+        ...base.hardware,
+        cores: 2,
+        ramBits: 1024,
+        ramBytes: 128,
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [betaSocket],
+        powerUsedWatts: 42,
+      },
+    } as VisibleState;
+    const systemTask = {
+      ...base.tasks[0]!,
+      id: "tinyChecksum",
+      name: "Tiny Checksum",
+      category: "system",
+      operationCount: 64,
+      rewardCredits: 48,
+      rewardData: 2,
+      cacheNeedBits: 8,
+      ramNeedBits: 128,
+      canStart: true,
+      canQueue: true,
+      blockedReason: null,
+      queueBlockedReason: null,
+    };
+
+    return {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        systemSchedulerSlots: 1,
+      },
+      tasks: [systemTask],
+      rack: {
+        visible: true,
+        totalCapacity: 6,
+        systems: [
+          {
+            id: "alpha",
+            name: "Alpha",
+            role: "Starter",
+            visible: base,
+          },
+          {
+            id: "beta",
+            name: "Beta",
+            role: "Compute",
+            visible: betaVisible,
+          },
+        ],
+        preconfiguredSystems: [
+          {
+            id: "balanced",
+            name: "Balanced Node",
+            role: "Preset",
+            cores: 2,
+            ramBits: 1024,
+            powerDeltaWatts: 18,
+            costs: [{ resource: "credits", amount: 500 }],
+            canAfford: true,
+          },
+        ],
+        customBuilder: {
+          title: "Custom",
+          canBuy: true,
+          groups: [
+            {
+              id: "cpu",
+              label: "CPU",
+              tiers: [
+                {
+                  id: "base",
+                  name: "Base",
+                  cores: 1,
+                  costs: [{ resource: "credits", amount: 100 }],
+                },
+                {
+                  id: "pro",
+                  name: "Pro",
+                  cores: 2,
+                  powerDeltaWatts: 12,
+                  costs: [{ resource: "credits", amount: 240 }],
+                },
+              ],
+            },
+            {
+              id: "memory",
+              label: "RAM",
+              tiers: [
+                {
+                  id: "thin",
+                  name: "Thin",
+                  ramBits: 256,
+                  costs: [{ resource: "data", amount: 10 }],
+                },
+                {
+                  id: "wide",
+                  name: "Wide",
+                  ramBits: 1024,
+                  costs: [{ resource: "data", amount: 24 }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } as unknown as VisibleState;
+  };
+
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("renders one rack slot per owned system and switches the board selection", () => {
+    const visible = makeRackVisible();
+    const selectComponent = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="system:alpha::core:1"
+          onSelectComponent={selectComponent}
+        />,
+      );
+    });
+
+    const slots = Array.from(container.querySelectorAll(".system-rack-slot"));
+
+    expect(slots).toHaveLength(2);
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Alpha");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Beta");
+    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Empty");
+
+    act(() => {
+      slots[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(selectComponent).toHaveBeenCalledWith("system:beta::core:1");
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={selectComponent}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll(".core-die")).toHaveLength(2);
+    expect(container.querySelector(".system-rack-slot.selected")?.textContent).toContain(
+      "Beta",
+    );
+  });
+
+  it("dispatches task actions with the selected system id", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent="system:beta::scheduler"
+          dispatch={dispatch}
+        />,
+      );
+    });
+
+    const runButton = container.querySelector<HTMLButtonElement>(".task-run-button");
+
+    expect(runButton?.textContent).toContain("Schedule");
+
+    act(() => {
+      runButton?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "queueTask",
+      taskId: "tinyChecksum",
+      systemId: "beta",
+    });
+  });
+
+  it("offers preset purchases and a tiered custom builder", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const presetButton =
+      container.querySelector<HTMLButtonElement>(".system-preset-card");
+
+    expect(presetButton?.textContent).toContain("Balanced Node");
+
+    act(() => {
+      presetButton?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyPreconfiguredSystem",
+      presetId: "balanced",
+      systemId: "beta",
+    });
+
+    dispatch.mockClear();
+
+    const tierButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
+    );
+    const proButton = tierButtons.find((button) =>
+      button.textContent?.includes("Pro"),
+    );
+    const wideButton = tierButtons.find((button) =>
+      button.textContent?.includes("Wide"),
+    );
+
+    act(() => {
+      proButton?.click();
+      wideButton?.click();
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyCustomSystem",
+      tierIds: { cpu: "pro", memory: "wide" },
+      systemId: "beta",
+    });
+  });
+});
+
 describe("HardwareBoard second CPU system management", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -1163,7 +1445,7 @@ describe("App failure modals", () => {
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v2",
+      "save-v3",
       serializeSave(makePsuFailureSaveState()),
     );
 
@@ -1193,7 +1475,7 @@ describe("App failure modals", () => {
 
   it("uses a topbar badge instead of the popup after the first PSU failure", async () => {
     await idleBitPersistence.set(
-      "save-v2",
+      "save-v3",
       serializeSave(makePsuFailureSaveState()),
     );
     await idleBitPersistence.set("ui.psu-failure-modal-seen-v1", true);
@@ -1219,7 +1501,7 @@ describe("App failure modals", () => {
 
   it("explains the first out-of-credits power cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v2",
+      "save-v3",
       serializeSave(makeCreditFailureSaveState()),
     );
 
@@ -1250,7 +1532,7 @@ describe("App failure modals", () => {
 
   it("uses a quick popup for later out-of-credits cutoffs", async () => {
     await idleBitPersistence.set(
-      "save-v2",
+      "save-v3",
       serializeSave(makeCreditFailureSaveState()),
     );
     await idleBitPersistence.set("ui.credit-failure-modal-seen-v1", true);
@@ -1290,7 +1572,7 @@ describe("App failure modals", () => {
       })),
     });
     await idleBitPersistence.set(
-      "save-v2",
+      "save-v3",
       serializeSave(makeUnlockNoticeSaveState()),
     );
     await idleBitPersistence.set("ui.seen-tasks-v1", ["fetchBit", "decodeBit"]);
@@ -3157,6 +3439,14 @@ describe("HardwareBoard cache meter", () => {
           requiredCores: 2,
           operationCount: 128,
         },
+        {
+          ...base.tasks[0]!,
+          id: "compileCode",
+          name: "Compile Code",
+          requiredCores: 1,
+          coreScaling: "elastic",
+          operationCount: 512,
+        },
       ],
     };
 
@@ -3177,9 +3467,13 @@ describe("HardwareBoard cache meter", () => {
     const busMeta = cards
       .find((card) => card.textContent?.includes("Bus Mirror"))
       ?.querySelector(".task-meta-line");
+    const compileMeta = cards
+      .find((card) => card.textContent?.includes("Compile Code"))
+      ?.querySelector(".task-meta-line");
 
     expect(fetchMeta?.textContent).not.toContain("1 cores");
     expect(busMeta?.textContent).toContain("2 cores");
+    expect(compileMeta?.textContent).toContain("uses idle cores");
   });
 
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {

@@ -13,7 +13,7 @@ import { idleBitPersistence } from "../platform";
 import { SystemWorkbench, type SelectedComponent } from "./components";
 import { toGameAction, type UiGameAction } from "./uiActions";
 
-const SAVE_KEY = "save-v2";
+const SAVE_KEY = "save-v3";
 const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
 const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";

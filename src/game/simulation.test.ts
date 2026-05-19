@@ -48,6 +48,19 @@ const finishActiveTasks = (state: GameState) => {
   return nextState;
 };
 
+const finishActiveTasksWithTicks = (state: GameState) => {
+  let nextState = state;
+  let ticks = 0;
+
+  while (nextState.activeTasks.length > 0 && ticks < 6000) {
+    nextState = tickGame(nextState, 500);
+    ticks += 1;
+  }
+
+  expect(nextState.activeTasks).toHaveLength(0);
+  return { state: nextState, ticks };
+};
+
 const runTask = (state: GameState, taskId: TaskId) =>
   finishActiveTasks(applyAction(state, { type: "startTask", taskId }));
 
@@ -126,7 +139,8 @@ const repeatTask = (state: GameState, taskId: TaskId, times: number) => {
   return nextState;
 };
 
-const getTaskCoreCount = (task: TaskDefinition) => task.maxCores ?? task.minCores;
+const getTaskCoreCount = (task: TaskDefinition) =>
+  task.coreScaling === "elastic" ? 1 : task.maxCores ?? task.minCores;
 
 const getCoreIndexes = (task: TaskDefinition) =>
   Array.from({ length: Math.max(1, getTaskCoreCount(task)) }, (_, index) => index);
@@ -973,7 +987,7 @@ describe("IdleBit simulation", () => {
     expect(deriveVisibleState(restored).metrics.cacheResidency).toEqual([]);
   });
 
-  it("migrates legacy scheduler research ids from saves", () => {
+  it("clean-resets pre-v2 saves instead of migrating legacy research ids", () => {
     const savedState: GameState = {
       ...createInitialGameState(),
       research: {
@@ -988,14 +1002,13 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.research.completed).toContain("systemScheduler");
-    expect(restored.research.completed).not.toContain(
-      "kernelScheduler" as ResearchId,
-    );
-    expect(restored.flags.scheduler).toBe(true);
+    expect(restored.version).toBe(2);
+    expect(restored.research.completed).toEqual([]);
+    expect(restored.flags.scheduler).toBe(false);
+    expect(restored.systems).toHaveLength(1);
   });
 
-  it("drops stale task references from pre-live saves before render and tick", () => {
+  it("clean-resets stale pre-v2 task references before render and tick", () => {
     const runningState = applyAction(createInitialGameState(), {
       type: "startTask",
       taskId: "fetchBit",
@@ -1052,14 +1065,15 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.completedTasks).toEqual({ fetchBit: 2 });
+    expect(restored.version).toBe(2);
+    expect(restored.completedTasks).toEqual({});
     expect(restored.completedJobs).toEqual({});
     expect(restored.completedBenchmarks).toEqual([]);
-    expect(restored.activeTasks.map((task) => task.taskId)).toEqual(["fetchBit"]);
-    expect(restored.queue).toEqual(["decodeBit"]);
-    expect(restored.cron.schedules[0]?.taskId).toBeNull();
-    expect(restored.cron.schedules[0]?.enabled).toBe(false);
+    expect(restored.activeTasks).toEqual([]);
+    expect(restored.queue).toEqual([]);
+    expect(restored.cron.schedules).toEqual([]);
     expect(restored.autoRepeatJobId).toBeNull();
+    expect(restored.systems).toHaveLength(1);
     expect(() => deriveVisibleState(restored)).not.toThrow();
     expect(() => tickGame(restored, 1000)).not.toThrow();
   });
@@ -1175,6 +1189,160 @@ describe("IdleBit simulation", () => {
         (task) => task.id === "shardReconcile",
       )?.blockedReason,
     ).toBe("RAM capacity too low.");
+  });
+
+  it("buys preconfigured and custom systems as one visible rack slot per owned system", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemCatalog", "customMachineAssembly"],
+      },
+    });
+
+    state = applyAction(state, {
+      type: "buyMachineTemplate",
+      templateId: "compileBox",
+    });
+
+    let visible = deriveVisibleState(state);
+
+    expect(state.systems.map((system) => system.name)).toEqual([
+      "Starter Node",
+      "Compile Box",
+    ]);
+    expect(state.selectedSystemId).toBe(2);
+    expect(visible.rack.systems).toHaveLength(2);
+    expect(visible.rack as unknown as Record<string, unknown>).not.toHaveProperty(
+      "slotCount",
+    );
+
+    state = fund(state);
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components: {
+        cpu: "cpu-render-array",
+        ram: "ram-4kb-work",
+        scheduler: "scheduler-6-slot",
+        psu: "psu-balanced",
+      },
+    });
+    visible = deriveVisibleState(state);
+
+    expect(state.systems).toHaveLength(3);
+    expect(state.systems.at(-1)?.name).toBe("Custom 3");
+    expect(state.selectedSystemId).toBe(3);
+    expect(visible.rack.systems).toHaveLength(3);
+  });
+
+  it("routes selected-system upgrades without mutating other rack systems", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        scheduler: true,
+        systemCatalog: true,
+      },
+      research: {
+        completed: ["systemScheduler", "systemCatalog"],
+      },
+    });
+
+    state = applyAction(state, {
+      type: "buyMachineTemplate",
+      templateId: "compileBox",
+    });
+
+    const secondSystemBefore = state.systems.find((system) => system.id === 2);
+    expect(secondSystemBefore).toBeDefined();
+
+    state = fund(state);
+    state = applyAction(state, {
+      type: "buyUpgrade",
+      upgradeId: "cache",
+      cpuId: 1,
+      systemId: 1,
+    });
+
+    const firstSystem = state.systems.find((system) => system.id === 1);
+    const secondSystemAfter = state.systems.find((system) => system.id === 2);
+
+    expect(firstSystem?.hardware.cacheBits).toBeGreaterThan(
+      createInitialGameState().hardware.cacheBits,
+    );
+    expect(secondSystemAfter?.hardware.cacheBits).toBe(
+      secondSystemBefore?.hardware.cacheBits,
+    );
+  });
+
+  it("runs elastic tasks faster on more selected-system cores without cross-system work", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        scheduler: true,
+        systemCatalog: true,
+      },
+      research: {
+        completed: ["systemScheduler", "systemCatalog"],
+      },
+    });
+    state = applyAction(state, {
+      type: "buyMachineTemplate",
+      templateId: "compileBox",
+    });
+
+    const compileDefinition = getTaskDefinition("compileCode");
+    expect(compileDefinition.coreScaling).toBe("elastic");
+
+    const selectedCpu = state.hardware.cpus[0]!;
+    const firstCoreId = selectedCpu.coreIds[0]!;
+    const singleCoreState: GameState = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        cores: 1,
+        cpus: [{ ...selectedCpu, coreIds: [firstCoreId] }],
+        coreClockLevels: {
+          [firstCoreId]:
+            state.hardware.coreClockLevels[firstCoreId] ?? state.hardware.clockLevel,
+        },
+        schedulerSlots: 1,
+      },
+    };
+
+    const singleStarted = applyAction(singleCoreState, {
+      type: "startTask",
+      taskId: "compileCode",
+    });
+    const multiStarted = applyAction(state, {
+      type: "startTask",
+      taskId: "compileCode",
+    });
+
+    const singleTask = singleStarted.activeTasks[0];
+    const multiTask = multiStarted.activeTasks[0];
+
+    expect(singleTask?.assignedCoreIds).toHaveLength(1);
+    expect(multiTask?.assignedCoreIds.length).toBeGreaterThan(1);
+    expect(multiTask?.systemId).toBe(state.selectedSystemId);
+    expect(
+      multiStarted.systems.find((system) => system.id === 1)?.activeTasks,
+    ).toHaveLength(0);
+
+    const singleFinished = finishActiveTasksWithTicks(singleStarted);
+    const multiFinished = finishActiveTasksWithTicks(multiStarted);
+
+    expect(multiFinished.ticks).toBeLessThan(singleFinished.ticks);
+    expect(singleFinished.state.completedTasks.compileCode).toBe(1);
+    expect(multiFinished.state.completedTasks.compileCode).toBe(1);
+    expect(getTaskDefinition("compileCode").operationCount).toBe(
+      compileDefinition.operationCount,
+    );
   });
 
   it("starts system-scheduled work into RAM deadlock when free RAM is exhausted", () => {

@@ -1,4 +1,9 @@
 import { hasResearch, researchDefinitions } from "./content/research";
+import {
+  componentSkus,
+  getMachineComponentSkus,
+  machineTemplates,
+} from "./content/machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
   getUpgradeCount,
@@ -45,6 +50,7 @@ import {
   getStageLabel,
   syncCoreSchedulers,
 } from "./progression";
+import { ensureSystems, materializeSystem, syncSelectedSystemRuntime } from "./systems";
 import {
   getAvailableTasks,
   getAvailableUpgrades,
@@ -315,6 +321,7 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   subtasks: task.subtasks.map(getVisibleTaskSubtask),
   dagNodes: task.dagNodes.map(getVisibleTaskSubtask),
   requiredCores: task.minCores,
+  coreScaling: task.coreScaling,
   cacheFit: getCacheFit(state, task),
   canStart: getTaskCanStart(state, task),
   canQueue: getTaskCanQueue(state, task),
@@ -877,6 +884,7 @@ const getVisibleActiveTask = (
     instanceId: activeTask.instanceId,
     taskId: activeTask.taskId,
     jobId: activeTask.jobId,
+    systemId: activeTask.systemId,
     schedulerQueued: activeTask.schedulerQueued,
     name: definition.name,
     coreId: activeTask.coreId,
@@ -1282,8 +1290,197 @@ const getVisibleCron = (state: GameState) => {
   };
 };
 
+const combineCosts = (costs: Array<{ resource: "credits" | "data"; amount: number }>) =>
+  costs.reduce<Array<{ resource: "credits" | "data"; amount: number }>>(
+    (combined, cost) => {
+      const existing = combined.find((item) => item.resource === cost.resource);
+      if (existing) {
+        existing.amount += cost.amount;
+        return combined;
+      }
+      combined.push({ ...cost });
+      return combined;
+    },
+    [],
+  );
+
+const getTemplateCost = (template: (typeof machineTemplates)[number]) =>
+  combineCosts(getMachineComponentSkus(template.components).flatMap((sku) => sku.cost));
+
+const getVisibleMachineBuilder = (state: GameState) => ({
+  unlocked: state.flags.systemCatalog,
+  templates: machineTemplates
+    .filter((template) =>
+      template.unlockResearchId === "customMachineAssembly"
+        ? state.flags.customMachineAssembly
+        : state.flags.systemCatalog,
+    )
+    .map((template) => {
+      const cost = getTemplateCost(template);
+      return {
+        ...template,
+        cost,
+        canAfford: canAfford(state, cost),
+      };
+    }),
+  components: {
+    cpu: componentSkus
+      .filter((sku) => sku.type === "cpu")
+      .filter((sku) =>
+        sku.unlockResearchId === "customMachineAssembly"
+          ? state.flags.customMachineAssembly
+          : state.flags.systemCatalog,
+      )
+      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+    ram: componentSkus
+      .filter((sku) => sku.type === "ram")
+      .filter((sku) =>
+        sku.unlockResearchId === "customMachineAssembly"
+          ? state.flags.customMachineAssembly
+          : state.flags.systemCatalog,
+      )
+      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+    scheduler: componentSkus
+      .filter((sku) => sku.type === "scheduler")
+      .filter((sku) =>
+        sku.unlockResearchId === "customMachineAssembly"
+          ? state.flags.customMachineAssembly
+          : state.flags.systemCatalog,
+      )
+      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+    psu: componentSkus
+      .filter((sku) => sku.type === "psu")
+      .filter((sku) =>
+        sku.unlockResearchId === "customMachineAssembly"
+          ? state.flags.customMachineAssembly
+          : state.flags.systemCatalog,
+      )
+      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+  },
+});
+
+const getVisibleSystemSummary = (
+  state: GameState,
+  systemId: number,
+  selectedSystemId: number,
+) => {
+  const systemState = materializeSystem(state, systemId);
+  const busyCoreIds = getBusyCoreIds(systemState);
+  const activeTasks = systemState.activeTasks.map((activeTask) =>
+    getVisibleActiveTask(systemState, activeTask),
+  );
+  const activeJobs = systemState.activeTasks.map((activeTask, index) => {
+    const visibleTask = activeTasks[index] ?? getVisibleActiveTask(systemState, activeTask);
+    return asVisibleActiveJob(systemState, activeTask, visibleTask);
+  });
+  const ramUsedBits = getRamUsedBits(systemState);
+  const cacheResidency = getCacheResidencySegments(systemState);
+  const ramResidency = getRamResidencySegments(systemState);
+  const ramSlots = getRamSlots(systemState, ramUsedBits);
+  const ramSlotIds = ramSlots.map((slot) => slot.id);
+  const powerUsedWatts = getHardwareDrawWatts(systemState);
+  const psuCapacityWatts = getPsuCapacityWatts(systemState);
+  const system = ensureSystems(state).systems.find((item) => item.id === systemId);
+
+  return {
+    id: systemId,
+    name: system?.name ?? `System ${systemId}`,
+    templateId: system?.templateId ?? null,
+    selected: systemId === selectedSystemId,
+    powerState: systemState.power.state,
+    coreCount: systemState.hardware.cores,
+    activeTaskCount: systemState.activeTasks.length,
+    queueCount: systemState.queue.length,
+    psuStress: Math.round(getPsuStress(systemState) * 1000) / 1000,
+    drawWatts: powerUsedWatts,
+    ramBits: systemState.hardware.ramBits,
+    ramUsedBits,
+    visible: {
+      hardware: systemState.hardware,
+      metrics: {
+        cpuSockets: getCpuSockets(systemState, activeTasks, activeJobs, cacheResidency),
+        activeCoreCount: busyCoreIds.size,
+        idleCoreCount: systemState.hardware.cores - busyCoreIds.size,
+        cacheUsedBits: getCacheUsedBits(cacheResidency),
+        cacheUsedBytes: getCacheUsedBytes(cacheResidency),
+        ramUsedBits,
+        ramUsedBytes: bitsToBytes(ramUsedBits),
+        ramSlots,
+        allRamCapacityUpgrade:
+          ramSlotIds.length > 0
+            ? getVisibleUpgrade(systemState, getUpgradeDefinition("ramCapacity"), {
+                ramStickIds: ramSlotIds,
+              })
+            : null,
+        allRamSpeedUpgrade:
+          ramSlotIds.length > 0
+            ? getVisibleUpgrade(systemState, getUpgradeDefinition("ramSpeed"), {
+                ramStickIds: ramSlotIds,
+              })
+            : null,
+        ramResidency,
+        memory: getMemoryPipeline(systemState),
+        deadlocks: getVisibleDeadlocks(systemState),
+        deadlockPressure: getVisibleDeadlockPressure(systemState),
+        systemSchedulerWatchdog: getSchedulerWatchdogPreview(systemState, "system"),
+        powerUsedWatts,
+        billedPowerWatts: getBilledPowerWatts(systemState),
+        powerHeadroomWatts: Math.round((psuCapacityWatts - powerUsedWatts) * 1000) / 1000,
+        psuStress: Math.round(getPsuStress(systemState) * 1000) / 1000,
+        powerReliability: getPowerReliability(systemState),
+        powerEfficiency: getPowerEfficiency(systemState),
+        ramEfficiency: getRamMatchEfficiency(systemState),
+        cpuEfficiency: getCpuMatchEfficiency(systemState),
+        coolingReliabilityBonus:
+          Math.round((getCoolingReliabilityBonus(systemState) - 1) * 1000) / 1000,
+        powerCostPerSecond: getPowerCostPerSecond(systemState),
+        powerState: systemState.power.state,
+        powerTransitionSeconds: systemState.power.transitionSeconds,
+        powerBootstrapGraceSeconds: systemState.power.bootstrapGraceSeconds,
+        powerOverloadFailure: getVisiblePowerOverloadFailure(systemState),
+        cacheResidency,
+      },
+      flags: systemState.flags,
+      activeTasks,
+      activeJobs,
+      queue: systemState.queue,
+      cron: getVisibleCron(systemState),
+      tasks: taskDefinitions
+        .filter((task) => isPlayerFacingTask(task) && isTaskRevealed(systemState, task))
+        .map((task) => getTaskVisible(systemState, task)),
+      jobs: getVisibleJobs(systemState),
+      upgrades: getAvailableUpgrades(systemState).map((upgrade) =>
+        getVisibleUpgrade(systemState, upgrade),
+      ),
+    },
+  };
+};
+
 export const deriveVisibleState = (state: GameState): VisibleState => {
-  const syncedState = syncCoreSchedulers(state);
+  const syncedState = syncCoreSchedulers(
+    materializeSystem(syncSelectedSystemRuntime(state), state.selectedSystemId),
+  );
+  const rackSystems = ensureSystems(syncedState).systems;
+  const systemSummaries = rackSystems.map((system) =>
+    getVisibleSystemSummary(syncedState, system.id, syncedState.selectedSystemId),
+  );
+  const selectedSystem =
+    systemSummaries.find((system) => system.id === syncedState.selectedSystemId) ??
+    systemSummaries[0] ??
+    {
+      id: 1,
+      name: "Starter Node",
+      templateId: "starterNode",
+      selected: true,
+      powerState: syncedState.power.state,
+      coreCount: syncedState.hardware.cores,
+      activeTaskCount: syncedState.activeTasks.length,
+      queueCount: syncedState.queue.length,
+      psuStress: Math.round(getPsuStress(syncedState) * 1000) / 1000,
+      drawWatts: getHardwareDrawWatts(syncedState),
+      ramBits: syncedState.hardware.ramBits,
+      ramUsedBits: getRamUsedBits(syncedState),
+    };
   const stage = getStage(syncedState);
   const busyCoreIds = getBusyCoreIds(syncedState);
   const idleCoreCount = syncedState.hardware.cores - busyCoreIds.size;
@@ -1305,11 +1502,36 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const ramResidency = getRamResidencySegments(syncedState);
   const ramSlots = getRamSlots(syncedState, ramUsedBits);
   const ramSlotIds = ramSlots.map((slot) => slot.id);
+  const machineBuilder = getVisibleMachineBuilder(syncedState);
+  const customBuilder = {
+    title: "Custom",
+    groups: [
+      { id: "cpu", label: "CPU", options: machineBuilder.components.cpu },
+      { id: "ram", label: "RAM", options: machineBuilder.components.ram },
+      {
+        id: "scheduler",
+        label: "Scheduler",
+        options: machineBuilder.components.scheduler,
+      },
+      { id: "psu", label: "PSU", options: machineBuilder.components.psu },
+    ],
+  };
 
   return {
     stage,
     stageLabel: getStageLabel(stage),
     resources: syncedState.resources,
+    rack: {
+      selectedSystemId: syncedState.selectedSystemId,
+      systems: systemSummaries,
+      templates: machineBuilder.templates,
+      preconfiguredSystems: machineBuilder.templates,
+      customBuilder: machineBuilder.unlocked ? customBuilder : null,
+      unlocked: machineBuilder.unlocked,
+    },
+    systems: systemSummaries,
+    selectedSystem,
+    machineBuilder,
     hardware: syncedState.hardware,
     metrics: {
       cpuSockets: getCpuSockets(syncedState, activeTasks, activeJobs, cacheResidency),

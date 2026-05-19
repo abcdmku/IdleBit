@@ -21,6 +21,10 @@ export function SystemRail({ children }: { children: ReactNode }) {
   return <div className="system-rail">{children}</div>;
 }
 
+export function SystemRack({ children }: { children: ReactNode }) {
+  return <section className="system-rack">{children}</section>;
+}
+
 export function CoreCacheRow({ children }: { children: ReactNode }) {
   return <div className="core-cache-row">{children}</div>;
 }

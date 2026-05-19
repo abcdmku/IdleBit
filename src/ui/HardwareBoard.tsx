@@ -31,6 +31,9 @@ import {
   Plus,
   RefreshCw,
   Rows3,
+  Server,
+  ShoppingCart,
+  SlidersHorizontal,
   Thermometer,
   TriangleAlert,
   X,
@@ -58,11 +61,17 @@ import {
   formatWatts,
   type DisplayCost,
 } from "./format";
-import type { Dispatch } from "./uiActions";
-import type { SelectedComponent } from "./workbenchData";
+import type { Dispatch, UiGameAction } from "./uiActions";
+import {
+  getSelectedSystemComponent,
+  getSelectedSystemId,
+  scopeSelectionToSystem,
+  type SelectedComponent,
+} from "./workbenchData";
 import {
   CoreCacheRow,
   SystemBoard,
+  SystemRack,
   SystemRail,
 } from "./MotherboardLayout";
 
@@ -274,6 +283,7 @@ interface UiTask {
   requiredCycles?: number;
   requiredCores?: number;
   minCores?: number;
+  coreScaling?: "fixed" | "elastic";
   rewardCredits?: number;
   rewardData?: number;
   rewards?: Partial<Record<"credits" | "data", number>>;
@@ -563,9 +573,162 @@ interface UiPowerState {
   canTurnOff?: boolean;
 }
 
+type UiRecord = Record<string, unknown>;
+
+interface UiRackSystemSource extends UiRecord {
+  id?: string | number;
+  systemId?: string | number;
+  machineId?: string | number;
+  name?: string;
+  label?: string;
+  role?: string;
+  tier?: string;
+  status?: string;
+  powerState?: string;
+  cores?: number;
+  coreCount?: number;
+  ramBits?: number;
+  ramBytes?: number;
+  powerUsedWatts?: number;
+  visible?: UiRecord;
+  visibleState?: UiRecord;
+  state?: UiRecord;
+  hardware?: UiRecord;
+  metrics?: UiRecord;
+  flags?: UiRecord;
+  resources?: UiRecord;
+  cron?: UiRecord;
+  tasks?: unknown[];
+  activeTasks?: unknown[];
+  queue?: unknown[];
+  upgrades?: unknown[];
+}
+
+interface UiRackSystem {
+  id: string;
+  name: string;
+  role: string;
+  tier: string | null;
+  status: string;
+  visible: VisibleState;
+  cores: number;
+  ramBits: number;
+  drawWatts: number;
+  source: UiRackSystemSource | null;
+}
+
+interface UiSystemPreset {
+  id?: string | number;
+  presetId?: string | number;
+  templateId?: string | number;
+  name?: string;
+  label?: string;
+  role?: string;
+  description?: string;
+  tier?: string;
+  costs?: DisplayCost[];
+  cost?: DisplayCost[];
+  price?: DisplayCost[];
+  canAfford?: boolean;
+  canBuy?: boolean;
+  disabled?: boolean;
+  blockedReason?: string | null;
+  lockedReason?: string | null;
+  powerDeltaWatts?: number;
+  cores?: number;
+  coreCount?: number;
+  ramBits?: number;
+  ramBytes?: number;
+  cacheBits?: number;
+  cacheBytes?: number;
+  actionType?: string;
+}
+
+interface UiCustomMachineTier {
+  id?: string | number;
+  tierId?: string | number;
+  name?: string;
+  label?: string;
+  description?: string;
+  costs?: DisplayCost[];
+  cost?: DisplayCost[];
+  price?: DisplayCost[];
+  canAfford?: boolean;
+  canSelect?: boolean;
+  disabled?: boolean;
+  blockedReason?: string | null;
+  cores?: number;
+  coreCount?: number;
+  ramBits?: number;
+  ramBytes?: number;
+  cacheBits?: number;
+  cacheBytes?: number;
+  powerDeltaWatts?: number;
+}
+
+interface UiCustomMachineGroup {
+  id?: string | number;
+  slotId?: string | number;
+  component?: string;
+  name?: string;
+  label?: string;
+  tiers?: UiCustomMachineTier[];
+  options?: UiCustomMachineTier[];
+}
+
+interface UiCustomMachineBuilder {
+  title?: string;
+  name?: string;
+  groups?: UiCustomMachineGroup[];
+  slots?: UiCustomMachineGroup[];
+  tiers?: UiCustomMachineGroup[];
+  components?: UiCustomMachineGroup[];
+  costs?: DisplayCost[];
+  cost?: DisplayCost[];
+  canAfford?: boolean;
+  canBuy?: boolean;
+  blockedReason?: string | null;
+  lockedReason?: string | null;
+  actionType?: string;
+}
+
+interface UiRackData {
+  systems: UiRackSystem[];
+  presets: UiSystemPreset[];
+  customBuilder: UiCustomMachineBuilder | null;
+  showRack: boolean;
+  hasSystemModel: boolean;
+  selectedSystemId: string | null;
+}
+
 type UiCore = VisibleCore & { activeTask?: UiActiveTask | null };
 
 type UiVisibleState = VisibleState & {
+  systems?: UiRackSystemSource[] | Record<string, UiRackSystemSource>;
+  currentSystemId?: string;
+  selectedSystemId?: string;
+  rack?: {
+    systems?: UiRackSystemSource[] | Record<string, UiRackSystemSource>;
+    ownedSystems?: UiRackSystemSource[] | Record<string, UiRackSystemSource>;
+    machines?: UiRackSystemSource[] | Record<string, UiRackSystemSource>;
+    ownedMachines?: UiRackSystemSource[] | Record<string, UiRackSystemSource>;
+    presets?: UiSystemPreset[];
+    preconfiguredSystems?: UiSystemPreset[];
+    templates?: UiSystemPreset[];
+    customBuilder?: UiCustomMachineBuilder;
+    customMachineBuilder?: UiCustomMachineBuilder;
+    visible?: boolean;
+    unlocked?: boolean;
+    selectedSystemId?: string;
+  };
+  systemRack?: UiVisibleState["rack"];
+  systemMarket?: {
+    presets?: UiSystemPreset[];
+    preconfiguredSystems?: UiSystemPreset[];
+    templates?: UiSystemPreset[];
+    customBuilder?: UiCustomMachineBuilder;
+    customMachineBuilder?: UiCustomMachineBuilder;
+  };
   tasks?: UiTask[];
   research?: UiResearch[];
   activeTasks?: UiActiveTask[];
@@ -706,6 +869,418 @@ const getHardware = (visible: VisibleState) =>
     memoryBits?: number;
     systemSchedulerSlots?: number;
   };
+
+const isUiRecord = (value: unknown): value is UiRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const firstString = (...values: Array<unknown>) =>
+  values.find((value): value is string => typeof value === "string" && value.length > 0);
+
+const normalizeRecordList = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) {
+    return value.filter(isUiRecord) as T[];
+  }
+
+  if (!isUiRecord(value)) return [];
+
+  const entries: T[] = [];
+  Object.entries(value).forEach(([id, entry]) => {
+    if (isUiRecord(entry)) entries.push({ ...entry, id: entry.id ?? id } as T);
+  });
+  return entries;
+};
+
+const getRackRecord = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  return (ui.rack ?? ui.systemRack ?? null) as UiVisibleState["rack"] | null;
+};
+
+const getSystemSourceId = (system: UiRackSystemSource, index: number) => {
+  const id = system.id ?? system.systemId ?? system.machineId;
+  return typeof id === "string" || typeof id === "number"
+    ? String(id)
+    : `system-${index + 1}`;
+};
+
+const getVisibleSelectedSystemId = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const rack = getRackRecord(visible);
+  const id = ui.selectedSystemId ?? ui.currentSystemId ?? rack?.selectedSystemId;
+  if (typeof id === "string" || typeof id === "number") return String(id);
+  return null;
+};
+
+const mergeVisibleForSystem = (
+  visible: VisibleState,
+  system: UiRackSystemSource,
+): VisibleState => {
+  const nested =
+    (isUiRecord(system.visible) && system.visible) ||
+    (isUiRecord(system.visibleState) && system.visibleState) ||
+    (isUiRecord(system.state) && system.state) ||
+    {};
+  const source = { ...system, ...nested };
+
+  return {
+    ...visible,
+    ...source,
+    resources: isUiRecord(source.resources)
+      ? { ...visible.resources, ...source.resources }
+      : visible.resources,
+    flags: isUiRecord(source.flags)
+      ? { ...visible.flags, ...source.flags }
+      : visible.flags,
+    hardware: isUiRecord(source.hardware)
+      ? { ...visible.hardware, ...source.hardware }
+      : visible.hardware,
+    metrics: isUiRecord(source.metrics)
+      ? { ...visible.metrics, ...source.metrics }
+      : visible.metrics,
+    cron: isUiRecord(source.cron)
+      ? { ...visible.cron, ...source.cron }
+      : visible.cron,
+    tasks: Array.isArray(source.tasks) ? source.tasks : visible.tasks,
+    activeTasks: Array.isArray(source.activeTasks)
+      ? source.activeTasks
+      : visible.activeTasks,
+    queue: Array.isArray(source.queue) ? source.queue : visible.queue,
+    upgrades: Array.isArray(source.upgrades) ? source.upgrades : visible.upgrades,
+  } as VisibleState;
+};
+
+const getSystemSources = (visible: VisibleState): UiRackSystemSource[] => {
+  const ui = asUiVisible(visible);
+  const rack = getRackRecord(visible);
+  const sources = [
+    normalizeRecordList<UiRackSystemSource>(rack?.systems),
+    normalizeRecordList<UiRackSystemSource>(rack?.ownedSystems),
+    normalizeRecordList<UiRackSystemSource>(rack?.machines),
+    normalizeRecordList<UiRackSystemSource>(rack?.ownedMachines),
+    normalizeRecordList<UiRackSystemSource>(ui.systems),
+  ];
+
+  return sources.find((source) => source.length > 0) ?? [];
+};
+
+const getSystemCores = (systemVisible: VisibleState, source: UiRackSystemSource) =>
+  firstNumber(
+    typeof source.cores === "number" ? source.cores : undefined,
+    typeof source.coreCount === "number" ? source.coreCount : undefined,
+    systemVisible.hardware.cores,
+    systemVisible.metrics.cpuSockets.reduce(
+      (total, socket) => total + socket.cores.length,
+      0,
+    ),
+  ) ?? 0;
+
+const getSystemRamBits = (systemVisible: VisibleState, source: UiRackSystemSource) =>
+  firstBits(
+    [
+      typeof source.ramBits === "number" ? source.ramBits : undefined,
+      systemVisible.hardware.ramBits,
+    ],
+    [
+      typeof source.ramBytes === "number" ? source.ramBytes : undefined,
+      systemVisible.hardware.ramBytes,
+    ],
+  );
+
+const getSystemDrawWatts = (
+  systemVisible: VisibleState,
+  source: UiRackSystemSource,
+) =>
+  firstNumber(
+    typeof source.powerUsedWatts === "number" ? source.powerUsedWatts : undefined,
+    systemVisible.metrics.powerUsedWatts,
+  ) ?? 0;
+
+const toRackSystem = (
+  visible: VisibleState,
+  source: UiRackSystemSource,
+  index: number,
+): UiRackSystem => {
+  const systemVisible = mergeVisibleForSystem(visible, source);
+  const id = getSystemSourceId(source, index);
+  const powerState =
+    firstString(source.powerState, source.status, systemVisible.metrics.powerState) ??
+    "on";
+
+  return {
+    id,
+    name:
+      firstString(source.name, source.label, systemVisible.stageLabel) ??
+      `System ${index + 1}`,
+    role: firstString(source.role, source.tier) ?? (index === 0 ? "Primary" : "Node"),
+    tier: firstString(source.tier) ?? null,
+    status: powerState,
+    visible: systemVisible,
+    cores: getSystemCores(systemVisible, source),
+    ramBits: getSystemRamBits(systemVisible, source),
+    drawWatts: getSystemDrawWatts(systemVisible, source),
+    source,
+  };
+};
+
+const getFallbackRackSystem = (visible: VisibleState): UiRackSystem => ({
+  id: "primary",
+  name: "Primary",
+  role: "Local",
+  tier: null,
+  status: visible.metrics.powerState,
+  visible,
+  cores: visible.hardware.cores,
+  ramBits: getVisibleRamBits(visible),
+  drawWatts: visible.metrics.powerUsedWatts,
+  source: null,
+});
+
+const normalizeCosts = (value: unknown): DisplayCost[] =>
+  Array.isArray(value)
+    ? value
+        .map((cost) => {
+          if (!isUiRecord(cost)) return null;
+          const resource = cost.resource;
+          const amount = cost.amount;
+          return typeof resource === "string" && typeof amount === "number"
+            ? { resource, amount }
+            : null;
+        })
+        .filter((cost): cost is DisplayCost => cost !== null)
+    : [];
+
+const getRecordCosts = (record: {
+  costs?: DisplayCost[];
+  cost?: DisplayCost[];
+  price?: DisplayCost[];
+}) =>
+  normalizeCosts(record.costs).length > 0
+    ? normalizeCosts(record.costs)
+    : normalizeCosts(record.cost).length > 0
+      ? normalizeCosts(record.cost)
+      : normalizeCosts(record.price);
+
+const getPresetId = (preset: UiSystemPreset, index: number) => {
+  const id = preset.id ?? preset.presetId ?? preset.templateId;
+  return typeof id === "string" || typeof id === "number"
+    ? String(id)
+    : `preset-${index + 1}`;
+};
+
+const getPresetLabel = (preset: UiSystemPreset, index: number) =>
+  firstString(preset.name, preset.label) ?? `System ${index + 1}`;
+
+const getTierId = (tier: UiCustomMachineTier, index: number) => {
+  const id = tier.id ?? tier.tierId;
+  return typeof id === "string" || typeof id === "number"
+    ? String(id)
+    : `tier-${index + 1}`;
+};
+
+const getTierLabel = (tier: UiCustomMachineTier, index: number) =>
+  firstString(tier.name, tier.label) ?? `Tier ${index + 1}`;
+
+const getBuilderGroupId = (group: UiCustomMachineGroup, index: number) => {
+  const id = group.id ?? group.slotId ?? group.component;
+  return typeof id === "string" || typeof id === "number"
+    ? String(id)
+    : `slot-${index + 1}`;
+};
+
+const getBuilderGroupLabel = (group: UiCustomMachineGroup, index: number) =>
+  firstString(group.name, group.label, group.component) ?? `Slot ${index + 1}`;
+
+const getBuilderGroups = (builder: UiCustomMachineBuilder | null) =>
+  (
+    builder?.groups ??
+    builder?.slots ??
+    builder?.tiers ??
+    builder?.components ??
+    []
+  ).filter((group) => {
+    const options = group.tiers ?? group.options ?? [];
+    return options.length > 0;
+  });
+
+const getBuilderSelections = (
+  groups: UiCustomMachineGroup[],
+  current: Record<string, string>,
+) => {
+  const next: Record<string, string> = {};
+
+  groups.forEach((group, groupIndex) => {
+    const groupId = getBuilderGroupId(group, groupIndex);
+    const options = group.tiers ?? group.options ?? [];
+    const optionIds = options.map(getTierId);
+    next[groupId] = optionIds.includes(current[groupId] ?? "")
+      ? current[groupId]!
+      : (optionIds[0] ?? "");
+  });
+
+  return next;
+};
+
+const getSelectedBuilderTiers = (
+  groups: UiCustomMachineGroup[],
+  selections: Record<string, string>,
+) =>
+  groups
+    .map((group, groupIndex) => {
+      const groupId = getBuilderGroupId(group, groupIndex);
+      const options = group.tiers ?? group.options ?? [];
+      return (
+        options.find((tier, tierIndex) => getTierId(tier, tierIndex) === selections[groupId]) ??
+        null
+      );
+    })
+    .filter((tier): tier is UiCustomMachineTier => tier !== null);
+
+const sumCosts = (costRows: DisplayCost[][]) => {
+  const totals = new Map<string, number>();
+
+  costRows.flat().forEach((cost) => {
+    totals.set(cost.resource, (totals.get(cost.resource) ?? 0) + cost.amount);
+  });
+
+  return Array.from(totals.entries()).map(
+    ([resource, amount]): DisplayCost => ({ resource, amount }),
+  );
+};
+
+const getRackPresets = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const rack = getRackRecord(visible);
+  const market = ui.systemMarket;
+  const machineBuilder = isUiRecord(ui.machineBuilder) ? ui.machineBuilder : null;
+  const builderUnlocked = machineBuilder?.unlocked === true;
+  const presetSources = [
+    rack?.preconfiguredSystems,
+    rack?.presets,
+    rack?.templates,
+    market?.preconfiguredSystems,
+    market?.presets,
+    market?.templates,
+    builderUnlocked ? machineBuilder?.templates : undefined,
+  ];
+
+  return presetSources.find((source) => (source?.length ?? 0) > 0) ?? [];
+};
+
+const getMachineBuilder = (visible: VisibleState): UiCustomMachineBuilder | null => {
+  const ui = asUiVisible(visible);
+  const machineBuilder = isUiRecord(ui.machineBuilder) ? ui.machineBuilder : null;
+  if (machineBuilder?.unlocked !== true) return null;
+
+  const components = isUiRecord(machineBuilder.components)
+    ? machineBuilder.components
+    : null;
+  if (!components) return null;
+
+  const labels: Record<string, string> = {
+    cpu: "CPU",
+    ram: "RAM",
+    scheduler: "Sched",
+    psu: "PSU",
+  };
+  const componentRecord = components as Record<string, unknown>;
+  const groups: UiCustomMachineGroup[] = Object.entries(labels).flatMap(([id, label]) => {
+    const options = normalizeRecordList<UiCustomMachineTier>(componentRecord[id]);
+    return options.length > 0
+      ? [
+          {
+            id,
+            label,
+            tiers: options,
+          },
+        ]
+      : [];
+  });
+
+  return groups.length > 0
+    ? {
+        title: "Custom",
+        groups,
+        canBuy: true,
+      }
+    : null;
+};
+
+const getRackCustomBuilder = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const rack = getRackRecord(visible);
+  return (
+    rack?.customBuilder ??
+    rack?.customMachineBuilder ??
+    ui.systemMarket?.customBuilder ??
+    ui.systemMarket?.customMachineBuilder ??
+    getMachineBuilder(visible) ??
+    null
+  );
+};
+
+const hasRackUnlockSignal = (visible: VisibleState) => {
+  const ui = asUiVisible(visible);
+  const rack = getRackRecord(visible);
+  const flags = ui.flags as VisibleState["flags"] & {
+    systems?: boolean;
+    multiSystem?: boolean;
+    multipleSystems?: boolean;
+    rack?: boolean;
+    systemRack?: boolean;
+  };
+
+  return Boolean(
+    rack?.visible ??
+      rack?.unlocked ??
+      flags.systems ??
+      flags.multiSystem ??
+      flags.multipleSystems ??
+      flags.rack ??
+      flags.systemRack,
+  );
+};
+
+const getRackData = (visible: VisibleState): UiRackData => {
+  const sources = getSystemSources(visible);
+  const systems =
+    sources.length > 0
+      ? sources.map((source, index) => toRackSystem(visible, source, index))
+      : [getFallbackRackSystem(visible)];
+  const presets = getRackPresets(visible);
+  const customBuilder = getRackCustomBuilder(visible);
+  const hasSystemModel = sources.length > 0;
+  const showRack =
+    hasRackUnlockSignal(visible) ||
+    systems.length > 1 ||
+    presets.length > 0 ||
+    getBuilderGroups(customBuilder).length > 0;
+
+  return {
+    systems,
+    presets,
+    customBuilder,
+    showRack,
+    hasSystemModel,
+    selectedSystemId: getVisibleSelectedSystemId(visible),
+  };
+};
+
+const getSystemScopedAction = (
+  action: UiGameAction,
+  systemId: string | null,
+) => {
+  if (!systemId || "systemId" in action) return action;
+  const numericId = Number(systemId);
+  const actionSystemId =
+    Number.isInteger(numericId) && String(numericId) === systemId
+      ? numericId
+      : systemId;
+  return { ...action, systemId: actionSystemId } as UiGameAction;
+};
+
+const createSystemDispatch =
+  (dispatch: Dispatch, systemId: string | null): Dispatch =>
+  (action) =>
+    dispatch(getSystemScopedAction(action, systemId));
 
 const getCoreGridMetrics = (coreCount: number) => {
   const count = Math.max(1, coreCount);
@@ -1195,15 +1770,18 @@ function resolveTaskRoute(
   selectedCore: VisibleCore | null;
   selectedSchedulerId: number | null;
 } {
+  const routeSelection =
+    getSelectedSystemComponent(selectedComponent) ?? ("core:1" as SelectedComponent);
+
   if (category !== "cpu") {
     return { mode: "systemScheduler", selectedCore: null, selectedSchedulerId: null };
   }
 
   const allCores = getAllCores(visible);
-  const selectedCoreId = getSelectedCoreId(selectedComponent);
-  const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
+  const selectedCoreId = getSelectedCoreId(routeSelection);
+  const selectedSchedulerId = getSelectedSchedulerId(routeSelection);
   const selectedSystemScheduler =
-    selectedComponent === "scheduler" && visible.flags.scheduler;
+    routeSelection === "scheduler" && visible.flags.scheduler;
   const selectedCore =
     (selectedCoreId
       ? allCores.find((core) => core.id === selectedCoreId)
@@ -1226,6 +1804,9 @@ function dispatchRunTask(
   selectedComponent: SelectedComponent,
   dispatch: Dispatch,
 ) {
+  const systemId = getSelectedSystemId(selectedComponent);
+  const dispatchTaskAction = (action: UiGameAction) =>
+    dispatch(getSystemScopedAction(action, systemId));
   const { mode, selectedCore, selectedSchedulerId } = resolveTaskRoute(
     visible,
     selectedComponent,
@@ -1233,7 +1814,7 @@ function dispatchRunTask(
   );
 
   if (mode === "core" && selectedCore) {
-    dispatch({
+    dispatchTaskAction({
       type: "startTaskOnCore",
       taskId: task.id,
       coreId: selectedCore.id,
@@ -1242,7 +1823,7 @@ function dispatchRunTask(
   }
 
   if (mode === "scheduler") {
-    dispatch({
+    dispatchTaskAction({
       type: "queueTask",
       taskId: task.id,
       cpuId: selectedSchedulerId ?? undefined,
@@ -1251,14 +1832,14 @@ function dispatchRunTask(
   }
 
   if (mode === "systemScheduler") {
-    dispatch({
+    dispatchTaskAction({
       type: "queueTask",
       taskId: task.id,
     });
     return;
   }
 
-  dispatch({ type: "startTask", taskId: task.id });
+  dispatchTaskAction({ type: "startTask", taskId: task.id });
 }
 
 const getTaskCanUseAction = (task: UiTask, mode: QueueMode) => {
@@ -1418,7 +1999,11 @@ function TaskMetaLine({
       <span className="ops">
         <strong>{operationCount === undefined ? "?" : formatNumber(operationCount)}</strong> ops
       </span>
-      {requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>}
+      {isElasticTask(task) ? (
+        <span>uses idle cores</span>
+      ) : (
+        requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>
+      )}
       {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
       {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
         <span>ram {formatBits(ramBits)}</span>
@@ -1444,6 +2029,8 @@ const getQueueWaitingReason = (
 
 const getRequiredCoreCount = (task: UiTask | undefined) =>
   Math.max(1, firstNumber(task?.requiredCores, task?.minCores) ?? 1);
+
+const isElasticTask = (task: UiTask | undefined) => task?.coreScaling === "elastic";
 
 const getCpuSchedulerPendingReason = (
   visible: VisibleState,
@@ -2291,6 +2878,307 @@ export function ResourceHud({
 
 /* ============ HARDWARE BOARD ============ */
 
+function SystemRackPanel({
+  rack,
+  activeSystemId,
+  selection,
+  onSelectComponent,
+  dispatch,
+  resources,
+}: {
+  rack: UiRackData;
+  activeSystemId: string;
+  selection: SelectedComponent;
+  onSelectComponent: (component: SelectedComponent) => void;
+  dispatch: Dispatch;
+  resources: VisibleState["resources"];
+}) {
+  const activeComponent = getSelectedSystemComponent(selection) ?? "core:1";
+
+  return (
+    <SystemRack>
+      <div className="system-rack-header">
+        <span className="system-rack-title">
+          <Server size={14} />
+          <span>Rack</span>
+        </span>
+      </div>
+
+      <div className="system-rack-slots" aria-label="Owned systems">
+        {rack.systems.map((system, index) => (
+          <button
+            key={system.id}
+            type="button"
+            className={`system-rack-slot ${
+              system.id === activeSystemId ? "selected" : ""
+            }`}
+            aria-pressed={system.id === activeSystemId}
+            onClick={() => {
+              dispatch({ type: "selectSystem", systemId: system.id });
+              onSelectComponent(scopeSelectionToSystem(system.id, activeComponent));
+            }}
+            title={`Select ${system.name}`}
+          >
+            <span className="rack-slot-index">{index + 1}</span>
+            <span className="rack-slot-copy">
+              <strong>{system.name}</strong>
+              <small>{system.role}</small>
+            </span>
+            <span className="rack-slot-stats">
+              <span>{formatNumber(system.cores)}C</span>
+              {system.ramBits > 0 && <span>{formatBits(system.ramBits)}</span>}
+              {system.drawWatts > 0 && <span>{formatWatts(system.drawWatts)}</span>}
+            </span>
+            <span className={`rack-slot-state ${system.status}`}>
+              {system.status}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {(rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0) && (
+        <div className="system-rack-purchase-grid">
+          {rack.presets.length > 0 && (
+            <PreconfiguredSystemControls
+              presets={rack.presets}
+              resources={resources}
+              dispatch={dispatch}
+            />
+          )}
+          {getBuilderGroups(rack.customBuilder).length > 0 && (
+            <CustomMachineBuilder
+              builder={rack.customBuilder}
+              resources={resources}
+              dispatch={dispatch}
+            />
+          )}
+        </div>
+      )}
+    </SystemRack>
+  );
+}
+
+function PreconfiguredSystemControls({
+  presets,
+  resources,
+  dispatch,
+}: {
+  presets: UiSystemPreset[];
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  return (
+    <section className="system-preset-controls" aria-label="Preconfigured systems">
+      <div className="system-rack-subheader">
+        <ShoppingCart size={13} />
+        <span>Systems</span>
+      </div>
+      <div className="system-preset-list">
+        {presets.map((preset, index) => {
+          const presetId = getPresetId(preset, index);
+          const label = getPresetLabel(preset, index);
+          const costs = getRecordCosts(preset);
+          const canBuy =
+            !preset.disabled &&
+            (firstBoolean(preset.canBuy, preset.canAfford) ?? true);
+          const blockedReason =
+            preset.blockedReason ?? preset.lockedReason ?? "Locked";
+          const stats = [
+            firstNumber(preset.cores, preset.coreCount) !== undefined
+              ? `${formatNumber(firstNumber(preset.cores, preset.coreCount) ?? 0)}C`
+              : null,
+            firstBits([preset.ramBits], [preset.ramBytes]) > 0
+              ? formatBits(firstBits([preset.ramBits], [preset.ramBytes]))
+              : null,
+            firstBits([preset.cacheBits], [preset.cacheBytes]) > 0
+              ? `${formatBits(firstBits([preset.cacheBits], [preset.cacheBytes]))} cache`
+              : null,
+          ].filter((item): item is string => item !== null);
+
+          return (
+            <button
+              key={presetId}
+              type="button"
+              className="system-preset-card"
+              disabled={!canBuy}
+              title={canBuy ? `Buy ${label}: ${formatCost(costs)}` : blockedReason}
+              onClick={() =>
+                dispatch({
+                  type: "buyPreconfiguredSystem",
+                  presetId,
+                })
+              }
+            >
+              <span className="system-preset-copy">
+                <strong>{label}</strong>
+                <small>{preset.role ?? preset.tier ?? "Preset"}</small>
+              </span>
+              {stats.length > 0 && (
+                <span className="system-preset-stats">{stats.join(" / ")}</span>
+              )}
+              {preset.powerDeltaWatts !== undefined && (
+                <span className="system-preset-power">
+                  +{formatWatts(preset.powerDeltaWatts)}
+                </span>
+              )}
+              <ResourceCost costs={costs} compact resources={resources} />
+              <span className="system-preset-action">
+                {canBuy ? <Plus size={12} /> : blockedReason}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CustomMachineBuilder({
+  builder,
+  resources,
+  dispatch,
+}: {
+  builder: UiCustomMachineBuilder | null;
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  const groups = getBuilderGroups(builder);
+  const groupsKey = groups
+    .map((group, groupIndex) => {
+      const groupId = getBuilderGroupId(group, groupIndex);
+      const optionIds = (group.tiers ?? group.options ?? []).map(getTierId).join(",");
+      return `${groupId}:${optionIds}`;
+    })
+    .join("|");
+  const [selections, setSelections] = useState<Record<string, string>>(() =>
+    getBuilderSelections(groups, {}),
+  );
+
+  useEffect(() => {
+    setSelections((current) => getBuilderSelections(groups, current));
+  }, [groupsKey]);
+
+  if (!builder || groups.length === 0) return null;
+
+  const selectedTiers = getSelectedBuilderTiers(groups, selections);
+  const costs =
+    getRecordCosts(builder).length > 0
+      ? getRecordCosts(builder)
+      : sumCosts(selectedTiers.map(getRecordCosts));
+  const tierBlocked = selectedTiers.find(
+    (tier) =>
+      tier.disabled ||
+      firstBoolean(tier.canSelect, tier.canAfford) === false ||
+      Boolean(tier.blockedReason),
+  );
+  const canBuy =
+    !tierBlocked &&
+    (firstBoolean(builder.canBuy, builder.canAfford) ?? true);
+  const blockedReason =
+    tierBlocked?.blockedReason ??
+    builder.blockedReason ??
+    builder.lockedReason ??
+    "Locked";
+  const totalCores = selectedTiers.reduce(
+    (total, tier) => total + (firstNumber(tier.cores, tier.coreCount) ?? 0),
+    0,
+  );
+  const totalRamBits = selectedTiers.reduce(
+    (total, tier) => total + firstBits([tier.ramBits], [tier.ramBytes]),
+    0,
+  );
+  const totalPower = selectedTiers.reduce(
+    (total, tier) => total + (tier.powerDeltaWatts ?? 0),
+    0,
+  );
+
+  return (
+    <section className="custom-machine-builder" aria-label="Custom machine builder">
+      <div className="system-rack-subheader">
+        <SlidersHorizontal size={13} />
+        <span>{builder.title ?? builder.name ?? "Custom"}</span>
+      </div>
+
+      <div className="custom-builder-groups">
+        {groups.map((group, groupIndex) => {
+          const groupId = getBuilderGroupId(group, groupIndex);
+          const options = group.tiers ?? group.options ?? [];
+
+          return (
+            <div className="custom-builder-group" key={groupId}>
+              <span className="custom-builder-label">
+                {getBuilderGroupLabel(group, groupIndex)}
+              </span>
+              <div className="custom-tier-options">
+                {options.map((tier, tierIndex) => {
+                  const tierId = getTierId(tier, tierIndex);
+                  const selected = selections[groupId] === tierId;
+                  const tierCosts = getRecordCosts(tier);
+                  const disabled =
+                    tier.disabled ||
+                    firstBoolean(tier.canSelect, tier.canAfford) === false;
+
+                  return (
+                    <button
+                      key={tierId}
+                      type="button"
+                      className={`custom-tier-option ${selected ? "selected" : ""}`}
+                      disabled={disabled}
+                      aria-pressed={selected}
+                      onClick={() =>
+                        setSelections((current) => ({
+                          ...current,
+                          [groupId]: tierId,
+                        }))
+                      }
+                      title={
+                        disabled
+                          ? tier.blockedReason ?? "Locked"
+                          : getTierLabel(tier, tierIndex)
+                      }
+                    >
+                      <span>{getTierLabel(tier, tierIndex)}</span>
+                      {tierCosts.length > 0 && (
+                        <ResourceCost
+                          costs={tierCosts}
+                          compact
+                          resources={resources}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="custom-builder-summary">
+        <span>{formatNumber(totalCores)}C</span>
+        {totalRamBits > 0 && <span>{formatBits(totalRamBits)} RAM</span>}
+        {totalPower > 0 && <span>+{formatWatts(totalPower)}</span>}
+        <ResourceCost costs={costs} compact resources={resources} />
+        <button
+          type="button"
+          className="custom-builder-buy"
+          disabled={!canBuy}
+          title={canBuy ? `Buy custom system: ${formatCost(costs)}` : blockedReason}
+          onClick={() =>
+            dispatch({
+              type: "buyCustomSystem",
+              tierIds: selections,
+            })
+          }
+        >
+          {canBuy ? <Plus size={12} /> : null}
+          <span>{canBuy ? "Build" : blockedReason}</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function HardwareBoard({
   visible,
   dispatch,
@@ -2303,22 +3191,49 @@ export function HardwareBoard({
   onDismissDeadlockCooldownHelp,
   onDismissPsuFailureHelp,
 }: HardwareBoardProps) {
-  const selectedCoreId = getSelectedCoreId(selectedComponent);
-  const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
-  const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
-  const selectedRamStickId = getSelectedRamStickId(selectedComponent);
-  const selectedAllRamSticks = selectedComponent === "ramSticks";
+  const rack = getRackData(visible);
+  const requestedSystemId =
+    getSelectedSystemId(selectedComponent) ?? rack.selectedSystemId;
+  const scopedSelectionRequested = getSelectedSystemId(selectedComponent) !== null;
+  const rackActive = rack.showRack || scopedSelectionRequested;
+  const activeSystem = rackActive
+    ? (rack.systems.find((system) => system.id === requestedSystemId) ??
+      rack.systems[0] ??
+      getFallbackRackSystem(visible))
+    : getFallbackRackSystem(visible);
+  const boardVisible = activeSystem.visible;
+  const boardSelection =
+    getSelectedSystemComponent(selectedComponent) ?? ("core:1" as SelectedComponent);
+  const shouldScopeSystemActions = rackActive;
+  const selectComponent = (component: SelectedComponent) =>
+    onSelectComponent(
+      shouldScopeSystemActions && rack.hasSystemModel
+        ? scopeSelectionToSystem(activeSystem.id, component)
+        : component,
+    );
+  const systemDispatch = createSystemDispatch(
+    dispatch,
+    shouldScopeSystemActions && rack.hasSystemModel ? activeSystem.id : null,
+  );
+  const selectedCoreId = getSelectedCoreId(boardSelection);
+  const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(boardSelection);
+  const selectedSchedulerId = getSelectedSchedulerId(boardSelection);
+  const selectedRamStickId = getSelectedRamStickId(boardSelection);
+  const selectedAllRamSticks = boardSelection === "ramSticks";
   const schedulerVisible =
-    visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
-  const allCoreTuningVisible = visible.flags.basicQueue || visible.flags.scheduler;
-  const cronVisible = hasCronScheduler(visible);
-  const systemSchedulerVisible = visible.flags.scheduler;
-  const memoryVisible = hasSystemMemory(visible);
-  const psuAdvancedControlsVisible = hasPsuManagement(visible);
+    boardVisible.flags.basicQueue ||
+    boardVisible.flags.scheduler ||
+    getQueueEntries(boardVisible).length > 0;
+  const allCoreTuningVisible =
+    boardVisible.flags.basicQueue || boardVisible.flags.scheduler;
+  const cronVisible = hasCronScheduler(boardVisible);
+  const systemSchedulerVisible = boardVisible.flags.scheduler;
+  const memoryVisible = hasSystemMemory(boardVisible);
+  const psuAdvancedControlsVisible = hasPsuManagement(boardVisible);
   const psuVisible = true;
   const thermalVisible = false;
   const upgradesFor = (component: HardwareComponentId) =>
-    visible.upgrades.filter((upgrade) => upgrade.component === component);
+    boardVisible.upgrades.filter((upgrade) => upgrade.component === component);
 
   const cpuUpgrades = upgradesFor("cpu");
   const ramUpgrades = upgradesFor("ram");
@@ -2328,13 +3243,13 @@ export function HardwareBoard({
     (upgrade) => upgrade.id === "systemSchedulerSlot",
   );
 
-  const cpuSelected = selectedComponent === "cpu";
-  const cacheSelected = selectedComponent === "cache";
+  const cpuSelected = boardSelection === "cpu";
+  const cacheSelected = boardSelection === "cache";
 
-  const sockets = visible.metrics.cpuSockets;
+  const sockets = boardVisible.metrics.cpuSockets;
   const cacheHelpCpuId =
     (deadlockHelpResource === "cache" || deadlockCooldownHelpResource === "cache")
-      ? (visible.metrics.deadlocks.find((deadlock) => deadlock.resource === "cache")
+      ? (boardVisible.metrics.deadlocks.find((deadlock) => deadlock.resource === "cache")
           ?.cpuId ?? null)
       : null;
   const showDeadlockHelp = (resource: DeadlockResource) =>
@@ -2342,7 +3257,7 @@ export function HardwareBoard({
   const showDeadlockCooldownHelp = (resource: DeadlockResource) =>
     deadlockCooldownHelpResource === resource;
   const showSocketLabel = sockets.length > 1;
-  const showEmptySocket = !visible.hardware.secondCpu && visible.flags.secondCpu;
+  const showEmptySocket = !boardVisible.hardware.secondCpu && boardVisible.flags.secondCpu;
   const railVisible = psuVisible || thermalVisible;
   const multiCpu = sockets.length >= 2;
 
@@ -2387,16 +3302,16 @@ export function HardwareBoard({
     const moduleLayout = (
       <CpuModuleLayout
         socket={socket}
-        visible={visible}
+        visible={boardVisible}
         schedulerVisible={schedulerVisible}
         selectedSchedulerId={selectedSchedulerId}
         selectedCoreId={selectedCoreId}
         selectedCoreGroupCpuId={selectedCoreGroupCpuId}
         allCoreTuningVisible={allCoreTuningVisible}
         cacheSelected={cacheSelected}
-        onSelectComponent={onSelectComponent}
+        onSelectComponent={selectComponent}
         cpuUpgrades={cpuUpgrades}
-        dispatch={dispatch}
+        dispatch={systemDispatch}
         showCacheDeadlockHelp={
           deadlockHelpResource === "cache" && cacheHelpCpuId === socket.id
         }
@@ -2419,11 +3334,11 @@ export function HardwareBoard({
         socket={socket}
         selected={cpuSelected}
         showSocketLabel={showSocketLabel}
-        onSelect={() => onSelectComponent("cpu")}
+        onSelect={() => selectComponent("cpu")}
         cpuUpgrades={cpuUpgrades}
-        resources={visible.resources}
-        dispatch={dispatch}
-        deadlockPressure={visible.metrics.deadlockPressure}
+        resources={boardVisible.resources}
+        dispatch={systemDispatch}
+        deadlockPressure={boardVisible.metrics.deadlockPressure}
       >
         {moduleLayout}
       </CpuPackage>
@@ -2431,37 +3346,49 @@ export function HardwareBoard({
   };
 
   return (
-    <SystemBoard visible={visible}>
+    <>
+      {rack.showRack && (
+        <SystemRackPanel
+          rack={rack}
+          activeSystemId={activeSystem.id}
+          selection={selectedComponent}
+          onSelectComponent={onSelectComponent}
+          dispatch={systemDispatch}
+          resources={visible.resources}
+        />
+      )}
+
+    <SystemBoard visible={boardVisible}>
       {cronVisible && (
         <CronAutomationSection
-          visible={visible}
-          selected={selectedComponent === "cron"}
-          onSelect={() => onSelectComponent("cron")}
-          dispatch={dispatch}
+          visible={boardVisible}
+          selected={boardSelection === "cron"}
+          onSelect={() => selectComponent("cron")}
+          dispatch={systemDispatch}
         />
       )}
 
       {systemSchedulerVisible && (
         <SystemSchedulerSection
-          visible={visible}
-          selected={selectedComponent === "scheduler"}
-          onSelect={() => onSelectComponent("scheduler")}
+          visible={boardVisible}
+          selected={boardSelection === "scheduler"}
+          onSelect={() => selectComponent("scheduler")}
           upgrades={systemSchedulerUpgrades}
-          dispatch={dispatch}
+          dispatch={systemDispatch}
         />
       )}
 
       {memoryVisible && (
         <RamSection
-          visible={visible}
-          selected={isRamSelection(selectedComponent)}
+          visible={boardVisible}
+          selected={isRamSelection(boardSelection)}
           selectedRamStickId={selectedRamStickId}
           selectedAllRamSticks={selectedAllRamSticks}
-          onSelect={() => onSelectComponent("ram")}
-          onSelectStick={(stickId) => onSelectComponent(`ramStick:${stickId}`)}
-          onSelectAllSticks={() => onSelectComponent("ramSticks")}
+          onSelect={() => selectComponent("ram")}
+          onSelectStick={(stickId) => selectComponent(`ramStick:${stickId}`)}
+          onSelectAllSticks={() => selectComponent("ramSticks")}
           upgrades={ramUpgrades}
-          dispatch={dispatch}
+          dispatch={systemDispatch}
           showDeadlockHelp={showDeadlockHelp("ram")}
           showDeadlockCooldownHelp={showDeadlockCooldownHelp("ram")}
           onDismissDeadlockHelp={onDismissDeadlockHelp}
@@ -2477,24 +3404,24 @@ export function HardwareBoard({
           activeSocketId={activeSocketId}
           onSelectTab={(socketId) => {
             setActiveSocketId(socketId);
-            if (schedulerVisible) onSelectComponent(`scheduler:${socketId}`);
-            else onSelectComponent("cpu");
+            if (schedulerVisible) selectComponent(`scheduler:${socketId}`);
+            else selectComponent("cpu");
           }}
           onOpenSocket={(socketId) => {
             setActiveSocketId(socketId);
             setBankView("tabs");
-            if (schedulerVisible) onSelectComponent(`scheduler:${socketId}`);
-            else onSelectComponent("cpu");
+            if (schedulerVisible) selectComponent(`scheduler:${socketId}`);
+            else selectComponent("cpu");
           }}
           onSelectCore={(socketId, coreId) => {
             setActiveSocketId(socketId);
-            onSelectComponent(`core:${coreId}`);
+            selectComponent(`core:${coreId}`);
           }}
           renderSocket={renderSocket}
           schedulerVisible={schedulerVisible}
-          visible={visible}
-          resources={visible.resources}
-          dispatch={dispatch}
+          visible={boardVisible}
+          resources={boardVisible.resources}
+          dispatch={systemDispatch}
           socketUpgrades={socketUpgrades}
         />
       ) : (
@@ -2503,11 +3430,11 @@ export function HardwareBoard({
 
       {showEmptySocket && (
         <EmptySocketSection
-          selected={selectedComponent === "socket"}
-          onSelect={() => onSelectComponent("socket")}
+          selected={boardSelection === "socket"}
+          onSelect={() => selectComponent("socket")}
           upgrades={socketUpgrades}
-          resources={visible.resources}
-          dispatch={dispatch}
+          resources={boardVisible.resources}
+          dispatch={systemDispatch}
         />
       )}
 
@@ -2515,11 +3442,11 @@ export function HardwareBoard({
         <SystemRail>
           {psuVisible && (
             <PsuSection
-              visible={visible}
-              selected={selectedComponent === "psu"}
-              onSelect={() => onSelectComponent("psu")}
+              visible={boardVisible}
+              selected={boardSelection === "psu"}
+              onSelect={() => selectComponent("psu")}
               upgrades={psuUpgrades}
-              dispatch={dispatch}
+              dispatch={systemDispatch}
               advancedControls={psuAdvancedControlsVisible}
               showTransitionStatus={!systemSchedulerVisible}
               showFailureHelp={showPsuFailureHelp}
@@ -2528,17 +3455,18 @@ export function HardwareBoard({
           )}
           {thermalVisible && (
             <ThermalSection
-              visible={visible}
-              selected={selectedComponent === "thermal"}
-              onSelect={() => onSelectComponent("thermal")}
+              visible={boardVisible}
+              selected={boardSelection === "thermal"}
+              onSelect={() => selectComponent("thermal")}
               upgrades={psuUpgrades}
-              dispatch={dispatch}
+              dispatch={systemDispatch}
               unlocked={false}
             />
           )}
         </SystemRail>
       )}
     </SystemBoard>
+    </>
   );
 }
 
@@ -5133,16 +6061,23 @@ function TaskRoutePicker({
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
 }) {
+  const systemId = getSelectedSystemId(selection);
+  const routeSelection =
+    getSelectedSystemComponent(selection) ?? ("core:1" as SelectedComponent);
+  const selectComponent = (component: SelectedComponent) =>
+    onSelectComponent(scopeSelectionToSystem(systemId, component));
   const sockets = visible.metrics.cpuSockets;
   const cores = sockets.flatMap((socket) => socket.cores);
   const firstCoreId = cores[0]?.id ?? 1;
   const firstSocketId = sockets[0]?.id ?? 1;
   const schedulerVisible =
     visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
-  const selectedCoreId = getSelectedCoreId(selection) ?? firstCoreId;
-  const selectedSchedulerId = getSelectedSchedulerId(selection) ?? firstSocketId;
+  const selectedCoreId = getSelectedCoreId(routeSelection) ?? firstCoreId;
+  const selectedSchedulerId = getSelectedSchedulerId(routeSelection) ?? firstSocketId;
   const layer: TaskRouteLayer =
-    selection?.startsWith("scheduler:") && schedulerVisible ? "scheduler" : "core";
+    routeSelection?.startsWith("scheduler:") && schedulerVisible
+      ? "scheduler"
+      : "core";
   const layerOptions: Array<{ value: TaskRouteLayer; label: string; title: string }> = [
     { value: "core", label: "C", title: "Direct core" },
     ...(schedulerVisible
@@ -5152,23 +6087,23 @@ function TaskRoutePicker({
 
   const selectLayer = (nextLayer: TaskRouteLayer) => {
     if (nextLayer === "core") {
-      onSelectComponent(`core:${selectedCoreId || firstCoreId}`);
+      selectComponent(`core:${selectedCoreId || firstCoreId}`);
       return;
     }
 
     if (nextLayer === "scheduler") {
-      onSelectComponent(`scheduler:${selectedSchedulerId || firstSocketId}`);
+      selectComponent(`scheduler:${selectedSchedulerId || firstSocketId}`);
     }
   };
 
   const selectTarget = (value: string) => {
     if (layer === "core") {
-      onSelectComponent(`core:${Number(value) || firstCoreId}`);
+      selectComponent(`core:${Number(value) || firstCoreId}`);
       return;
     }
 
     if (layer === "scheduler") {
-      onSelectComponent(`scheduler:${Number(value) || firstSocketId}`);
+      selectComponent(`scheduler:${Number(value) || firstSocketId}`);
     }
   };
 
@@ -5389,12 +6324,17 @@ function TaskGroupRoutePicker({
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
 }) {
+  const systemId = getSelectedSystemId(selection);
+  const routeSelection = getSelectedSystemComponent(selection);
+  const selectComponent = (component: SelectedComponent) =>
+    onSelectComponent(scopeSelectionToSystem(systemId, component));
+
   if (category === "cpu") {
     return (
       <TaskRoutePicker
         visible={visible}
-        selection={selection}
-        onSelectComponent={onSelectComponent}
+        selection={routeSelection}
+        onSelectComponent={selectComponent}
       />
     );
   }
@@ -5406,7 +6346,7 @@ function TaskGroupRoutePicker({
         <select
           className="task-route-select task-route-target-select"
           value="system"
-          onChange={() => onSelectComponent("scheduler")}
+          onChange={() => selectComponent("scheduler")}
           aria-label="System target"
           title="System scheduler"
         >
@@ -5478,7 +6418,11 @@ function TaskCard({
           <span className="ops">
             <strong>{operationCount === undefined ? "·" : formatNumber(operationCount)}</strong> ops
           </span>
-          {requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>}
+          {isElasticTask(task) ? (
+            <span>uses idle cores</span>
+          ) : (
+            requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>
+          )}
           {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
           {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
             <span>ram {formatBits(ramBits)}</span>
@@ -5897,7 +6841,9 @@ function TaskDagModal({
   const coreNote =
     assignedCores.length > 0
       ? `Cores ${assignedCores.join(", ")}`
-      : `${formatNumber(requiredCores)}×`;
+      : isElasticTask(task)
+        ? "Uses idle cores"
+        : `${formatNumber(requiredCores)}x`;
   const payoutRewards = getTaskRewardCosts(task);
   const payoutNote =
     payoutRewards.length > 0 ? (

@@ -44,6 +44,44 @@ Target scope from `game-spec.md` section 13.2:
 - Broad auto-repeat outside CRON v1 remains deferred.
 - Networking, data centers, SLA contracts, availability zones, and regions remain out of scope for this slice.
 
+## Multi-System Rack Phase Scope
+
+Target scope from `game-spec.md` section 13.3:
+
+- This phase starts from a clean pre-live save reset; stale vertical-slice saves should not be migrated into multi-system/rack state.
+- The rack is a visual owned-system surface, not full Stage 10 rack infrastructure.
+- The rack shows exactly one visible slot per owned system; buying a preconfigured system or completing a custom build adds one occupied slot.
+- Owned systems remain one-to-one with visible rack slots, including powered-off systems.
+- Preconfigured systems create complete, immediately inspectable machines without requiring manual part selection.
+- The tiered custom machine builder exposes only validated choices for the current progression tier and creates one complete system at a time.
+- Compile Code, Render Frame, and Regression Test are elastic single-system tasks: fixed work and reward use idle cores on the selected system to finish sooner, but work does not split across systems.
+- Shared queues, networking, sharding, cluster scheduling, distributed computing, true rack-unit constraints, data centers, and SLA contracts remain out of scope.
+- `FEATURES.md` rows for this phase move to `Tested` as automated or smoke evidence lands.
+
+## Multi-System Rack QA Checklist
+
+- Fresh save/reset:
+  - New or reset browser persistence starts from the rack-phase schema with no stale active tasks, queues, schedules, completed task IDs, or obsolete system state.
+  - Existing pre-live saves either reset cleanly or are ignored by the new save version with clear reset behavior.
+- Visual rack:
+  - A new save shows one visible rack slot for the starting owned system.
+  - Every owned-system purchase adds exactly one visible slot.
+  - No future empty rack slots, rack units, rack power, rack heat, or backplane bandwidth appear in this phase.
+  - Each slot opens or highlights the matching system and reflects its power/work state.
+- System acquisition:
+  - Each preconfigured package debits the correct cost and creates the advertised complete system.
+  - Custom builder tiers hide unavailable choices, validate requirements and costs, and create exactly one system on purchase.
+  - Canceling or backing out of the builder leaves credits/data and owned systems unchanged.
+- Elastic single-system tasks:
+  - Compile Code, Render Frame, and Regression Test list fixed operation count, uses-idle-cores routing, cache/RAM needs, target system, and payout before start.
+  - Each task keeps fixed requirements and payout while selected-system idle cores reduce duration.
+  - Each accepted task runs on one selected system only and obeys that system's local CPU, RAM, scheduler, PSU, and power-state constraints.
+  - Tasks do not use another system's cores/RAM, do not enter a shared queue, and do not require network capacity.
+- Deferred boundaries:
+  - Networking, shared queues, sharding, cluster scheduler controls, distributed task splitting, server rack constraints, data centers, and SLA surfaces remain hidden or disabled.
+  - Render Frame can reward local multicore scheduling, but cannot distribute frames or tiles across systems yet.
+  - Documentation and `FEATURES.md` status stay aligned after each implementation or verification pass.
+
 ## Unit Coverage Checklist
 
 - Task timing:
@@ -252,13 +290,15 @@ Current `FEATURES.md` observations:
 - The first-screen PSU/readout, immediate billing, 0-credit bootstrap grace, unpaid auto-shutdown, first-time/repeat out-of-credits popups that mention restart grace, early PSU Capacity, graceful shutdown drain, hard PSU failure, full-card PSU over-power flashing, header overload progress, first-time overload-failure popup, and repeat-failure topbar badge expectations above have automated verification; browser smoke evidence should still be refreshed after UI changes.
 - Browser persistence and Electron shell are marked `Built`.
 - Broad auto-repeat is marked `Deferred`; CRON v1 is tracked separately as the scoped early timer.
-- Later-stage systems are marked `Deferred`, which matches the first vertical slice scope.
+- Most later-stage systems remain `Deferred`; the Multi-System Rack Phase rows are now `Tested` for the active docs target.
+- Multi-System Rack Phase rows were promoted after automated evidence verified the clean save reset, one-slot-per-owned-system rack visual, preconfigured system purchase flow, tiered custom builder, elastic single-system tasks, and no-distributed-computing boundary.
 - Status granularity is intentional: CRON Scheduler, deferred PSU Management/Thermal, power states/billing, PSU reliability stress, and PSU overload failure are separate rows with targeted test evidence.
 - Stage wording is intentional: `Stage 4: full system building` is `Deferred`, while RAM Control, second-CPU package choices, and power reveal are tracked in the vertical slice.
 - Research cards now list requirement rows, own benchmark compute actions, keep compute requirements/payouts visible, and put blocker copy directly in disabled action buttons; benchmark tasks are intentionally hidden from the normal task catalog after this pass.
 
 ## Checks Run
 
+- Multi-System Rack Phase implementation on May 19, 2026: `npm test` passed with 137 tests, including clean pre-v2 save reset, preconfigured/custom system purchase, one visible rack slot per owned system, selected-system upgrade routing, elastic Compile Code completion on selected-system cores only, and UI rack/custom-builder coverage. `npm run typecheck`, `npm run build`, and `git diff --check` were run for final verification.
 - Task core requirement display on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now checks that multi-core task cards and research compute rows list the required core count while single-core task cards do not.
 - PSU socket/power UI pass on May 19, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now includes unmatched and matched CPU socket choices with projected power increase, credits-only PSU Capacity in first-screen upgrades, buying PSU wattage without PSU Management, 10-second overload-failure pressure just above 100% load, faster failure pressure at higher overload, cooldown when draw returns under capacity, no PSU headroom/efficiency row, compact header Boot/Kill controls, compact load-meter placement, larger centered PSU overload header progress, full-card red PSU over-power flashing, a short first-time PSU failure popup after overload cutoff, repeat-failure topbar badge, first-time/repeat out-of-credits popups, boot/shutdown transition handoff from PSU to System Scheduler, and overload-failure UI.
 - Alert visibility on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies the PSU/deadlock alert caption calls `scrollIntoView` with centered block alignment, and mobile hardware routing scrolls alert captions after switching back to Hardware.
@@ -284,7 +324,7 @@ Current `FEATURES.md` observations:
 - Cache usability visual pass: passed on May 16, 2026 via isolated Chrome CDP against `http://127.0.0.1:4173`; seeded and screenshotted idle, buffering, loading/waiting, ready, mixed four-core, and mobile mixed cache states. A follow-up `http://localhost:5176/` seed verified partial cache buffer rendering: a 50% cache buffer displayed `0.5 b Buffer` and colored only half of the 1-bit footprint instead of snapping to the full bit. The May 17 automated UI pass verifies the cache module now uses `Buffer` and `Ready` lanes only, equal 1 Hz CPU/cache rates move committed bits directly into Ready, and faster CPU issue creates Buffer equal to the backlog over cache write speed. Completed Fetch Bit released cache to `0 b` with no held/resident segment. Overflow probe returned no overflowing nodes for core status, task status, cache state labels, or compact resource costs. CPU runtime labels stayed compact (`Read 1 b`, `Cache wait 1 b`, `Processing`) without increasing core card height.
 - Resource token visual pass: passed on May 16, 2026; HUD totals, gain flyouts, task payouts, upgrade costs, research costs, and inspect payout summaries use the shared data/credits icon-number-color treatment.
 - Electron launch smoke: not run interactively; Electron compile passed as part of `npm run build`.
-- Save migration note: browser persistence now uses `save-v2`, intentionally giving the bit-scale pre-live schema a clean local save.
+- Previous save migration note: browser persistence now uses `save-v3` with a v2 save envelope for the Multi-System Rack Phase clean reset.
 
 ## Existing Verification Notes To Preserve
 

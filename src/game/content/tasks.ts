@@ -1,6 +1,7 @@
 import { bitsToBytes } from "../progression";
 import type {
   GameState,
+  TaskCoreScaling,
   TaskDefinition,
   TaskId,
   TaskKind,
@@ -9,7 +10,11 @@ import type {
   TaskOperationKind,
   TaskSubtaskDefinition,
 } from "../types";
-import { hasResearch } from "./research";
+import {
+  customMachineAssemblyResearchId,
+  hasResearch,
+  systemCatalogResearchId,
+} from "./research";
 
 type RawOperation = {
   id: string;
@@ -38,6 +43,7 @@ type RawTask = {
   rewardData: number;
   parallelizable: boolean;
   repeatable: boolean;
+  coreScaling?: TaskCoreScaling;
   minCores: number;
   maxCores?: number;
   reveal: (state: GameState) => boolean;
@@ -45,6 +51,10 @@ type RawTask = {
   operations: RawOperation[];
   recipe: RawRecipeStep[];
 };
+
+const compileCodeTaskId: TaskId = "compileCode";
+const renderFrameTaskId: TaskId = "renderFrame";
+const regressionTestTaskId: TaskId = "regressionTest";
 
 const countTask = (state: GameState, id: TaskDefinition["id"]) =>
   state.completedTasks[id] ?? state.completedJobs[id] ?? 0;
@@ -957,6 +967,285 @@ const rawTasks: RawTask[] = [
     ],
   },
   {
+    id: compileCodeTaskId,
+    name: "Compile Code",
+    kind: "task",
+    category: "system",
+    rewardData: 12,
+    parallelizable: true,
+    repeatable: true,
+    minCores: 1,
+    maxCores: 4,
+    reveal: (state) => hasResearch(state, systemCatalogResearchId),
+    requirement: (state) => hasResearch(state, systemCatalogResearchId),
+    operations: [
+      {
+        id: "stage-source",
+        name: "Stage Source Tree",
+        kind: "memory",
+        memoryAction: "read",
+        count: 16,
+        cycles: 5,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "compile-units",
+        name: "Compile Units",
+        kind: "compute",
+        cycles: 160,
+        cacheBits: 8,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "link-barrier",
+        name: "Link Barrier",
+        kind: "barrier",
+        cycles: 0,
+        cacheBits: 0,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "link-binary",
+        name: "Link Binary",
+        kind: "compute",
+        cycles: 120,
+        cacheBits: 16,
+        ramBits: 512,
+      },
+      {
+        id: "write-artifact",
+        name: "Write Artifact",
+        kind: "memory",
+        memoryAction: "write",
+        count: 8,
+        cycles: 4,
+        ramBits: 512,
+      },
+    ],
+    recipe: [
+      {
+        id: "stage",
+        name: "Stage source tree",
+        operationIds: ["stage-source"],
+      },
+      {
+        id: "compile",
+        name: "Compile code units",
+        operationIds: ["compile-units"],
+      },
+      {
+        id: "sync",
+        name: "Synchronize compiled units",
+        operationIds: ["link-barrier"],
+      },
+      {
+        id: "link",
+        name: "Link binary",
+        operationIds: ["link-binary"],
+      },
+      {
+        id: "write",
+        name: "Write build artifact",
+        operationIds: ["write-artifact"],
+      },
+    ],
+  },
+  {
+    id: renderFrameTaskId,
+    name: "Render Frame",
+    kind: "task",
+    category: "system",
+    rewardData: 18,
+    parallelizable: true,
+    repeatable: true,
+    minCores: 1,
+    maxCores: 6,
+    reveal: (state) =>
+      hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
+    requirement: (state) =>
+      hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
+    operations: [
+      {
+        id: "load-scene",
+        name: "Load Scene Tiles",
+        kind: "memory",
+        memoryAction: "read",
+        count: 24,
+        cycles: 6,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "shade-tiles",
+        name: "Shade Tiles",
+        kind: "compute",
+        cycles: 220,
+        cacheBits: 8,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "composite-barrier",
+        name: "Composite Barrier",
+        kind: "barrier",
+        cycles: 0,
+        cacheBits: 0,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "composite-frame",
+        name: "Composite Frame",
+        kind: "compute",
+        cycles: 180,
+        cacheBits: 16,
+        ramBits: 1024,
+      },
+      {
+        id: "write-frame",
+        name: "Write Frame Buffer",
+        kind: "memory",
+        memoryAction: "write",
+        count: 16,
+        cycles: 5,
+        ramBits: 1024,
+      },
+    ],
+    recipe: [
+      {
+        id: "load",
+        name: "Load scene tiles",
+        operationIds: ["load-scene"],
+      },
+      {
+        id: "shade",
+        name: "Shade tiles",
+        operationIds: ["shade-tiles"],
+      },
+      {
+        id: "sync",
+        name: "Synchronize rendered tiles",
+        operationIds: ["composite-barrier"],
+      },
+      {
+        id: "composite",
+        name: "Composite frame",
+        operationIds: ["composite-frame"],
+      },
+      {
+        id: "write",
+        name: "Write frame buffer",
+        operationIds: ["write-frame"],
+      },
+    ],
+  },
+  {
+    id: regressionTestTaskId,
+    name: "Regression Test",
+    kind: "task",
+    category: "system",
+    rewardData: 24,
+    parallelizable: true,
+    repeatable: true,
+    minCores: 1,
+    maxCores: 6,
+    reveal: (state) => hasResearch(state, customMachineAssemblyResearchId),
+    requirement: (state) =>
+      hasResearch(state, customMachineAssemblyResearchId) &&
+      hasCompleted(state, renderFrameTaskId),
+    operations: [
+      {
+        id: "stage-fixtures",
+        name: "Stage Test Fixtures",
+        kind: "memory",
+        memoryAction: "read",
+        count: 32,
+        cycles: 4,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "run-cases",
+        name: "Run Cases",
+        kind: "compute",
+        cycles: 200,
+        cacheBits: 8,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "compare-results",
+        name: "Compare Results",
+        kind: "compute",
+        cycles: 140,
+        cacheBits: 8,
+        ramBits: 512,
+        parallel: true,
+      },
+      {
+        id: "report-barrier",
+        name: "Report Barrier",
+        kind: "barrier",
+        cycles: 0,
+        cacheBits: 0,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "summarize-report",
+        name: "Summarize Report",
+        kind: "compute",
+        cycles: 160,
+        cacheBits: 16,
+        ramBits: 1024,
+      },
+      {
+        id: "write-report",
+        name: "Write Report",
+        kind: "memory",
+        memoryAction: "write",
+        count: 16,
+        cycles: 5,
+        ramBits: 1024,
+      },
+    ],
+    recipe: [
+      {
+        id: "stage",
+        name: "Stage test fixtures",
+        operationIds: ["stage-fixtures"],
+      },
+      {
+        id: "run",
+        name: "Run regression cases",
+        operationIds: ["run-cases"],
+      },
+      {
+        id: "compare",
+        name: "Compare test results",
+        operationIds: ["compare-results"],
+      },
+      {
+        id: "sync",
+        name: "Synchronize reports",
+        operationIds: ["report-barrier"],
+      },
+      {
+        id: "summarize",
+        name: "Summarize report",
+        operationIds: ["summarize-report"],
+      },
+      {
+        id: "write",
+        name: "Write report",
+        operationIds: ["write-report"],
+      },
+    ],
+  },
+  {
     id: "microBenchmark",
     name: "Micro Benchmark",
     kind: "benchmark",
@@ -1294,14 +1583,18 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
 
   const operations = raw.operations.map((operation) => op(raw.id, operation));
   const parallelCoreCount = raw.maxCores ?? raw.minCores;
+  const coreScaling =
+    raw.coreScaling ??
+    (raw.parallelizable && parallelCoreCount > raw.minCores ? "elastic" : "fixed");
+  const summaryCoreCount = coreScaling === "elastic" ? 1 : parallelCoreCount;
   const subtasks = deriveRecipeNodes(
     raw.id,
     raw.recipe,
     operations,
-    parallelCoreCount,
+    summaryCoreCount,
   );
-  const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks, parallelCoreCount);
-  const summary = summarizeGraphNodes(dagNodes, parallelCoreCount);
+  const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks, summaryCoreCount);
+  const summary = summarizeGraphNodes(dagNodes, summaryCoreCount);
   const definition: TaskDefinition = {
     id: raw.id,
     name: raw.name,
@@ -1310,6 +1603,7 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     rewardData: raw.rewardData,
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,
+    coreScaling,
     minCores: raw.minCores,
     maxCores: raw.maxCores,
     reveal: raw.reveal,

@@ -838,35 +838,87 @@ The scheduler should eventually route workloads automatically.
 ### Theme
 
 The player stops building only one machine and begins managing a small fleet.
+This is the Multi-System Rack Phase: the rack is first a visual fleet surface,
+not full server-rack infrastructure.
 
 ### Unlock Condition
 
-Multiple systems unlock after:
-
-- Completing a workstation benchmark.
-- Saving or buying at least one system template.
+The Multi-System Rack Phase unlocks through `System Catalog` research after the
+CRON/system-bus slice. That research reveals the visual rack and preconfigured
+systems. `Custom Machine Assembly` unlocks the custom builder after the player
+owns two systems or completes the first Compile Code task.
 
 ### New Mechanics
 
 - Buy additional systems.
-- Save system templates.
-- Assign jobs to systems.
+- Buy preconfigured systems.
+- Build custom systems through tiered builder choices.
+- View owned systems in a rack-style surface.
+- Assign eligible jobs to one selected system.
 - Compare machine roles.
+- Run elastic single-system tasks.
 
-### System Templates
+### Visual Rack Rule
 
-| Template | Purpose |
+The rack surface grows from ownership, not from theoretical capacity. It should
+show exactly one visible slot for each owned system. Buying a preconfigured
+system or completing a custom build adds one occupied slot. Do not show empty
+future rack capacity, server rack units, rack power distribution, rack heat, or
+backplane bandwidth in this phase. Those are Stage 10 rack mechanics.
+
+Each visible slot maps to one system and should keep the system's power state,
+role, current work, and upgrade/build entry points easy to inspect. A powered-off
+system still occupies its slot.
+
+### Preconfigured Systems
+
+| Package | Purpose |
 |---|---|
-| Balanced PC | General jobs |
-| Compute Node | CPU-heavy jobs |
-| Memory Node | Database and sorting jobs |
-| GPU Node | Render and ML jobs |
-| Low-Power Node | Efficient background jobs |
-| Benchmark Rig | Unlock-focused builds |
+| Starter Node | Compact rack node for familiar system work |
+| Compile Box | CPU/RAM-heavy Compile Code and Regression Test work |
+| Render Brick | Core-heavy Render Frame work before distributed rendering exists |
+
+Preconfigured systems are the fast purchase path. They should let the player add
+another useful machine without picking every component. They cost the sum of
+their off-the-shelf parts and do not add discounts.
+
+### Tiered Custom Machine Builder
+
+The custom builder is the deliberate purchase path. It should expose only the
+choices supported by the player's current progression tier.
+
+| Tier | Builder Scope |
+|---|---|
+| Tier 1: Basic PC | CPU package count, core count, cache, RAM, PSU capacity, and queue slots from already understood parts |
+| Tier 2: Workstation | Larger CPU/RAM/PSU ranges and role presets for compile, render, or test workloads |
+| Tier 3: Specialist | Later expansion-slot and accelerator choices after specialized compute is introduced |
+
+The builder creates one complete system at a time. All v1 parts are compatible.
+It should validate costs before purchase, show projected draw/stress, allow
+risky PSU choices with warnings, then add exactly one owned-system rack slot.
+
+### Elastic Single-System Tasks
+
+This phase introduces three elastic tasks:
+
+| Task | Bottleneck | Rule |
+|---|---|---|
+| Compile Code | CPU/RAM | Fixed work/reward; uses idle cores on the selected system to finish sooner |
+| Render Frame | Parallel compute inside one system | Fixed work/reward; rewards local cores and scheduler width with shorter duration |
+| Regression Test | CPU/cache/RAM balance | Fixed validation workload that remains selected-system only |
+
+Elastic means the task reserves currently idle cores within the selected system
+at dispatch time and splits the fixed local workload across those cores. Reward,
+operation count, cache footprint, and RAM footprint stay fixed; more assigned
+cores shorten duration. It does not mean distributed execution. Each accepted
+task runs on one selected system and uses that system's CPU packages, RAM, PSU,
+and local scheduler constraints.
 
 ### Automation
 
-The player should be able to buy preconfigured systems instead of manually picking every component.
+The player should be able to buy preconfigured systems instead of manually
+picking every component. Saved reusable system templates can come later after
+the custom builder is stable.
 
 ---
 
@@ -879,6 +931,10 @@ Systems cooperate.
 ### Unlock Condition
 
 Networking unlocks after the player owns multiple systems.
+
+Networking is not part of the Multi-System Rack Phase. Owning multiple systems
+does not automatically grant shared queues, network routing, sharding, or
+distributed compute.
 
 ### New Mechanics
 
@@ -913,6 +969,10 @@ Complexity appears later through sharding, distributed computing, SLA jobs, and 
 ### Theme
 
 Large jobs are split across machines.
+
+This stage remains deferred during the Multi-System Rack Phase. Compile Code,
+Render Frame, and Regression Test are elastic single-system tasks until
+networking and cluster scheduling are introduced.
 
 ### Sharding
 
@@ -995,6 +1055,10 @@ Servers and racks unlock after:
 ### Rack Mechanics
 
 A rack contains servers and has its own constraints.
+
+The Stage 7 visual rack is only an owned-system display. The constraints below
+belong to true server/rack infrastructure and should stay hidden until this
+stage unlocks.
 
 | Constraint | Meaning |
 |---|---|
@@ -1406,9 +1470,10 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | Family | Bottleneck | Purpose |
 |---|---|---|
 | Compression | CPU/cache | Rewards instruction/cache upgrades |
-| Compile | CPU/RAM | Mixed workload |
+| Compile Code | CPU/RAM | Elastic single-system software build workload |
 | Database Query | RAM/cache | Rewards memory and cache |
-| Render Frame | Parallel compute | Rewards cores/scheduler |
+| Render Frame | Parallel compute inside one system | Rewards cores/scheduler before distributed rendering |
+| Regression Test | CPU/cache/RAM | Elastic single-system validation workload |
 | Simulation Tick | CPU-heavy | Benchmark/boss jobs |
 
 ### 10.3 Late System/Fleet Jobs
@@ -1453,25 +1518,28 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 14 | CRON Scheduler | Adds scoped timer automation for visible repeatable system tasks |
 | 15 | PSU Management | Deferred until advanced power tuning exposes a new decision |
 | 16 | Thermal Control | Deferred until the cooling/power tradeoff is ready |
-| 17 | Preconfigured systems | Reduces system micromanagement |
-| 18 | Expansion slots | Adds specialization |
-| 19 | GPU/NPU | Adds specialized workloads |
-| 20 | Workload routing | Scheduler becomes smarter |
-| 21 | Multiple systems | Fleet management begins |
-| 22 | System templates | Reduces machine micromanagement |
-| 23 | Networking | Systems cooperate |
-| 24 | Sharding | Splits data across systems |
-| 25 | Distributed computing | Splits work across systems |
-| 26 | Server chassis | Systems become server units |
-| 27 | Racks | Servers become infrastructure |
-| 28 | Rack templates | Reduces server micromanagement |
-| 29 | Data centers | Facility-scale power/cooling/network constraints |
-| 30 | SLA contracts | Rewards stable infrastructure |
-| 31 | Data center procurement policies | Reduces rack/server micromanagement |
-| 32 | Availability zones | Adds failover, latency, and coverage |
-| 33 | Region expansion | Adds geography and demand |
-| 34 | Global scheduler | Automates regional placement |
-| 35 | Planetary computing | Endgame policy layer |
+| 17 | Multi-system rack phase | Introduces the owned-system rack surface |
+| 18 | Preconfigured systems | Adds ready-made system purchases |
+| 19 | Tiered custom machine builder | Adds curated custom system construction |
+| 20 | Elastic single-system tasks | Adds Compile Code, Render Frame, and Regression Test without distributed compute |
+| 21 | Multiple systems | Fleet management begins; each owned system adds one visible rack slot |
+| 22 | Expansion slots | Adds specialization |
+| 23 | GPU/NPU | Adds specialized workloads |
+| 24 | Workload routing | Scheduler becomes smarter within and later between systems |
+| 25 | System templates | Reduces machine micromanagement after the builder stabilizes |
+| 26 | Networking | Systems cooperate |
+| 27 | Sharding | Splits data across systems |
+| 28 | Distributed computing | Splits work across systems |
+| 29 | Server chassis | Systems become server units |
+| 30 | Racks | Servers become infrastructure |
+| 31 | Rack templates | Reduces server micromanagement |
+| 32 | Data centers | Facility-scale power/cooling/network constraints |
+| 33 | SLA contracts | Rewards stable infrastructure |
+| 34 | Data center procurement policies | Reduces rack/server micromanagement |
+| 35 | Availability zones | Adds failover, latency, and coverage |
+| 36 | Region expansion | Adds geography and demand |
+| 37 | Global scheduler | Automates regional placement |
+| 38 | Planetary computing | Endgame policy layer |
 
 ---
 
@@ -1486,8 +1554,10 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | Scheduling Policy | Scheduler policy controls | Manually avoiding risky dispatch order |
 | Second CPU | CRON v1 | Manually relaunching visible repeatable system tasks |
 | Full system | Preconfigured CPUs | Per-core CPU tuning |
+| Multi-system rack | Preconfigured systems | Building every additional machine from parts |
+| Custom system tiers | Tiered custom builder | Exposes only validated build choices per progression tier |
 | Workstation | Scheduler policies | Manual CPU/GPU/NPU/RAM/storage assignment |
-| Multiple systems | System templates | Rebuilding machines by hand |
+| Multiple systems | System templates | Rebuilding machines by hand after custom builds are stable |
 | Networking | Shared queue | Manual per-system job assignment |
 | Cluster | Cluster scheduler | Manual distributed job placement |
 | Racks | Rack templates | Manual server purchasing |
@@ -1540,7 +1610,24 @@ A strong first vertical slice should include progression through:
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
 
-### 13.3 Full Midgame Scope
+### 13.3 Multi-System Rack Phase Scope
+
+The next pre-live phase should include:
+
+- A clean save reset for this phase instead of preserving obsolete prototype
+  state.
+- A rack-style owned-system view that grows exactly one visible slot per owned
+  system.
+- Preconfigured system purchases.
+- A tiered custom machine builder that creates one complete system at a time.
+- Elastic single-system tasks: Compile Code, Render Frame, and Regression Test.
+- Per-system task targeting and local system constraints.
+
+This phase should not include shared queues, networking, sharding, distributed
+computing, true server rack constraints, data centers, or SLA contracts. Those
+remain later stages until implementation and tests explicitly prove otherwise.
+
+### 13.4 Full Midgame Scope
 
 The midgame should include:
 
@@ -1557,7 +1644,7 @@ The midgame should include:
 - Racks.
 - Data centers.
 
-### 13.4 Late Game Scope
+### 13.5 Late Game Scope
 
 Late game should include:
 

@@ -9,6 +9,7 @@ import type {
   RamStickState,
   SchedulerConfig,
   StageId,
+  SystemState,
 } from "./types";
 
 export const getClockHz = (level: number) =>
@@ -335,6 +336,74 @@ export const createCoreSchedulers = (cores: number) =>
     }),
   ) as Record<number, CoreSchedulerState>;
 
+const createInitialHardwareState = (): GameState["hardware"] => ({
+  clockLevel: 1,
+  clockHz: getClockHz(1),
+  coreClockLevels: {
+    1: 1,
+  },
+  cpus: [createCpuHardwareState(1, [1])],
+  cacheLevel: 1,
+  cacheSpeedLevel: 1,
+  cacheBits: getCacheBits(1),
+  cacheBytes: getCacheBytes(1),
+  cores: 1,
+  schedulerSlots: 0,
+  systemSchedulerSlots: 0,
+  systemSchedulerConfig: createSchedulerConfig(),
+  deadlockRecoveryLevel: 0,
+  secondCpu: false,
+  ramLevel: 0,
+  ramBits: 0,
+  ramBytes: 0,
+  ramSpeedLevel: 1,
+  ramSpeedMt: getRamSpeedMt(1),
+  ramSticks: [],
+  cronIntervalLevel: 0,
+  psuLevel: 1,
+  psuWatts: getPsuWatts(1),
+  coolingLevel: 0,
+  coolingRating: 0,
+});
+
+const createInitialPowerState = (): GameState["power"] => ({
+  state: "on",
+  transitionSeconds: 0,
+  bootstrapGraceSeconds: 0,
+  overloadFailureSeconds: 0,
+  lastFailureReason: null,
+  failureCount: 0,
+});
+
+const createInitialCronState = (): GameState["cron"] => ({
+  schedules: [],
+  nextScheduleId: 1,
+  queuePowerSpikeSeconds: 0,
+});
+
+export const createSystemState = (
+  id: number,
+  name = `System ${id}`,
+  templateId: string | null = null,
+  hardware = createInitialHardwareState(),
+): SystemState => ({
+  id,
+  name,
+  templateId,
+  hardware,
+  power: createInitialPowerState(),
+  cron: createInitialCronState(),
+  activeTasks: [],
+  activeJobs: [],
+  cacheResidency: [],
+  coreSchedulers: createCoreSchedulers(hardware.cores),
+  queue: [],
+  deadlockPressureSeconds: 0,
+  deadlockPressureResource: null,
+  deadlockPressureCpuId: null,
+  deadlockProcessLockout: false,
+});
+
 export const getOperationProgress = (
   remainingCycles: number,
   totalCycles: number,
@@ -356,93 +425,66 @@ const getCompletedCount = (state: GameState, id: keyof GameState["completedTasks
 const hasCompleted = (state: GameState, id: keyof GameState["completedTasks"]) =>
   getCompletedCount(state, id) > 0 || state.completedBenchmarks.includes(id);
 
-export const createInitialGameState = (): GameState => ({
-  version: 1,
-  tick: 0,
-  nextInstanceId: 1,
-  deadlockPressureSeconds: 0,
-  deadlockPressureResource: null,
-  deadlockPressureCpuId: null,
-  deadlockProcessLockout: false,
-  resources: {
-    credits: 10,
-    data: 0,
-  },
-  hardware: {
-    clockLevel: 1,
-    clockHz: getClockHz(1),
-    coreClockLevels: {
-      1: 1,
+export const createInitialGameState = (): GameState => {
+  const firstSystem = createSystemState(1, "Starter Node", "starterNode");
+
+  return {
+    version: 2,
+    tick: 0,
+    nextInstanceId: 1,
+    selectedSystemId: firstSystem.id,
+    rack: {
+      nextSystemId: 2,
     },
-    cpus: [createCpuHardwareState(1, [1])],
-    cacheLevel: 1,
-    cacheSpeedLevel: 1,
-    cacheBits: getCacheBits(1),
-    cacheBytes: getCacheBytes(1),
-    cores: 1,
-    schedulerSlots: 0,
-    systemSchedulerSlots: 0,
-    systemSchedulerConfig: createSchedulerConfig(),
-    deadlockRecoveryLevel: 0,
-    secondCpu: false,
-    ramLevel: 0,
-    ramBits: 0,
-    ramBytes: 0,
-    ramSpeedLevel: 1,
-    ramSpeedMt: getRamSpeedMt(1),
-    ramSticks: [],
-    cronIntervalLevel: 0,
-    psuLevel: 1,
-    psuWatts: getPsuWatts(1),
-    coolingLevel: 0,
-    coolingRating: 0,
-  },
-  flags: {
-    cache: false,
-    autoRepeat: false,
-    benchmarks: false,
-    multiCore: false,
-    basicQueue: false,
-    scheduler: false,
-    secondCpu: false,
-    systemStats: false,
-    cron: false,
-    psuManagement: false,
-    cooling: false,
-    schedulerWatchdog: false,
-    schedulerPolicies: false,
-  },
-  power: {
-    state: "on",
-    transitionSeconds: 0,
-    bootstrapGraceSeconds: 0,
-    overloadFailureSeconds: 0,
-    lastFailureReason: null,
-    failureCount: 0,
-  },
-  cron: {
-    schedules: [],
-    nextScheduleId: 1,
-    queuePowerSpikeSeconds: 0,
-  },
-  research: {
-    completed: [],
-  },
-  reliability: {
-    lastEvent: null,
-  },
-  completedTasks: {},
-  completedJobs: {},
-  completedBenchmarks: [],
-  activeTasks: [],
-  activeJobs: [],
-  cacheResidency: [],
-  coreSchedulers: createCoreSchedulers(1),
-  queue: [],
-  autoRepeatJobId: null,
-});
+    systems: [firstSystem],
+    deadlockPressureSeconds: firstSystem.deadlockPressureSeconds,
+    deadlockPressureResource: firstSystem.deadlockPressureResource,
+    deadlockPressureCpuId: firstSystem.deadlockPressureCpuId,
+    deadlockProcessLockout: firstSystem.deadlockProcessLockout,
+    resources: {
+      credits: 10,
+      data: 0,
+    },
+    hardware: firstSystem.hardware,
+    flags: {
+      cache: false,
+      autoRepeat: false,
+      benchmarks: false,
+      multiCore: false,
+      basicQueue: false,
+      scheduler: false,
+      secondCpu: false,
+      systemStats: false,
+      cron: false,
+      systemCatalog: false,
+      customMachineAssembly: false,
+      psuManagement: false,
+      cooling: false,
+      schedulerWatchdog: false,
+      schedulerPolicies: false,
+    },
+    power: firstSystem.power,
+    cron: firstSystem.cron,
+    research: {
+      completed: [],
+    },
+    reliability: {
+      lastEvent: null,
+    },
+    completedTasks: {},
+    completedJobs: {},
+    completedBenchmarks: [],
+    activeTasks: firstSystem.activeTasks,
+    activeJobs: firstSystem.activeJobs,
+    cacheResidency: firstSystem.cacheResidency,
+    coreSchedulers: firstSystem.coreSchedulers,
+    queue: firstSystem.queue,
+    autoRepeatJobId: null,
+  };
+};
 
 export const getStage = (state: GameState): StageId => {
+  if (state.flags.systemCatalog || state.systems.length > 1) return "rack";
   if (state.flags.systemStats) return "systemReveal";
   if (state.flags.scheduler) return "scheduler";
   if (state.flags.multiCore || state.hardware.cores > 1) return "multiCore";
@@ -459,6 +501,7 @@ export const getStageLabel = (stage: StageId) => {
     multiCore: "Stage 2 - Multi-Core CPU",
     scheduler: "Stage 3 - Scheduler",
     systemReveal: "Stage 4 - System Reveal",
+    rack: "Stage 5 - Rack",
   };
 
   return labels[stage];
@@ -555,6 +598,11 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         state.hardware.secondCpu ||
         researched.includes("ramControl"),
       cron: state.flags.cron || researched.includes("cronScheduler"),
+      systemCatalog:
+        state.flags.systemCatalog || researched.includes("systemCatalog"),
+      customMachineAssembly:
+        state.flags.customMachineAssembly ||
+        researched.includes("customMachineAssembly"),
       psuManagement: false,
       cooling: false,
     },
@@ -584,5 +632,8 @@ export const getMilestone = (state: GameState) => {
   if (!state.flags.secondCpu) return "Research the system bus.";
   if (!state.hardware.secondCpu) return "Install the second CPU.";
   if (!state.flags.cron) return "Research CRON scheduler.";
-  return "Balance power and automation under load.";
+  if (!state.flags.systemCatalog) return "Research the system catalog.";
+  if (state.systems.length < 2) return "Add another system to the rack.";
+  if (!state.flags.customMachineAssembly) return "Research custom machine assembly.";
+  return "Balance rack systems under load.";
 };

@@ -18,6 +18,7 @@ import {
   updateProgressionFlags,
 } from "./progression";
 import { taskDefinitions } from "./content/tasks";
+import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
 import type {
   ActiveCoreOperation,
   ActiveTask,
@@ -31,13 +32,13 @@ import type {
 } from "./types";
 
 export interface SaveEnvelope {
-  version: 1;
+  version: 2;
   savedAt: string;
   state: GameState;
 }
 
 export const createSaveEnvelope = (state: GameState): SaveEnvelope => ({
-  version: 1,
+  version: 2,
   savedAt: new Date().toISOString(),
   state,
 });
@@ -85,6 +86,8 @@ const validResearchIds = [
   "ramControl",
   "systemBus",
   "cronScheduler",
+  "systemCatalog",
+  "customMachineAssembly",
   "psuManagement",
   "thermalControl",
 ] satisfies ResearchId[];
@@ -485,7 +488,11 @@ const normalizeState = (state: LegacyState): GameState => {
     autoRepeatJobId: normalizeTaskId(state.autoRepeatJobId, null),
   };
 
-  return syncCronSchedules(updateProgressionFlags(syncHardwarePackages(normalized)));
+  return materializeSystem(
+    syncSelectedSystemRuntime(
+      syncCronSchedules(updateProgressionFlags(syncHardwarePackages(normalized))),
+    ),
+  );
 };
 
 export const deserializeSave = (raw: string | null): GameState => {
@@ -494,7 +501,7 @@ export const deserializeSave = (raw: string | null): GameState => {
   try {
     const parsed = JSON.parse(raw) as Partial<SaveEnvelope>;
 
-    if (parsed.version === 1 && parsed.state?.version === 1) {
+    if (parsed.version === 2 && parsed.state?.version === 2) {
       return normalizeState(parsed.state);
     }
   } catch {

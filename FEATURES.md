@@ -69,6 +69,8 @@
 | Browser persistence | Built | Save/load works in browser storage |
 | Electron shell | Built | Desktop app opens the same game build |
 | Responsive game UI | Tested | Main interface remains usable on desktop and mobile widths |
+| Mobile unlock notifications | Tested | Mobile Tasks and R&D tabs show a red new-content notification when visible tasks or open research have unlocked since that tab was last viewed |
+| Pinned task bar | Tested | Pinned tasks stay quickly runnable from the floating/embedded bar, and active pinned tasks keep their queue action available when the selected scheduler route can accept another copy |
 | Hardware workbench UI | Tested | CPU board is the primary surface; top title chrome and side panels are removed |
 | Board-integrated controls | Tested | Upgrades live on components and jobs sit below the system instead of in a switching inspector |
 | Component-scoped controls | Tested | CPU, CPU-local cache, CPU-local scheduler, RAM, socket, and PSU expose relevant local actions and readouts; credits-only PSU wattage upgrades are available from the start while advanced PSU tuning and Thermal controls are deferred |

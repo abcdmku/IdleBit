@@ -23,6 +23,30 @@ const PINNED_TASKS_KEY = "ui.pinned-tasks-v1";
 const SEEN_TASKS_KEY = "ui.seen-tasks-v1";
 const SEEN_RESEARCH_KEY = "ui.seen-research-v1";
 
+type UnlockSection = "tasks" | "research";
+
+const toStoredIds = (value: unknown) =>
+  Array.isArray(value)
+    ? Array.from(new Set(value.filter((id): id is string => typeof id === "string")))
+    : [];
+
+const idsFromKey = (key: string) => (key.length > 0 ? key.split("|") : []);
+
+const appendUnseenIds = (current: string[], ids: string[]) => {
+  if (ids.length === 0) return current;
+
+  const merged = new Set(current);
+  let changed = false;
+
+  for (const id of ids) {
+    if (merged.has(id)) continue;
+    merged.add(id);
+    changed = true;
+  }
+
+  return changed ? Array.from(merged) : current;
+};
+
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());
   const [selectedComponent, setSelectedComponent] =
@@ -38,10 +62,36 @@ export function App() {
   const [creditFailureModalSeen, setCreditFailureModalSeen] =
     useState<boolean | null>(null);
   const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>([]);
+  const [seenTaskIds, setSeenTaskIds] = useState<string[]>([]);
+  const [seenResearchIds, setSeenResearchIds] = useState<string[]>([]);
   const stateRef = useRef(state);
   const pausedRef = useRef(false);
   const persistenceReadyRef = useRef(false);
   const visible = useMemo(() => deriveVisibleState(state), [state]);
+  const visibleTaskIdsKey = visible.tasks.map((task) => task.id).join("|");
+  const visibleTaskIds = useMemo(
+    () => idsFromKey(visibleTaskIdsKey),
+    [visibleTaskIdsKey],
+  );
+  const visibleResearchIdsKey = visible.research
+    .filter((research) => !research.completed)
+    .map((research) => research.id)
+    .join("|");
+  const visibleResearchIds = useMemo(
+    () => idsFromKey(visibleResearchIdsKey),
+    [visibleResearchIdsKey],
+  );
+  const seenTaskIdSet = useMemo(() => new Set(seenTaskIds), [seenTaskIds]);
+  const seenResearchIdSet = useMemo(
+    () => new Set(seenResearchIds),
+    [seenResearchIds],
+  );
+  const newTaskUnlockCount = resourceEffectsReady
+    ? visibleTaskIds.filter((id) => !seenTaskIdSet.has(id)).length
+    : 0;
+  const newResearchUnlockCount = resourceEffectsReady
+    ? visibleResearchIds.filter((id) => !seenResearchIdSet.has(id)).length
+    : 0;
 
   useEffect(() => {
     stateRef.current = state;
@@ -58,6 +108,8 @@ export function App() {
       idleBitPersistence.get<boolean>(PSU_FAILURE_MODAL_SEEN_KEY, false),
       idleBitPersistence.get<boolean>(CREDIT_FAILURE_MODAL_SEEN_KEY, false),
       idleBitPersistence.get<string[]>(PINNED_TASKS_KEY, []),
+      idleBitPersistence.get<string[]>(SEEN_TASKS_KEY, []),
+      idleBitPersistence.get<string[]>(SEEN_RESEARCH_KEY, []),
     ])
       .then(([
         rawSave,
@@ -67,6 +119,8 @@ export function App() {
         seenPsuFailureModal,
         seenCreditFailureModal,
         savedPinnedTaskIds,
+        savedSeenTaskIds,
+        savedSeenResearchIds,
       ]) => {
         if (!cancelled) {
           const restoredState = deserializeSave(rawSave);
@@ -77,11 +131,9 @@ export function App() {
           setPsuFailureHelpSeen(Boolean(seenPsuFailureHelp));
           setPsuFailureModalSeen(Boolean(seenPsuFailureModal));
           setCreditFailureModalSeen(Boolean(seenCreditFailureModal));
-          if (Array.isArray(savedPinnedTaskIds)) {
-            setPinnedTaskIds(
-              savedPinnedTaskIds.filter((id): id is string => typeof id === "string"),
-            );
-          }
+          setPinnedTaskIds(toStoredIds(savedPinnedTaskIds));
+          setSeenTaskIds(toStoredIds(savedSeenTaskIds));
+          setSeenResearchIds(toStoredIds(savedSeenResearchIds));
         }
       })
       .catch(() => undefined)
@@ -249,12 +301,42 @@ export function App() {
     });
   }, [persistPinnedTaskIds]);
 
+  const markVisibleUnlocksSeen = useCallback(
+    (section: UnlockSection) => {
+      if (!resourceEffectsReady) return;
+
+      if (section === "tasks") {
+        setSeenTaskIds((current) => {
+          const next = appendUnseenIds(current, visibleTaskIds);
+          if (next === current) return current;
+          void idleBitPersistence.set(SEEN_TASKS_KEY, next);
+          return next;
+        });
+        return;
+      }
+
+      setSeenResearchIds((current) => {
+        const next = appendUnseenIds(current, visibleResearchIds);
+        if (next === current) return current;
+        void idleBitPersistence.set(SEEN_RESEARCH_KEY, next);
+        return next;
+      });
+    },
+    [resourceEffectsReady, visibleResearchIds, visibleTaskIds],
+  );
+
   const reset = async () => {
     const freshState = createInitialGameState();
     setSelectedComponent("core:1");
     stateRef.current = freshState;
     setState(freshState);
-    await idleBitPersistence.set(SAVE_KEY, serializeSave(freshState));
+    setSeenTaskIds([]);
+    setSeenResearchIds([]);
+    await Promise.all([
+      idleBitPersistence.set(SAVE_KEY, serializeSave(freshState)),
+      idleBitPersistence.set(SEEN_TASKS_KEY, []),
+      idleBitPersistence.set(SEEN_RESEARCH_KEY, []),
+    ]);
   };
 
   return (
@@ -278,6 +360,9 @@ export function App() {
         onTogglePinnedTask={togglePinnedTask}
         onUnpinTask={unpinTask}
         onClearPinnedTasks={clearPinnedTasks}
+        newTaskUnlockCount={newTaskUnlockCount}
+        newResearchUnlockCount={newResearchUnlockCount}
+        onSectionViewed={markVisibleUnlocksSeen}
       />
       {showPsuFailureModal && (
         <PsuFailureModal onDismiss={dismissPsuFailureModal} />
@@ -357,7 +442,10 @@ function CreditFailurePopup({
           <TriangleAlert size={16} />
           Out of credits
         </span>
-        <p id={bodyId}>Power billing shut the system off.</p>
+        <p id={bodyId}>
+          The power bill drained your balance. Reboot for a brief grace period
+          before billing resumes.
+        </p>
         <button type="button" onClick={onDismiss}>
           Got it
         </button>
@@ -390,10 +478,11 @@ function CreditFailurePopup({
         </div>
 
         <p id={bodyId}>
-          Power billing spent the last credits while the system was on. Idle
-          hardware still costs cr/s, so the PSU shut down instead of letting
-          credits go negative. Earn credits, reduce draw, or power off when
-          idle before rebooting.
+          The power bill drained your credits, so the PSU shut down before the
+          balance could go negative — even idle hardware draws cr/s. Reboot
+          for a brief grace period before billing resumes. Use it to earn
+          credits, lower your draw, or power off when idle to avoid another
+          cutoff.
         </p>
 
         <button

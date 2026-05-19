@@ -12,7 +12,13 @@ import {
 } from "../game";
 import { idleBitPersistence } from "../platform";
 import { App } from "./App";
-import { HardwareBoard, ResearchPanel, ResourceHud, TaskBay } from "./HardwareBoard";
+import {
+  HardwareBoard,
+  PinnedTaskBar,
+  ResearchPanel,
+  ResourceHud,
+  TaskBay,
+} from "./HardwareBoard";
 import { formatWatts } from "./format";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
@@ -1041,6 +1047,27 @@ describe("App failure modals", () => {
     };
   };
 
+  const makeUnlockNoticeSaveState = (): GameState => {
+    const base = createInitialGameState();
+
+    return {
+      ...base,
+      resources: {
+        credits: 50,
+        data: 2,
+      },
+      completedTasks: {
+        fetchBit: 1,
+      },
+      completedJobs: {
+        fetchBit: 1,
+      },
+      research: {
+        completed: ["decodeLogic"],
+      },
+    };
+  };
+
   const flushEffects = async () => {
     await act(async () => {
       await Promise.resolve();
@@ -1167,8 +1194,10 @@ describe("App failure modals", () => {
     const modal = container.querySelector(".credit-failure-modal");
 
     expect(modal?.textContent).toContain("Out of credits");
-    expect(modal?.textContent).toContain("Power billing spent the last credits");
-    expect(modal?.textContent).toContain("Idle hardware still costs cr/s");
+    expect(modal?.textContent).toContain("The power bill drained your credits");
+    expect(modal?.textContent).toContain("idle hardware draws cr/s");
+    expect(modal?.textContent).toContain("brief grace period before billing resumes");
+    expect(modal?.textContent).toContain("avoid another cutoff");
     expect(container.querySelector(".credit-failure-toast")).toBeNull();
 
     act(() => {
@@ -1198,13 +1227,86 @@ describe("App failure modals", () => {
 
     expect(container.querySelector(".credit-failure-modal")).toBeNull();
     expect(toast?.textContent).toContain("Out of credits");
-    expect(toast?.textContent).toContain("Power billing shut the system off.");
+    expect(toast?.textContent).toContain("The power bill drained your balance");
+    expect(toast?.textContent).toContain("brief grace period before billing resumes");
 
     act(() => {
       toast?.querySelector<HTMLButtonElement>("button")?.click();
     });
 
     expect(container.querySelector(".credit-failure-toast")).toBeNull();
+  });
+
+  it("marks mobile task and research tab notifications viewed when opened", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    await idleBitPersistence.set(
+      "save-v2",
+      serializeSave(makeUnlockNoticeSaveState()),
+    );
+    await idleBitPersistence.set("ui.seen-tasks-v1", ["fetchBit", "decodeBit"]);
+    await idleBitPersistence.set("ui.seen-research-v1", ["decodeLogic"]);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    let tabs = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".section-tab"),
+    );
+    let tasksTab = tabs[0];
+    let researchTab = tabs[2];
+
+    expect(tasksTab?.className).toContain("has-notification");
+    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks, 2 new");
+    expect(tasksTab?.title).toBe("2 new tasks");
+    expect(researchTab?.className).toContain("has-notification");
+    expect(researchTab?.getAttribute("aria-label")).toBe("Research, 1 new");
+    expect(researchTab?.title).toBe("1 new research");
+
+    await act(async () => {
+      tasksTab?.click();
+    });
+    await flushEffects();
+
+    tabs = Array.from(container.querySelectorAll<HTMLButtonElement>(".section-tab"));
+    tasksTab = tabs[0];
+    researchTab = tabs[2];
+
+    expect(tasksTab?.className).not.toContain("has-notification");
+    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks");
+    expect(researchTab?.className).toContain("has-notification");
+    await expect(
+      idleBitPersistence.get<string[]>("ui.seen-tasks-v1", []),
+    ).resolves.toEqual(expect.arrayContaining(["bitFlip", "bitShift"]));
+
+    await act(async () => {
+      researchTab?.click();
+    });
+    await flushEffects();
+
+    researchTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".section-tab"),
+    )[2];
+
+    expect(researchTab?.className).not.toContain("has-notification");
+    expect(researchTab?.getAttribute("aria-label")).toBe("Research");
+    await expect(
+      idleBitPersistence.get<string[]>("ui.seen-research-v1", []),
+    ).resolves.toEqual(expect.arrayContaining(["byteOperations"]));
   });
 });
 
@@ -3229,6 +3331,74 @@ describe("HardwareBoard cache meter", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "cancelQueuedTask",
       taskId: "tinyChecksum",
+    });
+  });
+
+  it("keeps active pinned tasks queueable through a scheduler route", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+      },
+      tasks: base.tasks.map((task) =>
+        task.id === "fetchBit"
+          ? {
+              ...task,
+              canQueue: true,
+              queueBlockedReason: null,
+            }
+          : task,
+      ),
+      activeTasks: [
+        {
+          instanceId: "fetch-active-1",
+          taskId: "fetchBit",
+          jobId: "fetchBit",
+          schedulerQueued: true,
+          name: "Fetch Bit",
+          coreId: 1,
+          assignedCoreIds: [1],
+          progress: 0.42,
+          status: "running",
+          memoryState: "ready",
+          activeOperationName: "Fetch Bit",
+          coreProgress: [],
+          lockResource: null,
+          lockReason: null,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <PinnedTaskBar
+          visible={visible}
+          pinnedTaskIds={["fetchBit"]}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+          dispatch={dispatch}
+          selectedComponent="scheduler:1"
+        />,
+      );
+    });
+
+    const row = container.querySelector(".pinned-task-row.active");
+    const runButton = row?.querySelector<HTMLButtonElement>(".pinned-task-run");
+
+    expect(row?.textContent).toContain("Fetch Bit");
+    expect(runButton).not.toBeNull();
+
+    act(() => {
+      runButton?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "queueTask",
+      taskId: "fetchBit",
+      cpuId: 1,
     });
   });
 

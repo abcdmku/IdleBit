@@ -5625,7 +5625,7 @@ export function PinnedTaskBar({
               task.blockedReason ??
               task.queueBlockedReason ??
               null;
-            const canStart = !active && canUseRoute && !routeCoreBusy;
+            const canStart = canUseRoute && !routeCoreBusy;
             const isBlocked = !active && queueIndex < 0 && !canStart;
             const state: TaskState = active
               ? "active"

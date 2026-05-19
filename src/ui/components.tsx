@@ -14,6 +14,7 @@ import { getVisibleSelection, type SelectedComponent } from "./workbenchData";
 export type { SelectedComponent } from "./workbenchData";
 
 type SectionKey = "tasks" | "hardware" | "research";
+type UnlockSectionKey = Exclude<SectionKey, "hardware">;
 
 interface SystemWorkbenchProps {
   visible: VisibleState;
@@ -34,6 +35,9 @@ interface SystemWorkbenchProps {
   onTogglePinnedTask: (taskId: string) => void;
   onUnpinTask: (taskId: string) => void;
   onClearPinnedTasks: () => void;
+  newTaskUnlockCount?: number;
+  newResearchUnlockCount?: number;
+  onSectionViewed?: (section: UnlockSectionKey) => void;
 }
 
 function useIsMobile(breakpoint = 760) {
@@ -84,6 +88,9 @@ export function SystemWorkbench({
   onTogglePinnedTask,
   onUnpinTask,
   onClearPinnedTasks,
+  newTaskUnlockCount = 0,
+  newResearchUnlockCount = 0,
+  onSectionViewed,
 }: SystemWorkbenchProps) {
   const component = getVisibleSelection(visible, selectedComponent);
   const isMobile = useIsMobile();
@@ -92,6 +99,8 @@ export function SystemWorkbench({
   const taskCount = getTaskCount(visible);
   const researchCount = getResearchCount(visible);
   const coreCount = visible.hardware.cores;
+  const hasNewTasks = newTaskUnlockCount > 0;
+  const hasNewResearch = newResearchUnlockCount > 0;
 
   useEffect(() => {
     const helpResource = deadlockHelpResource ?? deadlockCooldownHelpResource;
@@ -107,6 +116,20 @@ export function SystemWorkbench({
     isMobile,
     onSelectComponent,
   ]);
+
+  useEffect(() => {
+    if (!onSectionViewed) return;
+
+    if (!isMobile) {
+      onSectionViewed("tasks");
+      onSectionViewed("research");
+      return;
+    }
+
+    if (activeSection === "tasks" || activeSection === "research") {
+      onSectionViewed(activeSection);
+    }
+  }, [activeSection, isMobile, onSectionViewed]);
 
   return (
     <main className="workbench" aria-label="IdleBit system workbench">
@@ -137,11 +160,18 @@ export function SystemWorkbench({
         <nav className="section-tabs" aria-label="Sections">
           <button
             type="button"
-            className={`section-tab ${activeSection === "tasks" ? "active" : ""}`}
+            className={`section-tab ${activeSection === "tasks" ? "active" : ""} ${
+              hasNewTasks ? "has-notification" : ""
+            }`}
             onClick={() => setActiveSection("tasks")}
+            aria-label={
+              hasNewTasks ? `Tasks, ${newTaskUnlockCount} new` : "Tasks"
+            }
+            title={hasNewTasks ? `${newTaskUnlockCount} new tasks` : "Tasks"}
           >
             <ListTodo size={13} />
             <span>Tasks</span>
+            <span className="new-dot" aria-hidden="true" />
             <span className="count">{taskCount}</span>
           </button>
           <button
@@ -155,11 +185,24 @@ export function SystemWorkbench({
           </button>
           <button
             type="button"
-            className={`section-tab ${activeSection === "research" ? "active" : ""}`}
+            className={`section-tab ${activeSection === "research" ? "active" : ""} ${
+              hasNewResearch ? "has-notification" : ""
+            }`}
             onClick={() => setActiveSection("research")}
+            aria-label={
+              hasNewResearch
+                ? `Research, ${newResearchUnlockCount} new`
+                : "Research"
+            }
+            title={
+              hasNewResearch
+                ? `${newResearchUnlockCount} new research`
+                : "Research"
+            }
           >
             <Activity size={13} />
             <span>R&amp;D</span>
+            <span className="new-dot" aria-hidden="true" />
             <span className="count">{researchCount}</span>
           </button>
         </nav>

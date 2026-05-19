@@ -498,6 +498,8 @@ Task credit payouts should match the derived paid operation count for the starte
 Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
 Research is the player-facing unlock surface. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
 The task panel should group available work by mechanical category, starting with CPU-bound work and system work; later distributed work should land in its own group rather than blending into the CPU task list.
+On mobile, the Tasks and R&D tabs should show a red new-content notification when newly visible tasks or open research have not been viewed yet; opening that tab marks the currently visible IDs as seen.
+Pinned task controls should remain useful for repeatable work: an active pinned task should still expose the selected scheduler route action when another copy can be queued.
 
 | Task | Purpose |
 |---|---|

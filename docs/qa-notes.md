@@ -96,7 +96,7 @@ Target scope from `game-spec.md` section 13.2:
   - System Scheduler watchdogs own RAM deadlocks only; CPU-cache deadlocks from system-scheduled CPU work surface on the affected CPU scheduler watchdog.
   - Deadlock Cooldown upgrades become available after Scheduler Watchdog and increase the post-deadlock pressure drain rate.
   - Scheduler-dispatched tasks stay in the scheduler queue and keep their queue slot occupied until completion.
-  - Scheduler queue slots render as a compact header count plus a bounded adaptive-height slot grid without a separate status strip or queue title; the grid steps through 2x2, 4x2, 4x4, 6x4, 6x6, and 8x8 layouts, early low-row grids stay shorter so slots do not become giant, queued scheduler tasks list their current waiting or active reason in taller slot cells, core/provisioning blockers take priority over free cache/RAM pressure when both apply, at least 24 slots fit before internal scrolling, and processing updates do not resize neighboring hardware.
+  - Scheduler queue slots render as a compact header count plus a bounded adaptive-height slot grid without a separate status strip or queue title; the System Scheduler starts at one-slot and two-slot footprints before 2x2, larger grids step through 2x2, 4x2, 4x4, 6x4, 6x6, and 8x8 layouts, early low-row grids stay shorter so slots do not become giant, queued scheduler tasks list their current waiting or active reason in taller slot cells, core/provisioning blockers take priority over free cache/RAM pressure when both apply, at least 24 slots fit before internal scrolling, and processing updates do not resize neighboring hardware.
   - Canceling pending queued work removes only the unreserved queue entry and leaves already active scheduler reservations intact.
 - CRON automation:
   - CRON remains hidden until CRON Scheduler research, then appears at the top of the system board.
@@ -111,7 +111,7 @@ Target scope from `game-spec.md` section 13.2:
   - CRON queue insertion adds the documented short power spike and uses the same queue capacity rules as manual scheduling.
 - Staging and reliability:
   - RAM extends the memory staging hierarchy after cache and stages larger active/intermediate work after RAM Control.
-  - RAM appears above the CPU package, shows cache-style Stage/Load/Ready lanes per stick, and System Scheduler appears above RAM after research.
+  - RAM appears above the CPU package, shows one selectable module-card strip with fixed small-grid sizing such as 2x2 for four sticks, and System Scheduler appears above RAM after research.
   - RAM load progress is visible as reserved/loading/ready staging, and CPU processing waits until the RAM-backed work is loaded.
   - Total RAM fit still blocks impossible tasks; RAM exhaustion during active writes creates system-wide deadlocks instead of blocking starts, and all active system work stops while the deadlock is unresolved.
   - RAM loading does not prevent unrelated manual or queued CPU-level work from starting when enough idle cores and cache remain.

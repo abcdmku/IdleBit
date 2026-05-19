@@ -106,10 +106,6 @@ export function SystemWorkbench({
           <span className="brand-bar" aria-hidden="true" />
           IdleBit
         </span>
-        <span className="topbar-stage">
-          <span>{visible.stageLabel}</span>
-          <strong>{visible.milestone}</strong>
-        </span>
         {showPsuFailureNotice && (
           <button
             type="button"
@@ -180,7 +176,6 @@ export function SystemWorkbench({
           <div className="panel-header">
             <Cpu size={14} />
             <span>Hardware</span>
-            <small>{visible.stageLabel}</small>
           </div>
           <div className="panel-body">
             <HardwareBoard

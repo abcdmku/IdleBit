@@ -2927,8 +2927,13 @@ describe("IdleBit simulation", () => {
 
     expect(state.power.state).toBe("off");
     expect(state.power.transitionSeconds).toBe(0);
+    expect(state.power.lastFailureReason).toBe("unpaidBill");
+    expect(state.power.failureCount).toBe(1);
     expect(state.resources.credits).toBe(0);
     expect(remainingAfter).toBe(remainingBefore);
+
+    state = applyAction(state, { type: "acknowledgePowerFailure" });
+    expect(state.power.lastFailureReason).toBeNull();
   });
 
   it("grants bootstrap grace when starting up at 0 credits", () => {

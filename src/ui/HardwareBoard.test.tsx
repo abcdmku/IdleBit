@@ -1020,6 +1020,27 @@ describe("App failure modals", () => {
     };
   };
 
+  const makeCreditFailureSaveState = (): GameState => {
+    const base = createInitialGameState();
+
+    return {
+      ...base,
+      resources: {
+        ...base.resources,
+        credits: 0,
+      },
+      power: {
+        ...base.power,
+        state: "off",
+        transitionSeconds: 0,
+        bootstrapGraceSeconds: 0,
+        overloadFailureSeconds: 0,
+        lastFailureReason: "unpaidBill",
+        failureCount: 1,
+      },
+    };
+  };
+
   const flushEffects = async () => {
     await act(async () => {
       await Promise.resolve();
@@ -1130,6 +1151,60 @@ describe("App failure modals", () => {
     });
 
     expect(container.querySelector(".topbar-alert-badge.psu-failure")).toBeNull();
+  });
+
+  it("explains the first out-of-credits power cutoff", async () => {
+    await idleBitPersistence.set(
+      "save-v2",
+      serializeSave(makeCreditFailureSaveState()),
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const modal = container.querySelector(".credit-failure-modal");
+
+    expect(modal?.textContent).toContain("Out of credits");
+    expect(modal?.textContent).toContain("Power billing spent the last credits");
+    expect(modal?.textContent).toContain("Idle hardware still costs cr/s");
+    expect(container.querySelector(".credit-failure-toast")).toBeNull();
+
+    act(() => {
+      modal?.querySelector<HTMLButtonElement>(".credit-failure-primary")?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector(".credit-failure-modal")).toBeNull();
+    await expect(
+      idleBitPersistence.get<boolean>("ui.credit-failure-modal-seen-v1", false),
+    ).resolves.toBe(true);
+  });
+
+  it("uses a quick popup for later out-of-credits cutoffs", async () => {
+    await idleBitPersistence.set(
+      "save-v2",
+      serializeSave(makeCreditFailureSaveState()),
+    );
+    await idleBitPersistence.set("ui.credit-failure-modal-seen-v1", true);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const toast = container.querySelector(".credit-failure-toast");
+
+    expect(container.querySelector(".credit-failure-modal")).toBeNull();
+    expect(toast?.textContent).toContain("Out of credits");
+    expect(toast?.textContent).toContain("Power billing shut the system off.");
+
+    act(() => {
+      toast?.querySelector<HTMLButtonElement>("button")?.click();
+    });
+
+    expect(container.querySelector(".credit-failure-toast")).toBeNull();
   });
 });
 
@@ -2828,6 +2903,49 @@ describe("HardwareBoard cache meter", () => {
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
   });
 
+  it("lists multi-core task requirements without labeling single-core tasks", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const visible: VisibleState = {
+      ...base,
+      tasks: [
+        {
+          ...base.tasks[0]!,
+          id: "fetchBit",
+          name: "Fetch Bit",
+          requiredCores: 1,
+        },
+        {
+          ...base.tasks[0]!,
+          id: "busMirror",
+          name: "Bus Mirror",
+          requiredCores: 2,
+          operationCount: 128,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    const cards = Array.from(container.querySelectorAll(".task-card"));
+    const fetchMeta = cards
+      .find((card) => card.textContent?.includes("Fetch Bit"))
+      ?.querySelector(".task-meta-line");
+    const busMeta = cards
+      .find((card) => card.textContent?.includes("Bus Mirror"))
+      ?.querySelector(".task-meta-line");
+
+    expect(fetchMeta?.textContent).not.toContain("1 cores");
+    expect(busMeta?.textContent).toContain("2 cores");
+  });
+
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {
     const base = deriveVisibleState(createInitialGameState());
     const visible: VisibleState = {
@@ -2858,6 +2976,7 @@ describe("HardwareBoard cache meter", () => {
               name: "Micro Benchmark",
               category: "cpu",
               operationCount: 80,
+              requiredCores: 2,
               rewardCredits: 80,
               rewardData: 4,
               cacheNeedBits: 4,
@@ -2890,6 +3009,7 @@ describe("HardwareBoard cache meter", () => {
     expect(computeButton?.disabled).toBe(true);
     expect(computeButton?.textContent).toContain("Core clock level 3 required.");
     expect(computeMeta?.textContent).toContain("80");
+    expect(computeMeta?.textContent).toContain("2 cores");
     expect(computeMeta?.textContent).toContain("cache 4 b");
     expect(computeMeta?.querySelector(".resource-token.credits")).not.toBeNull();
     expect(computeMeta?.querySelector(".resource-token.data")).not.toBeNull();

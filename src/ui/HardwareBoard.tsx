@@ -1329,6 +1329,7 @@ function TaskMetaLine({
   const operationCount = getTaskOperationCount(task);
   const cacheBits = getTaskCacheBits(task);
   const ramBits = getTaskRamBits(task);
+  const requiredCores = getRequiredCoreCount(task);
   const rewards = getTaskRewardCosts(task);
 
   return (
@@ -1336,6 +1337,7 @@ function TaskMetaLine({
       <span className="ops">
         <strong>{operationCount === undefined ? "?" : formatNumber(operationCount)}</strong> ops
       </span>
+      {requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>}
       {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
       {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
         <span>ram {formatBits(ramBits)}</span>
@@ -3486,9 +3488,8 @@ function DeadlockHelpCaption({
         </p>
       ) : (
         <p>
-          PSU failure: draw is above capacity. If this reaches 10s, the PSU
-          cuts power instantly, clears active and queued work, and the system
-          must be rebooted. Buy PSU Capacity or reduce load before it fills.
+          PSU failure: draw is above capacity. Buy PSU Capacity or reduce load
+          before 10s, or the system cuts power and must be rebooted.
         </p>
       )}
       <button type="button" onClick={onDismiss}>
@@ -5420,6 +5421,7 @@ function TaskCard({
   const operationCount = getTaskOperationCount(task);
   const cacheBits = getTaskCacheBits(task);
   const ramBits = getTaskRamBits(task);
+  const requiredCores = getRequiredCoreCount(task);
   const rewards = getTaskRewardCosts(task);
   const commandLabel =
     mode === "systemScheduler"
@@ -5440,6 +5442,7 @@ function TaskCard({
           <span className="ops">
             <strong>{operationCount === undefined ? "·" : formatNumber(operationCount)}</strong> ops
           </span>
+          {requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>}
           {cacheBits > 0 && <span>cache {formatBits(cacheBits)}</span>}
           {(memoryUnlocked || ramBits > 0) && ramBits > 0 && (
             <span>ram {formatBits(ramBits)}</span>

@@ -129,7 +129,7 @@ export type SchedulerKillPolicy =
   | "lowestProgress";
 
 export type PowerStateId = "on" | "shuttingDown" | "off" | "booting";
-export type PowerFailureReason = "psuOverload";
+export type PowerFailureReason = "psuOverload" | "unpaidBill";
 
 export type CronIntervalMode = "seconds" | "minutes";
 

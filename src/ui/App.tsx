@@ -18,6 +18,7 @@ const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
 const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";
 const PSU_FAILURE_MODAL_SEEN_KEY = "ui.psu-failure-modal-seen-v1";
+const CREDIT_FAILURE_MODAL_SEEN_KEY = "ui.credit-failure-modal-seen-v1";
 
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());
@@ -30,6 +31,8 @@ export function App() {
   const [psuFailureHelpSeen, setPsuFailureHelpSeen] =
     useState<boolean | null>(null);
   const [psuFailureModalSeen, setPsuFailureModalSeen] =
+    useState<boolean | null>(null);
+  const [creditFailureModalSeen, setCreditFailureModalSeen] =
     useState<boolean | null>(null);
   const stateRef = useRef(state);
   const pausedRef = useRef(false);
@@ -49,6 +52,7 @@ export function App() {
       idleBitPersistence.get<boolean>(DEADLOCK_COOLDOWN_HELP_KEY, false),
       idleBitPersistence.get<boolean>(PSU_FAILURE_HELP_KEY, false),
       idleBitPersistence.get<boolean>(PSU_FAILURE_MODAL_SEEN_KEY, false),
+      idleBitPersistence.get<boolean>(CREDIT_FAILURE_MODAL_SEEN_KEY, false),
     ])
       .then(([
         rawSave,
@@ -56,6 +60,7 @@ export function App() {
         seenDeadlockCooldownHelp,
         seenPsuFailureHelp,
         seenPsuFailureModal,
+        seenCreditFailureModal,
       ]) => {
         if (!cancelled) {
           const restoredState = deserializeSave(rawSave);
@@ -65,6 +70,7 @@ export function App() {
           setDeadlockCooldownHelpSeen(Boolean(seenDeadlockCooldownHelp));
           setPsuFailureHelpSeen(Boolean(seenPsuFailureHelp));
           setPsuFailureModalSeen(Boolean(seenPsuFailureModal));
+          setCreditFailureModalSeen(Boolean(seenCreditFailureModal));
         }
       })
       .catch(() => undefined)
@@ -136,10 +142,13 @@ export function App() {
       visible.metrics.powerState === "shuttingDown");
   const hasPsuFailureNotice =
     resourceEffectsReady && state.power.lastFailureReason === "psuOverload";
+  const hasCreditFailureNotice =
+    resourceEffectsReady && state.power.lastFailureReason === "unpaidBill";
   const showPsuFailureModal =
     hasPsuFailureNotice && psuFailureModalSeen === false;
   const showPsuFailureBadge =
     hasPsuFailureNotice && psuFailureModalSeen === true;
+  const showCreditFailurePopup = hasCreditFailureNotice;
   const watchdogActive =
     Boolean(visible.metrics.systemSchedulerWatchdog) ||
     visible.metrics.cpuSockets.some((socket) => Boolean(socket.watchdog));
@@ -147,12 +156,14 @@ export function App() {
   useEffect(() => {
     pausedRef.current = Boolean(
       showPsuFailureModal ||
+        showCreditFailurePopup ||
         ((primaryDeadlockResource || cooldownHelpResource) && !watchdogActive) ||
         showPsuFailureHelp,
     );
   }, [
     primaryDeadlockResource,
     cooldownHelpResource,
+    showCreditFailurePopup,
     showPsuFailureModal,
     showPsuFailureHelp,
     watchdogActive,
@@ -180,6 +191,14 @@ export function App() {
   };
 
   const dismissPsuFailureBadge = () => {
+    dispatch({ type: "acknowledgePowerFailure" });
+  };
+
+  const dismissCreditFailurePopup = () => {
+    if (creditFailureModalSeen === false) {
+      setCreditFailureModalSeen(true);
+      void idleBitPersistence.set(CREDIT_FAILURE_MODAL_SEEN_KEY, true);
+    }
     dispatch({ type: "acknowledgePowerFailure" });
   };
 
@@ -211,6 +230,12 @@ export function App() {
       />
       {showPsuFailureModal && (
         <PsuFailureModal onDismiss={dismissPsuFailureModal} />
+      )}
+      {showCreditFailurePopup && (
+        <CreditFailurePopup
+          firstTime={creditFailureModalSeen === false}
+          onDismiss={dismissCreditFailurePopup}
+        />
       )}
     </div>
   );
@@ -251,6 +276,80 @@ function PsuFailureModal({ onDismiss }: { onDismiss: () => void }) {
         </p>
 
         <button type="button" className="psu-failure-primary" onClick={onDismiss}>
+          Understood
+          <Check size={15} />
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function CreditFailurePopup({
+  firstTime,
+  onDismiss,
+}: {
+  firstTime: boolean;
+  onDismiss: () => void;
+}) {
+  const titleId = "credit-failure-title";
+  const bodyId = "credit-failure-body";
+
+  if (!firstTime) {
+    return (
+      <aside
+        className="credit-failure-toast"
+        role="dialog"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+      >
+        <span id={titleId}>
+          <TriangleAlert size={16} />
+          Out of credits
+        </span>
+        <p id={bodyId}>Power billing shut the system off.</p>
+        <button type="button" onClick={onDismiss}>
+          Got it
+        </button>
+      </aside>
+    );
+  }
+
+  return (
+    <div className="credit-failure-overlay">
+      <section
+        className="credit-failure-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+      >
+        <div className="credit-failure-header">
+          <span id={titleId}>
+            <TriangleAlert size={20} />
+            Out of credits
+          </span>
+          <button
+            type="button"
+            className="credit-failure-close"
+            onClick={onDismiss}
+            aria-label="Close credit failure notice"
+          >
+            <X size={17} />
+          </button>
+        </div>
+
+        <p id={bodyId}>
+          Power billing spent the last credits while the system was on. Idle
+          hardware still costs cr/s, so the PSU shut down instead of letting
+          credits go negative. Earn credits, reduce draw, or power off when
+          idle before rebooting.
+        </p>
+
+        <button
+          type="button"
+          className="credit-failure-primary"
+          onClick={onDismiss}
+        >
           Understood
           <Check size={15} />
         </button>

@@ -2258,7 +2258,8 @@ const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
     transitionSeconds: 0,
     bootstrapGraceSeconds: 0,
     overloadFailureSeconds: 0,
-    lastFailureReason: null,
+    lastFailureReason: "unpaidBill",
+    failureCount: Math.max(0, state.power.failureCount ?? 0) + 1,
   },
 });
 

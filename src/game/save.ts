@@ -443,7 +443,8 @@ const normalizeState = (state: LegacyState): GameState => {
       bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
       overloadFailureSeconds,
       lastFailureReason:
-        savedPower?.lastFailureReason === "psuOverload"
+        savedPower?.lastFailureReason === "psuOverload" ||
+        savedPower?.lastFailureReason === "unpaidBill"
           ? savedPower.lastFailureReason
           : null,
       failureCount: Math.max(0, savedPower?.failureCount ?? 0),

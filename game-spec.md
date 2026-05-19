@@ -215,7 +215,7 @@ At system scale:
 - Basic PSU wattage upgrades are purchasable with credits from the first screen so the player can buy headroom before deeper management research.
 - Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill once the player has credits.
 - Starting draw should be mW/uW-scale and primarily tied to CPU frequency, so faster credit generation also increases operating cost.
-- If power billing reaches 0 credits, the system performs an emergency shutdown instead of allowing negative credits.
+- If power billing reaches 0 credits, the system performs an emergency shutdown instead of allowing negative credits. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
 - Powering on from 0 credits grants a short bootstrap grace window with no billing, enough to run starter work and recover.
 - If hardware draw approaches PSU capacity, stress increases and efficiency drops.
 - If hardware draw exceeds PSU capacity, overload failure pressure begins filling in the PSU header while the whole PSU module flashes red. It reaches failure in about 10 seconds just above 100% load and fills faster the farther draw exceeds capacity; the failure instantly cuts power, shows a short explanatory popup the first time, uses a red topbar badge for later trips, and clears active/queued work.
@@ -297,7 +297,7 @@ Each task can define:
 | Latency requirement | Optional max latency target |
 | Coverage requirement | Optional geographic/service coverage target |
 
-Early tasks should only expose CPU operations, reward, and eventually cache needs. Later tasks expose memory staging, parallelization, storage staging, SLA, latency, and coverage. Task and research compute rows should keep the operation count, resource/staging needs, and payout visible even when the action is blocked; the disabled action button should carry the current blocker, such as "Cache capacity too low." The task list should stay a stable catalog: do not add live state labels or recolor a task card just because that task is active. The task panel header should expose a compact route-layer selector instead of an Auto route: `C` targets a specific core from a dropdown, `CPU` targets a CPU-local scheduler from a CPU dropdown, and `Sys` targets the System Scheduler when unlocked. Later system, rack, cluster, and region routing should extend this same layer-plus-target pattern instead of adding one button per destination. Assigning a task uses the selected route without adding routing text to each task card. Power is never exposed as a task requirement; it is reflected through PSU/system stress while hardware runs the operations.
+Early tasks should only expose CPU operations, reward, and eventually cache needs. Later tasks expose memory staging, parallelization, storage staging, SLA, latency, and coverage. Task and research compute rows should keep the operation count, multi-core requirement when above one core, resource/staging needs, and payout visible even when the action is blocked; the disabled action button should carry the current blocker, such as "Cache capacity too low." The task list should stay a stable catalog: do not add live state labels or recolor a task card just because that task is active. The task panel header should expose a compact route-layer selector instead of an Auto route: `C` targets a specific core from a dropdown, `CPU` targets a CPU-local scheduler from a CPU dropdown, and `Sys` targets the System Scheduler when unlocked. Later system, rack, cluster, and region routing should extend this same layer-plus-target pattern instead of adding one button per destination. Assigning a task uses the selected route without adding routing text to each task card. Power is never exposed as a task requirement; it is reflected through PSU/system stress while hardware runs the operations.
 
 ### 4.2 Operation Queue Pipeline
 
@@ -407,7 +407,7 @@ The prototype price should be tuned against the current mW/uW draw curve, and PS
 
 There is no free wattage threshold. Low early draw should make the first bill forgiving, not free.
 
-Credits cannot go negative from power billing. If the next bill cannot be paid, the system immediately enters `off`, work stops progressing, and billing stops. From 0 credits, startup grants a short no-bill bootstrap grace period; earning any credits exits grace and normal billing resumes. If grace expires while credits are still 0, the system shuts down again.
+Credits cannot go negative from power billing. If the next bill cannot be paid, the system immediately enters `off`, work stops progressing, billing stops, and the player sees an out-of-credits popup. The first popup explains idle draw and billing; later popups are brief. From 0 credits, startup grants a short no-bill bootstrap grace period; earning any credits exits grace and normal billing resumes. If grace expires while credits are still 0, the system shuts down again.
 
 System power state controls whether work can run:
 
@@ -751,7 +751,7 @@ CRON v1 rules:
 
 The PSU is visible from the first screen. It shows draw, capacity, load, state, live billing, prominent overload failure pressure when draw exceeds capacity, and a credits-only wattage upgrade so the player immediately understands that powered-on idle time has a cost and headroom can be bought. PSU Management research is deferred until advanced tuning or telemetry exposes a new player-facing decision. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
 
-Power is paid over time while the system is powered on. The early draw curve should be tiny but meaningful: active starter work should be profitable, while idling with positive credits should slowly drain money. Fully `off` systems bill zero, grey hardware, and leave only power/start controls active; they cannot start work, dispatch queues, or run CRON. If billing would take credits below 0, the system emergency-shuts down and clamps credits at 0; starting again from 0 credits provides a short bootstrap grace window.
+Power is paid over time while the system is powered on. The early draw curve should be tiny but meaningful: active starter work should be profitable, while idling with positive credits should slowly drain money. Fully `off` systems bill zero, grey hardware, and leave only power/start controls active; they cannot start work, dispatch queues, or run CRON. If billing would take credits below 0, the system emergency-shuts down, clamps credits at 0, and shows a first-time explanatory popup or a brief repeat popup; starting again from 0 credits provides a short bootstrap grace window.
 
 If active draw exceeds PSU capacity:
 

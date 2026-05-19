@@ -426,7 +426,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 
 .resource-gain-layer {
   position: fixed;
-  z-index: 50;
+  z-index: 9999;
   inset: 0;
   overflow: hidden;
   pointer-events: none;

@@ -4473,7 +4473,6 @@ function SystemSchedulerSection({
   );
 }
 
-type RamView = "concise" | "large";
 
 function RamSection({
   visible,
@@ -4516,9 +4515,6 @@ function RamSection({
     visible.hardware.ramSpeedMt,
   );
   const stickCount = ramSlots.length;
-  const [ramView, setRamView] = useState<RamView>(
-    stickCount >= 4 ? "concise" : "large",
-  );
   const selectedSlot =
     ramSlots.find((slot) => slot.id === selectedRamStickId) ?? ramSlots[0] ?? null;
   const selectedStickIds = selectedAllRamSticks
@@ -4583,28 +4579,6 @@ function RamSection({
           <small>Modules</small>
           <strong>{formatNumber(stickCount)}</strong>
         </span>
-        <span className="ram-view-toggle" role="group" aria-label="RAM view density">
-          <button
-            type="button"
-            className={`ram-view-toggle-btn ${ramView === "concise" ? "active" : ""}`}
-            onClick={() => setRamView("concise")}
-            aria-pressed={ramView === "concise"}
-            title="Concise view"
-          >
-            <LayoutGrid size={11} />
-            <span>Concise</span>
-          </button>
-          <button
-            type="button"
-            className={`ram-view-toggle-btn ${ramView === "large" ? "active" : ""}`}
-            onClick={() => setRamView("large")}
-            aria-pressed={ramView === "large"}
-            title="Large view"
-          >
-            <Rows3 size={11} />
-            <span>Large</span>
-          </button>
-        </span>
         <button
           type="button"
           className={`core-select-all-button ram-select-all-button ${
@@ -4618,17 +4592,7 @@ function RamSection({
         </button>
       </div>
 
-      <div
-        className={`ram-stick-grid ram-stick-grid-${ramView} ${
-          ramView === "large"
-            ? stickCount >= 8
-              ? "dense"
-              : stickCount >= 4
-                ? "compact"
-                : ""
-            : ""
-        }`}
-      >
+      <div className="ram-stick-grid ram-stick-grid-concise">
         {ramSlots.map((slot) => {
           const slotSegments = ramSegmentsBySlot.get(slot.id) ?? [];
           const isSelected =
@@ -4636,20 +4600,8 @@ function RamSection({
             selectedRamStickId === slot.id ||
             (selectedRamStickId === null && selected && selectedSlot?.id === slot.id);
 
-          if (ramView === "concise") {
-            return (
-              <RamStickConciseCard
-                key={slot.id}
-                slot={slot}
-                selected={isSelected}
-                onSelect={() => onSelectStick(slot.id)}
-                segments={slotSegments}
-              />
-            );
-          }
-
           return (
-            <RamStickCard
+            <RamStickConciseCard
               key={slot.id}
               slot={slot}
               selected={isSelected}

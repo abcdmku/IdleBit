@@ -12,7 +12,6 @@ export function SystemBoard({
 
   return (
     <div className={`system-board stage-${visible.stage} ${powerOff ? "power-offline" : ""}`}>
-      <div className="system-board-frame" aria-hidden="true" />
       <div className="system-board-flow">{children}</div>
     </div>
   );

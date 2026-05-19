@@ -12,6 +12,7 @@ import {
   Activity,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Cpu,
   Database,
@@ -22,6 +23,7 @@ import {
   MemoryStick,
   Minus,
   Pause,
+  Pencil,
   Pin,
   PinOff,
   Play,
@@ -1187,11 +1189,16 @@ const getTaskCanStart = (task: UiTask) =>
 function resolveTaskRoute(
   visible: VisibleState,
   selectedComponent: SelectedComponent,
+  category: TaskCategoryId = "cpu",
 ): {
   mode: QueueMode;
   selectedCore: VisibleCore | null;
   selectedSchedulerId: number | null;
 } {
+  if (category !== "cpu") {
+    return { mode: "systemScheduler", selectedCore: null, selectedSchedulerId: null };
+  }
+
   const allCores = getAllCores(visible);
   const selectedCoreId = getSelectedCoreId(selectedComponent);
   const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
@@ -1222,6 +1229,7 @@ function dispatchRunTask(
   const { mode, selectedCore, selectedSchedulerId } = resolveTaskRoute(
     visible,
     selectedComponent,
+    getTaskCategory(task),
   );
 
   if (mode === "core" && selectedCore) {
@@ -3532,8 +3540,27 @@ function DeadlockHelpCaption({
   kind?: "deadlock" | "cooldown" | "psuFailure";
   onDismiss?: () => void;
 }) {
+  const captionRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    captionRef.current?.scrollIntoView?.({
+      block: "center",
+      inline: "nearest",
+      behavior:
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+    });
+  }, [kind]);
+
   return (
-    <aside className={`deadlock-help-caption ${kind}`} aria-live="polite">
+    <aside
+      className={`deadlock-help-caption ${kind}`}
+      aria-live="polite"
+      ref={captionRef}
+    >
       {kind === "deadlock" ? (
         <p>
           Deadlock: this task is waiting for cache/RAM held by other work.
@@ -5205,18 +5232,11 @@ function TaskRoutePicker({
   const selectedCoreId = getSelectedCoreId(selection) ?? firstCoreId;
   const selectedSchedulerId = getSelectedSchedulerId(selection) ?? firstSocketId;
   const layer: TaskRouteLayer =
-    selection === "scheduler" && visible.flags.scheduler
-      ? "systemScheduler"
-      : selection?.startsWith("scheduler:") && schedulerVisible
-        ? "scheduler"
-        : "core";
+    selection?.startsWith("scheduler:") && schedulerVisible ? "scheduler" : "core";
   const layerOptions: Array<{ value: TaskRouteLayer; label: string; title: string }> = [
     { value: "core", label: "C", title: "Direct core" },
     ...(schedulerVisible
       ? [{ value: "scheduler" as const, label: "CPU", title: "CPU scheduler" }]
-      : []),
-    ...(visible.flags.scheduler
-      ? [{ value: "systemScheduler" as const, label: "Sys", title: "System scheduler" }]
       : []),
   ];
 
@@ -5228,10 +5248,7 @@ function TaskRoutePicker({
 
     if (nextLayer === "scheduler") {
       onSelectComponent(`scheduler:${selectedSchedulerId || firstSocketId}`);
-      return;
     }
-
-    onSelectComponent("scheduler");
   };
 
   const selectTarget = (value: string) => {
@@ -5265,14 +5282,11 @@ function TaskRoutePicker({
         value={
           layer === "core"
             ? String(selectedCoreId)
-            : layer === "scheduler"
-              ? String(selectedSchedulerId)
-              : "system"
+            : String(selectedSchedulerId)
         }
         onChange={(event) => selectTarget(event.currentTarget.value)}
         aria-label={layer === "core" ? "Core target" : "CPU target"}
         title={layer === "core" ? "Core target" : "CPU target"}
-        disabled={layer === "systemScheduler"}
       >
         {layer === "core" &&
           sockets.map((socket) => (
@@ -5290,7 +5304,6 @@ function TaskRoutePicker({
               CPU {socket.id}
             </option>
           ))}
-        {layer === "systemScheduler" && <option value="system">System</option>}
       </select>
     </div>
   );
@@ -5315,51 +5328,10 @@ export function TaskBay({
   const activeTasks = getActiveTasks(visible);
   const queue = getQueueEntries(visible);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<TaskCategoryId>>(
+    () => new Set(),
+  );
   const inspectedTask = tasks.find((task) => task.id === inspectedTaskId) ?? null;
-  const allCores = getAllCores(visible);
-  const selectedCoreId = getSelectedCoreId(selectedComponent);
-  const selectedCore =
-    (selectedCoreId
-      ? allCores.find((core) => core.id === selectedCoreId)
-      : null) ??
-    allCores[0] ??
-    null;
-  const selectedCoreSocket = selectedCore
-    ? getSocketForCore(visible.metrics.cpuSockets, selectedCore.id)
-    : null;
-  const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
-  const selectedSystemScheduler =
-    selectedComponent === "scheduler" && visible.flags.scheduler;
-  const schedulerCanRoute =
-    visible.flags.basicQueue || visible.flags.scheduler || selectedSchedulerId !== null;
-  const mode: QueueMode =
-    selectedSystemScheduler
-      ? "systemScheduler"
-      : selectedSchedulerId && schedulerCanRoute
-        ? "scheduler"
-        : "core";
-  const targetLabel = selectedCore
-    ? mode === "core"
-      ? selectedCoreSocket
-        ? `${selectedCoreSocket.label} ${getSocketCoreLabel(
-            selectedCoreSocket,
-            selectedCore.id,
-          )}`
-        : `Core ${selectedCore.id}`
-      : mode === "systemScheduler"
-        ? "System Scheduler"
-        : `CPU ${selectedSchedulerId ?? 1}`
-    : "Core";
-  const routeSelection: SelectedComponent =
-    mode === "systemScheduler"
-      ? "scheduler"
-      : mode === "scheduler"
-        ? (`scheduler:${selectedSchedulerId}` as SelectedComponent)
-        : selectedCore
-          ? (`core:${selectedCore.id}` as SelectedComponent)
-          : null;
-  const selectedCoreBusy =
-    mode === "core" && Boolean(selectedCore && getCoreActiveTask(selectedCore));
   const memoryUnlocked = hasSystemMemory(visible);
   const groupedTasks = taskGroups
     .map((group) => ({
@@ -5367,6 +5339,15 @@ export function TaskBay({
       tasks: tasks.filter((task) => getTaskCategory(task) === group.id),
     }))
     .filter((group) => group.tasks.length > 0);
+
+  const toggleGroup = (id: TaskCategoryId) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const runTask = (task: UiTask) =>
     dispatchRunTask(task, visible, selectedComponent, dispatch);
@@ -5376,58 +5357,88 @@ export function TaskBay({
       <div className="panel-header task-panel-header">
         <ListTodo size={14} />
         <span>Tasks</span>
-        {onSelectComponent ? (
-          <TaskRoutePicker
-            visible={visible}
-            selection={routeSelection}
-            onSelectComponent={onSelectComponent}
-          />
-        ) : (
-          <small>{targetLabel}</small>
-        )}
       </div>
       <div className="panel-body">
         {tasks.length === 0 ? (
           <div className="research-empty">No tasks available</div>
         ) : (
-          groupedTasks.map((group) => (
-            <section className="task-group" key={group.id}>
-              <div className="task-group-title">
-                <span>{group.label}</span>
-                <small>{group.tasks.length}</small>
-              </div>
-              {group.tasks.map((task, taskIndex) => {
-                const canStart = getTaskCanUseAction(task, mode);
-                const disabled = selectedCoreBusy || !canStart;
+          groupedTasks.map((group) => {
+            const collapsed = collapsedGroups.has(group.id);
+            const groupRoute = resolveTaskRoute(
+              visible,
+              selectedComponent,
+              group.id,
+            );
+            const groupMode = groupRoute.mode;
+            const groupCoreBusy =
+              groupMode === "core" &&
+              Boolean(
+                groupRoute.selectedCore && getCoreActiveTask(groupRoute.selectedCore),
+              );
+            const groupTargetLabel = getRouteTargetLabel(visible, groupRoute);
 
-                return (
-                  <TaskCard
-                    key={`${group.id}-${task.id}-${taskIndex}`}
-                    task={task}
-                    mode={mode}
-                    state={getTaskState(task, activeTasks, queue)}
-                    disabled={disabled}
-                    disabledReason={
-                      disabled
-                        ? selectedCoreBusy
-                          ? `${targetLabel} busy`
-                          : getTaskActionDisabledReason(task, mode)
-                        : null
+            return (
+              <section
+                className={`task-group ${collapsed ? "collapsed" : ""}`}
+                key={group.id}
+              >
+                <div className="task-group-title">
+                  <button
+                    type="button"
+                    className="task-group-toggle"
+                    onClick={() => toggleGroup(group.id)}
+                    aria-expanded={!collapsed}
+                    aria-label={
+                      collapsed ? `Expand ${group.label}` : `Collapse ${group.label}`
                     }
-                    onRun={() => runTask(task)}
-                    onInspect={() => setInspectedTaskId(task.id)}
-                    memoryUnlocked={memoryUnlocked}
-                    pinned={pinnedTaskIds.includes(task.id)}
-                    onTogglePin={
-                      onTogglePinnedTask
-                        ? () => onTogglePinnedTask(task.id)
-                        : undefined
-                    }
-                  />
-                );
-              })}
-            </section>
-          ))
+                  >
+                    {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    <span>{group.label}</span>
+                    <small>{group.tasks.length}</small>
+                  </button>
+                  {onSelectComponent && (
+                    <TaskGroupRoutePicker
+                      visible={visible}
+                      category={group.id}
+                      selection={selectedComponent}
+                      onSelectComponent={onSelectComponent}
+                    />
+                  )}
+                </div>
+                {!collapsed &&
+                  group.tasks.map((task, taskIndex) => {
+                    const canStart = getTaskCanUseAction(task, groupMode);
+                    const disabled = groupCoreBusy || !canStart;
+
+                    return (
+                      <TaskCard
+                        key={`${group.id}-${task.id}-${taskIndex}`}
+                        task={task}
+                        mode={groupMode}
+                        state={getTaskState(task, activeTasks, queue)}
+                        disabled={disabled}
+                        disabledReason={
+                          disabled
+                            ? groupCoreBusy
+                              ? `${groupTargetLabel} busy`
+                              : getTaskActionDisabledReason(task, groupMode)
+                            : null
+                        }
+                        onRun={() => runTask(task)}
+                        onInspect={() => setInspectedTaskId(task.id)}
+                        memoryUnlocked={memoryUnlocked}
+                        pinned={pinnedTaskIds.includes(task.id)}
+                        onTogglePin={
+                          onTogglePinnedTask
+                            ? () => onTogglePinnedTask(task.id)
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
+              </section>
+            );
+          })
         )}
       </div>
       {inspectedTask && (
@@ -5441,6 +5452,61 @@ export function TaskBay({
       )}
     </>
   );
+}
+
+function getRouteTargetLabel(
+  visible: VisibleState,
+  route: ReturnType<typeof resolveTaskRoute>,
+): string {
+  const { mode, selectedCore, selectedSchedulerId } = route;
+  if (mode === "systemScheduler") return "System scheduler";
+  if (mode === "scheduler") return `CPU ${selectedSchedulerId ?? 1}`;
+  if (!selectedCore) return "Core";
+  const socket = getSocketForCore(visible.metrics.cpuSockets, selectedCore.id);
+  return socket
+    ? `${socket.label} ${getSocketCoreLabel(socket, selectedCore.id)}`
+    : `Core ${selectedCore.id}`;
+}
+
+function TaskGroupRoutePicker({
+  visible,
+  category,
+  selection,
+  onSelectComponent,
+}: {
+  visible: VisibleState;
+  category: TaskCategoryId;
+  selection: SelectedComponent;
+  onSelectComponent: (component: SelectedComponent) => void;
+}) {
+  if (category === "cpu") {
+    return (
+      <TaskRoutePicker
+        visible={visible}
+        selection={selection}
+        onSelectComponent={onSelectComponent}
+      />
+    );
+  }
+
+  if (category === "system") {
+    if (!visible.flags.scheduler) return null;
+    return (
+      <div className="task-route-picker" aria-label="System route">
+        <select
+          className="task-route-select task-route-target-select"
+          value="system"
+          onChange={() => onSelectComponent("scheduler")}
+          aria-label="System target"
+          title="System scheduler"
+        >
+          <option value="system">System</option>
+        </select>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function TaskCard({
@@ -5555,12 +5621,11 @@ export function PinnedTaskBar({
   variant?: "embedded" | "floating";
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState(false);
 
   if (pinnedTaskIds.length === 0) return null;
 
   const tasks = getTasks(visible);
-  const activeTasks = getActiveTasks(visible);
-  const queue = getQueueEntries(visible);
 
   const pinned = pinnedTaskIds
     .map((id) => tasks.find((task) => task.id === id))
@@ -5578,7 +5643,9 @@ export function PinnedTaskBar({
 
   return (
     <aside
-      className={`pinned-task-bar ${variant} ${expanded ? "expanded" : "collapsed"}`}
+      className={`pinned-task-bar ${variant} ${expanded ? "expanded" : "collapsed"} ${
+        editing ? "editing" : ""
+      }`}
       aria-label="Pinned tasks"
     >
       <header className="pinned-task-bar-header">
@@ -5594,102 +5661,76 @@ export function PinnedTaskBar({
           <span className="pinned-task-bar-count">{pinned.length}</span>
           {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
         </button>
-        <button
-          type="button"
-          className="pinned-task-bar-clear"
-          onClick={onClearPinnedTasks}
-          title="Unpin all"
-          aria-label="Unpin all tasks"
-        >
-          <X size={13} />
-        </button>
+        {expanded && (
+          <button
+            type="button"
+            className={`pinned-task-bar-edit ${editing ? "active" : ""}`}
+            onClick={() => setEditing((prev) => !prev)}
+            aria-pressed={editing}
+            title={editing ? "Done editing" : "Edit pins"}
+            aria-label={editing ? "Done editing pinned tasks" : "Edit pinned tasks"}
+          >
+            <Pencil size={12} />
+          </button>
+        )}
+        {editing && (
+          <button
+            type="button"
+            className="pinned-task-bar-clear"
+            onClick={onClearPinnedTasks}
+            title="Unpin all"
+            aria-label="Unpin all tasks"
+          >
+            <X size={13} />
+          </button>
+        )}
       </header>
       {expanded && (
         <ul className="pinned-task-bar-body">
           {pinned.map((task) => {
-            const active = activeTasks.find(
-              (entry) => getActiveTaskId(entry) === task.id,
-            );
-            const queueIndex = queue.findIndex(
-              (entry) => getQueueTaskId(entry) === task.id,
-            );
             const canUseRoute = getTaskCanUseAction(task, routeMode) === true;
-            const routeBlockedReason = canUseRoute
-              ? null
-              : getTaskActionDisabledReason(task, routeMode);
-            const blockedReason =
-              routeBlockedReason ??
-              task.lockedReason ??
-              task.lockReason ??
-              task.unlockReason ??
-              task.blockedReason ??
-              task.queueBlockedReason ??
-              null;
-            const canStart = canUseRoute && !routeCoreBusy;
-            const isBlocked = !active && queueIndex < 0 && !canStart;
-            const state: TaskState = active
-              ? "active"
-              : queueIndex >= 0
-                ? "waiting"
-                : isBlocked && blockedReason
-                  ? "locked"
-                  : "ready";
-            const progress = active
-              ? Math.max(0, Math.min(1, active.progress ?? 0))
-              : 0;
-            const statusLabel = active
-              ? active.activeOperationName
-                ? `${active.activeOperationName} · ${Math.round(progress * 100)}%`
-                : `${Math.round(progress * 100)}%`
-              : queueIndex >= 0
-                ? `Queued · #${queueIndex + 1}`
-                : isBlocked && blockedReason
-                  ? blockedReason
-                  : task.completed
-                    ? "Ready to repeat"
-                    : "Idle";
+            const disabled = routeCoreBusy || !canUseRoute;
+            const disabledReason = disabled
+              ? routeCoreBusy
+                ? "Core busy"
+                : getTaskActionDisabledReason(task, routeMode)
+              : null;
+            const commandLabel =
+              routeMode === "systemScheduler"
+                ? "Schedule"
+                : routeMode === "scheduler"
+                  ? "Queue"
+                  : "Assign";
+            const buttonLabel =
+              disabled && disabledReason ? disabledReason : commandLabel;
+            const rowState: TaskState = disabledReason ? "locked" : "ready";
 
             return (
-              <li className={`pinned-task-row ${state}`} key={task.id}>
+              <li className={`pinned-task-row ${rowState}`} key={task.id}>
+                {editing && (
+                  <button
+                    type="button"
+                    className="pinned-task-unpin"
+                    onClick={() => onUnpinTask(task.id)}
+                    title={`Unpin ${task.name}`}
+                    aria-label={`Unpin ${task.name}`}
+                  >
+                    <PinOff size={11} />
+                  </button>
+                )}
+                <strong className="pinned-task-name">{task.name}</strong>
                 <button
                   type="button"
-                  className="pinned-task-unpin"
-                  onClick={() => onUnpinTask(task.id)}
-                  title={`Unpin ${task.name}`}
-                  aria-label={`Unpin ${task.name}`}
+                  className={`pinned-task-action ${disabledReason ? "blocked" : ""}`}
+                  disabled={disabled}
+                  onClick={() =>
+                    dispatchRunTask(task, visible, selectedComponent, dispatch)
+                  }
+                  title={buttonLabel}
                 >
-                  <PinOff size={11} />
+                  {!disabledReason && <Play size={11} />}
+                  <span>{buttonLabel}</span>
                 </button>
-                <div className="pinned-task-row-text">
-                  <strong>{task.name}</strong>
-                  <small title={statusLabel}>{statusLabel}</small>
-                </div>
-                <div
-                  className="pinned-task-row-progress"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(progress * 100)}
-                >
-                  <span style={{ width: `${Math.round(progress * 100)}%` }} />
-                </div>
-                <div className="pinned-task-row-run">
-                  {canStart ? (
-                    <button
-                      type="button"
-                      className="pinned-task-run"
-                      onClick={() =>
-                        dispatchRunTask(task, visible, selectedComponent, dispatch)
-                      }
-                      title={`Run ${task.name}`}
-                      aria-label={`Run ${task.name}`}
-                    >
-                      <Play size={11} />
-                    </button>
-                  ) : (
-                    <span className="pinned-task-run placeholder" aria-hidden="true" />
-                  )}
-                </div>
               </li>
             );
           })}

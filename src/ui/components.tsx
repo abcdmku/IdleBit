@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, Cpu, ListTodo, TriangleAlert } from "lucide-react";
 import type { DeadlockResource, VisibleState } from "../game";
 import {
@@ -15,6 +15,16 @@ export type { SelectedComponent } from "./workbenchData";
 
 type SectionKey = "tasks" | "hardware" | "research";
 type UnlockSectionKey = Exclude<SectionKey, "hardware">;
+
+const getAlertScrollBehavior = (): ScrollBehavior => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "smooth";
+  }
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+};
 
 interface SystemWorkbenchProps {
   visible: VisibleState;
@@ -94,6 +104,7 @@ export function SystemWorkbench({
 }: SystemWorkbenchProps) {
   const component = getVisibleSelection(visible, selectedComponent);
   const isMobile = useIsMobile();
+  const hardwarePanelRef = useRef<HTMLElement | null>(null);
   const [activeSection, setActiveSection] = useState<SectionKey>("hardware");
 
   const taskCount = getTaskCount(visible);
@@ -101,21 +112,39 @@ export function SystemWorkbench({
   const coreCount = visible.hardware.cores;
   const hasNewTasks = newTaskUnlockCount > 0;
   const hasNewResearch = newResearchUnlockCount > 0;
+  const alertTarget =
+    showPsuFailureHelp ? "psu" : deadlockHelpResource ?? deadlockCooldownHelpResource;
 
   useEffect(() => {
-    const helpResource = deadlockHelpResource ?? deadlockCooldownHelpResource;
-    if (!isMobile || (!helpResource && !showPsuFailureHelp)) return;
+    if (!isMobile || !alertTarget) return;
     setActiveSection("hardware");
     onSelectComponent(
-      showPsuFailureHelp ? "psu" : helpResource === "cache" ? "cache" : "ram",
+      showPsuFailureHelp ? "psu" : alertTarget === "cache" ? "cache" : "ram",
     );
   }, [
+    alertTarget,
     deadlockHelpResource,
     deadlockCooldownHelpResource,
     showPsuFailureHelp,
     isMobile,
     onSelectComponent,
   ]);
+
+  useEffect(() => {
+    if (!isMobile || !alertTarget || activeSection !== "hardware") return;
+
+    const frame = window.requestAnimationFrame(() => {
+      hardwarePanelRef.current
+        ?.querySelector<HTMLElement>(".deadlock-help-caption")
+        ?.scrollIntoView({
+          block: "center",
+          inline: "nearest",
+          behavior: getAlertScrollBehavior(),
+        });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSection, alertTarget, isMobile]);
 
   useEffect(() => {
     if (!onSectionViewed) return;
@@ -237,6 +266,7 @@ export function SystemWorkbench({
         <section
           className={`panel hw-panel ${activeSection === "hardware" ? "active" : ""}`}
           aria-label="Hardware"
+          ref={hardwarePanelRef}
         >
           <div className="panel-header">
             <Cpu size={14} />

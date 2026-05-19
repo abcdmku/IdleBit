@@ -13,6 +13,7 @@ Target scope from `game-spec.md` section 13.2:
 - Task cards stay visually stable while active and do not show live state labels in the task list.
 - The task list header has compact route-layer and target dropdown controls: C chooses a specific core, CPU chooses a CPU-local scheduler, and Sys chooses the System Scheduler when unlocked; there is no Auto route.
 - Cores render as a standalone scalable core array before RAM; after RAM unlock, a CPU package frame wraps the CPU-local scheduler, core array, and cache.
+- Hardware cards sit directly in the hardware panel without an extra framed/background board wrapper.
 - Core grids step through fixed 1x2, 2x2, 2x4, 2x6, 2x8, 2x12, 2x16, and later Nx16 layouts; at 2x12 and wider, cache pairs beside the CPU-local scheduler while cores take the full module width.
 - Starting cache capacity, cache speed, and PSU wattage upgrades are visible from the first screen.
 - Player-facing jobs/tasks are backed by low-level CPU operations.
@@ -35,7 +36,7 @@ Target scope from `game-spec.md` section 13.2:
 - PSU/power readouts, powered-on billing, power state behavior, credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
 - Thermal Control research, Thermal UI, Cooling Loop upgrades, and Thermal Probe are deferred.
 - Five repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror and Shard Reconcile after the second CPU purchase.
-- CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, never catches up missed runs, and adds a power spike when queuing work.
+- CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses increasingly expensive `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, never catches up missed runs, and adds a power spike when queuing work.
 - Power states are `on`, `shuttingDown`, `off`, and `booting`; `off` greys hardware except power/start controls, blocks work and CRON, and bills zero while startup/shutdown use visible delays.
 - Cache/RAM exhaustion becomes an active deadlock state only when active staging would write beyond available capacity once total installed capacity fits the task; cache deadlocks halt the affected CPU package, RAM deadlocks halt the whole system, deadlocked hardware plus scheduler slots render red, and the 10-second deadlock countdown appears as a progress bar in the Cores header before CPU packages exist, then in the CPU or RAM header after those surfaces unlock.
 - The first visible deadlock shows a one-time Cache/RAM help caption with a Got it dismissal stored outside the save blob, followed by a one-time cooldown caption that pauses the game while visible.
@@ -104,7 +105,7 @@ Target scope from `game-spec.md` section 13.2:
   - CRON supports seconds and minutes interval modes.
   - CRON rows show a whole-second countdown until the next scheduled job.
   - A new CRON entry defaults to the current minimum interval, starting at 60 seconds.
-  - Each `cronInterval` upgrade lowers the minimum interval by 1 second and never below the intended implementation floor.
+  - Each `cronInterval` upgrade lowers the minimum interval by 1 second, gets more expensive, and never below the intended implementation floor.
   - If a CRON tick finds the same task active or queued, the task blocked, the target queue full, or the system `off`, `booting`, or `shuttingDown`, the run is skipped without adding work.
   - Time spent offline, blocked, or overfull does not catch up; only future due ticks can enqueue work.
   - CRON queue insertion adds the documented short power spike and uses the same queue capacity rules as manual scheduling.
@@ -206,7 +207,7 @@ Target scope from `game-spec.md` section 13.2:
 - Leaving the powered-on system idle with positive credits drains credits over time, clamps credits at 0, and then auto-shuts down for unpaid billing with a first-time explanation plus quick repeat popup.
 - Powering on at 0 credits enters the short no-bill bootstrap grace window; completing starter work exits grace and remains net-profitable, while grace expiration at 0 credits shuts down again.
 - Power-off blocks manual work, scheduler dispatch, and CRON, greys hardware except power/start controls, and bills zero.
-- Deadlocked cache/RAM surfaces render red, affected hardware greys out only during post-failure lockout reset, the deadlock countdown appears as a wider fill/drain progress bar with a high-contrast time label in the affected Cores/CPU/RAM header rather than inside individual core cards, stays anchored there until pressure reaches 0, and the first deadlock plus cooldown help captions appear over the affected Cache or RAM section without a modal or layout shift.
+- Deadlocked cache/RAM surfaces render red, affected hardware greys out only during post-failure lockout reset, the deadlock countdown appears as a wider fill/drain progress bar with a high-contrast time label in the affected Cores/CPU/RAM header rather than inside individual core cards, stays anchored there until pressure reaches 0, and the first deadlock plus cooldown help captions appear over the affected Cache or RAM section without a modal or layout shift while scrolling fully into view.
 - Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.
 
 ## Electron Smoke Checklist
@@ -260,6 +261,8 @@ Current `FEATURES.md` observations:
 
 - Task core requirement display on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now checks that multi-core task cards and research compute rows list the required core count while single-core task cards do not.
 - PSU socket/power UI pass on May 19, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now includes unmatched and matched CPU socket choices with projected power increase, credits-only PSU Capacity in first-screen upgrades, buying PSU wattage without PSU Management, 10-second overload-failure pressure just above 100% load, faster failure pressure at higher overload, cooldown when draw returns under capacity, no PSU headroom/efficiency row, compact header Boot/Kill controls, compact load-meter placement, larger centered PSU overload header progress, full-card red PSU over-power flashing, a short first-time PSU failure popup after overload cutoff, repeat-failure topbar badge, first-time/repeat out-of-credits popups, boot/shutdown transition handoff from PSU to System Scheduler, and overload-failure UI.
+- Alert visibility on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies the PSU/deadlock alert caption calls `scrollIntoView` with centered block alignment, and mobile hardware routing scrolls alert captions after switching back to Hardware.
+- Hardware card layout on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies the old `.system-board-frame` wrapper is not rendered, leaving hardware modules as standalone cards.
 - Mobile unlock tab notifications on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage verifies red mobile Tasks/R&D tab notifications for unseen unlocked task/research IDs and clears/persists each notification when the tab is opened.
 - Pinned task queue action on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies an active pinned task keeps its scheduler-route action button and dispatches `queueTask` for another copy.
 - Browser smoke on May 19, 2026: `http://127.0.0.1:6173/` loaded without console errors other than the React DevTools info message. Desktop and 390x844 mobile snapshots verified the compact PSU section with no headroom/efficiency row, power controls in the header, load adjacent to the meter, and a first-screen PSU Capacity upgrade row.

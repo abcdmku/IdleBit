@@ -32,6 +32,31 @@ const makeVisibleState = (data: number, credits: number) =>
     queue: [],
   }) as unknown as VisibleState;
 
+const mockScrollIntoView = () => {
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const scrollIntoView = vi.fn();
+
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+
+  return {
+    scrollIntoView,
+    restore() {
+      if (typeof originalScrollIntoView === "function") {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+          configurable: true,
+          value: originalScrollIntoView,
+        });
+        return;
+      }
+
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    },
+  };
+};
+
 describe("ResourceHud", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -231,6 +256,7 @@ describe("HardwareBoard power telemetry", () => {
   });
 
   it("shows a pause caption for first PSU failure pressure", () => {
+    const scroll = mockScrollIntoView();
     const dismiss = vi.fn();
     const initial = deriveVisibleState(createInitialGameState());
     const visible = {
@@ -252,29 +278,39 @@ describe("HardwareBoard power telemetry", () => {
       },
     } as VisibleState;
 
-    act(() => {
-      root.render(
-        <HardwareBoard
-          visible={visible}
-          dispatch={() => undefined}
-          selectedComponent={null}
-          onSelectComponent={() => undefined}
-          showPsuFailureHelp
-          onDismissPsuFailureHelp={dismiss}
-        />,
+    try {
+      act(() => {
+        root.render(
+          <HardwareBoard
+            visible={visible}
+            dispatch={() => undefined}
+            selectedComponent={null}
+            onSelectComponent={() => undefined}
+            showPsuFailureHelp
+            onDismissPsuFailureHelp={dismiss}
+          />,
+        );
+      });
+
+      const caption = container.querySelector(".deadlock-help-caption.psuFailure");
+
+      expect(caption?.textContent).toContain("PSU failure");
+      expect(caption?.textContent).toContain("rebooted");
+      expect(scroll.scrollIntoView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          block: "center",
+          inline: "nearest",
+        }),
       );
-    });
 
-    const caption = container.querySelector(".deadlock-help-caption.psuFailure");
+      act(() => {
+        caption?.querySelector<HTMLButtonElement>("button")?.click();
+      });
 
-    expect(caption?.textContent).toContain("PSU failure");
-    expect(caption?.textContent).toContain("rebooted");
-
-    act(() => {
-      caption?.querySelector<HTMLButtonElement>("button")?.click();
-    });
-
-    expect(dismiss).toHaveBeenCalled();
+      expect(dismiss).toHaveBeenCalled();
+    } finally {
+      scroll.restore();
+    }
   });
 
   it("shows boot and shutdown transitions on the PSU before the system card unlocks", () => {
@@ -485,6 +521,7 @@ describe("HardwareBoard second CPU system management", () => {
     const psuSection = container.querySelector(".psu-section");
 
     expect(flow?.firstElementChild?.className).toContain("system-scheduler-section");
+    expect(container.querySelector(".system-board-frame")).toBeNull();
     expect(cronSection).toBeNull();
     expect(psuSection?.textContent).toContain("32 W");
     expect(psuSection?.textContent).toContain("65 W");
@@ -2866,7 +2903,7 @@ describe("HardwareBoard cache meter", () => {
     }
   });
 
-  it("blocks whole system tasks when a CPU scheduler is selected", () => {
+  it("routes system tasks through the system scheduler regardless of CPU selection", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();
     const visible: VisibleState = {
@@ -2907,9 +2944,17 @@ describe("HardwareBoard cache meter", () => {
 
     const button = container.querySelector<HTMLButtonElement>(".task-run-button");
 
-    expect(button?.disabled).toBe(true);
-    expect(container.textContent).toContain("Use system scheduler");
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(button?.disabled).toBe(false);
+    expect(button?.textContent).toContain("Schedule");
+
+    act(() => {
+      button?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "queueTask",
+      taskId: "tinyChecksum",
+    });
   });
 
   it("lets the task list choose a compact assignment route", () => {
@@ -2945,7 +2990,7 @@ describe("HardwareBoard cache meter", () => {
     expect(container.textContent).not.toContain("Auto");
     expect(
       Array.from(layerSelect?.options ?? []).map((option) => option.textContent),
-    ).toEqual(["C", "CPU", "Sys"]);
+    ).toEqual(["C", "CPU"]);
     expect(layerSelect?.value).toBe("core");
     expect(targetSelect?.value).toBe("1");
 
@@ -2960,12 +3005,6 @@ describe("HardwareBoard cache meter", () => {
       layerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(selectComponent).toHaveBeenLastCalledWith("scheduler:1");
-
-    act(() => {
-      layerSelect!.value = "systemScheduler";
-      layerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(selectComponent).toHaveBeenLastCalledWith("scheduler");
   });
 
   it("keeps task requirements and rewards visible while putting blockers in the button", () => {
@@ -3385,11 +3424,13 @@ describe("HardwareBoard cache meter", () => {
       );
     });
 
-    const row = container.querySelector(".pinned-task-row.active");
-    const runButton = row?.querySelector<HTMLButtonElement>(".pinned-task-run");
+    const row = container.querySelector(".pinned-task-row");
+    const runButton = row?.querySelector<HTMLButtonElement>(".pinned-task-action");
 
     expect(row?.textContent).toContain("Fetch Bit");
     expect(runButton).not.toBeNull();
+    expect(runButton?.disabled).toBe(false);
+    expect(runButton?.textContent).toContain("Queue");
 
     act(() => {
       runButton?.click();

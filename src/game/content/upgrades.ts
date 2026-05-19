@@ -101,8 +101,8 @@ const coolingCosts = (purchaseCount: number): Cost[] => [
 ];
 
 const cronIntervalCosts = (purchaseCount: number): Cost[] => [
-  credits(42 * 1.18 ** purchaseCount),
-  data(6 * 1.12 ** purchaseCount),
+  credits(42 * 1.42 ** purchaseCount),
+  data(6 * 1.18 ** purchaseCount),
 ];
 
 const setHardware = (

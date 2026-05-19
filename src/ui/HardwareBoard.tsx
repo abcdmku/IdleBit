@@ -1184,6 +1184,75 @@ const getTaskCanRunNow = (task: UiTask) => {
 const getTaskCanStart = (task: UiTask) =>
   getTaskCanRunNow(task) || task.canQueue === true;
 
+function resolveTaskRoute(
+  visible: VisibleState,
+  selectedComponent: SelectedComponent,
+): {
+  mode: QueueMode;
+  selectedCore: VisibleCore | null;
+  selectedSchedulerId: number | null;
+} {
+  const allCores = getAllCores(visible);
+  const selectedCoreId = getSelectedCoreId(selectedComponent);
+  const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
+  const selectedSystemScheduler =
+    selectedComponent === "scheduler" && visible.flags.scheduler;
+  const selectedCore =
+    (selectedCoreId
+      ? allCores.find((core) => core.id === selectedCoreId)
+      : null) ??
+    allCores[0] ??
+    null;
+  const schedulerCanRoute =
+    visible.flags.basicQueue || visible.flags.scheduler || selectedSchedulerId !== null;
+  const mode: QueueMode = selectedSystemScheduler
+    ? "systemScheduler"
+    : selectedSchedulerId && schedulerCanRoute
+      ? "scheduler"
+      : "core";
+  return { mode, selectedCore, selectedSchedulerId };
+}
+
+function dispatchRunTask(
+  task: UiTask,
+  visible: VisibleState,
+  selectedComponent: SelectedComponent,
+  dispatch: Dispatch,
+) {
+  const { mode, selectedCore, selectedSchedulerId } = resolveTaskRoute(
+    visible,
+    selectedComponent,
+  );
+
+  if (mode === "core" && selectedCore) {
+    dispatch({
+      type: "startTaskOnCore",
+      taskId: task.id,
+      coreId: selectedCore.id,
+    });
+    return;
+  }
+
+  if (mode === "scheduler") {
+    dispatch({
+      type: "queueTask",
+      taskId: task.id,
+      cpuId: selectedSchedulerId ?? undefined,
+    });
+    return;
+  }
+
+  if (mode === "systemScheduler") {
+    dispatch({
+      type: "queueTask",
+      taskId: task.id,
+    });
+    return;
+  }
+
+  dispatch({ type: "startTask", taskId: task.id });
+}
+
 const getTaskCanUseAction = (task: UiTask, mode: QueueMode) => {
   if (mode === "core") return task.category === "cpu" && getTaskCanRunNow(task);
   if (mode === "scheduler") return task.category === "cpu" && task.canQueue === true;
@@ -5299,35 +5368,8 @@ export function TaskBay({
     }))
     .filter((group) => group.tasks.length > 0);
 
-  const runTask = (task: UiTask) => {
-    if (mode === "core" && selectedCore) {
-      dispatch({
-        type: "startTaskOnCore",
-        taskId: task.id,
-        coreId: selectedCore.id,
-      });
-      return;
-    }
-
-    if (mode === "scheduler") {
-      dispatch({
-        type: "queueTask",
-        taskId: task.id,
-        cpuId: selectedSchedulerId ?? undefined,
-      });
-      return;
-    }
-
-    if (mode === "systemScheduler") {
-      dispatch({
-        type: "queueTask",
-        taskId: task.id,
-      });
-      return;
-    }
-
-    dispatch({ type: "startTask", taskId: task.id });
-  };
+  const runTask = (task: UiTask) =>
+    dispatchRunTask(task, visible, selectedComponent, dispatch);
 
   return (
     <>
@@ -5501,6 +5543,7 @@ export function PinnedTaskBar({
   onUnpinTask,
   onClearPinnedTasks,
   dispatch,
+  selectedComponent,
   variant = "floating",
 }: {
   visible: VisibleState;
@@ -5508,6 +5551,7 @@ export function PinnedTaskBar({
   onUnpinTask: (taskId: string) => void;
   onClearPinnedTasks: () => void;
   dispatch: Dispatch;
+  selectedComponent: SelectedComponent;
   variant?: "embedded" | "floating";
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -5523,6 +5567,14 @@ export function PinnedTaskBar({
     .filter(hasValue);
 
   if (pinned.length === 0) return null;
+
+  const { mode: routeMode, selectedCore: routeSelectedCore } = resolveTaskRoute(
+    visible,
+    selectedComponent,
+  );
+  const routeCoreBusy =
+    routeMode === "core" &&
+    Boolean(routeSelectedCore && getCoreActiveTask(routeSelectedCore));
 
   return (
     <aside
@@ -5561,15 +5613,19 @@ export function PinnedTaskBar({
             const queueIndex = queue.findIndex(
               (entry) => getQueueTaskId(entry) === task.id,
             );
+            const canUseRoute = getTaskCanUseAction(task, routeMode) === true;
+            const routeBlockedReason = canUseRoute
+              ? null
+              : getTaskActionDisabledReason(task, routeMode);
             const blockedReason =
+              routeBlockedReason ??
               task.lockedReason ??
               task.lockReason ??
               task.unlockReason ??
               task.blockedReason ??
               task.queueBlockedReason ??
               null;
-            const canStart =
-              !active && (task.canStart ?? task.canRun ?? false);
+            const canStart = !active && canUseRoute && !routeCoreBusy;
             const isBlocked = !active && queueIndex < 0 && !canStart;
             const state: TaskState = active
               ? "active"
@@ -5622,7 +5678,9 @@ export function PinnedTaskBar({
                     <button
                       type="button"
                       className="pinned-task-run"
-                      onClick={() => dispatch({ type: "startTask", taskId: task.id })}
+                      onClick={() =>
+                        dispatchRunTask(task, visible, selectedComponent, dispatch)
+                      }
                       title={`Run ${task.name}`}
                       aria-label={`Run ${task.name}`}
                     >

@@ -185,6 +185,7 @@ export function SystemWorkbench({
               onUnpinTask={onUnpinTask}
               onClearPinnedTasks={onClearPinnedTasks}
               dispatch={dispatch}
+              selectedComponent={selectedComponent}
               variant="embedded"
             />
           )}
@@ -228,6 +229,7 @@ export function SystemWorkbench({
           onUnpinTask={onUnpinTask}
           onClearPinnedTasks={onClearPinnedTasks}
           dispatch={dispatch}
+          selectedComponent={selectedComponent}
           variant="floating"
         />
       )}

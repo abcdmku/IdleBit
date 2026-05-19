@@ -20,6 +20,8 @@ const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";
 const PSU_FAILURE_MODAL_SEEN_KEY = "ui.psu-failure-modal-seen-v1";
 const CREDIT_FAILURE_MODAL_SEEN_KEY = "ui.credit-failure-modal-seen-v1";
 const PINNED_TASKS_KEY = "ui.pinned-tasks-v1";
+const SEEN_TASKS_KEY = "ui.seen-tasks-v1";
+const SEEN_RESEARCH_KEY = "ui.seen-research-v1";
 
 export function App() {
   const [state, setState] = useState<GameState>(() => createInitialGameState());

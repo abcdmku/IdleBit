@@ -5492,7 +5492,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 
 .pinned-task-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
   grid-template-rows: auto auto;
   column-gap: 8px;
   row-gap: 4px;
@@ -5523,13 +5523,29 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   white-space: normal;
 }
 
-.pinned-task-row-text {
+.pinned-task-row > .pinned-task-unpin {
   grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.pinned-task-row-text {
+  grid-column: 2;
   grid-row: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.pinned-task-row-run {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
 }
 
 .pinned-task-row-text strong {
@@ -5553,15 +5569,6 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .pinned-task-row.active .pinned-task-row-text small { color: var(--green); }
 .pinned-task-row.waiting .pinned-task-row-text small { color: var(--violet); }
 
-.pinned-task-row-actions {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  flex: 0 0 auto;
-}
-
 .pinned-task-run,
 .pinned-task-unpin {
   display: inline-flex;
@@ -5582,13 +5589,20 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   color: var(--green);
 }
 
+.pinned-task-run.placeholder {
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+
 .pinned-task-unpin:hover {
   border-color: rgba(255, 111, 145, 0.45);
   color: var(--rose);
 }
 
 .pinned-task-row-progress {
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 2;
   position: relative;
   height: 4px;

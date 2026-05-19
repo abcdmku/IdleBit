@@ -5595,6 +5595,15 @@ export function PinnedTaskBar({
 
             return (
               <li className={`pinned-task-row ${state}`} key={task.id}>
+                <button
+                  type="button"
+                  className="pinned-task-unpin"
+                  onClick={() => onUnpinTask(task.id)}
+                  title={`Unpin ${task.name}`}
+                  aria-label={`Unpin ${task.name}`}
+                >
+                  <PinOff size={11} />
+                </button>
                 <div className="pinned-task-row-text">
                   <strong>{task.name}</strong>
                   <small title={statusLabel}>{statusLabel}</small>
@@ -5608,8 +5617,8 @@ export function PinnedTaskBar({
                 >
                   <span style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
-                <div className="pinned-task-row-actions">
-                  {canStart && (
+                <div className="pinned-task-row-run">
+                  {canStart ? (
                     <button
                       type="button"
                       className="pinned-task-run"
@@ -5619,16 +5628,9 @@ export function PinnedTaskBar({
                     >
                       <Play size={11} />
                     </button>
+                  ) : (
+                    <span className="pinned-task-run placeholder" aria-hidden="true" />
                   )}
-                  <button
-                    type="button"
-                    className="pinned-task-unpin"
-                    onClick={() => onUnpinTask(task.id)}
-                    title={`Unpin ${task.name}`}
-                    aria-label={`Unpin ${task.name}`}
-                  >
-                    <PinOff size={11} />
-                  </button>
                 </div>
               </li>
             );

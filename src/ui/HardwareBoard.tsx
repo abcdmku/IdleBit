@@ -3974,7 +3974,10 @@ function SchedulerSection({
 const schedulerGridMaxHeightPx = 144;
 const schedulerGridGapPx = 4;
 
-function getSchedulerGridMetrics(slotCount: number) {
+function getSchedulerGridMetrics(
+  slotCount: number,
+  options: { startSmall?: boolean } = {},
+) {
   const count = Math.max(0, slotCount);
   let columns = 2;
   let rows = 2;
@@ -3985,6 +3988,20 @@ function getSchedulerGridMetrics(slotCount: number) {
       rows: 1,
       gridHeight: 34,
       slotHeight: 34,
+      density: "spacious",
+    };
+  }
+
+  if (options.startSmall && count <= 4) {
+    const smallColumns = count === 1 ? 1 : 2;
+    const smallRows = count <= 2 ? 1 : 2;
+    const targetSlotHeight = 30;
+
+    return {
+      columns: smallColumns,
+      rows: smallRows,
+      gridHeight: smallRows * targetSlotHeight + (smallRows - 1) * schedulerGridGapPx,
+      slotHeight: targetSlotHeight,
       density: "spacious",
     };
   }
@@ -4034,15 +4051,17 @@ function QueuePreview({
   ariaLabel,
   dispatch,
   emptyLabel,
+  startSmall = false,
 }: {
   items: UiQueueDisplayItem[];
   slotCapacity: number;
   ariaLabel: string;
   dispatch: Dispatch;
   emptyLabel?: string;
+  startSmall?: boolean;
 }) {
   const visibleSlotCount = Math.max(Math.max(0, slotCapacity), items.length);
-  const grid = getSchedulerGridMetrics(visibleSlotCount);
+  const grid = getSchedulerGridMetrics(visibleSlotCount, { startSmall });
   const gridStyle = {
     "--scheduler-grid-columns": grid.columns,
     "--scheduler-grid-height": `${grid.gridHeight}px`,
@@ -4460,6 +4479,7 @@ function SystemSchedulerSection({
         ariaLabel="System scheduler queue"
         dispatch={dispatch}
         emptyLabel="Ready"
+        startSmall
       />
 
       {selected && (
@@ -4471,6 +4491,20 @@ function SystemSchedulerSection({
       )}
     </section>
   );
+}
+
+function getRamStickGridMetrics(stickCount: number) {
+  const count = Math.max(0, stickCount);
+
+  if (count <= 1) return { columns: 1, rows: 1, label: "1x1" };
+  if (count <= 2) return { columns: 2, rows: 1, label: "2x1" };
+  if (count <= 4) return { columns: 2, rows: 2, label: "2x2" };
+  if (count <= 6) return { columns: 3, rows: 2, label: "3x2" };
+  if (count <= 8) return { columns: 4, rows: 2, label: "4x2" };
+
+  const columns = Math.min(6, Math.ceil(Math.sqrt(count)));
+  const rows = Math.ceil(count / columns);
+  return { columns, rows, label: `${columns}x${rows}` };
 }
 
 
@@ -4539,6 +4573,10 @@ function RamSection({
   const cooldownActive =
     shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) &&
     visible.metrics.deadlockPressure.lockout;
+  const ramGrid = getRamStickGridMetrics(stickCount);
+  const ramGridStyle = {
+    "--ram-stick-grid-columns": ramGrid.columns,
+  } as CSSProperties;
 
   return (
     <section
@@ -4592,7 +4630,11 @@ function RamSection({
         </button>
       </div>
 
-      <div className="ram-stick-grid ram-stick-grid-concise">
+      <div
+        className="ram-stick-grid"
+        style={ramGridStyle}
+        data-grid={ramGrid.label}
+      >
         {ramSlots.map((slot) => {
           const slotSegments = ramSegmentsBySlot.get(slot.id) ?? [];
           const isSelected =
@@ -4601,7 +4643,7 @@ function RamSection({
             (selectedRamStickId === null && selected && selectedSlot?.id === slot.id);
 
           return (
-            <RamStickConciseCard
+            <RamStickCard
               key={slot.id}
               slot={slot}
               selected={isSelected}
@@ -4663,51 +4705,6 @@ function RamStickCard({
   segments: RamSegment[];
 }) {
   const state = getRamPrimaryState(segments);
-
-  return (
-    <button
-      type="button"
-      className={`ram-stick-card ${slot.usedBits > 0 ? "active" : ""} ${
-        selected ? "selected" : ""
-      }`}
-      onClick={onSelect}
-      aria-pressed={selected}
-      title={`R${slot.id} - ${formatBits(slot.sizeBits)} - ${formatClock(slot.speedMt)} - ${state}`}
-    >
-      <span className="ram-stick-card-head">
-        <span className="ram-stick-label">R{slot.id}</span>
-        <span className="core-status-dot" aria-hidden="true" />
-      </span>
-      <span className="ram-stick-card-stats">
-        <span>
-          <small>Size</small>
-          <strong>{formatBits(slot.sizeBits)}</strong>
-        </span>
-        <span>
-          <small>Freq</small>
-          <strong>{formatClock(slot.speedMt)}</strong>
-        </span>
-      </span>
-      <RamStickPipeline
-        segments={segments}
-        capacityBits={slot.sizeBits}
-      />
-    </button>
-  );
-}
-
-function RamStickConciseCard({
-  slot,
-  selected,
-  onSelect,
-  segments,
-}: {
-  slot: VisibleRamSlot;
-  selected: boolean;
-  onSelect: () => void;
-  segments: RamSegment[];
-}) {
-  const state = getRamPrimaryState(segments);
   const capacity = Math.max(slot.sizeBits, 1);
   const used = Math.min(slot.usedBits, capacity);
   const pct = Math.round((used / capacity) * 100);
@@ -4717,68 +4714,29 @@ function RamStickConciseCard({
   return (
     <button
       type="button"
-      className={`ram-stick-concise ${active ? "active" : ""} ${
+      className={`ram-stick-module ${active ? "active" : ""} ${
         selected ? "selected" : ""
       } ram-stick-state-${stateClass}`}
       onClick={onSelect}
       aria-pressed={selected}
       title={`R${slot.id} - ${formatBits(slot.sizeBits)} - ${formatClock(slot.speedMt)} - ${state}`}
     >
-      <span className="ram-stick-concise-head">
+      <span className="ram-stick-module-head">
         <span className="ram-stick-label">R{slot.id}</span>
-        <span className="ram-stick-concise-pct">{pct}%</span>
+        <span className="ram-stick-module-pct">{pct}%</span>
       </span>
-      <span className="ram-stick-concise-meter" aria-hidden="true">
+      <span className="ram-stick-module-meter" aria-hidden="true">
         {segments.length > 0 ? (
           <RamPressureMeter segments={segments} capacityBits={capacity} />
         ) : (
           <ModuleMeter value={0} />
         )}
       </span>
-      <span className="ram-stick-concise-foot">
+      <span className="ram-stick-module-foot">
         <span>{formatBits(slot.sizeBits)}</span>
         <span>{formatClock(slot.speedMt)}</span>
       </span>
     </button>
-  );
-}
-
-function RamStickPipeline({
-  segments,
-  capacityBits,
-}: {
-  segments: RamSegment[];
-  capacityBits: number;
-}) {
-  const stateBits = getRamStateBits(segments);
-
-  return (
-    <span className="ram-stick-pipeline" aria-hidden="true">
-      {ramStateLabels.map(({ state, label }) => {
-        const bits = stateBits[state];
-        const laneSegments = segments.filter((segment) => segment.state === state);
-
-        return (
-          <span
-            className={`ram-stick-lane ${state} ${bits > 0 ? "active" : ""}`}
-            key={state}
-          >
-            <span>{label}</span>
-            <strong>{formatBits(bits)}</strong>
-            <span className="ram-stick-lane-track">
-              {laneSegments.length > 0 ? (
-                <RamPressureMeter
-                  segments={laneSegments}
-                  capacityBits={capacityBits}
-                />
-              ) : (
-                <ModuleMeter value={0} />
-              )}
-            </span>
-          </span>
-        );
-      })}
-    </span>
   );
 }
 

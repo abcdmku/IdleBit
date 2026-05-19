@@ -1673,10 +1673,7 @@ describe("HardwareBoard cache meter", () => {
     expect(segment?.style.width).toBe("100%");
     expect(segment?.style.getPropertyValue("--ram-load-progress")).toBe("25%");
     expect(container.querySelector(".ram-pipeline-row")).toBeNull();
-    expect(container.querySelectorAll(".ram-stick-lane")).toHaveLength(3);
-    expect(
-      container.querySelector(".ram-stick-lane.loading strong")?.textContent,
-    ).toBe("64 b");
+    expect(container.querySelector(".ram-stick-module-meter")).not.toBeNull();
   });
 
   it("uses module, size, and frequency labels for RAM controls", () => {
@@ -1765,7 +1762,7 @@ describe("HardwareBoard cache meter", () => {
     const controlText = Array.from(
       container.querySelectorAll<HTMLElement>(".ram-control-strip .upgrade-stepper"),
     ).map((control) => control.textContent ?? "");
-    const stickText = container.querySelector(".ram-stick-card-stats")?.textContent ?? "";
+    const stickText = container.querySelector(".ram-stick-module-foot")?.textContent ?? "";
     const ramText = container.querySelector(".memory-section")?.textContent ?? "";
 
     expect(statLabels).toEqual(["Capacity", "Module Freq", "Modules"]);
@@ -1775,12 +1772,65 @@ describe("HardwareBoard cache meter", () => {
       expect.stringContaining("R1 Size"),
       expect.stringContaining("R1 Freq"),
     ]);
-    expect(stickText).toContain("Size");
-    expect(stickText).toContain("Freq");
+    expect(stickText).toContain("256 b");
+    expect(stickText).toContain("64 Hz");
+    expect(container.querySelector(".ram-stick-grid")?.getAttribute("data-grid")).toBe(
+      "2x1",
+    );
     expect(ramText).not.toContain("128 Hz");
     expect(ramText).not.toContain("New stick");
     expect(ramText).not.toContain("R1 cap");
     expect(ramText).not.toContain("R1 Hz");
+  });
+
+  it("keeps four RAM sticks in a two by two module grid", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const ramSlots = [1, 2, 3, 4].map((id) => ({
+      id,
+      level: 1,
+      sizeBits: 256,
+      sizeBytes: 32,
+      usedBits: 0,
+      usedBytes: 0,
+      speedLevel: 1,
+      speedMt: 64,
+      capacityUpgrade: null,
+      speedUpgrade: null,
+    }));
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 4,
+        ramBits: 1024,
+        ramBytes: 128,
+      },
+      metrics: {
+        ...base.metrics,
+        ramSlots,
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="ram"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const grid = container.querySelector<HTMLElement>(".ram-stick-grid");
+
+    expect(grid?.dataset.grid).toBe("2x2");
+    expect(grid?.style.getPropertyValue("--ram-stick-grid-columns")).toBe("2");
+    expect(container.querySelectorAll(".ram-stick-module")).toHaveLength(4);
   });
 
   it("uses standalone pre-RAM hardware labels and a compact scheduler grid", () => {
@@ -2903,6 +2953,51 @@ describe("HardwareBoard cache meter", () => {
     }
   });
 
+  it("starts the system scheduler grid at the purchased slot count", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const cases = [
+      [1, "1x1", "1"],
+      [2, "2x1", "2"],
+      [4, "2x2", "2"],
+    ] as const;
+
+    for (const [slots, gridLabel, columns] of cases) {
+      const visible: VisibleState = {
+        ...base,
+        flags: {
+          ...base.flags,
+          scheduler: true,
+          systemStats: true,
+        },
+        hardware: {
+          ...base.hardware,
+          systemSchedulerSlots: slots,
+        },
+      };
+
+      act(() => {
+        root.render(
+          <HardwareBoard
+            visible={visible}
+            dispatch={() => undefined}
+            selectedComponent="scheduler"
+            onSelectComponent={() => undefined}
+          />,
+        );
+      });
+
+      const grid = container.querySelector<HTMLElement>(
+        ".system-scheduler-section .queue-preview-list",
+      );
+
+      expect(grid?.dataset.grid).toBe(gridLabel);
+      expect(grid?.style.getPropertyValue("--scheduler-grid-columns")).toBe(columns);
+      expect(
+        container.querySelectorAll(".system-scheduler-section .queue-slot-cell"),
+      ).toHaveLength(slots);
+    }
+  });
+
   it("routes system tasks through the system scheduler regardless of CPU selection", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();
@@ -3238,6 +3333,11 @@ describe("HardwareBoard cache meter", () => {
     expect(container.querySelector(".system-scheduler-section")?.textContent).toContain(
       "System Queue Slot",
     );
+    expect(
+      container
+        .querySelector<HTMLElement>(".system-scheduler-section .queue-preview-list")
+        ?.dataset.grid,
+    ).toBe("2x2");
     expect(container.querySelector(".memory-section")).not.toBeNull();
     expect(
       container

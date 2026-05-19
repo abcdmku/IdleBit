@@ -11,7 +11,9 @@ import {
   getCacheLoadCycles,
   getCacheLoadCyclesForBits,
   getCacheLoadRate,
+  getHardwareDrawWatts,
   getPowerCostPerSecond,
+  getPsuStress,
   getRamLoadCycles,
   getRamLoadRate,
 } from "./math";
@@ -19,6 +21,7 @@ import {
   createRamStickState,
   createSchedulerConfig,
   getClockHz,
+  POWER_BOOTSTRAP_GRACE_SECONDS,
   syncCoreSchedulers,
 } from "./progression";
 import type {
@@ -263,6 +266,18 @@ const fund = (state: GameState): GameState => ({
   resources: { credits: 20_000, data: 20_000 },
 });
 
+const withPsuStress = (state: GameState, psuStress: number): GameState => ({
+  ...state,
+  hardware: {
+    ...state.hardware,
+    psuWatts: getHardwareDrawWatts(state) / psuStress,
+  },
+  power: {
+    ...state.power,
+    bootstrapGraceSeconds: 0,
+  },
+});
+
 const costAmount = (
   costs: Array<{ resource: "credits" | "data"; amount: number }>,
   resource: "credits" | "data",
@@ -473,7 +488,7 @@ const unlockSystemStats = () => {
 
   state = runTask(state, "multiCoreBenchmark");
   state = research(state, "systemBus");
-  state = buy(state, "secondCpu");
+  state = buy(state, "matchedCpu");
 
   return fund(state);
 };
@@ -500,7 +515,7 @@ describe("IdleBit simulation", () => {
     expect(visible.metrics.powerUsedWatts).toBeGreaterThan(0);
     expect(visible.metrics.billedPowerWatts).toBe(visible.metrics.powerUsedWatts);
     expect(visible.metrics.powerCostPerSecond).toBeGreaterThan(0);
-    expect(visible.metrics.powerBootstrapGraceSeconds).toBeGreaterThan(0);
+    expect(visible.metrics.powerBootstrapGraceSeconds).toBe(0);
     expect(visible.tasks.map((task) => task.id)).toEqual([
       "fetchBit",
       "decodeBit",
@@ -517,7 +532,16 @@ describe("IdleBit simulation", () => {
       "clock",
       "cache",
       "cacheSpeed",
+      "psu",
     ]);
+
+    const psuUpgrade = visible.upgrades.find((upgrade) => upgrade.id === "psu");
+    expect(psuUpgrade?.costs).toEqual([{ resource: "credits", amount: 130 }]);
+    expect(psuUpgrade?.costs.some((cost) => cost.resource === "data")).toBe(false);
+
+    const upgraded = buy(fund(state), "psu");
+    expect(upgraded.hardware.psuLevel).toBe(2);
+    expect(upgraded.hardware.psuWatts).toBeGreaterThan(state.hardware.psuWatts);
   });
 
   it("reveals grouped starter tasks and research", () => {
@@ -533,7 +557,7 @@ describe("IdleBit simulation", () => {
     state = runTask(state, "fetchBit");
     visible = deriveVisibleState(state);
     expect(visible.research.map((item) => item.id)).toEqual(["decodeLogic"]);
-    expect(visible.research[0]?.canAfford).toBe(false);
+    expect(visible.research[0]?.canAfford).toBe(true);
 
     state = repeatTask(state, "fetchBit", 2);
     visible = deriveVisibleState(state);
@@ -1205,7 +1229,8 @@ describe("IdleBit simulation", () => {
   });
 
   it("cancels active tasks without paying rewards", () => {
-    let state = applyAction(createInitialGameState(), {
+    const initial = createInitialGameState();
+    let state = applyAction(initial, {
       type: "startTask",
       taskId: "fetchBit",
     });
@@ -1222,7 +1247,7 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks).toHaveLength(0);
     expect(state.queue).toEqual([]);
     expect(state.completedTasks.fetchBit).toBeUndefined();
-    expect(state.resources.credits).toBe(0);
+    expect(state.resources.credits).toBe(initial.resources.credits);
     expect(deriveVisibleState(state).metrics.cacheUsedBits).toBe(0);
   });
 
@@ -2178,7 +2203,7 @@ describe("IdleBit simulation", () => {
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ram");
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ramCapacity");
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ramSpeed");
-    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("psu");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("psu");
 
     state = buy(state, "ram");
 
@@ -2240,8 +2265,27 @@ describe("IdleBit simulation", () => {
 
     state = research(fund(state), "systemBus");
     visible = deriveVisibleState(state);
-    const matchedCpuUpgrade = visible.upgrades.find(
+    const unmatchedCpuUpgrade = visible.upgrades.find(
       (upgrade) => upgrade.id === "secondCpu",
+    );
+    const matchedCpuUpgrade = visible.upgrades.find(
+      (upgrade) => upgrade.id === "matchedCpu",
+    );
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).toEqual(
+      expect.arrayContaining(["secondCpu", "matchedCpu"]),
+    );
+    expect(unmatchedCpuUpgrade?.name).toBe("Unmatched CPU");
+    expect(
+      unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "credits")?.amount,
+    ).toBe(900);
+    expect(
+      unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "data")?.amount,
+    ).toBe(24);
+    expect(unmatchedCpuUpgrade?.powerDeltaWatts).toBeGreaterThan(0);
+    expect(matchedCpuUpgrade?.name).toBe("Matched CPU");
+    expect(matchedCpuUpgrade?.powerDeltaWatts).toBeGreaterThan(0);
+    expect(matchedCpuUpgrade?.powerDeltaWatts).not.toBe(
+      unmatchedCpuUpgrade?.powerDeltaWatts,
     );
     expect(
       matchedCpuUpgrade?.costs.find((cost) => cost.resource === "credits")?.amount,
@@ -2250,7 +2294,14 @@ describe("IdleBit simulation", () => {
       matchedCpuUpgrade?.costs.find((cost) => cost.resource === "data")?.amount,
     ).toBeGreaterThan(24);
 
-    state = buy(state, "secondCpu");
+    const unmatchedState = buy(state, "secondCpu");
+    expect(unmatchedState.hardware.secondCpu).toBe(true);
+    expect(unmatchedState.hardware.cpus).toHaveLength(2);
+    expect(unmatchedState.hardware.cpus[1]?.coreIds).toEqual([5]);
+    expect(unmatchedState.hardware.cpus[1]?.cacheLevel).toBe(1);
+    expect(unmatchedState.hardware.cpus[1]?.schedulerSlots).toBe(0);
+
+    state = buy(state, "matchedCpu");
 
     expect(state.flags.secondCpu).toBe(true);
     expect(state.hardware.secondCpu).toBe(true);
@@ -2264,17 +2315,10 @@ describe("IdleBit simulation", () => {
       state.hardware.cpus[0]?.schedulerSlots,
     );
     visible = deriveVisibleState(state);
-    expect(visible.research.map((item) => item.id)).toEqual(
-      expect.arrayContaining(["psuManagement", "cronScheduler", "thermalControl"]),
-    );
-    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("psu");
-
-    state = research(fund(state), "psuManagement");
-
-    expect(state.flags.psuManagement).toBe(true);
-    expect(deriveVisibleState(state).upgrades.map((upgrade) => upgrade.id)).toContain(
-      "psu",
-    );
+    expect(
+      visible.research.filter((item) => !item.completed).map((item) => item.id),
+    ).toContain("cronScheduler");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("psu");
   });
 
   it("loads RAM-backed working sets slower than CPU cache", () => {
@@ -2768,15 +2812,14 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks[0]?.taskId).toBe("fetchBit");
   });
 
-  it("power transitions block starts, queue pulls, CRON, and active compute", () => {
-    let state = research(unlockSystemStats(), "psuManagement");
+  it("power transitions block starts, queue pulls, and CRON while graceful shutdown drains active work", () => {
+    let state = unlockSystemStats();
 
-    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
-    expect(state.activeTasks.map((task) => task.taskId)).toContain("tinyChecksum");
+    state = applyAction(state, { type: "startTask", taskId: "decodeBit" });
+    expect(state.activeTasks.map((task) => task.taskId)).toContain("decodeBit");
 
     const activeInstanceId = state.activeTasks[0]?.instanceId;
-    const remainingBefore =
-      state.activeTasks[0]?.coreOperations[0]?.remainingCycles ?? 0;
+    const completedBefore = state.completedTasks.decodeBit ?? 0;
 
     state = applyAction(state, { type: "requestShutdown" });
     expect(state.power.state).toBe("shuttingDown");
@@ -2790,13 +2833,16 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks.map((task) => task.taskId)).not.toContain("fetchBit");
     expect(state.queue.filter((taskId) => taskId === "fetchBit")).toHaveLength(0);
 
-    state = tickGame(state, 1000);
+    for (let attempt = 0; attempt < 120 && state.activeTasks.length > 0; attempt += 1) {
+      expect(state.power.state).toBe("shuttingDown");
+      state = tickGame(state, 1000);
+    }
 
-    expect(state.activeTasks[0]?.coreOperations[0]?.remainingCycles).toBe(
-      remainingBefore,
-    );
-
+    expect(state.completedTasks.decodeBit ?? 0).toBeGreaterThan(completedBefore);
     state = tickSeconds(state, 8);
+    state = tickGame(state, 16);
+
+    expect(state.activeTasks).toHaveLength(0);
     expect(state.power.state).toBe("off");
     expect(deriveVisibleState(state).metrics.powerUsedWatts).toBe(0);
 
@@ -2889,6 +2935,7 @@ describe("IdleBit simulation", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
+      resources: { credits: 0, data: 0 },
       power: {
         ...initial.power,
         state: "off",
@@ -2911,7 +2958,15 @@ describe("IdleBit simulation", () => {
   });
 
   it("exits bootstrap grace after earning credits", () => {
-    let state = createInitialGameState();
+    const initial = createInitialGameState();
+    let state: GameState = {
+      ...initial,
+      resources: { credits: 0, data: 0 },
+      power: {
+        ...initial.power,
+        bootstrapGraceSeconds: POWER_BOOTSTRAP_GRACE_SECONDS,
+      },
+    };
 
     expect(state.power.bootstrapGraceSeconds).toBeGreaterThan(0);
 
@@ -2930,6 +2985,7 @@ describe("IdleBit simulation", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
+      resources: { credits: 0, data: 0 },
       power: {
         ...initial.power,
         bootstrapGraceSeconds: 1,
@@ -2955,8 +3011,138 @@ describe("IdleBit simulation", () => {
     expect(after.powerCostPerSecond).toBeGreaterThan(before.powerCostPerSecond);
   });
 
+  it("builds PSU overload failure pressure then hard-powers off at ten seconds", () => {
+    let state = withPsuStress(fund(createInitialGameState()), 1.001);
+
+    expect(getPsuStress(state)).toBeGreaterThan(1);
+
+    state = tickSeconds(state, 9);
+
+    expect(state.power.overloadFailureSeconds).toBeGreaterThan(8.9);
+    expect(state.power.overloadFailureSeconds).toBeLessThan(10);
+    expect(deriveVisibleState(state).metrics.powerOverloadFailure.tripped).toBe(
+      false,
+    );
+
+    state = tickSeconds(state, 1);
+
+    expect(state.power.state).toBe("off");
+    expect(state.power.overloadFailureSeconds).toBe(0);
+    expect(state.power.lastFailureReason).toBe("psuOverload");
+    expect(state.power.failureCount).toBe(1);
+    expect(deriveVisibleState(state).metrics.powerOverloadFailure.active).toBe(false);
+
+    state = applyAction(state, { type: "acknowledgePowerFailure" });
+    expect(state.power.lastFailureReason).toBeNull();
+  });
+
+  it("hits PSU overload failure faster when draw is farther over capacity", () => {
+    let slowOverload = withPsuStress(fund(createInitialGameState()), 1.1);
+    let fastOverload = withPsuStress(fund(createInitialGameState()), 1.3);
+
+    slowOverload = tickSeconds(slowOverload, 8);
+    fastOverload = tickSeconds(fastOverload, 8);
+
+    expect(slowOverload.power.overloadFailureSeconds).toBeCloseTo(8.8);
+    expect(fastOverload.power.state).toBe("off");
+    expect(fastOverload.power.overloadFailureSeconds).toBe(0);
+  });
+
+  it("cools PSU overload failure pressure when draw returns under capacity", () => {
+    let state = withPsuStress(fund(createInitialGameState()), 1.3);
+
+    state = tickSeconds(state, 4);
+    expect(state.power.overloadFailureSeconds).toBeCloseTo(5.2);
+
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        psuWatts: getHardwareDrawWatts(state) / 0.5,
+      },
+    };
+    state = tickSeconds(state, 2);
+
+    expect(getPsuStress(state)).toBeLessThan(1);
+    expect(state.power.overloadFailureSeconds).toBeCloseTo(3.2);
+    expect(deriveVisibleState(state).metrics.powerOverloadFailure.active).toBe(true);
+
+    state = tickSeconds(state, 4);
+
+    expect(state.power.overloadFailureSeconds).toBe(0);
+    expect(deriveVisibleState(state).metrics.powerOverloadFailure.active).toBe(
+      false,
+    );
+  });
+
+  it("clears active and queued work on PSU failure", () => {
+    let state = withSchedulerSlots(fund(createInitialGameState()), 1);
+    state = {
+      ...state,
+      flags: { ...state.flags, basicQueue: true },
+    };
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        clockLevel: 20,
+        clockHz: getClockHz(20),
+        coreClockLevels: { ...state.hardware.coreClockLevels, 1: 20 },
+        psuWatts: 0.001,
+      },
+      power: {
+        ...state.power,
+        bootstrapGraceSeconds: 0,
+      },
+    };
+
+    expect(state.activeTasks.length).toBeGreaterThan(0);
+    expect(state.queue.length).toBeGreaterThan(0);
+
+    state = tickSeconds(state, 2);
+
+    expect(state.power.state).toBe("off");
+    expect(state.activeTasks).toHaveLength(0);
+    expect(state.activeJobs).toHaveLength(0);
+    expect(state.queue).toHaveLength(0);
+    expect(
+      Object.values(state.coreSchedulers).every(
+        (scheduler) =>
+          scheduler.localQueue.length === 0 && scheduler.status === "idle",
+      ),
+    ).toBe(true);
+  });
+
+  it("uses the PSU kill switch as an immediate hard power off", () => {
+    let state = withSchedulerSlots(fund(createInitialGameState()), 1);
+    state = {
+      ...state,
+      flags: { ...state.flags, basicQueue: true },
+    };
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    state = applyAction(state, { type: "queueTask", taskId: "fetchBit" });
+
+    state = applyAction(state, { type: "requestPowerKill" });
+
+    expect(state.power.state).toBe("off");
+    expect(state.power.transitionSeconds).toBe(0);
+    expect(state.power.lastFailureReason).toBeNull();
+    expect(state.power.failureCount).toBe(0);
+    expect(state.activeTasks).toHaveLength(0);
+    expect(state.queue).toHaveLength(0);
+  });
+
   it("CRON scheduler clamps intervals, queues visible system work, and skips duplicates", () => {
     let state = unlockSystemStats();
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        psuWatts: Math.max(state.hardware.psuWatts, getHardwareDrawWatts(state) * 2),
+      },
+    };
 
     state = runTask(state, "tinyChecksum");
     state = research(fund(state), "cronScheduler");
@@ -2970,7 +3156,6 @@ describe("IdleBit simulation", () => {
         "queueCompaction",
         "powerTelemetry",
         "busMirror",
-        "thermalProbe",
         "shardReconcile",
       ]),
     );
@@ -3032,46 +3217,16 @@ describe("IdleBit simulation", () => {
     });
   });
 
-  it("uses PSU stress for throttling and cooling without restarting work", () => {
-    let state = unlockSystemStats();
+  it("defers thermal research and cooling upgrades after the second CPU", () => {
+    const state = unlockSystemStats();
+    const visible = deriveVisibleState(state);
 
-    state = research(state, "thermalControl");
-    state = {
-      ...state,
-      hardware: {
-        ...state.hardware,
-        psuWatts: 0.01,
-      },
-    };
-    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
-
-    const beforeCooling = deriveVisibleState(state).metrics.powerReliability;
-
-    state = buy(state, "cooling");
-
-    expect(deriveVisibleState(state).metrics.powerReliability).toBeGreaterThan(
-      beforeCooling,
-    );
-
-    state = {
-      ...state,
-      hardware: {
-        ...state.hardware,
-        psuWatts: 0.004,
-      },
-    };
-
-    const instanceId = state.activeTasks[0]?.instanceId;
-    const remainingBefore =
-      state.activeTasks[0]?.coreOperations[0]?.remainingCycles ?? 0;
-
-    state = tickGame(state, 1000);
-
-    expect(state.reliability.lastEvent).toBeNull();
-    expect(state.activeTasks[0]?.instanceId).toBe(instanceId);
-    expect(state.activeTasks[0]?.coreOperations[0]?.remainingCycles ?? 0).toBeLessThanOrEqual(
-      remainingBefore,
-    );
+    expect(
+      visible.research.filter((item) => !item.completed).map((item) => item.id),
+    ).toContain("cronScheduler");
+    expect(visible.tasks.map((task) => task.id)).not.toContain("thermalProbe");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("cooling");
+    expect(visible.flags.cooling).toBe(false);
   });
 
   it("keeps cheap job action aliases for compatibility", () => {

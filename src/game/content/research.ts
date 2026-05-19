@@ -208,26 +208,6 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirements: () => getSecondCpuInstalledRequirements(),
     cost: () => [credits(360), data(28)],
   },
-  {
-    id: "psuManagement",
-    name: "PSU Management",
-    description: "Unlock PSU capacity tuning for higher sustained draw.",
-    grants: ["psuManagement"],
-    reveal: (state) => state.hardware.secondCpu,
-    requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
-    requirements: () => getSecondCpuInstalledRequirements(),
-    cost: () => [credits(280), data(20)],
-  },
-  {
-    id: "thermalControl",
-    name: "Thermal Control",
-    description: "Unlock cooling upgrades that improve system reliability.",
-    grants: ["cooling"],
-    reveal: (state) => state.hardware.secondCpu,
-    requirement: (state) => requirementsMet(state, getThermalControlRequirements()),
-    requirements: () => getThermalControlRequirements(),
-    cost: () => [credits(240), data(18)],
-  },
 ];
 
 function getDecodeLogicRequirements() {
@@ -350,10 +330,6 @@ function getSecondCpuInstalledRequirements() {
       (state) => state.hardware.secondCpu,
     ),
   ];
-}
-
-function getThermalControlRequirements() {
-  return getSecondCpuInstalledRequirements();
 }
 
 export const getResearchDefinition = (id: ResearchId) => {

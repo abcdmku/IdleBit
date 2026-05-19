@@ -72,7 +72,8 @@ export type UiGameAction =
   | {
       type: "setPowerState";
       state: "on" | "off";
-    };
+    }
+  | { type: "killPower" };
 
 export type Dispatch = (action: UiGameAction) => void;
 
@@ -121,6 +122,10 @@ export const toGameAction = (action: UiGameAction): GameAction => {
     return action.state === "on"
       ? { type: "requestPowerOn" }
       : { type: "requestPowerOff" };
+  }
+
+  if (action.type === "killPower") {
+    return { type: "requestPowerKill" };
   }
 
   return action as GameAction;

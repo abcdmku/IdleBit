@@ -365,7 +365,7 @@ export const createInitialGameState = (): GameState => ({
   deadlockPressureCpuId: null,
   deadlockProcessLockout: false,
   resources: {
-    credits: 0,
+    credits: 10,
     data: 0,
   },
   hardware: {
@@ -415,7 +415,10 @@ export const createInitialGameState = (): GameState => ({
   power: {
     state: "on",
     transitionSeconds: 0,
-    bootstrapGraceSeconds: POWER_BOOTSTRAP_GRACE_SECONDS,
+    bootstrapGraceSeconds: 0,
+    overloadFailureSeconds: 0,
+    lastFailureReason: null,
+    failureCount: 0,
   },
   cron: {
     schedules: [],
@@ -552,9 +555,8 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         state.hardware.secondCpu ||
         researched.includes("ramControl"),
       cron: state.flags.cron || researched.includes("cronScheduler"),
-      psuManagement:
-        state.flags.psuManagement || researched.includes("psuManagement"),
-      cooling: state.flags.cooling || researched.includes("thermalControl"),
+      psuManagement: false,
+      cooling: false,
     },
   };
 
@@ -581,8 +583,6 @@ export const getMilestone = (state: GameState) => {
   }
   if (!state.flags.secondCpu) return "Research the system bus.";
   if (!state.hardware.secondCpu) return "Install the second CPU.";
-  if (!state.flags.psuManagement) return "Research PSU management.";
   if (!state.flags.cron) return "Research CRON scheduler.";
-  if (!state.flags.cooling) return "Research thermal control for safer sustained load.";
-  return "Balance power, heat, and automation under load.";
+  return "Balance power and automation under load.";
 };

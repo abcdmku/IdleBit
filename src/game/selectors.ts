@@ -9,6 +9,7 @@ import {
 import { canAfford } from "./economy";
 import {
   DEADLOCK_FAILURE_SECONDS,
+  POWER_OVERLOAD_FAILURE_SECONDS,
   estimateJobSeconds,
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
@@ -22,6 +23,7 @@ import {
   getHardwareDrawWatts,
   getPowerCostPerSecond,
   getPowerEfficiency,
+  getPowerOverloadRate,
   getPsuCapacityWatts,
   getPsuStress,
   getRamLoadCycles,
@@ -939,6 +941,7 @@ const getVisibleUpgrade = (
     upgrade.id,
     context,
   );
+  const powerDeltaWatts = getUpgradePowerDeltaWatts(state, upgrade, context);
 
   return {
     id: upgrade.id,
@@ -947,11 +950,37 @@ const getVisibleUpgrade = (
     accent: upgrade.accent,
     costs,
     refunds,
+    ...(powerDeltaWatts === null ? {} : { powerDeltaWatts }),
     canAfford: canAfford(state, costs),
     canDowngrade: refunds.length > 0 && downgradeBlockedReason === null,
     downgradeBlockedReason,
     purchaseCount: getUpgradeCount(state, upgrade.id, context),
   };
+};
+
+const powerDeltaUpgradeIds = new Set(["secondCpu", "matchedCpu"]);
+
+const getUpgradePowerDeltaWatts = (
+  state: GameState,
+  upgrade: ReturnType<typeof getUpgradeDefinition>,
+  context?: UpgradeContext,
+) => {
+  if (!powerDeltaUpgradeIds.has(upgrade.id) || !upgrade.requirement(state)) {
+    return null;
+  }
+
+  const comparisonState: GameState = {
+    ...state,
+    power: {
+      ...state.power,
+      state: "on",
+      transitionSeconds: 0,
+    },
+  };
+  const beforeWatts = getHardwareDrawWatts(comparisonState);
+  const afterWatts = getHardwareDrawWatts(upgrade.buy(comparisonState, context));
+
+  return Math.max(0, Math.round((afterWatts - beforeWatts) * 1_000_000) / 1_000_000);
 };
 
 const getCpuSockets = (
@@ -1201,6 +1230,25 @@ const getVisibleDeadlockPressure = (state: GameState) => {
   };
 };
 
+const getVisiblePowerOverloadFailure = (state: GameState) => {
+  const seconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
+  const psuStress = getPsuStress(state);
+  const rate =
+    state.power.state === "on" || state.power.state === "shuttingDown"
+      ? getPowerOverloadRate(psuStress)
+      : 0;
+
+  return {
+    seconds,
+    limitSeconds: POWER_OVERLOAD_FAILURE_SECONDS,
+    remainingSeconds: Math.max(0, POWER_OVERLOAD_FAILURE_SECONDS - seconds),
+    progress: Math.min(1, seconds / POWER_OVERLOAD_FAILURE_SECONDS),
+    rate,
+    active: rate > 0 || seconds > 0,
+    tripped: seconds >= POWER_OVERLOAD_FAILURE_SECONDS,
+  };
+};
+
 const isCronTaskOption = (state: GameState, task: TaskDefinition) =>
   task.kind === "task" &&
   task.repeatable &&
@@ -1303,6 +1351,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       powerState: syncedState.power.state,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
       powerBootstrapGraceSeconds: syncedState.power.bootstrapGraceSeconds,
+      powerOverloadFailure: getVisiblePowerOverloadFailure(syncedState),
       cacheResidency,
     },
     flags: syncedState.flags,

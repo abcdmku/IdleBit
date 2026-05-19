@@ -19,9 +19,13 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 export const DEADLOCK_FAILURE_SECONDS = 10;
+export const POWER_OVERLOAD_FAILURE_SECONDS = 10;
 
 export const getDeadlockCooldownRate = (state: GameState) =>
   1 + Math.max(0, state.hardware.deadlockRecoveryLevel ?? 0) * 0.5;
+
+export const getPowerOverloadRate = (psuStress: number) =>
+  psuStress > 1 ? Math.max(1, psuStress) : 0;
 
 export const getHardwareCacheBits = (state: GameState) =>
   Math.max(

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, Cpu, ListTodo } from "lucide-react";
+import { Activity, Cpu, ListTodo, TriangleAlert } from "lucide-react";
 import type { DeadlockResource, VisibleState } from "../game";
 import {
   HardwareBoard,
@@ -23,8 +23,12 @@ interface SystemWorkbenchProps {
   animateResourceGains: boolean;
   deadlockHelpResource?: DeadlockResource | null;
   deadlockCooldownHelpResource?: DeadlockResource | null;
+  showPsuFailureHelp?: boolean;
+  showPsuFailureNotice?: boolean;
   onDismissDeadlockHelp?: () => void;
   onDismissDeadlockCooldownHelp?: () => void;
+  onDismissPsuFailureHelp?: () => void;
+  onDismissPsuFailureNotice?: () => void;
 }
 
 function useIsMobile(breakpoint = 760) {
@@ -65,8 +69,12 @@ export function SystemWorkbench({
   animateResourceGains,
   deadlockHelpResource = null,
   deadlockCooldownHelpResource = null,
+  showPsuFailureHelp = false,
+  showPsuFailureNotice = false,
   onDismissDeadlockHelp,
   onDismissDeadlockCooldownHelp,
+  onDismissPsuFailureHelp,
+  onDismissPsuFailureNotice,
 }: SystemWorkbenchProps) {
   const component = getVisibleSelection(visible, selectedComponent);
   const isMobile = useIsMobile();
@@ -78,10 +86,18 @@ export function SystemWorkbench({
 
   useEffect(() => {
     const helpResource = deadlockHelpResource ?? deadlockCooldownHelpResource;
-    if (!isMobile || !helpResource) return;
+    if (!isMobile || (!helpResource && !showPsuFailureHelp)) return;
     setActiveSection("hardware");
-    onSelectComponent(helpResource === "cache" ? "cache" : "ram");
-  }, [deadlockHelpResource, deadlockCooldownHelpResource, isMobile, onSelectComponent]);
+    onSelectComponent(
+      showPsuFailureHelp ? "psu" : helpResource === "cache" ? "cache" : "ram",
+    );
+  }, [
+    deadlockHelpResource,
+    deadlockCooldownHelpResource,
+    showPsuFailureHelp,
+    isMobile,
+    onSelectComponent,
+  ]);
 
   return (
     <main className="workbench" aria-label="IdleBit system workbench">
@@ -94,6 +110,17 @@ export function SystemWorkbench({
           <span>{visible.stageLabel}</span>
           <strong>{visible.milestone}</strong>
         </span>
+        {showPsuFailureNotice && (
+          <button
+            type="button"
+            className="topbar-alert-badge psu-failure"
+            onClick={onDismissPsuFailureNotice}
+            title="Acknowledge PSU overload failure"
+          >
+            <TriangleAlert size={13} />
+            <span>PSU tripped</span>
+          </button>
+        )}
         <ResourceHud
           visible={visible}
           onReset={onReset}
@@ -163,8 +190,10 @@ export function SystemWorkbench({
               onSelectComponent={onSelectComponent}
               deadlockHelpResource={deadlockHelpResource}
               deadlockCooldownHelpResource={deadlockCooldownHelpResource}
+              showPsuFailureHelp={showPsuFailureHelp}
               onDismissDeadlockHelp={onDismissDeadlockHelp}
               onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
+              onDismissPsuFailureHelp={onDismissPsuFailureHelp}
             />
           </div>
         </section>

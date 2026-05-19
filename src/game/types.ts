@@ -129,6 +129,7 @@ export type SchedulerKillPolicy =
   | "lowestProgress";
 
 export type PowerStateId = "on" | "shuttingDown" | "off" | "booting";
+export type PowerFailureReason = "psuOverload";
 
 export type CronIntervalMode = "seconds" | "minutes";
 
@@ -329,6 +330,9 @@ export interface PowerRuntimeState {
   state: PowerStateId;
   transitionSeconds: number;
   bootstrapGraceSeconds: number;
+  overloadFailureSeconds: number;
+  lastFailureReason: PowerFailureReason | null;
+  failureCount: number;
 }
 
 export interface CronRunResult {
@@ -484,6 +488,8 @@ export type GameAction =
   | { type: "requestStartup" }
   | { type: "requestPowerOff" }
   | { type: "requestPowerOn" }
+  | { type: "requestPowerKill" }
+  | { type: "acknowledgePowerFailure" }
   | { type: "setCronTask"; scheduleId: number; taskId: TaskId | null }
   | {
       type: "setCronInterval";
@@ -600,6 +606,7 @@ export interface VisibleUpgrade {
   accent: UpgradeDefinition["accent"];
   costs: Cost[];
   refunds: Cost[];
+  powerDeltaWatts?: number | null;
   canAfford: boolean;
   canDowngrade: boolean;
   downgradeBlockedReason: string | null;
@@ -768,6 +775,16 @@ export interface VisibleDeadlockPressure {
   lockout: boolean;
 }
 
+export interface VisiblePowerOverloadFailure {
+  seconds: number;
+  limitSeconds: number;
+  remainingSeconds: number;
+  progress: number;
+  rate: number;
+  active: boolean;
+  tripped: boolean;
+}
+
 export interface VisibleCronTaskOption {
   id: TaskId;
   name: string;
@@ -822,6 +839,7 @@ export interface VisibleHardwareMetrics {
   powerState: PowerStateId;
   powerTransitionSeconds: number;
   powerBootstrapGraceSeconds: number;
+  powerOverloadFailure: VisiblePowerOverloadFailure;
   cacheResidency: CacheResidencySegment[];
 }
 

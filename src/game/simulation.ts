@@ -9,6 +9,7 @@ import {
 import { addRewards, canAfford, spend } from "./economy";
 import {
   DEADLOCK_FAILURE_SECONDS,
+  POWER_OVERLOAD_FAILURE_SECONDS,
   estimateActiveRemainingSeconds,
   estimateTaskSeconds,
   getAvailableMemoryBits,
@@ -21,12 +22,15 @@ import {
   getMemoryCapacityBits,
   getOperationEffectiveClock,
   getPowerCostPerSecond,
+  getPowerOverloadRate,
+  getPsuStress,
   getRamLoadCycles,
   getRamLoadCyclesForOperationTick,
   getReservedCacheBits,
 } from "./math";
 import {
   bitsToBytes,
+  createCoreSchedulerState,
   createRamStickState,
   createSchedulerConfig,
   getAllCoreIds,
@@ -49,6 +53,7 @@ import type {
   DeadlockResource,
   GameAction,
   GameState,
+  PowerFailureReason,
   ResearchId,
   SchedulerConfig,
   SchedulerKillPolicy,
@@ -74,7 +79,10 @@ export const getCronMinIntervalSeconds = (state: GameState) =>
 
 const isPowerOn = (state: GameState) => state.power.state === "on";
 
-const canRunPoweredWork = isPowerOn;
+const canAcceptPoweredWork = isPowerOn;
+
+const canRunPoweredWork = (state: GameState) =>
+  state.power.state === "on" || state.power.state === "shuttingDown";
 
 const isSystemScheduledTask = (task: TaskDefinition) =>
   task.category === "system" || task.category === "distributed";
@@ -357,7 +365,7 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
 
   return (
-    canRunPoweredWork(state) &&
+    canAcceptPoweredWork(state) &&
     !isDeadlockStartBlocked(state) &&
     canAcceptTask(state, taskId) &&
     taskFitsCpuHardware(state, task, cpuId)
@@ -402,7 +410,7 @@ const canQueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
   const systemScheduled = isSystemScheduledTask(task);
 
-  if (!canRunPoweredWork(state)) return false;
+  if (!canAcceptPoweredWork(state)) return false;
   if (!canAcceptTask(state, taskId)) return false;
   if (systemScheduled && cpuId !== undefined) return false;
   if (systemScheduled && !state.flags.scheduler) return false;
@@ -499,7 +507,7 @@ const getDeadlockScopeResource = (
 };
 
 const schedulerCanDispatchOnCpu = (state: GameState, cpuId: number) =>
-  canRunPoweredWork(state) &&
+  canAcceptPoweredWork(state) &&
   !isDeadlockStartBlocked(state) &&
   !getRamDeadlockOperation(state) && !getCacheDeadlockedCpuIds(state).has(cpuId);
 
@@ -1186,7 +1194,7 @@ const selectQueuedDispatchCandidate = (
 };
 
 const pullQueue = (state: GameState): GameState => {
-  if (!canRunPoweredWork(state)) return syncCoreSchedulers(state);
+  if (!canAcceptPoweredWork(state)) return syncCoreSchedulers(state);
   if (!state.flags.basicQueue && !state.flags.scheduler) return syncCoreSchedulers(state);
 
   let nextState = state;
@@ -2091,6 +2099,96 @@ const updateDeadlockPressure = (
   };
 };
 
+const updatePowerOverloadFailure = (
+  state: GameState,
+  deltaSeconds: number,
+): GameState => {
+  const currentSeconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
+  const psuStress = getPsuStress(state);
+  const overloadRate =
+    canRunPoweredWork(state) ? getPowerOverloadRate(psuStress) : 0;
+
+  if (overloadRate > 0) {
+    const overloadFailureSeconds = Math.min(
+      POWER_OVERLOAD_FAILURE_SECONDS,
+      currentSeconds + overloadRate * deltaSeconds,
+    );
+
+    if (overloadFailureSeconds >= POWER_OVERLOAD_FAILURE_SECONDS) {
+      return forcePowerOffForPsuFailure({
+        ...state,
+        power: {
+          ...state.power,
+          overloadFailureSeconds,
+        },
+      });
+    }
+
+    return overloadFailureSeconds === currentSeconds
+      ? state
+      : {
+          ...state,
+          power: {
+            ...state.power,
+            overloadFailureSeconds,
+          },
+        };
+  }
+
+  if (currentSeconds <= 0) return state;
+
+  return {
+    ...state,
+    power: {
+      ...state.power,
+      overloadFailureSeconds: Math.max(0, currentSeconds - deltaSeconds),
+    },
+  };
+};
+
+const clearAllWorkForHardPowerOff = (state: GameState): GameState =>
+  syncCoreSchedulers({
+    ...state,
+    activeTasks: [],
+    activeJobs: [],
+    cacheResidency: [],
+    queue: [],
+    coreSchedulers: Object.fromEntries(
+      getAllCoreIds(state).map((coreId) => [
+        coreId,
+        createCoreSchedulerState(coreId),
+      ]),
+    ) as GameState["coreSchedulers"],
+  });
+
+const forceHardPowerOff = (
+  state: GameState,
+  failureReason: PowerFailureReason | null,
+): GameState => {
+  const cleared = clearAllWorkForHardPowerOff(state);
+  const currentFailureCount = Math.max(0, cleared.power.failureCount ?? 0);
+  const failureCount =
+    failureReason === null
+      ? currentFailureCount
+      : currentFailureCount + 1;
+
+  return {
+    ...cleared,
+    power: {
+      ...cleared.power,
+      state: "off",
+      transitionSeconds: 0,
+      bootstrapGraceSeconds: 0,
+      overloadFailureSeconds: 0,
+      lastFailureReason: failureReason,
+      failureCount,
+    },
+  };
+};
+
+const forcePowerOffForPsuFailure = (state: GameState): GameState =>
+  forceHardPowerOff(state, "psuOverload");
+
 const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
   const activeTasks: ActiveTask[] = [];
 
@@ -2116,12 +2214,24 @@ const advancePowerTransition = (state: GameState, deltaSeconds: number): GameSta
   }
 
   const transitionSeconds = Math.max(0, state.power.transitionSeconds - deltaSeconds);
+  const waitingForActiveWork =
+    state.power.state === "shuttingDown" && state.activeTasks.length > 0;
   if (transitionSeconds > 0) {
     return {
       ...state,
       power: {
         ...state.power,
         transitionSeconds,
+      },
+    };
+  }
+
+  if (waitingForActiveWork) {
+    return {
+      ...state,
+      power: {
+        ...state.power,
+        transitionSeconds: 0,
       },
     };
   }
@@ -2147,6 +2257,8 @@ const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
     state: "off",
     transitionSeconds: 0,
     bootstrapGraceSeconds: 0,
+    overloadFailureSeconds: 0,
+    lastFailureReason: null,
   },
 });
 
@@ -2351,16 +2463,24 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
   );
 
   if (!wasPoweredOn || !canRunPoweredWork(powered)) {
-    return updateProgressionFlags(syncCoreSchedulers(powered));
+    return updateProgressionFlags(
+      syncCoreSchedulers(updatePowerOverloadFailure(powered, deltaSeconds)),
+    );
   }
 
-  const cronTicked = tickCron(powered, deltaSeconds);
+  const cronTicked = canAcceptPoweredWork(powered)
+    ? tickCron(powered, deltaSeconds)
+    : powered;
   const advanced = tickActiveTasks(cronTicked, deltaSeconds);
   const settled = exitPowerGraceIfFunded(settleActiveTasks(advanced));
   const watched = applySchedulerWatchdogs(settled);
-  const pressured = updateDeadlockPressure(watched, deltaSeconds);
+  const overloadChecked = updatePowerOverloadFailure(watched, deltaSeconds);
+  const pressured = updateDeadlockPressure(overloadChecked, deltaSeconds);
 
-  return pullQueue(updateProgressionFlags(pressured));
+  const progressed = updateProgressionFlags(pressured);
+  return canAcceptPoweredWork(progressed)
+    ? pullQueue(progressed)
+    : syncCoreSchedulers(progressed);
 };
 
 export const startTask = (state: GameState, taskId: TaskId) => {
@@ -2578,6 +2698,19 @@ export const requestPowerOn = (state: GameState): GameState => {
   };
 };
 
+export const requestPowerKill = (state: GameState): GameState => {
+  if (state.power.state === "off") return state;
+  return forceHardPowerOff(state, null);
+};
+
+export const acknowledgePowerFailure = (state: GameState): GameState => ({
+  ...state,
+  power: {
+    ...state.power,
+    lastFailureReason: null,
+  },
+});
+
 export const requestShutdown = requestPowerOff;
 
 export const requestStartup = requestPowerOn;
@@ -2675,6 +2808,8 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
   if (action.type === "requestStartup") return requestStartup(state);
   if (action.type === "requestPowerOff") return requestPowerOff(state);
   if (action.type === "requestPowerOn") return requestPowerOn(state);
+  if (action.type === "requestPowerKill") return requestPowerKill(state);
+  if (action.type === "acknowledgePowerFailure") return acknowledgePowerFailure(state);
   if (action.type === "setCronTask") {
     return setCronTask(state, action.scheduleId, action.taskId);
   }

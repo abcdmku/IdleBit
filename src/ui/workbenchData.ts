@@ -133,8 +133,21 @@ export function getVisibleSelection(
     return hasSystemMemory(visible) ? selectedComponent : "cpu";
   }
 
-  if (selectedComponent === "cron" || selectedComponent === "thermal") {
-    return visible.hardware.secondCpu ? selectedComponent : "cpu";
+  if (selectedComponent === "cron") {
+    const flags = visible.flags as VisibleState["flags"] & {
+      cronScheduler?: boolean;
+      cronAutomation?: boolean;
+    };
+    return visible.flags.cron ||
+      flags.cronScheduler === true ||
+      flags.cronAutomation === true ||
+      visible.cron.unlocked
+      ? selectedComponent
+      : "cpu";
+  }
+
+  if (selectedComponent === "thermal") {
+    return "cpu";
   }
 
   if (selectedComponent === "socket") {

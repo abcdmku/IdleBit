@@ -4,7 +4,7 @@
 
 Target scope from `game-spec.md` section 13.2:
 
-- Single-core start with clock speed, cache, bit-scale tasks, current task state, credits, data, and PSU/power readouts visible.
+- Single-core start with 10 credits, clock speed, cache, bit-scale tasks, current task state, data, and PSU/power readouts visible.
 - Bit-scale startup keeps the first task choices tiny before byte-scale/cache-sensitive work appears.
 - Task and research lists reveal progressively; the first screen exposes only the Fetch Bit / Decode Bit starter pair, with Decode Bit blocked until 2 b cache.
 - Task and research compute rows keep operation counts, cache/RAM needs, and resource payouts/costs visible even when blocked.
@@ -12,7 +12,7 @@ Target scope from `game-spec.md` section 13.2:
 - The task list header has compact route-layer and target dropdown controls: C chooses a specific core, CPU chooses a CPU-local scheduler, and Sys chooses the System Scheduler when unlocked; there is no Auto route.
 - Cores render as a standalone scalable core array before RAM; after RAM unlock, a CPU package frame wraps the CPU-local scheduler, core array, and cache.
 - Core grids step through fixed 1x2, 2x2, 2x4, 2x6, 2x8, 2x12, 2x16, and later Nx16 layouts; at 2x12 and wider, cache pairs beside the CPU-local scheduler while cores take the full module width.
-- Starting cache capacity and cache speed upgrades are visible from the first screen and cost more data than credits.
+- Starting cache capacity, cache speed, and PSU wattage upgrades are visible from the first screen.
 - Player-facing jobs/tasks are backed by low-level CPU operations.
 - Task definitions infer cached internal recipe-step DAG nodes plus deterministic accept/stage/execute/complete dependencies for ready/waiting reasons.
 - Clock upgrades affect CPU operation throughput.
@@ -26,14 +26,15 @@ Target scope from `game-spec.md` section 13.2:
 - Four-core milestone plus RAM Control and 1 Kb RAM unlock System Scheduler behavior.
 - Completed System Scheduler research reveals a system-level scheduler surface for whole system tasks above RAM.
 - System Queue Slot upgrades are separate from CPU Queue Slot upgrades.
-- Second CPU purchase reveals locked CRON, advanced PSU/tuning, and Thermal modules, with CRON at the top of the system board and baseline PSU/power readouts already present.
-- RAM stays hidden/actionless before RAM Control, then becomes the staging surface needed for System Scheduler; CRON and Thermal stay hidden/actionless before the matched CPU stage, while advanced PSU/tuning stays hidden or locked until its research gate.
+- Second CPU purchase reveals CRON Scheduler research only; the CRON board module stays hidden until that research is bought, while baseline PSU/power readouts are already present.
+- The empty CPU socket offers unmatched and matched CPU install choices, with projected power increase shown for each option.
+- RAM stays hidden/actionless before RAM Control, then becomes the staging surface needed for System Scheduler; CRON stays hidden/actionless before CRON Scheduler research, and Thermal plus advanced PSU/tuning research are deferred.
 - CRON Scheduler research unlocks CRON v1 timer automation for visible repeatable system tasks only.
-- PSU/power readouts, powered-on billing, and power state behavior are visible from the first screen; PSU Management research shifts to advanced PSU capacity/tuning rather than basic visibility.
-- Thermal Control research unlocks Thermal controls and cooling tradeoffs after the second CPU reveal.
-- Six repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror, Thermal Probe, and Shard Reconcile after the second CPU purchase.
+- PSU/power readouts, powered-on billing, power state behavior, credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
+- Thermal Control research, Thermal UI, Cooling Loop upgrades, and Thermal Probe are deferred.
+- Five repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror and Shard Reconcile after the second CPU purchase.
 - CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, never catches up missed runs, and adds a power spike when queuing work.
-- Power states are `on`, `shuttingDown`, `off`, and `booting`; `off` allows configuration, blocks work and CRON, and bills zero while startup/shutdown use visible delays.
+- Power states are `on`, `shuttingDown`, `off`, and `booting`; `off` greys hardware except power/start controls, blocks work and CRON, and bills zero while startup/shutdown use visible delays.
 - Cache/RAM exhaustion becomes an active deadlock state only when active staging would write beyond available capacity once total installed capacity fits the task; cache deadlocks halt the affected CPU package, RAM deadlocks halt the whole system, deadlocked hardware plus scheduler slots render red, and the 10-second deadlock countdown appears as a progress bar in the Cores header before CPU packages exist, then in the CPU or RAM header after those surfaces unlock.
 - The first visible deadlock shows a one-time Cache/RAM help caption with a Got it dismissal stored outside the save blob, followed by a one-time cooldown caption that pauses the game while visible.
 - Scheduler Watchdog and Scheduling Policy research reveal auto-kill and dispatch-policy controls.
@@ -75,11 +76,12 @@ Target scope from `game-spec.md` section 13.2:
   - RAM readouts report module frequency from the installed sticks and do not sum stick speeds into a total RAM speed.
   - System Scheduler unlocks at the four-core milestone after RAM Control and at least 1 Kb RAM.
   - Second CPU unlock requires System Scheduler, multi-core benchmark completion, and System Bus research.
-  - Second CPU purchase reveals locked CRON, advanced PSU/tuning, and Thermal modules with CRON at the top of the system board, while baseline PSU/power readouts were already visible.
+  - Second CPU purchase reveals CRON Scheduler research while baseline PSU/power readouts were already visible; locked CRON, advanced PSU/tuning, and Thermal modules stay hidden.
+  - Unmatched CPU installs a base package, matched CPU copies the current package, and both socket choices list projected power increase.
   - Matched CPU purchase copies the source CPU's cores, core clocks, cache, cache speed, and scheduler slots, and charges for the base CPU plus copied upgrades.
   - CRON Scheduler research unlocks CRON v1 controls and no other task classes.
-  - PSU Management research unlocks advanced PSU/tuning controls, while draw billing and baseline shutdown/startup behavior are no longer gated by this research.
-  - Thermal Control research appears after the second CPU reveal, then unlocks Thermal controls and cooling loop upgrades.
+  - PSU Capacity upgrades are credits-only and available from the first screen; PSU Management research is deferred.
+  - Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.
 - Parallelism:
   - Extra cores increase concurrent throughput.
   - Extra cores do not reduce one non-parallel task's duration before scheduler support.
@@ -94,10 +96,11 @@ Target scope from `game-spec.md` section 13.2:
   - Scheduler queue slots render as a compact header count plus a bounded adaptive-height slot grid without a separate status strip or queue title; the grid steps through 2x2, 4x2, 4x4, 6x4, 6x6, and 8x8 layouts, early low-row grids stay shorter so slots do not become giant, queued scheduler tasks list their current waiting or active reason in taller slot cells, core/provisioning blockers take priority over free cache/RAM pressure when both apply, at least 24 slots fit before internal scrolling, and processing updates do not resize neighboring hardware.
   - Canceling pending queued work removes only the unreserved queue entry and leaves already active scheduler reservations intact.
 - CRON automation:
-  - CRON remains locked until CRON Scheduler research and is positioned at the top of the system board after the second CPU purchase.
-  - CRON can target only visible repeatable system tasks: Memory Scrub, Queue Compaction, Power Telemetry, Bus Mirror, Thermal Probe, and Shard Reconcile as each task reveals.
+  - CRON remains hidden until CRON Scheduler research, then appears at the top of the system board.
+  - CRON can target only visible repeatable system tasks: Memory Scrub, Queue Compaction, Power Telemetry, Bus Mirror, and Shard Reconcile as each task reveals.
   - CRON cannot target hidden tasks, research compute, normal CPU-bound tasks, or later locked task groups.
   - CRON supports seconds and minutes interval modes.
+  - CRON rows show a whole-second countdown until the next scheduled job.
   - A new CRON entry defaults to the current minimum interval, starting at 60 seconds.
   - Each `cronInterval` upgrade lowers the minimum interval by 1 second and never below the intended implementation floor.
   - If a CRON tick finds the same task active or queued, the task blocked, the target queue full, or the system `off`, `booting`, or `shuttingDown`, the run is skipped without adding work.
@@ -111,27 +114,26 @@ Target scope from `game-spec.md` section 13.2:
   - RAM loading does not prevent unrelated manual or queued CPU-level work from starting when enough idle cores and cache remain.
   - Cache/RAM/storage load speeds are modeled as upgrade paths.
   - Tasks do not require power directly, but powered-on hardware bills immediately even when idle.
-  - PSU/power readouts are visible from the first screen and show current state, scaled draw, billing pressure, and remaining credits.
+  - PSU/power readouts are visible from the first screen and show current state, scaled draw, billing pressure, load, capacity, and remaining credits.
   - Billing draw is scaled to mW/uW, tied primarily to CPU frequency, and can still reflect active hardware draw and CRON queue-start spikes.
   - Idle powered-on time drains positive credits, billing clamps credits at 0, and unpaid billing auto-shuts down the system.
   - Powering on at 0 credits grants a short bootstrap no-bill grace window; earning credits exits grace, while grace expiration at 0 credits shuts the system down again.
   - Active starter work remains profitable after immediate powered-on billing.
   - Power states are `on`, `shuttingDown`, `off`, and `booting`.
-  - `off` systems allow configuration and upgrade purchases, block manual work, scheduler dispatch, and CRON, and bill zero.
-  - Startup and shutdown delays block work/CRON during transition and make state changes visible.
+  - `off` systems grey hardware except power/start controls, block manual work, scheduler dispatch, and CRON, and bill zero.
+  - Startup and shutdown delays make state changes visible on the PSU before the system layer unlocks, then on the System Scheduler card; graceful shutdown blocks new work while active work drains.
   - Dense cores/CPUs increase draw nonlinearly.
   - RAM/CPU efficiency matching rewards matched RAM module sizes/frequencies and CPU package specs; mismatches raise effective draw and reliability pressure.
-  - Severe PSU stress can throttle without restarting active work.
-  - Cooling improves efficiency and reliability when implemented, but active cooling adds draw/billing while reducing thermal stress.
+  - Severe PSU stress can throttle; draw above capacity flashes the full PSU red, fills a larger centered header overload meter in about 10 seconds at the threshold and faster at higher overload, then hard-powers off, shows a short first-time failure popup, uses a red topbar badge for later trips, and clears active/queued work.
+  - Cooling improves efficiency and reliability when implemented later, but active cooling is deferred for this slice.
 - Visibility rules:
   - RAM is hidden before RAM Control.
-  - Basic PSU/power readouts are visible from the first screen.
-  - CRON and Thermal are hidden before matched CPU system building; advanced PSU/tuning surfaces stay hidden or locked until their gates.
+  - Basic PSU/power readouts and credits-only PSU wattage upgrades are visible from the first screen.
+  - CRON is hidden before CRON Scheduler research; Thermal and advanced PSU/tuning research are deferred.
   - RAM becomes visible/actionable immediately after RAM Control.
-  - CRON, advanced PSU/tuning, and Thermal reveal locked after the second CPU purchase, while baseline PSU/power readouts remain visible earlier.
+  - CRON Scheduler research appears after the second CPU purchase, while baseline PSU/power readouts remain visible earlier.
   - CRON becomes actionable after CRON Scheduler research.
-  - Advanced PSU tuning becomes actionable after PSU Management research; basic PSU/power visibility is not gated by this research.
-  - Thermal controls remain locked until Thermal Control research is completed.
+  - Advanced PSU tuning and Thermal controls are deferred.
   - Research options are hidden until the player has earned starter resources.
   - Later tasks are hidden until their concept gate is met.
   - Out-of-scope systems are not exposed early.
@@ -143,14 +145,15 @@ Target scope from `game-spec.md` section 13.2:
 ## CRON And Power Acceptance Checklist
 
 - First screen shows PSU/power readouts alongside the starter CPU/cache economy.
+- PSU Capacity upgrades are buyable with credits from the first screen.
 - Billing starts immediately while the system is powered on, including idle time, with draw scaled to mW/uW and tied primarily to CPU frequency.
 - Idle powered-on time drains positive credits, billing clamps credits at 0, and unpaid billing auto-shuts down the system.
 - Powering on at 0 credits grants a short bootstrap no-bill grace window; earning credits exits grace, while letting grace expire at 0 credits shuts the system down again.
 - Active starter work remains profitable after immediate powered-on billing.
-- Second CPU purchase reveals locked CRON, advanced PSU/tuning, and Thermal modules; CRON is visually above the system stack, and baseline PSU/power readouts were already visible.
-- CRON Scheduler, PSU Management, and Thermal Control appear as research gates, not hidden completion side effects.
+- Second CPU purchase reveals CRON Scheduler research; baseline PSU/power readouts were already visible.
+- CRON Scheduler appears as the only second-CPU support research gate in this slice.
 - Memory Scrub, Queue Compaction, and Power Telemetry reveal after Tiny Checksum.
-- Bus Mirror, Thermal Probe, and Shard Reconcile reveal with the second CPU purchase.
+- Bus Mirror and Shard Reconcile reveal with the second CPU purchase; Thermal Probe is deferred.
 - CRON can schedule only visible repeatable system tasks and never research benchmarks or hidden/locked tasks.
 - CRON entries support seconds and minutes modes, default to a 60s minimum, and respect `cronInterval` minimum-interval reductions of 1 second per upgrade.
 - CRON skips rather than queues when the same task is active/queued, requirements are blocked, the target queue is full, or the system is `off`, `booting`, or `shuttingDown`.
@@ -158,10 +161,11 @@ Target scope from `game-spec.md` section 13.2:
 - CRON-created queue entries apply the short power spike and are visible in PSU draw/stress.
 - Power bills over time from scaled draw with no free threshold except the 0-credit bootstrap grace window.
 - `off` systems allow configuration but block work, scheduler dispatch, CRON, and billing.
-- Startup and shutdown delays are visible, block work/CRON during transition, and end in the expected `on` or `off` state.
-- PSU Management research unlocks advanced PSU/tuning controls rather than baseline PSU visibility or basic billing readouts.
+- Startup and shutdown delays are visible on the PSU before the system layer unlocks and on the System Scheduler card afterward, block work/CRON during transition, and end in the expected `on` or `off` state.
+- PSU Management research is deferred rather than exposing no-op advanced controls.
 - RAM/CPU efficiency matching affects draw/stress so mismatched modules and CPU packages are meaningfully worse than matched builds.
-- Active cooling reduces thermal pressure while adding draw/billing, making the cooling choice a tradeoff.
+- The CPU socket presents unmatched and matched purchase options and lists each option's projected power increase.
+- Active cooling tradeoffs are deferred with Thermal Control.
 
 ## Web Smoke Checklist
 
@@ -180,7 +184,7 @@ Target scope from `game-spec.md` section 13.2:
 - CPU core meters remain idle during cache fill; task cards continue showing aggregate task progress through load and compute phases.
 - Task wait reasons match the inferred composition DAG.
 - Blocked task and research action buttons show the current blocker, while the row still shows needed operations/resources and payout; active task cards keep the same list color treatment.
-- CRON controls do not appear before second CPU purchase and remain locked until CRON Scheduler research.
+- CRON controls do not appear before CRON Scheduler research.
 - Queue/scheduler controls appear only after their unlock gates.
 - Multi-core flow allows multiple jobs to run concurrently after core unlock.
 - Hardware layout keeps the core grid independent of the CPU package before RAM, uses fixed compact/dense core-grid breakpoints for high-core CPU counts, and moves cache beside the CPU-local scheduler once the core grid reaches 2x12.
@@ -189,19 +193,19 @@ Target scope from `game-spec.md` section 13.2:
 - RAM Control reveals a 256 b/1 Hz RAM stick above the CPU package and enables larger RAM/cache tasks before System Scheduler.
 - System Scheduler remains blocked until RAM reaches at least 1 Kb.
 - System Scheduler appears above RAM after research, exposes separate System Queue Slot purchases, and selected system tasks dispatch through it instead of the CPU-local scheduler.
-- Second CPU flow reveals locked CRON, advanced PSU/tuning, and Thermal modules without revealing later systems; CRON sits above the system stack.
-- Memory Scrub, Queue Compaction, and Power Telemetry appear after Tiny Checksum, and Bus Mirror, Thermal Probe, and Shard Reconcile appear after the second CPU purchase.
+- Second CPU flow reveals CRON Scheduler research without revealing locked automation, advanced PSU/tuning, or Thermal modules.
+- Memory Scrub, Queue Compaction, and Power Telemetry appear after Tiny Checksum, and Bus Mirror plus Shard Reconcile appear after the second CPU purchase.
 - CRON Scheduler research unlocks CRON controls, seconds/minutes interval modes, and visible-task-only scheduling.
 - CRON skips duplicate active/queued tasks, blocked tasks, full target queues, and `off`/`booting`/`shuttingDown` system states without catch-up.
 - CRON queue insertion creates a short visible power spike.
-- PSU state, draw, billing, shutdown/startup behavior, and basic power readouts are available from the first screen; PSU Management research unlocks advanced PSU/tuning and efficiency controls.
+- PSU state, draw, billing, shutdown/startup behavior, basic power readouts, credits-only PSU Capacity upgrades, and overload failure pressure are available from the first screen; PSU Management research is deferred.
 - RAM readouts communicate active/intermediate staging.
-- PSU readouts communicate draw, billing, headroom, state, and stress without making power a per-task requirement.
+- PSU readouts communicate draw, billing, capacity, state, load, and overload failure pressure without making power a per-task requirement.
 - Leaving the powered-on system idle with positive credits drains credits over time, clamps credits at 0, and then auto-shuts down for unpaid billing.
 - Powering on at 0 credits enters the short no-bill bootstrap grace window; completing starter work exits grace and remains net-profitable, while grace expiration at 0 credits shuts down again.
-- Power-off blocks manual work, scheduler dispatch, and CRON while still allowing configuration and billing zero.
+- Power-off blocks manual work, scheduler dispatch, and CRON, greys hardware except power/start controls, and bills zero.
 - Deadlocked cache/RAM surfaces render red, affected hardware greys out only during post-failure lockout reset, the deadlock countdown appears as a wider fill/drain progress bar with a high-contrast time label in the affected Cores/CPU/RAM header rather than inside individual core cards, stays anchored there until pressure reaches 0, and the first deadlock plus cooldown help captions appear over the affected Cache or RAM section without a modal or layout shift.
-- Thermal Control research unlocks Thermal controls and cooling loop upgrades after the second CPU reveal.
+- Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.
 
 ## Electron Smoke Checklist
 
@@ -239,19 +243,21 @@ Current `FEATURES.md` observations:
 
 - `FEATURES.md` exists and names `game-spec.md` as the source of truth.
 - Vertical slice simulation and responsive UI features that match the current operation-task build are marked `Tested` when existing notes cite automated or smoke evidence.
-- Bit-scale startup, progressive task/research reveal, inferred task composition DAG, and the Thermal Control gate evidence remain tracked from automated verification and browser smoke.
-- Operation composition, cache queue/fill behavior, paid cache/RAM load operation totals, per-core derived task resource needs, finite CPU-local scheduler queue slots, separate System Scheduler queue slots, system-vs-CPU scheduler task routing, adaptive scheduler slot grids, duplicate queued-copy status display, compact task route controls, CPU package reveal, fixed-step core grid layouts and 2x12 cache/scheduler pairing, active scheduler queue reservations until completion, System Scheduler routing into available CPU scheduler slots while CPU cores are busy or CPU-local cache policy is blocking execution, lower-level CPU scheduler wait reasons bubbling up to System Scheduler slots, scheduler waiting/active reasons and core-first pickup blocker priority, scheduler width gating for multicore tasks, CPU-local cache/scheduler gates, RAM Control and 1 Kb System Scheduler gates, System Scheduler above RAM, RAM above CPU, matched CPU package costing/spec copies, data-weighted cache/RAM upgrade costs, reversible upgrade refunds and occupied-capacity downgrade blockers, cache/RAM deadlocks with CPU-local or system-wide halt behavior, 10-second deadlock failure and cooldown lockout behavior, high-contrast deadlock countdown header placement with persistent fill/drain progress bars, post-failure greyed lockout hardware, split deadlock-safe footprint dispatch for CPU-local cache vs System Scheduler RAM, watchdog auto-kill core/countdown display, scheduler policy controls, visible RAM load progress before CPU execution, queue acceptance under active pressure, previous PSU stress, dense hardware draw, mixed-size/mixed-frequency RAM sticks with per-stick and all-stick upgrades, and non-summed RAM module frequency readouts are covered by automated or smoke verification.
-- New CRON, locked module reveal, PSU Management, paid-over-time power billing, power state, RAM/CPU efficiency matching, and cooling tradeoff rows are marked `Tested` with automated coverage.
-- The first-screen PSU/readout, immediate billing, 0-credit bootstrap grace, and unpaid auto-shutdown expectations above need fresh verification evidence before any follow-up status movement.
+- Bit-scale startup, progressive task/research reveal, inferred task composition DAG, and deferred Thermal gate evidence remain tracked from automated verification and browser smoke.
+- Operation composition, cache queue/fill behavior, paid cache/RAM load operation totals, per-core derived task resource needs, finite CPU-local scheduler queue slots, separate System Scheduler queue slots, system-vs-CPU scheduler task routing, adaptive scheduler slot grids, duplicate scheduled-copy status display, compact task route controls, CPU package reveal, fixed-step core grid layouts and 2x12 cache/scheduler pairing, active scheduler queue reservations until completion, System Scheduler routing into available CPU scheduler slots while CPU cores are busy or CPU-local cache policy is blocking execution, lower-level CPU scheduler wait reasons bubbling up to System Scheduler slots, scheduler waiting/active reasons and core-first pickup blocker priority, scheduler width gating for multicore tasks, CPU-local cache/scheduler gates, RAM Control and 1 Kb System Scheduler gates, System Scheduler above RAM, RAM above CPU, unmatched CPU base package installs, matched CPU package costing/spec copies, socket power-delta readouts, data-weighted cache/RAM upgrade costs, reversible upgrade refunds and occupied-capacity downgrade blockers, cache/RAM deadlocks with CPU-local or system-wide halt behavior, 10-second deadlock failure and cooldown lockout behavior, high-contrast deadlock countdown header placement with persistent fill/drain progress bars, post-failure greyed lockout hardware, split deadlock-safe footprint dispatch for CPU-local cache vs System Scheduler RAM, watchdog auto-kill core/countdown display, scheduler policy controls, visible RAM load progress before CPU execution, queue acceptance under active pressure, previous PSU stress, dense hardware draw, mixed-size/mixed-frequency RAM sticks with per-stick and all-stick upgrades, and non-summed RAM module frequency readouts are covered by automated or smoke verification.
+- New CRON, hidden pre-research automation, deferred PSU Management/Thermal, first-screen PSU Capacity, paid-over-time power billing, power state, PSU overload failure, and RAM/CPU efficiency matching rows are tracked with automated coverage.
+- The first-screen PSU/readout, immediate billing, 0-credit bootstrap grace, unpaid auto-shutdown, early PSU Capacity, graceful shutdown drain, hard PSU failure, full-card PSU over-power flashing, header overload progress, first-time overload-failure popup, and repeat-failure topbar badge expectations above have automated verification; browser smoke evidence should still be refreshed after UI changes.
 - Browser persistence and Electron shell are marked `Built`.
 - Broad auto-repeat is marked `Deferred`; CRON v1 is tracked separately as the scoped early timer.
 - Later-stage systems are marked `Deferred`, which matches the first vertical slice scope.
-- Status granularity is intentional: locked module reveal, CRON Scheduler, PSU Management, power states/billing, PSU reliability stress, and Thermal Control are separate rows with targeted test evidence.
-- Stage wording is intentional: `Stage 4: full system building` is `Deferred`, while RAM Control, matched CPU, and power reveal are tracked in the vertical slice.
+- Status granularity is intentional: CRON Scheduler, deferred PSU Management/Thermal, power states/billing, PSU reliability stress, and PSU overload failure are separate rows with targeted test evidence.
+- Stage wording is intentional: `Stage 4: full system building` is `Deferred`, while RAM Control, second-CPU package choices, and power reveal are tracked in the vertical slice.
 - Research cards now list requirement rows, own benchmark compute actions, keep compute requirements/payouts visible, and put blocker copy directly in disabled action buttons; benchmark tasks are intentionally hidden from the normal task catalog after this pass.
 
 ## Checks Run
 
+- PSU socket/power UI pass on May 19, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now includes unmatched and matched CPU socket choices with projected power increase, credits-only PSU Capacity in first-screen upgrades, buying PSU wattage without PSU Management, 10-second overload-failure pressure just above 100% load, faster failure pressure at higher overload, cooldown when draw returns under capacity, no PSU headroom/efficiency row, compact header Boot/Kill controls, compact load-meter placement, larger centered PSU overload header progress, full-card red PSU over-power flashing, a short first-time PSU failure popup after overload cutoff, repeat-failure topbar badge, boot/shutdown transition handoff from PSU to System Scheduler, and overload-failure UI.
+- Browser smoke on May 19, 2026: `http://127.0.0.1:6173/` loaded without console errors other than the React DevTools info message. Desktop and 390x844 mobile snapshots verified the compact PSU section with no headroom/efficiency row, power controls in the header, load adjacent to the meter, and a first-screen PSU Capacity upgrade row.
 - Task resource reconciliation on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now checks every task definition against per-core operation residency for operation count, cache need, and RAM need; Shard Reconcile is blocked at 1 Kb RAM because its four parallel shard pages peak at 4 Kb, and Bus Mirror reports its 1 Kb two-core RAM footprint.
 - Crash/restart hardening on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now includes a stale pre-live save with removed task IDs in completed counts, active tasks, queue, CRON, benchmarks, and autorepeat loading into a renderable/tickable state. Vite, Electron, and `wait-on` now share fixed dev renderer port `6173` with strict-port startup so the desktop shell cannot silently load another project or a stale renderer.
 - CRON/power implementation update on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed for the implemented CRON, PSU, Thermal, power-state, efficiency, and popup slice.
@@ -260,11 +266,11 @@ Current `FEATURES.md` observations:
 - RAM frequency verification passed on May 18, 2026 with `npm test` and `npm run typecheck`; coverage includes adding RAM sticks without increasing a summed total speed, all-stick frequency upgrades using the per-module rate, and the RAM summary hiding legacy aggregate speed values.
 - `npm run typecheck`: passed for app and Electron TypeScript on May 18, 2026.
 - `npm run build`: passed for Vite production output and Electron compile on May 18, 2026.
-- `http://localhost:5176/` Playwright smoke on May 17, 2026: app loaded as IdleBit at 1365x900, first screen showed grouped CPU Bound Fetch Bit/Decode Bit work with generic CPU/cache labels, and RAM/PSU/System Scheduler text was absent from the opening view. The PSU absence in this older smoke is superseded by the first-screen power readout expectation above.
-- Desktop browser smoke: passed at `http://127.0.0.1:4173` via local Playwright fallback; first screen is bit-scale with Fetch Bit and Decode Bit visible, research initially hidden/empty, RAM/PSU/cooling status entries absent, centered `CPU` header, `Cache` title, and row-aligned core/cache upgrade buttons. The PSU absence in this older smoke is superseded by the first-screen power readout expectation above.
+- `http://localhost:5176/` Playwright smoke on May 17, 2026: app loaded as IdleBit at 1365x900, first screen showed grouped CPU Bound Fetch Bit/Decode Bit work with generic CPU/cache labels, and RAM/PSU/System Scheduler text was absent from the opening view. The PSU absence in this older smoke is superseded by the first-screen power readout and PSU Capacity expectation above.
+- Desktop browser smoke: passed at `http://127.0.0.1:4173` via local Playwright fallback; first screen is bit-scale with Fetch Bit and Decode Bit visible, research initially hidden/empty, RAM/PSU/cooling status entries absent, centered `CPU` header, `Cache` title, and row-aligned core/cache upgrade buttons. The PSU absence in this older smoke is superseded by the first-screen power readout and PSU Capacity expectation above.
 - Mobile browser smoke: passed at 390x844 viewport via local Chrome CDP fallback; the task DAG modal opens from Fetch Bit and remains usable without horizontal layout overflow.
 - Interaction smoke: automated coverage verifies Fetch Bit as the first runnable task, Decode Bit as a visible 2 b cache-gated starter goal, and Decode Logic as the first research reveal.
-- Progressive reveal smoke: previous pass verified RAM hidden/actionless before RAM Control and later systems hidden before matched CPU system building; the new power plan supersedes the older PSU-hidden expectation with baseline PSU/power readouts visible from the first screen and advanced PSU/tuning hidden or locked until its gate.
+- Progressive reveal smoke: previous pass verified RAM hidden/actionless before RAM Control and later systems hidden before second-CPU system building; the current power plan supersedes the older PSU-hidden expectation with baseline PSU/power readouts plus PSU Capacity visible from the first screen and advanced PSU/tuning deferred.
 - Research/task comment pass: automated coverage verifies Bit Flip and Bit Shift unlock together from Decode Logic, Byte Copy unlocks from Byte Operations, Packet Check remains gated by Cache Mapping, benchmark compute runs from research cards, completed benchmarks do not linger in the task list, and scheduler unlocks require research instead of direct upgrade shortcuts.
 - Hardware inline control pass: passed; the CPU header is centered and no longer shows an active-count suffix, the core and cache modules share header/status, aligned stat rows, compact upgrade steppers with icon-number credit/data costs, and meter styling, the cache header reads `Cache`, cache capacity and speed upgrades are visible from the first screen, cache speed is visible, cache shows committed/total bits in the stat row, cache-fill shows active core-colored committed segments inside fixed Buffer/Ready lanes, Buffer appears only when CPU issue outruns cache write speed, completed tasks release cache immediately without held or resident cache styling, the single-CPU hardware stack is centered in the motherboard, and core/task card heights stay stable while runtime text changes above the progress bars.
 - Cache usability visual pass: passed on May 16, 2026 via isolated Chrome CDP against `http://127.0.0.1:4173`; seeded and screenshotted idle, buffering, loading/waiting, ready, mixed four-core, and mobile mixed cache states. A follow-up `http://localhost:5176/` seed verified partial cache buffer rendering: a 50% cache buffer displayed `0.5 b Buffer` and colored only half of the 1-bit footprint instead of snapping to the full bit. The May 17 automated UI pass verifies the cache module now uses `Buffer` and `Ready` lanes only, equal 1 Hz CPU/cache rates move committed bits directly into Ready, and faster CPU issue creates Buffer equal to the backlog over cache write speed. Completed Fetch Bit released cache to `0 b` with no held/resident segment. Overflow probe returned no overflowing nodes for core status, task status, cache state labels, or compact resource costs. CPU runtime labels stayed compact (`Read 1 b`, `Cache wait 1 b`, `Processing`) without increasing core card height.

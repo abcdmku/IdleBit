@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Rows3,
   Thermometer,
+  TriangleAlert,
   X,
   Zap,
   type LucideIcon,
@@ -78,6 +79,19 @@ type TaskCategoryId = "cpu" | "system" | "distributed" | "other";
 type CoreGridDensity = "normal" | "compact" | "dense";
 type CronIntervalMode = "seconds" | "minutes";
 type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
+
+const POWER_BOOT_SECONDS = 10;
+const POWER_SHUTDOWN_SECONDS = 8;
+
+interface UiPowerOverloadFailure {
+  seconds?: number;
+  limitSeconds?: number;
+  remainingSeconds?: number;
+  progress?: number;
+  rate?: number;
+  active?: boolean;
+  tripped?: boolean;
+}
 
 interface CacheSegment {
   kind: CacheSegmentKind;
@@ -405,6 +419,13 @@ interface UiSystemStatus {
   powerState?: string;
   powerHeadroomWatts?: number;
   powerBootstrapGraceSeconds?: number;
+  powerTransitionSeconds?: number;
+  powerOverloadFailure?: UiPowerOverloadFailure;
+  powerOverloadFailureSeconds?: number;
+  powerOverloadFailureProgress?: number;
+  powerOverloadFailureRemainingSeconds?: number;
+  powerOverloadFailureActive?: boolean;
+  powerOverloadFailureTripped?: boolean;
   billingGraceSeconds?: number;
   powerBillingGraceSeconds?: number;
   coolingStress?: number;
@@ -436,14 +457,30 @@ interface UiSystemStatus {
     headroomWatts?: number;
     costPerSecond?: number;
     efficiency?: number;
+    transitionSeconds?: number;
+    powerTransitionSeconds?: number;
     bootstrapGraceSeconds?: number;
     powerBootstrapGraceSeconds?: number;
+    overloadFailure?: UiPowerOverloadFailure;
+    powerOverloadFailure?: UiPowerOverloadFailure;
+    overloadFailureSeconds?: number;
+    powerOverloadFailureSeconds?: number;
+    overloadFailureProgress?: number;
+    powerOverloadFailureProgress?: number;
+    overloadFailureRemainingSeconds?: number;
+    powerOverloadFailureRemainingSeconds?: number;
+    overloadFailureActive?: boolean;
+    powerOverloadFailureActive?: boolean;
+    overloadFailureTripped?: boolean;
+    powerOverloadFailureTripped?: boolean;
     billingGraceSeconds?: number;
     powerBillingGraceSeconds?: number;
     controlsAvailable?: boolean;
     canControl?: boolean;
     canPowerOn?: boolean;
     canPowerOff?: boolean;
+    canPowerKill?: boolean;
+    canKillPower?: boolean;
     canRequestPowerOn?: boolean;
     canRequestPowerOff?: boolean;
     canTurnOn?: boolean;
@@ -462,6 +499,7 @@ interface UiCronSchedule {
   mode?: CronIntervalMode;
   minIntervalSeconds?: number;
   minimumSeconds?: number;
+  remainingSeconds?: number;
   secondsRemaining?: number;
   countdownSeconds?: number;
   nextRunSeconds?: number;
@@ -489,14 +527,30 @@ interface UiPowerState {
   headroomWatts?: number;
   costPerSecond?: number;
   efficiency?: number;
+  transitionSeconds?: number;
+  powerTransitionSeconds?: number;
   bootstrapGraceSeconds?: number;
   powerBootstrapGraceSeconds?: number;
+  overloadFailure?: UiPowerOverloadFailure;
+  powerOverloadFailure?: UiPowerOverloadFailure;
+  overloadFailureSeconds?: number;
+  powerOverloadFailureSeconds?: number;
+  overloadFailureProgress?: number;
+  powerOverloadFailureProgress?: number;
+  overloadFailureRemainingSeconds?: number;
+  powerOverloadFailureRemainingSeconds?: number;
+  overloadFailureActive?: boolean;
+  powerOverloadFailureActive?: boolean;
+  overloadFailureTripped?: boolean;
+  powerOverloadFailureTripped?: boolean;
   billingGraceSeconds?: number;
   powerBillingGraceSeconds?: number;
   controlsAvailable?: boolean;
   canControl?: boolean;
   canPowerOn?: boolean;
   canPowerOff?: boolean;
+  canPowerKill?: boolean;
+  canKillPower?: boolean;
   canRequestPowerOn?: boolean;
   canRequestPowerOff?: boolean;
   canTurnOn?: boolean;
@@ -560,8 +614,10 @@ interface HardwareBoardProps {
   onSelectComponent: (component: SelectedComponent) => void;
   deadlockHelpResource?: DeadlockResource | null;
   deadlockCooldownHelpResource?: DeadlockResource | null;
+  showPsuFailureHelp?: boolean;
   onDismissDeadlockHelp?: () => void;
   onDismissDeadlockCooldownHelp?: () => void;
+  onDismissPsuFailureHelp?: () => void;
 }
 
 function getSelectedCoreId(selection: SelectedComponent) {
@@ -1598,9 +1654,6 @@ const getStressTone = (ratio: number | null) => {
   return "good";
 };
 
-const hasSecondCpuSystem = (visible: VisibleState) =>
-  visible.hardware.secondCpu || visible.metrics.cpuSockets.length > 1;
-
 const hasUiFlag = (visible: VisibleState, ...names: string[]) => {
   const flags = asUiVisible(visible).flags as unknown as Record<string, unknown>;
   return names.some((name) => flags[name] === true);
@@ -1629,15 +1682,6 @@ const hasPsuManagement = (visible: VisibleState) => {
     ui.systemManagement?.psuManagement ||
       ui.systemManagement?.powerManagement ||
       hasUiFlag(visible, "psuManagement", "powerManagement"),
-  );
-};
-
-const hasThermalControl = (visible: VisibleState) => {
-  const ui = asUiVisible(visible);
-  return Boolean(
-    ui.systemManagement?.thermalControl ||
-      hasUiFlag(visible, "thermalControl") ||
-      visible.flags.cooling,
   );
 };
 
@@ -1708,6 +1752,7 @@ const getCronCountdownLabel = (schedule: UiCronSchedule) => {
   if (schedule.enabled === false) return "Paused";
 
   const seconds = firstNumber(
+    schedule.remainingSeconds,
     schedule.secondsRemaining,
     schedule.countdownSeconds,
     schedule.nextRunSeconds,
@@ -1835,6 +1880,75 @@ const getPowerStats = (visible: VisibleState) => {
       ui.metrics.powerBillingGraceSeconds,
     ) ?? 0,
   );
+  const transitionSeconds = Math.max(
+    0,
+    firstNumber(
+      power?.transitionSeconds,
+      power?.powerTransitionSeconds,
+      ui.systemStatus?.powerTransitionSeconds,
+      ui.metrics.powerTransitionSeconds,
+    ) ?? 0,
+  );
+  const overload =
+    power?.overloadFailure ??
+    power?.powerOverloadFailure ??
+    ui.systemStatus?.powerOverloadFailure ??
+    ui.metrics.powerOverloadFailure;
+  const overloadSeconds = Math.max(
+    0,
+    firstNumber(
+      overload?.seconds,
+      power?.overloadFailureSeconds,
+      power?.powerOverloadFailureSeconds,
+      ui.systemStatus?.powerOverloadFailureSeconds,
+      ui.metrics.powerOverloadFailure?.seconds,
+    ) ?? 0,
+  );
+  const overloadLimitSeconds =
+    firstPositiveNumber(
+      overload?.limitSeconds,
+      ui.metrics.powerOverloadFailure?.limitSeconds,
+    ) ?? 10;
+  const overloadRemainingSeconds = Math.max(
+    0,
+    firstNumber(
+      overload?.remainingSeconds,
+      power?.overloadFailureRemainingSeconds,
+      power?.powerOverloadFailureRemainingSeconds,
+      ui.systemStatus?.powerOverloadFailureRemainingSeconds,
+      ui.metrics.powerOverloadFailure?.remainingSeconds,
+      overloadLimitSeconds - overloadSeconds,
+    ) ?? 0,
+  );
+  const overloadProgress = clampMeter(
+    firstNumber(
+      overload?.progress,
+      power?.overloadFailureProgress,
+      power?.powerOverloadFailureProgress,
+      ui.systemStatus?.powerOverloadFailureProgress,
+      ui.metrics.powerOverloadFailure?.progress,
+      overloadSeconds / Math.max(1, overloadLimitSeconds),
+    ) ?? null,
+  );
+  const overloadTripped =
+    firstBoolean(
+      overload?.tripped,
+      power?.overloadFailureTripped,
+      power?.powerOverloadFailureTripped,
+      ui.systemStatus?.powerOverloadFailureTripped,
+      ui.metrics.powerOverloadFailure?.tripped,
+    ) ?? overloadSeconds >= overloadLimitSeconds;
+  const overloadActive =
+    firstBoolean(
+      overload?.active,
+      power?.overloadFailureActive,
+      power?.powerOverloadFailureActive,
+      ui.systemStatus?.powerOverloadFailureActive,
+      ui.metrics.powerOverloadFailure?.active,
+    ) ?? (stress > 1 || overloadSeconds > 0);
+  const overloadRate =
+    firstNumber(overload?.rate, ui.metrics.powerOverloadFailure?.rate) ??
+    (stress > 1 ? Math.max(1, stress) : 0);
 
   return {
     state,
@@ -1843,6 +1957,16 @@ const getPowerStats = (visible: VisibleState) => {
     stress,
     costPerSecond,
     billingGraceSeconds,
+    transitionSeconds,
+    overloadFailure: {
+      seconds: overloadSeconds,
+      limitSeconds: overloadLimitSeconds,
+      remainingSeconds: overloadRemainingSeconds,
+      progress: overloadProgress,
+      rate: overloadRate,
+      active: overloadActive,
+      tripped: overloadTripped,
+    },
   };
 };
 
@@ -1863,6 +1987,10 @@ const getPowerControls = (visible: VisibleState, state: PowerLifecycleState) => 
     power?.canRequestPowerOff,
     power?.canTurnOff,
   );
+  const explicitCanPowerKill = firstBoolean(
+    power?.canPowerKill,
+    power?.canKillPower,
+  );
   const controlsAvailable = firstBoolean(power?.controlsAvailable, power?.canControl);
   const controlsAllowed = controlsAvailable ?? true;
   const showControls = controlsAvailable ?? true;
@@ -1871,6 +1999,7 @@ const getPowerControls = (visible: VisibleState, state: PowerLifecycleState) => 
     showControls,
     canPowerOn: explicitCanPowerOn ?? (controlsAllowed && state === "off"),
     canPowerOff: explicitCanPowerOff ?? (controlsAllowed && state === "on"),
+    canPowerKill: explicitCanPowerKill ?? (controlsAllowed && state !== "off"),
   };
 };
 
@@ -2098,8 +2227,10 @@ export function HardwareBoard({
   onSelectComponent,
   deadlockHelpResource = null,
   deadlockCooldownHelpResource = null,
+  showPsuFailureHelp = false,
   onDismissDeadlockHelp,
   onDismissDeadlockCooldownHelp,
+  onDismissPsuFailureHelp,
 }: HardwareBoardProps) {
   const selectedCoreId = getSelectedCoreId(selectedComponent);
   const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
@@ -2109,14 +2240,12 @@ export function HardwareBoard({
   const schedulerVisible =
     visible.flags.basicQueue || visible.flags.scheduler || getQueueEntries(visible).length > 0;
   const allCoreTuningVisible = visible.flags.basicQueue || visible.flags.scheduler;
-  const secondCpuSystemVisible = hasSecondCpuSystem(visible);
-  const cronVisible = secondCpuSystemVisible;
+  const cronVisible = hasCronScheduler(visible);
   const systemSchedulerVisible = visible.flags.scheduler;
   const memoryVisible = hasSystemMemory(visible);
   const psuAdvancedControlsVisible = hasPsuManagement(visible);
-  const thermalControlUnlocked = hasThermalControl(visible);
   const psuVisible = true;
-  const thermalVisible = secondCpuSystemVisible || thermalControlUnlocked;
+  const thermalVisible = false;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
 
@@ -2321,6 +2450,9 @@ export function HardwareBoard({
               upgrades={psuUpgrades}
               dispatch={dispatch}
               advancedControls={psuAdvancedControlsVisible}
+              showTransitionStatus={!systemSchedulerVisible}
+              showFailureHelp={showPsuFailureHelp}
+              onDismissFailureHelp={onDismissPsuFailureHelp}
             />
           )}
           {thermalVisible && (
@@ -2330,7 +2462,7 @@ export function HardwareBoard({
               onSelect={() => onSelectComponent("thermal")}
               upgrades={psuUpgrades}
               dispatch={dispatch}
-              unlocked={thermalControlUnlocked}
+              unlocked={false}
             />
           )}
         </SystemRail>
@@ -3180,7 +3312,6 @@ function CoreDie({
     >
       <span className="core-die-head">
         <span className="core-label">{coreLabel}</span>
-        <span className="core-status-dot" aria-hidden="true" />
         {active && (
           <button
             type="button"
@@ -3192,6 +3323,7 @@ function CoreDie({
             <X size={11} />
           </button>
         )}
+        <span className="core-status-dot" aria-hidden="true" />
       </span>
       <span className="core-clock">
         <strong>{formatClock(core.clockHz)}</strong>
@@ -3254,15 +3386,77 @@ function EmptySocketSection({
         <span className="hw-section-meta">Empty</span>
       </button>
       <div className="empty-socket">
-        <strong>Install matched CPU</strong>
-        <small>Copies matching specs</small>
+        <strong>Install CPU</strong>
+        <small>Pick base silicon or copy CPU A specs.</small>
       </div>
-      <InlineUpgradeRow
+      <CpuInstallOptions
         upgrades={upgrades}
         resources={resources}
         dispatch={dispatch}
       />
     </section>
+  );
+}
+
+const getCpuInstallDescription = (upgrade: VisibleUpgrade) =>
+  upgrade.id === "matchedCpu" ? "Matched package" : "Base package";
+
+function CpuInstallOptions({
+  upgrades,
+  resources,
+  dispatch,
+}: {
+  upgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  const socketUpgrades = upgrades
+    .filter((upgrade) => upgrade.id === "secondCpu" || upgrade.id === "matchedCpu")
+    .sort((left, right) =>
+      left.id === "secondCpu" && right.id === "matchedCpu" ? -1 : 0,
+    );
+
+  if (socketUpgrades.length === 0) return null;
+
+  return (
+    <div className="cpu-install-options" aria-label="CPU install options">
+      {socketUpgrades.map((upgrade) => {
+        const buyTitle = `${upgrade.name}: ${formatCost(upgrade.costs)}`;
+        const powerDelta =
+          upgrade.powerDeltaWatts === null || upgrade.powerDeltaWatts === undefined
+            ? null
+            : upgrade.powerDeltaWatts;
+
+        return (
+          <button
+            key={upgrade.id}
+            type="button"
+            className={`cpu-install-option ${upgrade.accent}`}
+            disabled={!upgrade.canAfford}
+            title={buyTitle}
+            onClick={() =>
+              dispatch({
+                type: "buyUpgrade",
+                upgradeId: upgrade.id,
+              })
+            }
+          >
+            <span className="cpu-install-copy">
+              <strong>{upgrade.name}</strong>
+              <small>{getCpuInstallDescription(upgrade)}</small>
+            </span>
+            {powerDelta !== null && (
+              <span className="cpu-install-power">
+                <small>power</small>
+                <strong>+{formatWatts(powerDelta)}</strong>
+              </span>
+            )}
+            <ResourceCost costs={upgrade.costs} compact resources={resources} />
+            <Plus size={12} />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -3272,23 +3466,29 @@ function DeadlockHelpCaption({
   kind = "deadlock",
   onDismiss,
 }: {
-  kind?: "deadlock" | "cooldown";
+  kind?: "deadlock" | "cooldown" | "psuFailure";
   onDismiss?: () => void;
 }) {
   return (
-    <aside className="deadlock-help-caption" aria-live="polite">
+    <aside className={`deadlock-help-caption ${kind}`} aria-live="polite">
       {kind === "deadlock" ? (
         <p>
           Deadlock: this task is waiting for cache/RAM held by other work.
           Cancel a task or add capacity to let it continue. Later scheduler
           research can avoid or clean this up.
         </p>
-      ) : (
+      ) : kind === "cooldown" ? (
         <p>
           Deadlock cooldown: if the timer reaches 10s, every active process is
           lost and the lockout must drain to 0 before work can start again.
           Resolve earlier to keep work running while the timer cools down.
           Upgrade Deadlock Cooldown to drain it faster.
+        </p>
+      ) : (
+        <p>
+          PSU failure: draw is above capacity. If this reaches 10s, the PSU
+          cuts power instantly, clears active and queued work, and the system
+          must be rebooted. Buy PSU Capacity or reduce load before it fills.
         </p>
       )}
       <button type="button" onClick={onDismiss}>
@@ -3467,7 +3667,7 @@ const schedulerKillPolicyLabels: Record<SchedulerKillPolicy, string> = {
 };
 
 const formatCountdownSeconds = (seconds: number) =>
-  `${formatNumber(Math.max(0, seconds))}s`;
+  `${formatNumber(Math.max(0, Math.ceil(seconds)))}s`;
 
 const formatCoreTarget = (coreIds: number[], sockets: VisibleCpuSocket[]) => {
   if (coreIds.length === 0) return "C?";
@@ -4113,8 +4313,8 @@ function CronScheduleRow({
         </button>
       </div>
 
-      <div className="cron-next" aria-label="Next run">
-        <small>Next</small>
+      <div className="cron-next" aria-label="Next CRON job">
+        <small>Next job</small>
         <strong>{getCronCountdownLabel(schedule)}</strong>
       </div>
     </div>
@@ -4137,6 +4337,7 @@ function SystemSchedulerSection({
   const queueItems = getSystemQueueDisplayItems(visible);
   const slotCapacity = getVisibleSystemSchedulerSlots(visible);
   const deadlocked = queueItems.some((item) => item.deadlocked);
+  const power = getPowerStats(visible);
 
   return (
     <section
@@ -4159,7 +4360,10 @@ function SystemSchedulerSection({
           target="system"
           dispatch={dispatch}
         />
+        <SystemShutdownControl power={power} dispatch={dispatch} />
       </div>
+
+      <PowerTransitionBanner power={power} surface="system" />
 
       <QueuePreview
         items={queueItems}
@@ -4537,6 +4741,83 @@ function RamStickPipeline({
   );
 }
 
+function SystemShutdownControl({
+  power,
+  dispatch,
+}: {
+  power: ReturnType<typeof getPowerStats>;
+  dispatch: Dispatch;
+}) {
+  const starting = power.state === "off";
+  const label =
+    power.state === "off"
+      ? "Start system"
+      : power.state === "booting"
+        ? "Starting"
+        : power.state === "shuttingDown"
+          ? "Shutting down"
+          : "Shutdown";
+
+  return (
+    <button
+      type="button"
+      className={`system-shutdown-button ${starting ? "start" : ""}`}
+      onClick={() =>
+        dispatch({ type: "setPowerState", state: starting ? "on" : "off" })
+      }
+      disabled={power.state !== "on" && power.state !== "off"}
+      title={starting ? "Start system" : "Graceful shutdown"}
+      aria-label={starting ? "Start system" : "Graceful shutdown"}
+    >
+      <Power size={12} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function PowerTransitionBanner({
+  power,
+  surface,
+}: {
+  power: ReturnType<typeof getPowerStats>;
+  surface: "psu" | "system";
+}) {
+  if (power.state !== "booting" && power.state !== "shuttingDown") return null;
+
+  const totalSeconds =
+    power.state === "booting" ? POWER_BOOT_SECONDS : POWER_SHUTDOWN_SECONDS;
+  const progress = clampMeter(
+    1 - power.transitionSeconds / Math.max(1, totalSeconds),
+  );
+  const label =
+    power.state === "booting" ? "System booting" : "System shutting down";
+
+  return (
+    <div
+      className={`power-transition-banner ${surface} ${power.state}`}
+      role="status"
+      aria-label={`${label}${
+        power.transitionSeconds > 0
+          ? ` ${formatCountdownSeconds(power.transitionSeconds)} remaining`
+          : ""
+      }`}
+    >
+      <span className="power-transition-label">
+        <RefreshCw size={12} />
+        <strong>{label}</strong>
+      </span>
+      {power.transitionSeconds > 0 && (
+        <span className="power-transition-time">
+          {formatCountdownSeconds(power.transitionSeconds)}
+        </span>
+      )}
+      <span className="power-transition-meter" aria-hidden="true">
+        <span style={{ width: `${progress * 100}%` }} />
+      </span>
+    </div>
+  );
+}
+
 function PsuSection({
   visible,
   selected,
@@ -4544,6 +4825,9 @@ function PsuSection({
   upgrades,
   dispatch,
   advancedControls,
+  showTransitionStatus,
+  showFailureHelp,
+  onDismissFailureHelp,
 }: {
   visible: VisibleState;
   selected: boolean;
@@ -4551,102 +4835,131 @@ function PsuSection({
   upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
   advancedControls: boolean;
+  showTransitionStatus: boolean;
+  showFailureHelp?: boolean;
+  onDismissFailureHelp?: () => void;
 }) {
   const power = getPowerStats(visible);
   const powerControls = getPowerControls(visible, power.state);
   const tone = getStressTone(power.stress);
-  const efficiency = getEfficiencyMetrics(visible);
   const psuUpgrade = upgrades.find((upgrade) => upgrade.id === "psu");
   const otherUpgrades = upgrades.filter(
     (upgrade) => upgrade.id !== "psu" && upgrade.id !== "cooling",
   );
-  const expandedTelemetry =
-    selected ||
-    advancedControls ||
-    power.state !== "on" ||
-    power.stress >= 0.75;
   const stateLabel = {
     on: "On",
     off: "Off",
     booting: "Booting",
     shuttingDown: "Shutting down",
   }[power.state];
+  const bootButtonClass =
+    power.state === "off" ? "go" : power.state === "booting" ? "active" : "";
+
+  const loadPercent = Math.min(100, Math.max(0, power.stress * 100));
+  const showOverloadFailure =
+    power.overloadFailure.active || power.overloadFailure.progress > 0;
+  const overloadLabel = power.overloadFailure.tripped
+    ? "PSU failure"
+    : power.stress > 1
+      ? `${formatCountdownSeconds(power.overloadFailure.remainingSeconds)} to fail`
+      : "Resetting";
 
   return (
     <section
       className={`hw-section psu-section ${tone} power-${power.state} ${
-        selected ? "selected" : ""
-      }`}
+        power.stress > 1 ? "overloaded" : ""
+      } ${selected ? "selected" : ""}`}
     >
-      <button type="button" className="hw-section-header" onClick={onSelect}>
-        <Power size={14} />
-        <span>PSU</span>
-        <span className="hw-section-meta">
-          <strong>{formatPercent(power.stress)}</strong>
-        </span>
-      </button>
-
-      <div className="psu-compact-row">
-        <span className={`power-state-chip ${power.state}`}>{stateLabel}</span>
-        <span className="psu-compact-stat">
-          <small>draw</small>
-          <strong>{formatWatts(power.drawWatts)}</strong>
-        </span>
-        <span className="psu-compact-stat">
-          <small>cr/s</small>
-          <strong>{formatPowerRate(power.costPerSecond)}</strong>
-        </span>
-        {power.billingGraceSeconds > 0 && (
-          <span className="psu-grace-chip">
-            {formatCountdownSeconds(power.billingGraceSeconds)} grace
-          </span>
+      <div className="psu-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <Power size={14} />
+          <span>PSU</span>
+        </button>
+        {showOverloadFailure && (
+          <PsuHeaderWarning
+            label={overloadLabel}
+            progress={power.overloadFailure.progress}
+            flashing={power.overloadFailure.active || power.overloadFailure.tripped}
+            tripped={power.overloadFailure.tripped}
+          />
         )}
         {powerControls.showControls && (
-          <div className="power-control-buttons" aria-label="Power controls">
+          <div className="power-control-buttons" aria-label={`Power controls: ${stateLabel}`}>
             <button
               type="button"
+              className={bootButtonClass}
               onClick={() => dispatch({ type: "setPowerState", state: "on" })}
               disabled={!powerControls.canPowerOn}
+              aria-pressed={power.state === "booting"}
             >
-              On
+              Boot
             </button>
             <button
               type="button"
-              onClick={() => dispatch({ type: "setPowerState", state: "off" })}
-              disabled={!powerControls.canPowerOff}
+              className="danger"
+              onClick={() => dispatch({ type: "killPower" })}
+              disabled={!powerControls.canPowerKill}
+              aria-pressed={false}
             >
-              Off
+              Kill
             </button>
           </div>
         )}
       </div>
 
-      <ModuleMeter value={power.drawWatts / power.capacityWatts} />
+      {showFailureHelp && (
+        <DeadlockHelpCaption kind="psuFailure" onDismiss={onDismissFailureHelp} />
+      )}
 
-      {expandedTelemetry && (
-        <div className="power-stat-grid">
-          <div className="module-stat">
-            <strong>{formatWatts(power.capacityWatts)}</strong>
-            <small>capacity</small>
-          </div>
-          <div className="module-stat">
-            <strong>{formatPercent(power.stress)}</strong>
-            <small>stress</small>
-          </div>
-          {power.billingGraceSeconds > 0 && (
-            <div className="module-stat">
-              <strong>{formatCountdownSeconds(power.billingGraceSeconds)}</strong>
-              <small>grace</small>
-            </div>
-          )}
-          <div className="module-stat">
-            <strong>{formatPercent(efficiency.powerEfficiency)}</strong>
-            <small>efficiency</small>
+      {showTransitionStatus && (
+        <PowerTransitionBanner power={power} surface="psu" />
+      )}
+
+      <div className="psu-hero">
+        <span className="psu-hero-stat psu-hero-draw-stat">
+          <span className="psu-hero-draw">{formatWatts(power.drawWatts)}</span>
+          <span className="psu-hero-capacity">
+            <span className="psu-hero-divider">/</span>
+            {formatWatts(power.capacityWatts)}
+          </span>
+        </span>
+        <span className="psu-hero-stat psu-hero-cost-stat">
+          <span className="psu-hero-cost">
+            {formatPowerRate(power.costPerSecond)}
+          </span>
+          <span className="psu-hero-cost-unit">cr/s</span>
+        </span>
+      </div>
+
+      <div className="psu-load-row">
+        <span className="psu-load-label">
+          <strong>{formatPercent(power.stress)}</strong>
+          <small>load</small>
+        </span>
+        <div
+          className="psu-load-meter"
+          role="img"
+          aria-label={`PSU load ${formatPercent(power.stress)}`}
+        >
+          <div
+            className="psu-load-meter-fill"
+            style={{ width: `${loadPercent}%` }}
+          />
+          <span className="psu-load-meter-tick" aria-hidden="true" />
+          <span className="psu-load-meter-tick critical" aria-hidden="true" />
+        </div>
+      </div>
+
+      {power.billingGraceSeconds > 0 && (
+        <div className="psu-meta-row">
+          <div className="psu-meta-cell psu-meta-grace">
+            <small>grace</small>
+            <strong>{formatCountdownSeconds(power.billingGraceSeconds)}</strong>
           </div>
         </div>
       )}
 
-      {advancedControls && psuUpgrade && (
+      {psuUpgrade && (
         <div className="power-upgrade-row">
           <UpgradeStepper
             upgrade={psuUpgrade}
@@ -4666,6 +4979,35 @@ function PsuSection({
         />
       )}
     </section>
+  );
+}
+
+function PsuHeaderWarning({
+  label,
+  progress,
+  flashing,
+  tripped,
+}: {
+  label: string;
+  progress: number;
+  flashing: boolean;
+  tripped: boolean;
+}) {
+  return (
+    <span
+      className={`psu-header-warning ${flashing ? "flashing" : ""} ${
+        tripped ? "tripped" : ""
+      }`}
+      aria-label={`PSU warning ${label}`}
+    >
+      <span className="psu-header-warning-label">
+        <TriangleAlert size={12} />
+        <strong>{label}</strong>
+      </span>
+      <span className="psu-header-warning-meter" aria-hidden="true">
+        <span style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%` }} />
+      </span>
+    </span>
   );
 }
 

@@ -8,8 +8,10 @@ export function SystemBoard({
   visible: VisibleState;
   children: ReactNode;
 }) {
+  const powerOff = visible.metrics.powerState === "off";
+
   return (
-    <div className={`system-board stage-${visible.stage}`}>
+    <div className={`system-board stage-${visible.stage} ${powerOff ? "power-offline" : ""}`}>
       <div className="system-board-frame" aria-hidden="true" />
       <div className="system-board-flow">{children}</div>
     </div>

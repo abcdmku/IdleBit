@@ -848,9 +848,8 @@ const rawTasks: RawTask[] = [
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => state.hardware.secondCpu,
-    requirement: (state) =>
-      state.hardware.secondCpu && hasResearch(state, "systemScheduler"),
+    reveal: () => false,
+    requirement: () => false,
     operations: [
       {
         id: "sample-thermals",

@@ -67,8 +67,6 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");
   if (flags.cron) completed.push("cronScheduler");
-  if (flags.psuManagement) completed.push("psuManagement");
-  if (flags.cooling) completed.push("thermalControl");
   return completed;
 };
 
@@ -386,6 +384,15 @@ const normalizeState = (state: LegacyState): GameState => {
     (resources.credits <= 0 && powerState !== "off"
       ? POWER_BOOTSTRAP_GRACE_SECONDS
       : 0);
+  const savedPower = state.power as
+    | (Partial<GameState["power"]> & { overloadWarningSeconds?: number })
+    | undefined;
+  const overloadFailureSeconds = Math.max(
+    0,
+    savedPower?.overloadFailureSeconds ??
+      savedPower?.overloadWarningSeconds ??
+      0,
+  );
   const normalized: GameState = {
     ...fresh,
     ...state,
@@ -434,6 +441,12 @@ const normalizeState = (state: LegacyState): GameState => {
       state: powerState,
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
       bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
+      overloadFailureSeconds,
+      lastFailureReason:
+        savedPower?.lastFailureReason === "psuOverload"
+          ? savedPower.lastFailureReason
+          : null,
+      failureCount: Math.max(0, savedPower?.failureCount ?? 0),
     },
     cron: {
       schedules: normalizeCronSchedules(state.cron?.schedules),

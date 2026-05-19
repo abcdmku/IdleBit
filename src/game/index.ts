@@ -1,5 +1,6 @@
 export { createInitialGameState } from "./progression";
 export {
+  acknowledgePowerFailure,
   applyAction,
   buyResearch,
   buyUpgrade,
@@ -9,6 +10,7 @@ export {
   getSchedulerWatchdogPreview,
   queueTask,
   requestPowerOff,
+  requestPowerKill,
   requestPowerOn,
   requestShutdown,
   requestStartup,
@@ -28,6 +30,7 @@ export type {
   GameState,
   HardwareComponentId,
   JobId,
+  PowerFailureReason,
   PowerStateId,
   ResearchId,
   SchedulerKillPolicy,

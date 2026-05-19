@@ -93,7 +93,6 @@ const coreCosts = (purchaseCount: number): Cost[] => [
 
 const psuCosts = (purchaseCount: number): Cost[] => [
   credits(130 * 1.9 ** purchaseCount),
-  data(5 * 1.3 ** purchaseCount),
 ];
 
 const coolingCosts = (purchaseCount: number): Cost[] => [
@@ -250,9 +249,11 @@ const getClockRefund = (state: GameState, context?: UpgradeContext) =>
     }),
   );
 
+const baseCpuCost = (): Cost[] => [credits(900), data(24)];
+
 const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   const sourceCpu = getCpuHardware(state, sourceCpuId);
-  const costs: Cost[] = [credits(900), data(24)];
+  const costs: Cost[] = baseCpuCost();
 
   for (let coreIndex = 1; coreIndex < sourceCpu.coreIds.length; coreIndex += 1) {
     costs.push(credits(140 * 2.05 ** (coreIndex - 1)));
@@ -279,6 +280,42 @@ const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   }
 
   return combineCosts(costs);
+};
+
+const installCpuPackage = (
+  state: GameState,
+  sourceCpu?: ReturnType<typeof getCpuHardware>,
+) => {
+  const nextCpuId = Math.max(0, ...state.hardware.cpus.map((cpu) => cpu.id)) + 1;
+  const firstCoreId =
+    Math.max(0, ...state.hardware.cpus.flatMap((cpu) => cpu.coreIds)) + 1;
+  const coreIds = sourceCpu
+    ? sourceCpu.coreIds.map((_, index) => firstCoreId + index)
+    : [firstCoreId];
+  const nextCpu = createCpuHardwareState(nextCpuId, coreIds, sourceCpu);
+  const coreClockLevels = { ...state.hardware.coreClockLevels };
+
+  coreIds.forEach((targetCoreId, index) => {
+    const sourceCoreId = sourceCpu?.coreIds[index];
+    coreClockLevels[targetCoreId] =
+      sourceCoreId === undefined ? 1 : getCoreClockLevel(state, sourceCoreId);
+  });
+
+  return syncHardwarePackages(
+    setHardware(
+      {
+        ...state,
+        flags: { ...state.flags, systemStats: true },
+      },
+      {
+        cpus: [...state.hardware.cpus, nextCpu],
+        coreClockLevels,
+        secondCpu: true,
+        psuLevel: Math.max(1, state.hardware.psuLevel),
+        psuWatts: getPsuWatts(Math.max(1, state.hardware.psuLevel)),
+      },
+    ),
+  );
 };
 
 const count = (
@@ -320,6 +357,9 @@ const count = (
   if (id === "cronInterval") return state.hardware.cronIntervalLevel ?? 0;
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
+  if (id === "secondCpu" || id === "matchedCpu") {
+    return state.hardware.secondCpu ? 1 : 0;
+  }
   if (id === "basicQueue") return state.flags.basicQueue ? 1 : 0;
   if (id === "scheduler") return state.flags.scheduler ? 1 : 0;
   return 0;
@@ -747,44 +787,24 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
   },
   {
     id: "secondCpu",
+    name: "Unmatched CPU",
+    component: "socket",
+    accent: "cyan",
+    maxPurchases: 1,
+    requirement: (state) => state.flags.secondCpu && state.hardware.cpus.length < 2,
+    cost: baseCpuCost,
+    buy: (state) => installCpuPackage(state),
+  },
+  {
+    id: "matchedCpu",
     name: "Matched CPU",
     component: "socket",
     accent: "amber",
     maxPurchases: 1,
     requirement: (state) => state.flags.secondCpu && state.hardware.cpus.length < 2,
     cost: (state, context) => matchingCpuCost(state, context?.sourceCpuId ?? 1),
-    buy: (state, context) => {
-      const sourceCpu = getCpuHardware(state, context?.sourceCpuId ?? 1);
-      const nextCpuId = Math.max(0, ...state.hardware.cpus.map((cpu) => cpu.id)) + 1;
-      const firstCoreId =
-        Math.max(0, ...state.hardware.cpus.flatMap((cpu) => cpu.coreIds)) + 1;
-      const coreIds = sourceCpu.coreIds.map((_, index) => firstCoreId + index);
-      const nextCpu = createCpuHardwareState(nextCpuId, coreIds, sourceCpu);
-      const coreClockLevels = { ...state.hardware.coreClockLevels };
-
-      sourceCpu.coreIds.forEach((sourceCoreId, index) => {
-        const targetCoreId = coreIds[index];
-        if (targetCoreId) {
-          coreClockLevels[targetCoreId] = getCoreClockLevel(state, sourceCoreId);
-        }
-      });
-
-      return syncHardwarePackages(
-        setHardware(
-          {
-            ...state,
-            flags: { ...state.flags, systemStats: true },
-          },
-          {
-            cpus: [...state.hardware.cpus, nextCpu],
-            coreClockLevels,
-            secondCpu: true,
-            psuLevel: Math.max(1, state.hardware.psuLevel),
-            psuWatts: getPsuWatts(Math.max(1, state.hardware.psuLevel)),
-          },
-        ),
-      );
-    },
+    buy: (state, context) =>
+      installCpuPackage(state, getCpuHardware(state, context?.sourceCpuId ?? 1)),
   },
   {
     id: "ram",
@@ -938,7 +958,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "PSU Capacity",
     component: "psu",
     accent: "amber",
-    requirement: (state) => state.flags.psuManagement,
+    requirement: () => true,
     cost: (state) => psuCosts(Math.max(0, state.hardware.psuLevel - 1)),
     buy: (state) => {
       const psuLevel = state.hardware.psuLevel + 1;

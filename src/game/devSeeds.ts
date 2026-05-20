@@ -1,8 +1,13 @@
 import {
+  createCpuHardwareState,
   createInitialGameState,
+  createRamStickState,
   createSystemState,
+  getCacheBits,
   getCacheBytes,
   getClockHz,
+  getPsuWatts,
+  getRamSpeedMt,
   syncCronSchedules,
 } from "./progression";
 import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
@@ -56,11 +61,62 @@ export const createRackReadyGameState = (): GameState => {
     psuLevel: 9,
     psuWatts: 0.86,
   };
+  const denseCoreCount = 128;
+  const denseClockLevel = 8;
+  const denseRamSpeedLevel = 6;
+  const denseCoreIds = Array.from(
+    { length: denseCoreCount },
+    (_, index) => index + 1,
+  );
+  const denseRamSticks = Array.from({ length: 32 }, (_, index) =>
+    createRamStickState(index + 1, 8, denseRamSpeedLevel),
+  );
+  const denseRamBits = denseRamSticks.reduce((total, stick) => total + stick.bits, 0);
+  const denseHardware: GameState["hardware"] = {
+    ...hardware,
+    clockLevel: denseClockLevel,
+    clockHz: getClockHz(denseClockLevel),
+    coreClockLevels: Object.fromEntries(
+      denseCoreIds.map((coreId) => [coreId, denseClockLevel]),
+    ),
+    cpus: Array.from({ length: 4 }, (_, index) => {
+      const cpuCoreIds = denseCoreIds.slice(index * 32, index * 32 + 32);
+      return createCpuHardwareState(index + 1, cpuCoreIds, {
+        cacheLevel: 18,
+        cacheBits: getCacheBits(18),
+        cacheBytes: getCacheBytes(18),
+        cacheSpeedLevel: denseClockLevel,
+        schedulerSlots: 32,
+      });
+    }),
+    cacheLevel: 18,
+    cacheBits: getCacheBits(18),
+    cacheBytes: getCacheBytes(18),
+    cacheSpeedLevel: denseClockLevel,
+    cores: denseCoreCount,
+    schedulerSlots: 128,
+    systemSchedulerSlots: 24,
+    secondCpu: true,
+    ramLevel: denseRamSticks.length,
+    ramBits: denseRamBits,
+    ramBytes: denseRamSticks.reduce((total, stick) => total + stick.bytes, 0),
+    ramSpeedLevel: denseRamSpeedLevel,
+    ramSpeedMt: getRamSpeedMt(denseRamSpeedLevel),
+    ramSticks: denseRamSticks,
+    psuLevel: 23,
+    psuWatts: getPsuWatts(23),
+  };
   const firstSystem = createSystemState(
     1,
     "Rack-Ready Workstation",
     "starterNode",
     hardware,
+  );
+  const denseSystem = createSystemState(
+    2,
+    "Dense Compute Node",
+    "denseComputeNode",
+    denseHardware,
   );
   const state: GameState = {
     ...base,
@@ -70,9 +126,9 @@ export const createRackReadyGameState = (): GameState => {
     },
     selectedSystemId: 1,
     rack: {
-      nextSystemId: 2,
+      nextSystemId: 3,
     },
-    systems: [firstSystem],
+    systems: [firstSystem, denseSystem],
     hardware,
     flags: {
       ...base.flags,

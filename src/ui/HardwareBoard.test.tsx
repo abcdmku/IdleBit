@@ -395,6 +395,57 @@ describe("HardwareBoard multi-system rack", () => {
         ...base.metrics,
         cpuSockets: [betaSocket],
         powerUsedWatts: 42,
+        ramUsedBits: 256,
+        ramSlots: [
+          {
+            id: 1,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 256,
+            usedBytes: 32,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+          {
+            id: 2,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+          {
+            id: 3,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+          {
+            id: 4,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+        ],
       },
     } as VisibleState;
     const systemTask = {
@@ -567,9 +618,17 @@ describe("HardwareBoard multi-system rack", () => {
     const slots = Array.from(container.querySelectorAll(".system-rack-slot"));
 
     expect(slots).toHaveLength(2);
-    expect(container.querySelector(".system-rack")?.textContent).toContain("Alpha");
-    expect(container.querySelector(".system-rack")?.textContent).toContain("Beta");
+    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Alpha");
+    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Beta");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Starter");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Compute");
     expect(container.querySelector(".system-rack")?.textContent).not.toContain("Empty");
+    expect(container.querySelector(".system-rack .rack-slot-cost")).not.toBeNull();
+    expect(container.querySelector(".system-rack .rack-slot-vitals")).toBeNull();
+    expect(container.querySelectorAll(".system-rack .rack-component-stat").length).toBeGreaterThan(0);
+    const betaRackSlot = slots[1]!;
+    expect(betaRackSlot.querySelectorAll(".rack-memory-stick")).toHaveLength(4);
+    expect(betaRackSlot.querySelectorAll(".rack-memory-stick.loading")).toHaveLength(1);
 
     act(() => {
       slots[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -594,7 +653,7 @@ describe("HardwareBoard multi-system rack", () => {
 
     expect(container.querySelector(".system-board")).toBeNull();
     expect(container.querySelector(".system-rack-slot.selected")?.textContent).toContain(
-      "Beta",
+      "Compute",
     );
 
     act(() => {
@@ -1628,8 +1687,13 @@ describe("App failure modals", () => {
     expect(restored.resources).toEqual({ credits: 20_000, data: 20_000 });
     expect(restored.flags.systemCatalog).toBe(true);
     expect(restored.flags.customMachineAssembly).toBe(false);
-    expect(restored.systems).toHaveLength(1);
-    expect(container.textContent).toContain("Rack-Ready Workstation");
+    expect(restored.systems).toHaveLength(2);
+    expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
+    expect(restored.systems[1]?.hardware.cores).toBe(128);
+    expect(restored.systems[1]?.hardware.ramSticks).toHaveLength(32);
+    expect(container.textContent).toContain("Rack");
+    expect(container.textContent).not.toContain("Rack-Ready Workstation");
+    expect(container.textContent).not.toContain("Dense Compute Node");
   });
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {

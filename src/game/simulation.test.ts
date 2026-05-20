@@ -1012,7 +1012,7 @@ describe("IdleBit simulation", () => {
     expect(restored.systems).toHaveLength(1);
   });
 
-  it("creates a rack-ready seed just before multi-system expansion", () => {
+  it("creates a rack-ready seed with a dense visual stress node", () => {
     const state = createRackReadyGameState();
     const visible = deriveVisibleState(state);
 
@@ -1020,11 +1020,15 @@ describe("IdleBit simulation", () => {
     expect(state.resources).toEqual({ credits: 20_000, data: 20_000 });
     expect(state.flags.systemCatalog).toBe(true);
     expect(state.flags.customMachineAssembly).toBe(false);
-    expect(state.systems).toHaveLength(1);
-    expect(state.rack.nextSystemId).toBe(2);
+    expect(state.systems).toHaveLength(2);
+    expect(state.systems[1]?.hardware.cores).toBe(128);
+    expect(state.systems[1]?.hardware.ramSticks).toHaveLength(32);
+    expect(state.rack.nextSystemId).toBe(3);
     expect(visible.rack.unlocked).toBe(true);
-    expect(visible.rack.systems).toHaveLength(1);
+    expect(visible.rack.systems).toHaveLength(2);
     expect(visible.rack.systems[0]?.name).toBe("Rack-Ready Workstation");
+    expect(visible.rack.systems[1]?.coreCount).toBe(128);
+    expect(visible.rack.systems[1]?.ramBits).toBe(state.systems[1]?.hardware.ramBits);
     expect(visible.machineBuilder.templates.map((template) => template.id)).toEqual([
       "starterNode",
       "compileBox",
@@ -1036,8 +1040,8 @@ describe("IdleBit simulation", () => {
       templateId: "compileBox",
     });
 
-    expect(expanded.systems).toHaveLength(2);
-    expect(expanded.selectedSystemId).toBe(2);
+    expect(expanded.systems).toHaveLength(3);
+    expect(expanded.selectedSystemId).toBe(3);
     expect(expanded.resources.credits).toBeLessThan(state.resources.credits);
   });
 

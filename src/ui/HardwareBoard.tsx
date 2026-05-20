@@ -2969,33 +2969,8 @@ const getSystemStatusTone = (status: string) => {
   return "online";
 };
 
-const getMeterTone = (ratio: number) => {
-  if (ratio >= 0.92) return "critical";
-  if (ratio >= 0.75) return "warn";
-  return "ok";
-};
-
-function RackMeter({
-  ratio,
-  tone,
-  label,
-}: {
-  ratio: number;
-  tone?: "ok" | "warn" | "critical";
-  label?: string;
-}) {
-  const safe = Math.max(0, Math.min(1, ratio));
-  const resolvedTone = tone ?? getMeterTone(safe);
-  return (
-    <span
-      className={`rack-meter tone-${resolvedTone}`}
-      aria-label={label}
-      role={label ? "img" : undefined}
-    >
-      <span className="rack-meter-fill" style={{ width: `${safe * 100}%` }} />
-    </span>
-  );
-}
+const getRackPipIndexes = (count: number) =>
+  Array.from({ length: Math.max(0, count) }, (_, index) => index);
 
 function SystemRackPanel({
   rack,
@@ -3075,6 +3050,51 @@ function SystemRackPanel({
           const statusTone = getSystemStatusTone(system.status);
           const selected = system.id === activeSystemId;
           const idle = coreActive === 0 && queueCount === 0;
+          const cpuPipCount = Math.max(2, Math.min(12, system.cores || 2));
+          const activeCpuPips = Math.round(coreRatio * cpuPipCount);
+          const cpuColumns = Math.min(4, Math.max(2, Math.ceil(cpuPipCount / 2)));
+          const visibleRamSlots = system.visible.metrics.ramSlots.slice(0, 32);
+          const fallbackActiveRamSticks =
+            system.ramBits > 0
+              ? Math.min(4, Math.ceil(ramRatio * 4))
+              : 0;
+          const ramVisualSlots =
+            visibleRamSlots.length > 0
+              ? visibleRamSlots.map((slot) => ({
+                  id: String(slot.id),
+                  ratio: slot.sizeBits > 0 ? slot.usedBits / slot.sizeBits : 0,
+                  populated: slot.sizeBits > 0,
+                  active: slot.usedBits > 0,
+                  title: `RAM ${slot.id}: ${formatBits(slot.usedBits)} / ${formatBits(slot.sizeBits)}`,
+                }))
+              : getRackPipIndexes(system.ramBits > 0 ? 4 : 0).map((slotIndex) => ({
+                  id: `fallback-${slotIndex}`,
+                  ratio: ramRatio,
+                  populated: system.ramBits > 0,
+                  active: slotIndex < fallbackActiveRamSticks,
+                  title: `RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`,
+                }));
+          const schedulerSlots = system.visible.metrics.cpuSockets.reduce(
+            (total, socket) => total + socket.schedulerSlots,
+            0,
+          );
+          const schedulerPipCount = Math.max(
+            4,
+            Math.min(8, schedulerSlots || system.cores || 4),
+          );
+          const activeSchedulerPips = Math.min(schedulerPipCount, coreActive);
+          const queuedSchedulerPips = Math.min(
+            schedulerPipCount - activeSchedulerPips,
+            queueCount,
+          );
+          const deadlockPips = Math.min(
+            schedulerPipCount,
+            system.visible.metrics.deadlocks.length,
+          );
+          const powerBarCount = 6;
+          const activePowerBars = Math.ceil(
+            Math.max(0, Math.min(1, powerRatio)) * powerBarCount,
+          );
 
           return (
             <button
@@ -3093,12 +3113,48 @@ function SystemRackPanel({
               onTouchEnd={(event) => {
                 handleRackTouchEnd(event, system.id);
               }}
-              title={`Select ${system.name} System Scheduler; double click to open`}
+              title={`Select system ${index + 1} scheduler; double click to open`}
             >
-              <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
-              <span className="rack-slot-index">{index + 1}</span>
+              <span className="rack-slot-rail">
+                <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
+                <span className="rack-slot-index">{index + 1}</span>
+                {builderUnlocked && (
+                  <span
+                    className="rack-slot-config"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Configure system ${index + 1}`}
+                    title={`Configure system ${index + 1}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      dispatch({ type: "selectSystem", systemId: system.id });
+                      onSelectComponent(
+                        scopeSelectionToSystem(system.id, activeComponent),
+                      );
+                      onOpenBuilder("configure", system.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      dispatch({ type: "selectSystem", systemId: system.id });
+                      onSelectComponent(
+                        scopeSelectionToSystem(system.id, activeComponent),
+                      );
+                      onOpenBuilder("configure", system.id);
+                    }}
+                  >
+                    <SlidersHorizontal size={12} />
+                  </span>
+                )}
+              </span>
               <span className="rack-slot-copy">
-                <strong>{system.name}</strong>
+                {system.powerCostPerSecond > 0 && (
+                  <span className="rack-slot-cost">
+                    <Zap size={9} />
+                    <span>-{formatPowerRate(system.powerCostPerSecond)} cr/s</span>
+                  </span>
+                )}
                 <small>
                   <span>{system.role}</span>
                   <span className="rack-slot-dot" aria-hidden="true">·</span>
@@ -3115,103 +3171,135 @@ function SystemRackPanel({
                   </span>
                 </small>
               </span>
-              <span className="rack-slot-vitals" aria-label="Vital stats">
-                <span className="rack-vital">
-                  <span className="rack-vital-label">
-                    <Cpu size={10} />
-                    CPU
+              <span
+                className="rack-slot-visuals"
+                aria-label={`Component indicators for system ${index + 1}`}
+              >
+                <span
+                  className="rack-component-bay rack-component-bay--cpu"
+                  title={`${coreActive}/${system.cores} cores active at ${formatClock(system.clockHz)}`}
+                  aria-label={`${coreActive}/${system.cores} cores active at ${formatClock(system.clockHz)}`}
+                >
+                  <span
+                    className="rack-cpu-die-grid"
+                    style={{ "--rack-core-columns": cpuColumns } as CSSProperties}
+                    aria-hidden="true"
+                  >
+                    {getRackPipIndexes(cpuPipCount).map((pipIndex) => (
+                      <span
+                        key={pipIndex}
+                        className={`rack-core-pip ${
+                          pipIndex < activeCpuPips ? "active" : ""
+                        }`}
+                      />
+                    ))}
                   </span>
-                  <RackMeter
-                    ratio={coreRatio}
-                    tone="ok"
-                    label={`${coreActive}/${system.cores} cores active`}
-                  />
-                  <span className="rack-vital-value">
+                  <span className="rack-component-stat">
                     {formatNumber(system.cores)}C
                     {system.clockHz > 0 && (
-                      <span className="rack-vital-sub">
-                        {" "}
-                        @ {formatClock(system.clockHz)}
+                      <span className="rack-component-stat-sub">
+                        {" @ "}
+                        {formatClock(system.clockHz)}
                       </span>
                     )}
                   </span>
                 </span>
                 {system.ramBits > 0 && (
-                  <span className="rack-vital">
-                    <span className="rack-vital-label">
-                      <MemoryStick size={10} />
-                      RAM
+                  <span
+                    className="rack-component-bay rack-component-bay--ram"
+                    title={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
+                    aria-label={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
+                  >
+                    <span
+                      className={`rack-memory-bank ${
+                        ramVisualSlots.length > 8 ? "dense" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {ramVisualSlots.map((slot) => (
+                        <span
+                          key={slot.id}
+                          className={`rack-memory-stick ${
+                            slot.populated ? "populated" : ""
+                          } ${slot.active ? "loading" : ""
+                          }`}
+                          title={slot.title}
+                        >
+                          <span
+                            className="rack-memory-stick-fill"
+                            style={{
+                              height: `${Math.max(0, Math.min(1, slot.ratio)) * 100}%`,
+                            }}
+                          />
+                        </span>
+                      ))}
                     </span>
-                    <RackMeter
-                      ratio={ramRatio}
-                      label={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
-                    />
-                    <span className="rack-vital-value">
+                    <span className="rack-component-stat">
                       {formatBits(system.ramUsedBits ?? 0)}
-                      <span className="rack-vital-sub">
+                      <span className="rack-component-stat-sub">
                         {" / "}
                         {formatBits(system.ramBits)}
                       </span>
                     </span>
                   </span>
                 )}
-                {powerCap > 0 && (
-                  <span className="rack-vital">
-                    <span className="rack-vital-label">
-                      <Zap size={10} />
-                      PSU
+                <span
+                  className="rack-component-bay rack-component-bay--scheduler"
+                  title={`${coreActive} active tasks, ${queueCount} queued`}
+                  aria-label={`${coreActive} active tasks, ${queueCount} queued`}
+                >
+                  <span className="rack-queue-bank" aria-hidden="true">
+                    {getRackPipIndexes(schedulerPipCount).map((pipIndex) => {
+                      const state =
+                        pipIndex < deadlockPips
+                          ? "deadlocked"
+                          : pipIndex < activeSchedulerPips
+                            ? "active"
+                            : pipIndex < activeSchedulerPips + queuedSchedulerPips
+                              ? "queued"
+                              : "";
+                      return (
+                        <span
+                          key={pipIndex}
+                          className={`rack-queue-pip ${state}`}
+                        />
+                      );
+                    })}
+                  </span>
+                  <span className="rack-component-stat">
+                    {formatNumber(coreActive)}/{formatNumber(system.cores)}
+                    <span className="rack-component-stat-sub">
+                      {" +Q "}
+                      {formatNumber(queueCount)}
                     </span>
-                    <RackMeter
-                      ratio={powerRatio}
-                      label={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
-                    />
-                    <span className="rack-vital-value">
+                  </span>
+                </span>
+                {powerCap > 0 && (
+                  <span
+                    className="rack-component-bay rack-component-bay--power"
+                    title={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
+                    aria-label={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
+                  >
+                    <span className="rack-power-stack" aria-hidden="true">
+                      {getRackPipIndexes(powerBarCount).map((barIndex) => (
+                        <span
+                          key={barIndex}
+                          className={`rack-power-bar ${
+                            barIndex < activePowerBars ? "active" : ""
+                          }`}
+                        />
+                      ))}
+                    </span>
+                    <span className="rack-component-stat">
                       {formatWatts(system.drawWatts)}
-                      <span className="rack-vital-sub">
+                      <span className="rack-component-stat-sub">
                         {" / "}
                         {formatWatts(powerCap)}
                       </span>
                     </span>
                   </span>
                 )}
-                {system.powerCostPerSecond > 0 && (
-                  <span className="rack-vital rack-vital--rate">
-                    <span className="rack-vital-label">RATE</span>
-                    <span className="rack-vital-value">
-                      −{formatPowerRate(system.powerCostPerSecond)} cr/s
-                    </span>
-                  </span>
-                )}
               </span>
-              {builderUnlocked && (
-                <span
-                  className="rack-slot-config"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Configure ${system.name}`}
-                  title={`Configure ${system.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    dispatch({ type: "selectSystem", systemId: system.id });
-                    onSelectComponent(
-                      scopeSelectionToSystem(system.id, activeComponent),
-                    );
-                    onOpenBuilder("configure", system.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    dispatch({ type: "selectSystem", systemId: system.id });
-                    onSelectComponent(
-                      scopeSelectionToSystem(system.id, activeComponent),
-                    );
-                    onOpenBuilder("configure", system.id);
-                  }}
-                >
-                  <SlidersHorizontal size={12} />
-                </span>
-              )}
             </button>
           );
         })}
@@ -3295,15 +3383,12 @@ function RackStrip({
               }}
               title={
                 view === "builder"
-                  ? `Configure ${system.name}`
-                  : `Open ${system.name}`
+                  ? `Configure system ${index + 1}`
+                  : `Open system ${index + 1}`
               }
             >
               <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
               <span className="rack-slot-index">{index + 1}</span>
-              <span className="rack-slot-copy">
-                <strong>{system.name}</strong>
-              </span>
             </button>
           );
         })}

@@ -176,6 +176,14 @@ export const toGameAction = (action: UiGameAction): GameAction => {
       type: "buyCustomMachine",
       components: {
         cpu: action.tierIds.cpu ?? action.tierIds.cpuPackage ?? "",
+        cpuPackageCount:
+          action.tierIds.cpuPackages === "2"
+            ? 2
+            : action.tierIds.cpuPackages === "4"
+              ? 4
+              : action.tierIds.cpuPackages === "8"
+                ? 8
+                : 1,
         ram: action.tierIds.ram ?? action.tierIds.memory ?? action.tierIds.ramModule ?? "",
         scheduler: action.tierIds.scheduler ?? action.tierIds.schedulerBackplane ?? "",
         psu: action.tierIds.psu ?? action.tierIds.powerSupply ?? "",

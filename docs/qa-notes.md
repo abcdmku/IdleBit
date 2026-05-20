@@ -27,12 +27,12 @@ Target scope from `game-spec.md` section 13.2:
 - Multi-core unlock is gated by early benchmark progression.
 - RAM Control appears alongside System Scheduler after Local Scheduler research.
 - Four-core milestone plus RAM Control and 1 Kb RAM unlock System Scheduler behavior.
-- Completed System Scheduler research reveals a system-level scheduler surface for whole system tasks above RAM.
+- Completed System Scheduler research reveals a paid system-level scheduler install outline above RAM; buying the first System Queue Slot makes it usable for whole system tasks.
 - System Queue Slot upgrades are separate from CPU Queue Slot upgrades.
 - Second CPU purchase reveals CRON Scheduler research only; the CRON board module stays hidden until that research is bought, while baseline PSU/power readouts are already present.
 - The empty CPU socket offers unmatched and matched CPU install choices, with projected power increase shown for each option.
-- RAM stays hidden/actionless before RAM Control, then becomes the staging surface needed for System Scheduler; CRON stays hidden/actionless before CRON Scheduler research, and Thermal plus advanced PSU/tuning research are deferred.
-- CRON Scheduler research unlocks CRON v1 timer automation for visible repeatable system tasks only.
+- RAM stays hidden/actionless before RAM Control, then appears as a paid first-stick install outline before becoming the staging surface needed for System Scheduler; CRON stays hidden/actionless before CRON Scheduler research, and Thermal plus advanced PSU/tuning research are deferred.
+- CRON Scheduler research reveals a paid CRON Job Slot install; buying it unlocks CRON v1 timer automation for visible repeatable system tasks only.
 - PSU/power readouts, powered-on billing, power state behavior, credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
 - Thermal Control research, Thermal UI, Cooling Loop upgrades, and Thermal Probe are deferred.
 - Five repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror and Shard Reconcile after the second CPU purchase.
@@ -110,9 +110,9 @@ Target scope from `game-spec.md` section 13.3:
 - Progression gates:
   - Cache capacity and speed upgrades are available immediately and use data-weighted costs.
   - Reversible hardware upgrades can be downgraded for a 50% refund of the last level cost, while occupied scheduler/cache/RAM/core capacity blocks unsafe removal.
-  - Broad auto-repeat does not unlock in the early slice; only CRON v1 can automate repeatable system tasks after CRON Scheduler research.
+  - Broad auto-repeat does not unlock in the early slice; only CRON v1 can automate repeatable system tasks after CRON Scheduler research and the first CRON Job Slot purchase.
   - Multi-core research requires the micro/parallelism benchmark path.
-  - RAM Control unlocks one 256 b RAM stick and a 1 Hz load rate.
+  - RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b RAM stick and a 1 Hz load rate.
   - RAM buys new base sticks, then upgrades selected-stick or all-stick capacity and frequency independently; mixed capacity and frequency are allowed, and data is the larger cost.
   - RAM readouts report module frequency from the installed sticks and do not sum stick speeds into a total RAM speed.
   - System Scheduler unlocks at the four-core milestone after RAM Control and at least 1 Kb RAM.
@@ -120,7 +120,7 @@ Target scope from `game-spec.md` section 13.3:
   - Second CPU purchase reveals CRON Scheduler research while baseline PSU/power readouts were already visible; locked CRON, advanced PSU/tuning, and Thermal modules stay hidden.
   - Unmatched CPU installs a base package, matched CPU copies the current package, and both socket choices list projected power increase.
   - Matched CPU purchase copies the source CPU's cores, core clocks, cache, cache speed, and scheduler slots, and charges for the base CPU plus copied upgrades.
-  - CRON Scheduler research unlocks CRON v1 controls and no other task classes.
+  - CRON Scheduler research reveals the CRON bay; buying the first CRON Job Slot unlocks CRON v1 controls and no other task classes.
   - PSU Capacity upgrades are credits-only and available from the first screen; PSU Management research is deferred.
   - Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.
 - Parallelism:
@@ -137,19 +137,19 @@ Target scope from `game-spec.md` section 13.3:
   - Scheduler queue slots render as a compact header count plus a bounded adaptive-height slot grid without a separate status strip or queue title; the System Scheduler starts at one-slot and two-slot footprints before 2x2, larger grids step through 2x2, 4x2, 4x4, 6x4, 6x6, and 8x8 layouts, early low-row grids stay shorter so slots do not become giant, queued scheduler tasks list their current waiting or active reason in taller slot cells, core/provisioning blockers take priority over free cache/RAM pressure when both apply, at least 24 slots fit before internal scrolling, and processing updates do not resize neighboring hardware.
   - Canceling pending queued work removes only the unreserved queue entry and leaves already active scheduler reservations intact.
 - CRON automation:
-  - CRON remains hidden until CRON Scheduler research, then appears at the top of the system board.
+  - CRON remains hidden until CRON Scheduler research, then appears at the top of the system board as a paid CRON Job Slot install outline until the first slot is bought.
   - CRON can target only visible repeatable system tasks: Memory Scrub, Queue Compaction, Power Telemetry, Bus Mirror, and Shard Reconcile as each task reveals.
   - CRON cannot target hidden tasks, research compute, normal CPU-bound tasks, or later locked task groups.
   - CRON supports seconds and minutes interval modes.
-  - CRON rows show a whole-second countdown until the next scheduled job.
-  - A new CRON entry defaults to the current minimum interval, starting at 60 seconds.
+  - CRON rows show a whole-second countdown until the next scheduled job after a CRON Job Slot exists.
+  - A newly bought CRON entry defaults to the current minimum interval, starting at 60 seconds.
   - Each `cronInterval` upgrade lowers the minimum interval by 1 second, gets more expensive, and never below the intended implementation floor.
   - If a CRON tick finds the same task active or queued, the task blocked, the target queue full, or the system `off`, `booting`, or `shuttingDown`, the run is skipped without adding work.
   - Time spent offline, blocked, or overfull does not catch up; only future due ticks can enqueue work.
   - CRON queue insertion adds the documented short power spike and uses the same queue capacity rules as manual scheduling.
 - Staging and reliability:
   - RAM extends the memory staging hierarchy after cache and stages larger active/intermediate work after RAM Control.
-  - RAM appears above the CPU package, shows one selectable module-card strip with fixed small-grid sizing such as 2x2 for four sticks, and System Scheduler appears above RAM after research.
+  - RAM appears above the CPU package as a paid first-stick install outline, then shows one selectable module-card strip with fixed small-grid sizing such as 2x2 for four sticks; System Scheduler appears above RAM after research as a paid first-slot install outline.
   - RAM load progress is visible as reserved/loading/ready staging, and CPU processing waits until the RAM-backed work is loaded.
   - Total RAM fit still blocks impossible tasks; RAM exhaustion during active writes creates system-wide deadlocks instead of blocking starts, and all active system work stops while the deadlock is unresolved.
   - RAM loading does not prevent unrelated manual or queued CPU-level work from starting when enough idle cores and cache remain.
@@ -171,9 +171,9 @@ Target scope from `game-spec.md` section 13.3:
   - RAM is hidden before RAM Control.
   - Basic PSU/power readouts and credits-only PSU wattage upgrades are visible from the first screen.
   - CRON is hidden before CRON Scheduler research; Thermal and advanced PSU/tuning research are deferred.
-  - RAM becomes visible/actionable immediately after RAM Control.
+  - RAM becomes visible after RAM Control as a paid first-stick install outline, then becomes actionable after the first RAM Stick purchase.
   - CRON Scheduler research appears after the second CPU purchase, while baseline PSU/power readouts remain visible earlier.
-  - CRON becomes actionable after CRON Scheduler research.
+  - CRON becomes visible after CRON Scheduler research as a paid first-slot install outline, then becomes actionable after the first CRON Job Slot purchase.
   - Advanced PSU tuning and Thermal controls are deferred.
   - Research options are hidden until the player has earned starter resources.
   - Later tasks are hidden until their concept gate is met.
@@ -196,7 +196,7 @@ Target scope from `game-spec.md` section 13.3:
 - Memory Scrub, Queue Compaction, and Power Telemetry reveal after Tiny Checksum.
 - Bus Mirror and Shard Reconcile reveal with the second CPU purchase; Thermal Probe is deferred.
 - CRON can schedule only visible repeatable system tasks and never research benchmarks or hidden/locked tasks.
-- CRON entries support seconds and minutes modes, default to a 60s minimum, and respect `cronInterval` minimum-interval reductions of 1 second per upgrade.
+- CRON entries require buying the first CRON Job Slot, support seconds and minutes modes, default to a 60s minimum, and respect `cronInterval` minimum-interval reductions of 1 second per upgrade.
 - CRON skips rather than queues when the same task is active/queued, requirements are blocked, the target queue is full, or the system is `off`, `booting`, or `shuttingDown`.
 - CRON does not catch up missed runs after blocked time, full queues, sleep, reload, shutdown, or offline simulation gaps.
 - CRON-created queue entries apply the short power spike and are visible in PSU draw/stress.
@@ -225,18 +225,18 @@ Target scope from `game-spec.md` section 13.3:
 - CPU core meters remain idle during cache fill; task cards continue showing aggregate task progress through load and compute phases.
 - Task wait reasons match the inferred composition DAG.
 - Blocked task and research action buttons show the current blocker, while the row still shows needed operations/resources and payout; active task cards keep the same list color treatment.
-- CRON controls do not appear before CRON Scheduler research.
+- CRON controls do not appear before CRON Scheduler research or before the first CRON Job Slot is purchased.
 - Queue/scheduler controls appear only after their unlock gates.
 - Multi-core flow allows multiple jobs to run concurrently after core unlock.
 - Hardware layout keeps the core grid independent of the CPU package before RAM, uses fixed compact/dense core-grid breakpoints for high-core CPU counts, and moves cache beside the CPU-local scheduler once the core grid reaches 2x12.
 - CPU Operation Scheduler/basic queue flow pulls ready operations/tasks onto idle cores after the player buys CPU-local scheduler queue slots.
 - Duplicate scheduled copies of the same task show per-row status; one copy can show active work while another shows a resource blocker.
-- RAM Control reveals a 256 b/1 Hz RAM stick above the CPU package and enables larger RAM/cache tasks before System Scheduler.
+- RAM Control reveals a paid RAM bay above the CPU package; buying the first stick installs 256 b at 1 Hz and enables larger RAM/cache tasks before System Scheduler.
 - System Scheduler remains blocked until RAM reaches at least 1 Kb.
-- System Scheduler appears above RAM after research, exposes separate System Queue Slot purchases, and selected system tasks dispatch through it instead of the CPU-local scheduler.
+- System Scheduler appears above RAM after research as a paid first-slot outline, exposes separate System Queue Slot purchases, and selected system tasks dispatch through it instead of the CPU-local scheduler after a slot is bought.
 - Second CPU flow reveals CRON Scheduler research without revealing locked automation, advanced PSU/tuning, or Thermal modules.
 - Memory Scrub, Queue Compaction, and Power Telemetry appear after Tiny Checksum, and Bus Mirror plus Shard Reconcile appear after the second CPU purchase.
-- CRON Scheduler research unlocks CRON controls, seconds/minutes interval modes, and visible-task-only scheduling.
+- CRON Scheduler research reveals the paid CRON Job Slot install; buying it unlocks CRON controls, seconds/minutes interval modes, and visible-task-only scheduling.
 - CRON skips duplicate active/queued tasks, blocked tasks, full target queues, and `off`/`booting`/`shuttingDown` system states without catch-up.
 - CRON queue insertion creates a short visible power spike.
 - PSU state, draw, billing, shutdown/startup behavior, basic power readouts, credits-only PSU Capacity upgrades, and overload failure pressure are available from the first screen; PSU Management research is deferred.
@@ -298,6 +298,8 @@ Current `FEATURES.md` observations:
 
 ## Checks Run
 
+- Paid first-module hardware install on May 20, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage verifies RAM, CPU scheduler, System Scheduler, and CRON install outlines plus first-module purchase actions. Browser smoke at `http://127.0.0.1:6174/?seed=rack-ready` loaded the app with no console errors.
+- Equipment tier rebalance on May 20, 2026: `npx vitest run src/game/simulation.test.ts -t "catalog CPU|broad CPU|preconfigured"` passed. Coverage verifies fixed catalog CPU/cache-speed matching, monotonic RAM tier capacity/frequency, premade system materialization, CPU-local scheduler slots derived from package core count, and an 8-package server-preview custom build with 512 total cores. `npm run typecheck` passed. A full `npx vitest run src/game/simulation.test.ts` pass was also attempted and currently has unrelated progression-helper failures outside the new catalog-specific assertions.
 - Multi-System Rack Phase implementation on May 19, 2026: `npm test` passed with 137 tests, including clean pre-v2 save reset, preconfigured/custom system purchase, one visible rack slot per owned system, selected-system upgrade routing, elastic Compile Code completion on selected-system cores only, and UI rack/custom-builder coverage. `npm run typecheck`, `npm run build`, and `git diff --check` were run for final verification.
 - Task core requirement display on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now checks that multi-core task cards and research compute rows list the required core count while single-core task cards do not.
 - PSU socket/power UI pass on May 19, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now includes unmatched and matched CPU socket choices with projected power increase, credits-only PSU Capacity in first-screen upgrades, buying PSU wattage without PSU Management, 10-second overload-failure pressure just above 100% load, faster failure pressure at higher overload, cooldown when draw returns under capacity, no PSU headroom/efficiency row, compact header Boot/Kill controls, compact load-meter placement, larger centered PSU overload header progress, full-card red PSU over-power flashing, a short first-time PSU failure popup after overload cutoff, repeat-failure topbar badge, first-time/repeat out-of-credits popups, boot/shutdown transition handoff from PSU to System Scheduler, and overload-failure UI.
@@ -305,6 +307,8 @@ Current `FEATURES.md` observations:
 - Hardware card layout on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies the old `.system-board-frame` wrapper is not rendered, leaving hardware modules as standalone cards.
 - Mobile unlock tab notifications on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage verifies red mobile Tasks/R&D tab notifications for unseen unlocked task/research IDs and clears/persists each notification when the tab is opened.
 - Pinned task queue action on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies an active pinned task keeps its scheduler-route action button and dispatches `queueTask` for another copy.
+- System builder module view on May 20, 2026: `npx vitest run src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies premade systems show their CPU/RAM/scheduler/PSU module specs and the custom builder exposes clickable full-system bays for CPU, RAM, scheduler, and PSU modules. Browser smoke at `http://127.0.0.1:6174/?seed=rack-ready` opened the builder, verified premade Starter Node CPU/RAM module specs, and found no console errors.
+- Custom CPU module expansion on May 20, 2026: earlier coverage verified the custom CPU catalog had ten single-CPU die choices and an 8-package 16-core build. The later equipment tier rebalance supersedes that ceiling with ten starter-through-server-preview CPU modules and an 8-package 64-core build reaching 512 total cores.
 - Browser smoke on May 19, 2026: `http://127.0.0.1:6173/` loaded without console errors other than the React DevTools info message. Desktop and 390x844 mobile snapshots verified the compact PSU section with no headroom/efficiency row, power controls in the header, load adjacent to the meter, and a first-screen PSU Capacity upgrade row.
 - Task resource reconciliation on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now checks every task definition against per-core operation residency for operation count, cache need, and RAM need; Shard Reconcile is blocked at 1 Kb RAM because its four parallel shard pages peak at 4 Kb, and Bus Mirror reports its 1 Kb two-core RAM footprint.
 - Crash/restart hardening on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now includes a stale pre-live save with removed task IDs in completed counts, active tasks, queue, CRON, benchmarks, and autorepeat loading into a renderable/tickable state. Vite, Electron, and `wait-on` now share fixed dev renderer port `6173` with strict-port startup so the desktop shell cannot silently load another project or a stale renderer.

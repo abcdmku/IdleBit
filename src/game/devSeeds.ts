@@ -1,4 +1,10 @@
-import { createInitialGameState, createSystemState, getCacheBytes, getClockHz } from "./progression";
+import {
+  createInitialGameState,
+  createSystemState,
+  getCacheBytes,
+  getClockHz,
+  syncCronSchedules,
+} from "./progression";
 import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
 import type { GameState } from "./types";
 
@@ -46,6 +52,7 @@ export const createRackReadyGameState = (): GameState => {
       speedLevel: 2,
       speedMt: 2,
     })),
+    cronScheduleSlots: 1,
     psuLevel: 9,
     psuWatts: 0.86,
   };
@@ -134,5 +141,5 @@ export const createRackReadyGameState = (): GameState => {
     queue: [],
   };
 
-  return materializeSystem(syncSelectedSystemRuntime(state), 1);
+  return materializeSystem(syncSelectedSystemRuntime(syncCronSchedules(state)), 1);
 };

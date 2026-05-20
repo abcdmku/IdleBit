@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type TouchEvent,
 } from "react";
 import {
   Activity,
@@ -612,8 +613,14 @@ interface UiRackSystem {
   status: string;
   visible: VisibleState;
   cores: number;
+  clockHz: number;
   ramBits: number;
+  ramUsedBits: number;
   drawWatts: number;
+  psuCapWatts: number;
+  powerCostPerSecond: number;
+  activeTaskCount: number;
+  queueCount: number;
   source: UiRackSystemSource | null;
 }
 
@@ -641,6 +648,9 @@ interface UiSystemPreset {
   ramBytes?: number;
   cacheBits?: number;
   cacheBytes?: number;
+  components?: Partial<
+    Record<"cpu" | "ram" | "memory" | "scheduler" | "psu" | "powerSupply", string>
+  >;
   actionType?: string;
 }
 
@@ -657,13 +667,23 @@ interface UiCustomMachineTier {
   canSelect?: boolean;
   disabled?: boolean;
   blockedReason?: string | null;
+  cpuPackageCount?: number;
   cores?: number;
   coreCount?: number;
   ramBits?: number;
   ramBytes?: number;
   cacheBits?: number;
   cacheBytes?: number;
+  clockLevel?: number;
+  cacheLevel?: number;
+  cacheSpeedLevel?: number;
+  schedulerSlots?: number;
+  ramStickCount?: number;
+  ramLevel?: number;
+  ramSpeedLevel?: number;
+  psuLevel?: number;
   powerDeltaWatts?: number;
+  clockHz?: number;
 }
 
 interface UiCustomMachineGroup {
@@ -1015,10 +1035,22 @@ const toRackSystem = (
     status: powerState,
     visible: systemVisible,
     cores: getSystemCores(systemVisible, source),
+    clockHz: getSystemClockHz(systemVisible),
     ramBits: getSystemRamBits(systemVisible, source),
+    ramUsedBits: getVisibleRamUsedBits(systemVisible),
     drawWatts: getSystemDrawWatts(systemVisible, source),
+    psuCapWatts: systemVisible.hardware.psuWatts ?? 0,
+    powerCostPerSecond: systemVisible.metrics.powerCostPerSecond ?? 0,
+    activeTaskCount: getActiveTasks(systemVisible).length,
+    queueCount: getQueueEntries(systemVisible).length,
     source,
   };
+};
+
+const getSystemClockHz = (visible: VisibleState) => {
+  const cores = visible.metrics.cpuSockets.flatMap((socket) => socket.cores);
+  if (cores.length === 0) return 0;
+  return Math.max(...cores.map((core) => core.clockHz ?? 0));
 };
 
 const getFallbackRackSystem = (visible: VisibleState): UiRackSystem => ({
@@ -1029,8 +1061,14 @@ const getFallbackRackSystem = (visible: VisibleState): UiRackSystem => ({
   status: visible.metrics.powerState,
   visible,
   cores: visible.hardware.cores,
+  clockHz: getSystemClockHz(visible),
   ramBits: getVisibleRamBits(visible),
+  ramUsedBits: getVisibleRamUsedBits(visible),
   drawWatts: visible.metrics.powerUsedWatts,
+  psuCapWatts: visible.hardware.psuWatts ?? 0,
+  powerCostPerSecond: visible.metrics.powerCostPerSecond ?? 0,
+  activeTaskCount: getActiveTasks(visible).length,
+  queueCount: getQueueEntries(visible).length,
   source: null,
 });
 
@@ -1133,6 +1171,62 @@ const getSelectedBuilderTiers = (
       );
     })
     .filter((tier): tier is UiCustomMachineTier => tier !== null);
+
+const getBuilderGroupOption = (
+  groups: UiCustomMachineGroup[],
+  selections: Record<string, string>,
+  targetGroupId: string,
+) => {
+  const groupEntry = groups
+    .map((group, groupIndex) => ({
+      group,
+      groupIndex,
+      groupId: getBuilderGroupId(group, groupIndex),
+    }))
+    .find(({ groupId }) => groupId === targetGroupId);
+
+  if (!groupEntry) return null;
+
+  const options = groupEntry.group.tiers ?? groupEntry.group.options ?? [];
+  return (
+    options.find(
+      (option, optionIndex) =>
+        getTierId(option, optionIndex) === selections[groupEntry.groupId],
+    ) ?? null
+  );
+};
+
+const getBuilderOptionMap = (builder: UiCustomMachineBuilder | null) => {
+  const optionsByGroup = new Map<string, UiCustomMachineTier[]>();
+  const optionsById = new Map<string, UiCustomMachineTier>();
+
+  getBuilderGroups(builder).forEach((group, groupIndex) => {
+    const groupId = getBuilderGroupId(group, groupIndex);
+    const options = group.tiers ?? group.options ?? [];
+    optionsByGroup.set(groupId, options);
+    options.forEach((option, optionIndex) => {
+      optionsById.set(getTierId(option, optionIndex), option);
+    });
+  });
+
+  return { optionsByGroup, optionsById };
+};
+
+const getSelectionComponentId = (
+  selections: Record<string, string>,
+  groupId: string,
+) => {
+  if (groupId === "ram") {
+    return selections.ram ?? selections.memory ?? selections.ramModule ?? "";
+  }
+  if (groupId === "scheduler") {
+    return selections.scheduler ?? selections.schedulerBackplane ?? "";
+  }
+  if (groupId === "psu") {
+    return selections.psu ?? selections.powerSupply ?? "";
+  }
+  return selections[groupId] ?? "";
+};
 
 const sumCosts = (costRows: DisplayCost[][]) => {
   const totals = new Map<string, number>();
@@ -2402,20 +2496,7 @@ const getCronSchedules = (visible: VisibleState) => {
   const cron = getCronState(visible);
   const schedules = ((cron?.schedules ?? cron?.rows ?? []) as unknown) as UiCronSchedule[];
 
-  if (schedules.length > 0) return schedules;
-
-  const firstTask = getSystemTaskOptions(visible)[0];
-  const minimumSeconds = getCronMinimumSeconds(cron);
-  return [
-    {
-      id: "primary",
-      taskId: firstTask?.id ?? "",
-      enabled: false,
-      intervalSeconds: minimumSeconds,
-      minIntervalSeconds: minimumSeconds,
-      lastResult: null,
-    },
-  ];
+  return schedules;
 };
 
 const getCronCountdownLabel = (schedule: UiCronSchedule) => {
@@ -2878,22 +2959,87 @@ export function ResourceHud({
 
 /* ============ HARDWARE BOARD ============ */
 
+type RackView = "list" | "detail" | "builder";
+type BuilderTab = "new" | "configure";
+const RACK_DOUBLE_TAP_MS = 360;
+
+const getSystemStatusTone = (status: string) => {
+  if (status === "off") return "off";
+  if (status === "booting" || status === "shuttingDown") return "transitioning";
+  return "online";
+};
+
+const getMeterTone = (ratio: number) => {
+  if (ratio >= 0.92) return "critical";
+  if (ratio >= 0.75) return "warn";
+  return "ok";
+};
+
+function RackMeter({
+  ratio,
+  tone,
+  label,
+}: {
+  ratio: number;
+  tone?: "ok" | "warn" | "critical";
+  label?: string;
+}) {
+  const safe = Math.max(0, Math.min(1, ratio));
+  const resolvedTone = tone ?? getMeterTone(safe);
+  return (
+    <span
+      className={`rack-meter tone-${resolvedTone}`}
+      aria-label={label}
+      role={label ? "img" : undefined}
+    >
+      <span className="rack-meter-fill" style={{ width: `${safe * 100}%` }} />
+    </span>
+  );
+}
+
 function SystemRackPanel({
   rack,
   activeSystemId,
+  onOpenSystem,
+  onOpenBuilder,
   selection,
   onSelectComponent,
   dispatch,
-  resources,
 }: {
   rack: UiRackData;
   activeSystemId: string;
+  onOpenSystem: (systemId: string) => void;
+  onOpenBuilder: (tab: BuilderTab, systemId?: string) => void;
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
   dispatch: Dispatch;
-  resources: VisibleState["resources"];
 }) {
   const activeComponent = getSelectedSystemComponent(selection) ?? "core:1";
+  const lastTapRef = useRef<{ systemId: string; time: number } | null>(null);
+  const builderUnlocked =
+    rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
+
+  const selectSystemScheduler = (systemId: string) => {
+    dispatch({ type: "selectSystem", systemId });
+    onSelectComponent(scopeSelectionToSystem(systemId, "scheduler"));
+  };
+
+  const handleRackTouchEnd = (
+    event: TouchEvent<HTMLButtonElement>,
+    systemId: string,
+  ) => {
+    const now = event.timeStamp;
+    const lastTap = lastTapRef.current;
+    lastTapRef.current = { systemId, time: now };
+
+    if (
+      lastTap?.systemId === systemId &&
+      now - lastTap.time <= RACK_DOUBLE_TAP_MS
+    ) {
+      onOpenSystem(systemId);
+      lastTapRef.current = null;
+    }
+  };
 
   return (
     <SystemRack>
@@ -2901,139 +3047,813 @@ function SystemRackPanel({
         <span className="system-rack-title">
           <Server size={14} />
           <span>Rack</span>
+          <small>{rack.systems.length} unit{rack.systems.length === 1 ? "" : "s"}</small>
         </span>
+        {builderUnlocked && (
+          <button
+            type="button"
+            className="rack-build-new"
+            onClick={() => onOpenBuilder("new")}
+            title="Open builder to buy a new system"
+          >
+            <Plus size={12} />
+            <span>Build New</span>
+          </button>
+        )}
       </div>
 
       <div className="system-rack-slots" aria-label="Owned systems">
-        {rack.systems.map((system, index) => (
-          <button
-            key={system.id}
-            type="button"
-            className={`system-rack-slot ${
-              system.id === activeSystemId ? "selected" : ""
-            }`}
-            aria-pressed={system.id === activeSystemId}
-            onClick={() => {
-              dispatch({ type: "selectSystem", systemId: system.id });
-              onSelectComponent(scopeSelectionToSystem(system.id, activeComponent));
-            }}
-            title={`Select ${system.name}`}
-          >
-            <span className="rack-slot-index">{index + 1}</span>
-            <span className="rack-slot-copy">
-              <strong>{system.name}</strong>
-              <small>{system.role}</small>
-            </span>
-            <span className="rack-slot-stats">
-              <span>{formatNumber(system.cores)}C</span>
-              {system.ramBits > 0 && <span>{formatBits(system.ramBits)}</span>}
-              {system.drawWatts > 0 && <span>{formatWatts(system.drawWatts)}</span>}
-            </span>
-            <span className={`rack-slot-state ${system.status}`}>
-              {system.status}
-            </span>
-          </button>
-        ))}
-      </div>
+        {rack.systems.map((system, index) => {
+          const ramRatio =
+            system.ramBits > 0 ? (system.ramUsedBits ?? 0) / system.ramBits : 0;
+          const powerCap = system.psuCapWatts ?? 0;
+          const powerRatio = powerCap > 0 ? system.drawWatts / powerCap : 0;
+          const coreActive = system.activeTaskCount ?? 0;
+          const coreRatio =
+            system.cores > 0 ? Math.min(1, coreActive / system.cores) : 0;
+          const queueCount = system.queueCount ?? 0;
+          const statusTone = getSystemStatusTone(system.status);
+          const selected = system.id === activeSystemId;
+          const idle = coreActive === 0 && queueCount === 0;
 
-      {(rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0) && (
-        <div className="system-rack-purchase-grid">
-          {rack.presets.length > 0 && (
-            <PreconfiguredSystemControls
-              presets={rack.presets}
-              resources={resources}
-              dispatch={dispatch}
-            />
-          )}
-          {getBuilderGroups(rack.customBuilder).length > 0 && (
-            <CustomMachineBuilder
-              builder={rack.customBuilder}
-              resources={resources}
-              dispatch={dispatch}
-            />
-          )}
-        </div>
-      )}
+          return (
+            <button
+              key={system.id}
+              type="button"
+              className={`system-rack-slot system-rack-slot--row ${
+                selected ? "selected" : ""
+              } status-${statusTone}`}
+              aria-pressed={selected}
+              onClick={() => {
+                selectSystemScheduler(system.id);
+              }}
+              onDoubleClick={() => {
+                onOpenSystem(system.id);
+              }}
+              onTouchEnd={(event) => {
+                handleRackTouchEnd(event, system.id);
+              }}
+              title={`Select ${system.name} System Scheduler; double click to open`}
+            >
+              <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
+              <span className="rack-slot-index">{index + 1}</span>
+              <span className="rack-slot-copy">
+                <strong>{system.name}</strong>
+                <small>
+                  <span>{system.role}</span>
+                  <span className="rack-slot-dot" aria-hidden="true">·</span>
+                  <span
+                    className={`rack-slot-activity ${idle ? "idle" : "busy"}`}
+                  >
+                    {system.status !== "on"
+                      ? system.status
+                      : idle
+                        ? "Idle"
+                        : `${coreActive}/${system.cores} running${
+                            queueCount > 0 ? ` · Q ${queueCount}` : ""
+                          }`}
+                  </span>
+                </small>
+              </span>
+              <span className="rack-slot-vitals" aria-label="Vital stats">
+                <span className="rack-vital">
+                  <span className="rack-vital-label">
+                    <Cpu size={10} />
+                    CPU
+                  </span>
+                  <RackMeter
+                    ratio={coreRatio}
+                    tone="ok"
+                    label={`${coreActive}/${system.cores} cores active`}
+                  />
+                  <span className="rack-vital-value">
+                    {formatNumber(system.cores)}C
+                    {system.clockHz > 0 && (
+                      <span className="rack-vital-sub">
+                        {" "}
+                        @ {formatClock(system.clockHz)}
+                      </span>
+                    )}
+                  </span>
+                </span>
+                {system.ramBits > 0 && (
+                  <span className="rack-vital">
+                    <span className="rack-vital-label">
+                      <MemoryStick size={10} />
+                      RAM
+                    </span>
+                    <RackMeter
+                      ratio={ramRatio}
+                      label={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
+                    />
+                    <span className="rack-vital-value">
+                      {formatBits(system.ramUsedBits ?? 0)}
+                      <span className="rack-vital-sub">
+                        {" / "}
+                        {formatBits(system.ramBits)}
+                      </span>
+                    </span>
+                  </span>
+                )}
+                {powerCap > 0 && (
+                  <span className="rack-vital">
+                    <span className="rack-vital-label">
+                      <Zap size={10} />
+                      PSU
+                    </span>
+                    <RackMeter
+                      ratio={powerRatio}
+                      label={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
+                    />
+                    <span className="rack-vital-value">
+                      {formatWatts(system.drawWatts)}
+                      <span className="rack-vital-sub">
+                        {" / "}
+                        {formatWatts(powerCap)}
+                      </span>
+                    </span>
+                  </span>
+                )}
+                {system.powerCostPerSecond > 0 && (
+                  <span className="rack-vital rack-vital--rate">
+                    <span className="rack-vital-label">RATE</span>
+                    <span className="rack-vital-value">
+                      −{formatPowerRate(system.powerCostPerSecond)} cr/s
+                    </span>
+                  </span>
+                )}
+              </span>
+              {builderUnlocked && (
+                <span
+                  className="rack-slot-config"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Configure ${system.name}`}
+                  title={`Configure ${system.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    dispatch({ type: "selectSystem", systemId: system.id });
+                    onSelectComponent(
+                      scopeSelectionToSystem(system.id, activeComponent),
+                    );
+                    onOpenBuilder("configure", system.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dispatch({ type: "selectSystem", systemId: system.id });
+                    onSelectComponent(
+                      scopeSelectionToSystem(system.id, activeComponent),
+                    );
+                    onOpenBuilder("configure", system.id);
+                  }}
+                >
+                  <SlidersHorizontal size={12} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </SystemRack>
   );
 }
 
-function PreconfiguredSystemControls({
-  presets,
-  resources,
+function RackStrip({
+  rack,
+  activeSystemId,
+  builderUnlocked,
+  view,
+  builderTab,
+  onHome,
+  onSelectSystem,
+  onOpenBuilder,
+  selection,
+  onSelectComponent,
   dispatch,
 }: {
-  presets: UiSystemPreset[];
-  resources: VisibleState["resources"];
+  rack: UiRackData;
+  activeSystemId: string;
+  builderUnlocked: boolean;
+  view: RackView;
+  builderTab: BuilderTab;
+  onHome: () => void;
+  onSelectSystem: (systemId: string) => void;
+  onOpenBuilder: (tab: BuilderTab, systemId?: string) => void;
+  selection: SelectedComponent;
+  onSelectComponent: (component: SelectedComponent) => void;
   dispatch: Dispatch;
 }) {
-  return (
-    <section className="system-preset-controls" aria-label="Preconfigured systems">
-      <div className="system-rack-subheader">
-        <ShoppingCart size={13} />
-        <span>Systems</span>
-      </div>
-      <div className="system-preset-list">
-        {presets.map((preset, index) => {
-          const presetId = getPresetId(preset, index);
-          const label = getPresetLabel(preset, index);
-          const costs = getRecordCosts(preset);
-          const canBuy =
-            !preset.disabled &&
-            (firstBoolean(preset.canBuy, preset.canAfford) ?? true);
-          const blockedReason =
-            preset.blockedReason ?? preset.lockedReason ?? "Locked";
-          const stats = [
-            firstNumber(preset.cores, preset.coreCount) !== undefined
-              ? `${formatNumber(firstNumber(preset.cores, preset.coreCount) ?? 0)}C`
-              : null,
-            firstBits([preset.ramBits], [preset.ramBytes]) > 0
-              ? formatBits(firstBits([preset.ramBits], [preset.ramBytes]))
-              : null,
-            firstBits([preset.cacheBits], [preset.cacheBytes]) > 0
-              ? `${formatBits(firstBits([preset.cacheBits], [preset.cacheBytes]))} cache`
-              : null,
-          ].filter((item): item is string => item !== null);
+  const activeComponent = getSelectedSystemComponent(selection) ?? "core:1";
+  const stayInBuilderConfigure =
+    view === "builder" && builderTab === "configure";
 
+  return (
+    <div
+      className={`rack-strip mode-${view}${
+        view === "builder" ? ` builder-tab-${builderTab}` : ""
+      }`}
+      aria-label="Rack quick switch"
+    >
+      <button
+        type="button"
+        className="rack-strip-home"
+        onClick={onHome}
+        title="Back to rack"
+        aria-label="Back to rack"
+      >
+        <Server size={13} />
+        <span>Rack</span>
+      </button>
+      <div className="rack-strip-chips" role="tablist">
+        {rack.systems.map((system, index) => {
+          const isActiveSystem = system.id === activeSystemId;
+          const selected =
+            isActiveSystem && (view === "detail" || stayInBuilderConfigure);
+          const statusTone = getSystemStatusTone(system.status);
           return (
             <button
-              key={presetId}
+              key={system.id}
               type="button"
-              className="system-preset-card"
-              disabled={!canBuy}
-              title={canBuy ? `Buy ${label}: ${formatCost(costs)}` : blockedReason}
-              onClick={() =>
-                dispatch({
-                  type: "buyPreconfiguredSystem",
-                  presetId,
-                })
+              role="tab"
+              className={`system-rack-slot system-rack-slot--chip status-${statusTone} ${
+                selected ? "selected" : ""
+              }`}
+              aria-selected={selected}
+              aria-pressed={selected}
+              onClick={() => {
+                dispatch({ type: "selectSystem", systemId: system.id });
+                onSelectComponent(
+                  scopeSelectionToSystem(system.id, activeComponent),
+                );
+                if (view === "builder") {
+                  onOpenBuilder("configure", system.id);
+                } else {
+                  onSelectSystem(system.id);
+                }
+              }}
+              title={
+                view === "builder"
+                  ? `Configure ${system.name}`
+                  : `Open ${system.name}`
               }
             >
-              <span className="system-preset-copy">
-                <strong>{label}</strong>
-                <small>{preset.role ?? preset.tier ?? "Preset"}</small>
-              </span>
-              {stats.length > 0 && (
-                <span className="system-preset-stats">{stats.join(" / ")}</span>
-              )}
-              {preset.powerDeltaWatts !== undefined && (
-                <span className="system-preset-power">
-                  +{formatWatts(preset.powerDeltaWatts)}
-                </span>
-              )}
-              <ResourceCost costs={costs} compact resources={resources} />
-              <span className="system-preset-action">
-                {canBuy ? <Plus size={12} /> : blockedReason}
+              <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
+              <span className="rack-slot-index">{index + 1}</span>
+              <span className="rack-slot-copy">
+                <strong>{system.name}</strong>
               </span>
             </button>
           );
         })}
       </div>
+      {builderUnlocked && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "builder" && builderTab === "new"}
+          className={`rack-strip-build ${
+            view === "builder" && builderTab === "new" ? "selected" : ""
+          }`}
+          onClick={() => onOpenBuilder("new")}
+          title="Build a new system"
+          aria-label="Build a new system"
+        >
+          <Plus size={13} />
+          <span className="rack-strip-build-label">Build</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SystemDetailHeader({
+  systemName,
+  builderUnlocked,
+  onBack,
+  onConfigure,
+}: {
+  systemName: string;
+  builderUnlocked: boolean;
+  onBack: () => void;
+  onConfigure: () => void;
+}) {
+  return (
+    <div className="system-detail-header">
+      <button
+        type="button"
+        className="system-detail-back"
+        onClick={onBack}
+        title="Back to rack"
+      >
+        <ChevronRight size={12} style={{ transform: "rotate(180deg)" }} />
+        <span>Rack</span>
+      </button>
+      <span className="system-detail-name">{systemName}</span>
+      {builderUnlocked && (
+        <button
+          type="button"
+          className="system-detail-configure"
+          onClick={onConfigure}
+          title={`Configure parts on ${systemName}`}
+        >
+          <SlidersHorizontal size={12} />
+          <span>Configure parts</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+type BuilderNewMode = "premade" | "custom";
+
+function BuilderScreen({
+  rack,
+  activeSystem,
+  tab,
+  onChangeTab,
+  onClose,
+  resources,
+  systemDispatch,
+  systemUpgrades,
+}: {
+  rack: UiRackData;
+  activeSystem: UiRackSystem;
+  tab: BuilderTab;
+  onChangeTab: (tab: BuilderTab) => void;
+  onClose: () => void;
+  resources: VisibleState["resources"];
+  systemDispatch: Dispatch;
+  systemUpgrades: VisibleUpgrade[];
+}) {
+  const hasPresets = rack.presets.length > 0;
+  const hasCustomBuilder = getBuilderGroups(rack.customBuilder).length > 0;
+  const hasNew = hasPresets || hasCustomBuilder;
+  const hasConfigure = systemUpgrades.length > 0;
+  const effectiveTab: BuilderTab = (() => {
+    if (tab === "configure" && hasConfigure) return "configure";
+    if (tab === "new" && hasNew) return "new";
+    if (hasNew) return "new";
+    if (hasConfigure) return "configure";
+    return "new";
+  })();
+
+  const [newMode, setNewMode] = useState<BuilderNewMode>(() =>
+    hasPresets ? "premade" : "custom",
+  );
+
+  useEffect(() => {
+    if (newMode === "premade" && !hasPresets && hasCustomBuilder) {
+      setNewMode("custom");
+    } else if (newMode === "custom" && !hasCustomBuilder && hasPresets) {
+      setNewMode("premade");
+    }
+  }, [hasPresets, hasCustomBuilder, newMode]);
+
+  const showModeTabs = hasPresets && hasCustomBuilder;
+  const activeNewMode: BuilderNewMode = showModeTabs
+    ? newMode
+    : hasPresets
+      ? "premade"
+      : "custom";
+
+  return (
+    <section className="builder-screen" aria-label="System builder">
+      <header className="builder-screen-header">
+        <div className="builder-tabs" role="tablist">
+          {hasNew && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveTab === "new"}
+              className={`builder-tab ${effectiveTab === "new" ? "active" : ""}`}
+              onClick={() => onChangeTab("new")}
+            >
+              <ShoppingCart size={12} />
+              <span>New system</span>
+            </button>
+          )}
+          {hasConfigure && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveTab === "configure"}
+              className={`builder-tab ${
+                effectiveTab === "configure" ? "active" : ""
+              }`}
+              onClick={() => onChangeTab("configure")}
+            >
+              <SlidersHorizontal size={12} />
+              <span>Configure: {activeSystem.name}</span>
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          className="builder-screen-close"
+          onClick={onClose}
+          title="Close builder"
+          aria-label="Close builder"
+        >
+          <X size={14} />
+        </button>
+      </header>
+
+      <div className="builder-screen-body">
+        {effectiveTab === "new" ? (
+          <div className="builder-new">
+            {showModeTabs && (
+              <div className="builder-new-modes" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeNewMode === "premade"}
+                  className={`builder-new-mode-tab builder-new-mode-premade ${
+                    activeNewMode === "premade" ? "active" : ""
+                  }`}
+                  onClick={() => setNewMode("premade")}
+                >
+                  <ShoppingCart size={12} />
+                  <span>Premade systems</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeNewMode === "custom"}
+                  className={`builder-new-mode-tab builder-new-mode-custom ${
+                    activeNewMode === "custom" ? "active" : ""
+                  }`}
+                  onClick={() => setNewMode("custom")}
+                >
+                  <SlidersHorizontal size={12} />
+                  <span>Custom build</span>
+                </button>
+              </div>
+            )}
+
+            {activeNewMode === "premade" && hasPresets && (
+              <PremadeSystemList
+                presets={rack.presets}
+                builder={rack.customBuilder}
+                resources={resources}
+                dispatch={systemDispatch}
+              />
+            )}
+            {activeNewMode === "custom" && hasCustomBuilder && (
+              <CustomSystemBuilder
+                builder={rack.customBuilder}
+                resources={resources}
+                dispatch={systemDispatch}
+              />
+            )}
+          </div>
+        ) : (
+          <BuilderConfigure
+            systemName={activeSystem.name}
+            upgrades={systemUpgrades}
+            resources={resources}
+            dispatch={systemDispatch}
+          />
+        )}
+      </div>
     </section>
   );
 }
 
-function CustomMachineBuilder({
+const componentLabels: Record<HardwareComponentId, string> = {
+  cpu: "CPU",
+  cache: "Cache",
+  scheduler: "Scheduler",
+  socket: "Socket",
+  ram: "RAM",
+  cron: "Cron",
+  thermal: "Cooling",
+  psu: "PSU",
+};
+
+const componentOrder: HardwareComponentId[] = [
+  "cpu",
+  "cache",
+  "scheduler",
+  "ram",
+  "socket",
+  "psu",
+  "thermal",
+  "cron",
+];
+
+const componentIconFor = (component: HardwareComponentId): LucideIcon => {
+  switch (component) {
+    case "cpu":
+      return Cpu;
+    case "cache":
+      return Database;
+    case "scheduler":
+      return LayoutGrid;
+    case "socket":
+      return HardDrive;
+    case "ram":
+      return MemoryStick;
+    case "cron":
+      return Activity;
+    case "thermal":
+      return Thermometer;
+    case "psu":
+      return Zap;
+  }
+};
+
+function BuilderConfigure({
+  systemName,
+  upgrades,
+  resources,
+  dispatch,
+}: {
+  systemName: string;
+  upgrades: VisibleUpgrade[];
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  if (upgrades.length === 0) {
+    return (
+      <div className="builder-configure-empty">
+        No parts available to upgrade on {systemName} right now.
+      </div>
+    );
+  }
+
+  const groups = new Map<HardwareComponentId, VisibleUpgrade[]>();
+  for (const upgrade of upgrades) {
+    const list = groups.get(upgrade.component);
+    if (list) list.push(upgrade);
+    else groups.set(upgrade.component, [upgrade]);
+  }
+
+  const ordered = componentOrder
+    .map((component) => ({ component, items: groups.get(component) ?? [] }))
+    .filter((entry) => entry.items.length > 0);
+
+  return (
+    <div className="builder-configure" aria-label={`Configure ${systemName}`}>
+      {ordered.map(({ component, items }) => {
+        const Icon = componentIconFor(component);
+        return (
+          <section className="builder-configure-group" key={component}>
+            <header className="builder-configure-group-header">
+              <Icon size={13} />
+              <span>{componentLabels[component]}</span>
+            </header>
+            <div className="builder-configure-rows">
+              {items.map((upgrade) => (
+                <UpgradeStepper
+                  key={upgrade.id}
+                  upgrade={upgrade}
+                  dispatch={dispatch}
+                  label={upgrade.name}
+                  className="inline-stepper builder-configure-stepper"
+                  resources={resources}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function PreconfiguredSystemControls(props: {
+  presets: UiSystemPreset[];
+  builder?: UiCustomMachineBuilder | null;
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  return <PremadeSystemList {...props} />;
+}
+
+function PremadeSystemList({
+  presets,
+  builder = null,
+  resources,
+  dispatch,
+}: {
+  presets: UiSystemPreset[];
+  builder?: UiCustomMachineBuilder | null;
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  const { optionsById } = getBuilderOptionMap(builder);
+
+  return (
+    <section className="premade-system-list" aria-label="Premade systems">
+      {presets.map((preset, index) => {
+        const presetId = getPresetId(preset, index);
+        const label = getPresetLabel(preset, index);
+        const costs = getRecordCosts(preset);
+        const canBuy =
+          !preset.disabled &&
+          (firstBoolean(preset.canBuy, preset.canAfford) ?? true);
+        const blockedReason =
+          preset.blockedReason ?? preset.lockedReason ?? "Locked";
+        const cores = firstNumber(preset.cores, preset.coreCount);
+        const ramBits = firstBits([preset.ramBits], [preset.ramBytes]);
+        const cacheBits = firstBits([preset.cacheBits], [preset.cacheBytes]);
+        const components = preset.components ?? {};
+        const componentEntries: Array<[string, string | undefined]> = [
+          ["cpu", components.cpu],
+          ["ram", components.ram ?? components.memory],
+          ["scheduler", components.scheduler],
+          ["psu", components.psu ?? components.powerSupply],
+        ];
+        const componentSpecs = componentEntries
+          .map(([groupId, componentId]) =>
+            typeof componentId === "string"
+              ? getModuleSpecRows(groupId, optionsById.get(componentId))
+              : null,
+          )
+          .filter((row): row is ReturnType<typeof getModuleSpecRows> => row !== null);
+
+        const specs: Array<{ label: string; value: string; tone?: string }> = [];
+        if (cores !== undefined) {
+          specs.push({ label: "CPU", value: `${formatNumber(cores)} cores` });
+        }
+        if (ramBits > 0) {
+          specs.push({ label: "RAM", value: formatBits(ramBits) });
+        }
+        if (cacheBits > 0) {
+          specs.push({ label: "Cache", value: formatBits(cacheBits) });
+        }
+        if (preset.powerDeltaWatts !== undefined && preset.powerDeltaWatts !== 0) {
+          specs.push({
+            label: "Power",
+            value: `+${formatWatts(preset.powerDeltaWatts)}`,
+            tone: "amber",
+          });
+        }
+
+        return (
+          <button
+            key={presetId}
+            type="button"
+            className="system-preset-card"
+            disabled={!canBuy}
+            title={canBuy ? `Buy ${label}: ${formatCost(costs)}` : blockedReason}
+            onClick={() =>
+              dispatch({
+                type: "buyPreconfiguredSystem",
+                presetId,
+              })
+            }
+          >
+            <header className="premade-card-header">
+              <span className="premade-card-copy">
+                <strong>{label}</strong>
+                <small>{preset.role ?? preset.tier ?? "Preset"}</small>
+              </span>
+              <span className={`premade-card-buy ${canBuy ? "" : "blocked"}`}>
+                {canBuy ? (
+                  <>
+                    <Plus size={12} />
+                    <span>Buy</span>
+                  </>
+                ) : (
+                  blockedReason
+                )}
+              </span>
+            </header>
+            <dl className="premade-card-specs">
+              {(componentSpecs.length > 0
+                ? componentSpecs.map((spec) => ({
+                    label: spec.label,
+                    value: [spec.name, ...spec.stats].join(" / "),
+                  }))
+                : specs
+              ).map((spec) => (
+                <div key={spec.label} className="premade-card-spec">
+                  <dt>{spec.label}</dt>
+                  <dd>{"tone" in spec && spec.tone ? <span className={`tone-${spec.tone}`}>{spec.value}</span> : spec.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <footer className="premade-card-footer">
+              <ResourceCost costs={costs} compact resources={resources} />
+            </footer>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
+const builderGroupIconFor = (groupId: string): LucideIcon => {
+  const id = groupId.toLowerCase();
+  if (id.includes("cpu")) return Cpu;
+  if (id.includes("ram") || id.includes("memory")) return MemoryStick;
+  if (id.includes("psu") || id.includes("power")) return Zap;
+  if (id.includes("sched")) return LayoutGrid;
+  if (id.includes("cache")) return Database;
+  if (id.includes("cool") || id.includes("therm")) return Thermometer;
+  if (id.includes("socket")) return HardDrive;
+  return SlidersHorizontal;
+};
+
+const summarizeTier = (tier: UiCustomMachineTier) => {
+  const parts: string[] = [];
+  const cores = firstNumber(tier.cores, tier.coreCount);
+  if (cores !== undefined) parts.push(`${formatNumber(cores)}C`);
+  const ramBits = firstBits([tier.ramBits], [tier.ramBytes]);
+  if (ramBits > 0) parts.push(formatBits(ramBits));
+  if (tier.powerDeltaWatts && tier.powerDeltaWatts !== 0) {
+    parts.push(
+      tier.powerDeltaWatts > 0
+        ? `+${formatWatts(tier.powerDeltaWatts)}`
+        : formatWatts(tier.powerDeltaWatts),
+    );
+  }
+  return parts.join(" · ");
+};
+
+const getModuleStats = (
+  groupId: string,
+  module: UiCustomMachineTier | null | undefined,
+) => {
+  if (!module) return [];
+
+  if (groupId === "cpu") {
+    return [
+      module.cpuPackageCount ? `${module.cpuPackageCount} CPU` : null,
+      firstNumber(module.cores, module.coreCount) !== undefined
+        ? `${formatNumber(firstNumber(module.cores, module.coreCount) ?? 0)} cores`
+        : null,
+      module.clockHz
+        ? formatClock(module.clockHz)
+        : module.clockLevel
+          ? `clock L${module.clockLevel}`
+          : null,
+      module.cacheLevel ? `cache L${module.cacheLevel}` : null,
+      module.cacheSpeedLevel ? `cache bus L${module.cacheSpeedLevel}` : null,
+    ].filter((item): item is string => item !== null);
+  }
+
+  if (groupId === "ram" || groupId === "memory") {
+    const ramBits = firstBits([module.ramBits], [module.ramBytes]);
+    return [
+      ramBits > 0 ? formatBits(ramBits) : null,
+      module.ramStickCount ? `${module.ramStickCount} sticks` : null,
+      module.ramLevel ? `capacity L${module.ramLevel}` : null,
+      module.ramSpeedLevel ? `speed L${module.ramSpeedLevel}` : null,
+    ].filter((item): item is string => item !== null);
+  }
+
+  if (groupId === "scheduler") {
+    return [
+      module.schedulerSlots ? `${module.schedulerSlots} queue slots` : null,
+    ].filter((item): item is string => item !== null);
+  }
+
+  if (groupId === "psu" || groupId === "powerSupply") {
+    return [
+      module.psuLevel ? `capacity L${module.psuLevel}` : null,
+      module.powerDeltaWatts ? `+${formatWatts(module.powerDeltaWatts)}` : null,
+    ].filter((item): item is string => item !== null);
+  }
+
+  return summarizeTier(module) ? [summarizeTier(module)] : [];
+};
+
+const getModuleSpecRows = (
+  groupId: string,
+  module: UiCustomMachineTier | null | undefined,
+) => {
+  const label =
+    groupId === "cpu"
+      ? "CPU"
+      : groupId === "ram" || groupId === "memory"
+        ? "RAM"
+        : groupId === "scheduler"
+          ? "Scheduler"
+          : groupId === "psu" || groupId === "powerSupply"
+            ? "PSU"
+            : groupId;
+
+  return {
+    label,
+    name: module ? getTierLabel(module, 0) : "Unselected",
+    stats: getModuleStats(groupId, module),
+    description: module?.description ?? null,
+  };
+};
+
+function CustomMachineBuilder(props: {
+  builder: UiCustomMachineBuilder | null;
+  resources: VisibleState["resources"];
+  dispatch: Dispatch;
+}) {
+  return <CustomSystemBuilder {...props} />;
+}
+
+function CustomSystemBuilder({
   builder,
   resources,
   dispatch,
@@ -3053,14 +3873,42 @@ function CustomMachineBuilder({
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     getBuilderSelections(groups, {}),
   );
+  const initialActiveSlot = groups[0]
+    ? getBuilderGroupId(groups[0], 0)
+    : null;
+  const [activeSlotId, setActiveSlotId] = useState<string | null>(
+    initialActiveSlot,
+  );
 
   useEffect(() => {
     setSelections((current) => getBuilderSelections(groups, current));
   }, [groupsKey]);
 
+  useEffect(() => {
+    if (groups.length === 0) {
+      setActiveSlotId(null);
+      return;
+    }
+    const valid = groups.some(
+      (group, index) => getBuilderGroupId(group, index) === activeSlotId,
+    );
+    if (!valid) {
+      setActiveSlotId(getBuilderGroupId(groups[0]!, 0));
+    }
+  }, [groupsKey, activeSlotId]);
+
   if (!builder || groups.length === 0) return null;
 
   const selectedTiers = getSelectedBuilderTiers(groups, selections);
+  const cpuPackageCount =
+    selections.cpuPackages === "8"
+      ? 8
+      : selections.cpuPackages === "4"
+        ? 4
+        : selections.cpuPackages === "2"
+          ? 2
+          : 1;
+  const selectedCpuTier = getBuilderGroupOption(groups, selections, "cpu");
   const costs =
     getRecordCosts(builder).length > 0
       ? getRecordCosts(builder)
@@ -3079,10 +3927,9 @@ function CustomMachineBuilder({
     builder.blockedReason ??
     builder.lockedReason ??
     "Locked";
-  const totalCores = selectedTiers.reduce(
-    (total, tier) => total + (firstNumber(tier.cores, tier.coreCount) ?? 0),
-    0,
-  );
+  const totalCores =
+    (firstNumber(selectedCpuTier?.cores, selectedCpuTier?.coreCount) ?? 0) *
+    cpuPackageCount;
   const totalRamBits = selectedTiers.reduce(
     (total, tier) => total + firstBits([tier.ramBits], [tier.ramBytes]),
     0,
@@ -3092,89 +3939,199 @@ function CustomMachineBuilder({
     0,
   );
 
-  return (
-    <section className="custom-machine-builder" aria-label="Custom machine builder">
-      <div className="system-rack-subheader">
-        <SlidersHorizontal size={13} />
-        <span>{builder.title ?? builder.name ?? "Custom"}</span>
-      </div>
+  const activeGroup = groups.find(
+    (group, index) => getBuilderGroupId(group, index) === activeSlotId,
+  );
+  const activeGroupIndex = activeGroup
+    ? groups.findIndex(
+        (group, index) => getBuilderGroupId(group, index) === activeSlotId,
+      )
+    : -1;
+  const activeOptions = activeGroup
+    ? activeGroup.tiers ?? activeGroup.options ?? []
+    : [];
 
-      <div className="custom-builder-groups">
+  return (
+    <section className="custom-system-builder" aria-label="Custom system builder">
+      <div className="custom-system-board" role="tablist">
         {groups.map((group, groupIndex) => {
           const groupId = getBuilderGroupId(group, groupIndex);
+          const groupLabel = getBuilderGroupLabel(group, groupIndex);
           const options = group.tiers ?? group.options ?? [];
+          const selectedTierId = selections[groupId];
+          const selectedTier = options.find(
+            (tier, tierIndex) => getTierId(tier, tierIndex) === selectedTierId,
+          );
+          const selectedLabel = selectedTier
+            ? getTierLabel(
+                selectedTier,
+                options.indexOf(selectedTier),
+              )
+            : "—";
+          const Icon = builderGroupIconFor(groupId);
+          const isActive = activeSlotId === groupId;
+          const summary = selectedTier
+            ? getModuleStats(groupId, selectedTier).join(" / ") ||
+              summarizeTier(selectedTier)
+            : "Choose";
 
           return (
-            <div className="custom-builder-group" key={groupId}>
-              <span className="custom-builder-label">
-                {getBuilderGroupLabel(group, groupIndex)}
+            <button
+              key={groupId}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={`custom-system-bay ${isActive ? "active" : ""}`}
+              data-slot={groupId}
+              onClick={() => setActiveSlotId(groupId)}
+              title={`Configure ${groupLabel}`}
+            >
+              <span className="custom-system-bay-label">
+                <Icon size={11} />
+                <span>{groupLabel}</span>
               </span>
-              <div className="custom-tier-options">
-                {options.map((tier, tierIndex) => {
-                  const tierId = getTierId(tier, tierIndex);
-                  const selected = selections[groupId] === tierId;
-                  const tierCosts = getRecordCosts(tier);
-                  const disabled =
-                    tier.disabled ||
-                    firstBoolean(tier.canSelect, tier.canAfford) === false;
-
-                  return (
-                    <button
-                      key={tierId}
-                      type="button"
-                      className={`custom-tier-option ${selected ? "selected" : ""}`}
-                      disabled={disabled}
-                      aria-pressed={selected}
-                      onClick={() =>
-                        setSelections((current) => ({
-                          ...current,
-                          [groupId]: tierId,
-                        }))
-                      }
-                      title={
-                        disabled
-                          ? tier.blockedReason ?? "Locked"
-                          : getTierLabel(tier, tierIndex)
-                      }
-                    >
-                      <span>{getTierLabel(tier, tierIndex)}</span>
-                      {tierCosts.length > 0 && (
-                        <ResourceCost
-                          costs={tierCosts}
-                          compact
-                          resources={resources}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              <span className="custom-system-bay-module">{selectedLabel}</span>
+              <span className="custom-system-bay-summary">{summary}</span>
+            </button>
           );
         })}
       </div>
 
-      <div className="custom-builder-summary">
-        <span>{formatNumber(totalCores)}C</span>
-        {totalRamBits > 0 && <span>{formatBits(totalRamBits)} RAM</span>}
-        {totalPower > 0 && <span>+{formatWatts(totalPower)}</span>}
-        <ResourceCost costs={costs} compact resources={resources} />
-        <button
-          type="button"
-          className="custom-builder-buy"
-          disabled={!canBuy}
-          title={canBuy ? `Buy custom system: ${formatCost(costs)}` : blockedReason}
-          onClick={() =>
-            dispatch({
-              type: "buyCustomSystem",
-              tierIds: selections,
-            })
-          }
-        >
-          {canBuy ? <Plus size={12} /> : null}
-          <span>{canBuy ? "Build" : blockedReason}</span>
-        </button>
-      </div>
+      {activeGroup && (
+        <div className="custom-system-module-picker">
+          <header className="custom-system-module-header">
+            <span>
+              Choose{" "}
+              {getBuilderGroupLabel(activeGroup, activeGroupIndex)} module
+            </span>
+          </header>
+          {getBuilderGroupId(activeGroup, activeGroupIndex) === "cpu" && (
+            <div className="custom-cpu-package-count" aria-label="CPU package count">
+              <span>CPU count</span>
+              <div className="custom-cpu-package-options" role="group">
+                {[1, 2, 4, 8].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    className={cpuPackageCount === count ? "active" : ""}
+                    aria-pressed={cpuPackageCount === count}
+                    onClick={() =>
+                      setSelections((current) => ({
+                        ...current,
+                        cpuPackages: String(count),
+                      }))
+                    }
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="custom-system-modules">
+            {activeOptions.map((tier, tierIndex) => {
+              const tierId = getTierId(tier, tierIndex);
+              const selected =
+                selections[getBuilderGroupId(activeGroup, activeGroupIndex)] ===
+                tierId;
+              const tierCosts = getRecordCosts(tier);
+              const disabled =
+                tier.disabled ||
+                firstBoolean(tier.canSelect, tier.canAfford) === false;
+
+              return (
+                <button
+                  key={tierId}
+                  type="button"
+                  className={`custom-tier-option custom-system-module ${
+                    selected ? "selected" : ""
+                  }`}
+                  disabled={disabled}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setSelections((current) => ({
+                      ...current,
+                      [getBuilderGroupId(activeGroup, activeGroupIndex)]:
+                        tierId,
+                    }))
+                  }
+                  title={
+                    disabled
+                      ? tier.blockedReason ?? "Locked"
+                      : getTierLabel(tier, tierIndex)
+                  }
+                >
+                  <span className="custom-system-module-name">
+                    {getTierLabel(tier, tierIndex)}
+                  </span>
+                  <span className="custom-system-module-summary">
+                    {summarizeTier(tier) || "—"}
+                  </span>
+                  <span className="custom-system-module-specs">
+                    {getModuleStats(
+                      getBuilderGroupId(activeGroup, activeGroupIndex),
+                      tier,
+                    ).join(" / ")}
+                  </span>
+                  {tierCosts.length > 0 && (
+                    <span className="custom-system-module-cost">
+                      <ResourceCost
+                        costs={tierCosts}
+                        compact
+                        resources={resources}
+                      />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <footer className="custom-system-summary">
+        <div className="custom-system-totals">
+          <span className="custom-system-total">
+            <span className="custom-system-total-label">CPU</span>
+            <span>{formatNumber(totalCores)}C</span>
+          </span>
+          {totalRamBits > 0 && (
+            <span className="custom-system-total">
+              <span className="custom-system-total-label">RAM</span>
+              <span>{formatBits(totalRamBits)}</span>
+            </span>
+          )}
+          {totalPower !== 0 && (
+            <span className="custom-system-total">
+              <span className="custom-system-total-label">PWR</span>
+              <span>{totalPower > 0 ? "+" : ""}{formatWatts(totalPower)}</span>
+            </span>
+          )}
+        </div>
+        <div className="custom-system-buy">
+          <ResourceCost costs={costs} compact resources={resources} />
+          <button
+            type="button"
+            className="custom-builder-buy"
+            disabled={!canBuy}
+            title={
+              canBuy ? `Buy custom system: ${formatCost(costs)}` : blockedReason
+            }
+            onClick={() =>
+              dispatch({
+                type: "buyCustomSystem",
+                tierIds: {
+                  ...selections,
+                  cpuPackages: String(cpuPackageCount),
+                },
+              })
+            }
+          >
+            {canBuy ? <Plus size={12} /> : null}
+            <span>{canBuy ? "Build system" : blockedReason}</span>
+          </button>
+        </div>
+      </footer>
     </section>
   );
 }
@@ -3201,6 +4158,29 @@ export function HardwareBoard({
       rack.systems[0] ??
       getFallbackRackSystem(visible))
     : getFallbackRackSystem(visible);
+
+  const [rackView, setRackView] = useState<RackView>("list");
+  const [builderTab, setBuilderTab] = useState<BuilderTab>("new");
+
+  const builderUnlocked =
+    rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
+
+  useEffect(() => {
+    if (!rack.showRack && rackView !== "list") {
+      setRackView("list");
+    }
+  }, [rack.showRack, rackView]);
+
+  const openSystemDetail = (_systemId: string) => {
+    if (!rack.showRack) return;
+    setRackView("detail");
+  };
+  const openBuilder = (tab: BuilderTab, _systemId?: string) => {
+    if (!rack.showRack && !builderUnlocked) return;
+    setBuilderTab(tab);
+    setRackView("builder");
+  };
+  const backToRack = () => setRackView("list");
   const boardVisible = activeSystem.visible;
   const boardSelection =
     getSelectedSystemComponent(selectedComponent) ?? ("core:1" as SelectedComponent);
@@ -3228,6 +4208,7 @@ export function HardwareBoard({
     boardVisible.flags.basicQueue || boardVisible.flags.scheduler;
   const cronVisible = hasCronScheduler(boardVisible);
   const systemSchedulerVisible = boardVisible.flags.scheduler;
+  const systemSchedulerInstalled = getVisibleSystemSchedulerSlots(boardVisible) > 0;
   const memoryVisible = hasSystemMemory(boardVisible);
   const psuAdvancedControlsVisible = hasPsuManagement(boardVisible);
   const psuVisible = true;
@@ -3239,6 +4220,7 @@ export function HardwareBoard({
   const ramUpgrades = upgradesFor("ram");
   const psuUpgrades = upgradesFor("psu");
   const socketUpgrades = upgradesFor("socket");
+  const cronUpgrades = upgradesFor("cron");
   const systemSchedulerUpgrades = upgradesFor("scheduler").filter(
     (upgrade) => upgrade.id === "systemSchedulerSlot",
   );
@@ -3345,25 +4327,14 @@ export function HardwareBoard({
     );
   };
 
-  return (
-    <>
-      {rack.showRack && (
-        <SystemRackPanel
-          rack={rack}
-          activeSystemId={activeSystem.id}
-          selection={selectedComponent}
-          onSelectComponent={onSelectComponent}
-          dispatch={systemDispatch}
-          resources={visible.resources}
-        />
-      )}
-
+  const systemBoardNode = (
     <SystemBoard visible={boardVisible}>
       {cronVisible && (
         <CronAutomationSection
           visible={boardVisible}
           selected={boardSelection === "cron"}
           onSelect={() => selectComponent("cron")}
+          upgrades={cronUpgrades}
           dispatch={systemDispatch}
         />
       )}
@@ -3448,7 +4419,7 @@ export function HardwareBoard({
               upgrades={psuUpgrades}
               dispatch={systemDispatch}
               advancedControls={psuAdvancedControlsVisible}
-              showTransitionStatus={!systemSchedulerVisible}
+              showTransitionStatus={!systemSchedulerInstalled}
               showFailureHelp={showPsuFailureHelp}
               onDismissFailureHelp={onDismissPsuFailureHelp}
             />
@@ -3466,7 +4437,71 @@ export function HardwareBoard({
         </SystemRail>
       )}
     </SystemBoard>
-    </>
+  );
+
+  if (!rack.showRack) {
+    return systemBoardNode;
+  }
+
+  if (rackView === "list") {
+    return (
+      <SystemRackPanel
+        rack={rack}
+        activeSystemId={activeSystem.id}
+        onOpenSystem={openSystemDetail}
+        onOpenBuilder={openBuilder}
+        selection={selectedComponent}
+        onSelectComponent={onSelectComponent}
+        dispatch={systemDispatch}
+      />
+    );
+  }
+
+  const strip = (
+    <RackStrip
+      rack={rack}
+      activeSystemId={activeSystem.id}
+      builderUnlocked={builderUnlocked}
+      view={rackView}
+      builderTab={builderTab}
+      onHome={backToRack}
+      onSelectSystem={openSystemDetail}
+      onOpenBuilder={openBuilder}
+      selection={selectedComponent}
+      onSelectComponent={onSelectComponent}
+      dispatch={systemDispatch}
+    />
+  );
+
+  if (rackView === "builder") {
+    return (
+      <div className="rack-mode-builder">
+        {strip}
+        <BuilderScreen
+          rack={rack}
+          activeSystem={activeSystem}
+          tab={builderTab}
+          onChangeTab={setBuilderTab}
+          onClose={backToRack}
+          resources={visible.resources}
+          systemDispatch={systemDispatch}
+          systemUpgrades={boardVisible.upgrades}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rack-mode-detail">
+      {strip}
+      <SystemDetailHeader
+        systemName={activeSystem.name}
+        builderUnlocked={builderUnlocked}
+        onBack={backToRack}
+        onConfigure={() => openBuilder("configure", activeSystem.id)}
+      />
+      {systemBoardNode}
+    </div>
   );
 }
 
@@ -3887,14 +4922,30 @@ function CpuModuleLayout({
   showCoreDeadlockPressure?: boolean;
 }) {
   const grid = getCoreGridMetrics(socket.cores.length);
+  const schedulerInstalled = socket.schedulerSlots > 0;
   const scheduler = schedulerVisible ? (
-    <SchedulerSection
-      socket={socket}
-      visible={visible}
-      selected={selectedSchedulerId === socket.id}
-      onSelect={() => onSelectComponent(`scheduler:${socket.id}`)}
-      dispatch={dispatch}
-    />
+    schedulerInstalled ? (
+      <SchedulerSection
+        socket={socket}
+        visible={visible}
+        selected={selectedSchedulerId === socket.id}
+        onSelect={() => onSelectComponent(`scheduler:${socket.id}`)}
+        dispatch={dispatch}
+      />
+    ) : (
+      <HardwareInstallSection
+        className="scheduler-section"
+        Icon={ListTodo}
+        title="Scheduler"
+        note="Install first queue slot"
+        upgrade={socket.schedulerSlotUpgrade}
+        selected={selectedSchedulerId === socket.id}
+        onSelect={() => onSelectComponent(`scheduler:${socket.id}`)}
+        dispatch={dispatch}
+        resources={visible.resources}
+        cpuId={socket.id}
+      />
+    )
   ) : null;
   const cache = (
     <CacheSection
@@ -5100,6 +6151,76 @@ function LockedSystemSection({
   );
 }
 
+function HardwareInstallSection({
+  className,
+  Icon,
+  title,
+  note,
+  upgrade,
+  selected = false,
+  onSelect,
+  dispatch,
+  resources,
+  cpuId,
+}: {
+  className: string;
+  Icon: LucideIcon;
+  title: string;
+  note: string;
+  upgrade?: VisibleUpgrade | null;
+  selected?: boolean;
+  onSelect: () => void;
+  dispatch: Dispatch;
+  resources: VisibleState["resources"];
+  cpuId?: number;
+}) {
+  const buyTitle = upgrade
+    ? `Install ${upgrade.name}: ${formatCost(upgrade.costs)}`
+    : note;
+
+  return (
+    <section
+      className={`hw-section install-hardware-section ${className} ${
+        selected ? "selected" : ""
+      }`}
+    >
+      <button type="button" className="hw-section-header" onClick={onSelect}>
+        <Icon size={14} />
+        <span>{title}</span>
+        <span className="hw-section-meta">
+          <strong>Open bay</strong>
+        </span>
+      </button>
+      <div className="install-hardware-body">
+        <span className="install-hardware-copy">
+          <strong>{note}</strong>
+          {upgrade && (
+            <ResourceCost costs={upgrade.costs} compact resources={resources} />
+          )}
+        </span>
+        {upgrade && (
+          <button
+            type="button"
+            className="install-hardware-button"
+            disabled={!upgrade.canAfford}
+            title={buyTitle}
+            onClick={() =>
+              dispatch({
+                type: "buyUpgrade",
+                upgradeId: upgrade.id as UpgradeId,
+                ...(cpuId !== undefined ? { cpuId } : {}),
+              })
+            }
+          >
+            <Plus size={12} />
+            <span>Install</span>
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function EfficiencyReadouts({ visible }: { visible: VisibleState }) {
   const efficiency = getEfficiencyMetrics(visible);
 
@@ -5121,11 +6242,13 @@ function CronAutomationSection({
   visible,
   selected,
   onSelect,
+  upgrades,
   dispatch,
 }: {
   visible: VisibleState;
   selected: boolean;
   onSelect: () => void;
+  upgrades: VisibleUpgrade[];
   dispatch: Dispatch;
 }) {
   const cron = getCronState(visible);
@@ -5145,6 +6268,24 @@ function CronAutomationSection({
   }
 
   const schedules = getCronSchedules(visible);
+  const scheduleUpgrade = upgrades.find((upgrade) => upgrade.id === "cronSchedule");
+
+  if (schedules.length === 0) {
+    return (
+      <HardwareInstallSection
+        className="scheduler-section cron-section"
+        Icon={ListTodo}
+        title="System Automation"
+        note="Install first CRON job slot"
+        upgrade={scheduleUpgrade}
+        selected={selected}
+        onSelect={onSelect}
+        dispatch={dispatch}
+        resources={visible.resources}
+      />
+    );
+  }
+
   const systemTasks = getSystemTaskOptions(visible);
   const activeCount = schedules.filter((schedule) => schedule.enabled !== false).length;
   const minUpgrade = getCronMinimumUpgrade(visible, cron);
@@ -5374,6 +6515,23 @@ function SystemSchedulerSection({
   const slotCapacity = getVisibleSystemSchedulerSlots(visible);
   const deadlocked = queueItems.some((item) => item.deadlocked);
   const power = getPowerStats(visible);
+  const installUpgrade = upgrades.find((upgrade) => upgrade.id === "systemSchedulerSlot");
+
+  if (slotCapacity <= 0) {
+    return (
+      <HardwareInstallSection
+        className="scheduler-section system-scheduler-section"
+        Icon={ListTodo}
+        title="System Scheduler"
+        note="Install first system queue slot"
+        upgrade={installUpgrade}
+        selected={selected}
+        onSelect={onSelect}
+        dispatch={dispatch}
+        resources={visible.resources}
+      />
+    );
+  }
 
   return (
     <section
@@ -5466,11 +6624,28 @@ function RamSection({
   onDismissDeadlockCooldownHelp?: () => void;
 }) {
   const status = getSystemLoad(visible);
+  const ramUpgrade = upgrades.find((upgrade) => upgrade.id === "ram");
+  const ramSlots = visible.metrics.ramSlots;
+
+  if (ramSlots.length === 0) {
+    return (
+      <HardwareInstallSection
+        className="memory-section"
+        Icon={MemoryStick}
+        title="RAM"
+        note="Install first RAM stick"
+        upgrade={ramUpgrade}
+        selected={selected}
+        onSelect={onSelect}
+        dispatch={dispatch}
+        resources={visible.resources}
+      />
+    );
+  }
+
   const capacity = Math.max(getVisibleRamBits(visible), 1);
   const tone = getStressTone(status.memoryPressure);
-  const ramUpgrade = upgrades.find((upgrade) => upgrade.id === "ram");
   const ramReservation = getRamReservation(visible);
-  const ramSlots = visible.metrics.ramSlots;
   const ramSegmentsBySlot = getRamSegmentsBySlot(ramSlots, ramReservation.segments);
   const moduleFrequencyLabel = getRamModuleFrequencyLabel(
     ramSlots,

@@ -8,6 +8,7 @@ import {
   tickGame,
 } from "./index";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
+import { componentSkus, getComponentSku, getMachineTemplate } from "./content/machines";
 import {
   getCacheLoadCycles,
   getCacheLoadCyclesForBits,
@@ -22,6 +23,7 @@ import {
   createRamStickState,
   createSchedulerConfig,
   getClockHz,
+  getRamBits,
   POWER_BOOTSTRAP_GRACE_SECONDS,
   syncCoreSchedulers,
 } from "./progression";
@@ -486,6 +488,7 @@ const unlockSystemScheduler = () => {
   let state = unlockRamControl();
 
   state = buy(state, "ram");
+  state = buyAllRamStickUpgrade(state, "ramCapacity");
   state = buyAllRamStickUpgrade(state, "ramCapacity");
   state = buy(state, "schedulerSlot", undefined, 1);
   state = buy(state, "schedulerSlot", undefined, 1);
@@ -1240,18 +1243,28 @@ describe("IdleBit simulation", () => {
     });
 
     let visible = deriveVisibleState(state);
+    const compileSystem = state.systems.at(-1);
 
     expect(state.systems.map((system) => system.name)).toEqual([
       "Starter Node",
       "Compile Box",
     ]);
     expect(state.selectedSystemId).toBe(2);
+    expect(compileSystem?.hardware.cores).toBe(4);
+    expect(compileSystem?.hardware.schedulerSlots).toBe(4);
+    expect(compileSystem?.hardware.systemSchedulerSlots).toBe(4);
+    expect(compileSystem?.hardware.cpus[0]?.schedulerSlots).toBe(
+      compileSystem?.hardware.cpus[0]?.coreIds.length,
+    );
     expect(visible.rack.systems).toHaveLength(2);
     expect(visible.rack as unknown as Record<string, unknown>).not.toHaveProperty(
       "slotCount",
     );
 
-    state = fund(state);
+    state = {
+      ...state,
+      resources: { credits: 100_000, data: 100_000 },
+    };
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
@@ -1267,6 +1280,92 @@ describe("IdleBit simulation", () => {
     expect(state.systems.at(-1)?.name).toBe("Custom 3");
     expect(state.selectedSystemId).toBe(3);
     expect(visible.rack.systems).toHaveLength(3);
+  });
+
+  it("keeps catalog CPU cache speed matched and RAM tiers monotonic", () => {
+    const cpuModules = componentSkus.filter((module) => module.type === "cpu");
+    const ramModules = componentSkus.filter((module) => module.type === "ram");
+
+    expect(cpuModules.every((module) => module.cacheSpeedLevel === module.clockLevel)).toBe(
+      true,
+    );
+
+    for (let index = 1; index < ramModules.length; index += 1) {
+      const previous = ramModules[index - 1]!;
+      const current = ramModules[index]!;
+      const previousCapacity =
+        (previous.ramStickCount ?? 0) * getRamBits(previous.ramLevel ?? 0);
+      const currentCapacity =
+        (current.ramStickCount ?? 0) * getRamBits(current.ramLevel ?? 0);
+
+      expect(currentCapacity).toBeGreaterThanOrEqual(previousCapacity);
+      expect(current.ramSpeedLevel ?? 0).toBeGreaterThanOrEqual(
+        previous.ramSpeedLevel ?? 0,
+      );
+    }
+  });
+
+  it("offers broad CPU module choices and materializes multi-CPU custom systems", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemCatalog", "customMachineAssembly"],
+      },
+    });
+    state = {
+      ...state,
+      resources: { credits: 50_000_000, data: 50_000 },
+    };
+    const visible = deriveVisibleState(state);
+    const cpuModules = visible.machineBuilder.components.cpu;
+
+    expect(cpuModules).toHaveLength(10);
+    expect(cpuModules.every((module) => (module.cpuPackageCount ?? 1) === 1)).toBe(
+      true,
+    );
+    expect(Math.max(...cpuModules.map((module) => module.coreCount ?? 0))).toBe(64);
+    expect(Math.max(...cpuModules.map((module) => module.clockHz ?? 0))).toBeGreaterThan(
+      100_000,
+    );
+
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components: {
+        cpu: "cpu-server-64",
+        cpuPackageCount: 8,
+        ram: "ram-8mb-server",
+        scheduler: "scheduler-24-slot",
+        psu: "psu-server",
+      },
+    });
+
+    const custom = state.systems.at(-1);
+    const cpu = getComponentSku("cpu-server-64");
+    const ram = getComponentSku("ram-8mb-server");
+    const scheduler = getComponentSku("scheduler-24-slot");
+    const template = getMachineTemplate("workstationTower");
+
+    expect(custom?.hardware.cpus).toHaveLength(8);
+    expect(custom?.hardware.cores).toBe(512);
+    expect(custom?.hardware.secondCpu).toBe(true);
+    expect(custom?.hardware.cacheLevel).toBe(cpu.cacheLevel);
+    expect(custom?.hardware.cacheSpeedLevel).toBe(cpu.clockLevel);
+    expect(custom?.hardware.ramSticks).toHaveLength(ram.ramStickCount ?? 0);
+    expect(custom?.hardware.ramSpeedLevel).toBe(ram.ramSpeedLevel);
+    expect(custom?.hardware.systemSchedulerSlots).toBe(scheduler.schedulerSlots);
+    expect(custom?.hardware.schedulerSlots).toBe(custom?.hardware.cores);
+    expect(
+      custom?.hardware.cpus.every(
+        (packageCpu) => packageCpu.schedulerSlots === packageCpu.coreIds.length,
+      ),
+    ).toBe(true);
+    expect(custom?.hardware.clockHz).toBeGreaterThan(100_000);
+    expect(template.components.cpu).toBe("cpu-ghz-16");
   });
 
   it("routes selected-system upgrades without mutating other rack systems", () => {
@@ -2246,6 +2345,7 @@ describe("IdleBit simulation", () => {
 
     state = buy(state, "ram");
     state = buyAllRamStickUpgrade(state, "ramCapacity");
+    state = buyAllRamStickUpgrade(state, "ramCapacity");
     state = research(fund(state), "systemScheduler");
 
     let visible = deriveVisibleState(state);
@@ -2388,10 +2488,10 @@ describe("IdleBit simulation", () => {
     state = research(fund(state), "ramControl");
 
     expect(state.flags.systemStats).toBe(true);
-    expect(state.hardware.ramBits).toBe(256);
-    expect(state.hardware.ramBytes).toBe(32);
+    expect(state.hardware.ramBits).toBe(0);
+    expect(state.hardware.ramBytes).toBe(0);
     expect(state.hardware.ramSpeedMt).toBe(1);
-    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([256]);
+    expect(state.hardware.ramSticks).toEqual([]);
     expect(state.flags.scheduler).toBe(false);
 
     visible = deriveVisibleState(state);
@@ -2399,30 +2499,30 @@ describe("IdleBit simulation", () => {
       visible.research.find((item) => item.id === "systemScheduler")?.blockedReason,
     ).toBe("Needs Install at least 1 Kb RAM.");
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ram");
-    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ramCapacity");
-    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("ramSpeed");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("ramCapacity");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("ramSpeed");
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("psu");
 
     state = buy(state, "ram");
 
+    expect(state.hardware.ramBits).toBe(256);
+    expect(state.hardware.ramBytes).toBe(32);
+    expect(state.hardware.ramSpeedMt).toBe(1);
+    expect(getRamLoadRate(state)).toBe(1);
+    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([256]);
+
+    state = buyAllRamStickUpgrade(state, "ramCapacity");
+
     expect(state.hardware.ramBits).toBe(512);
     expect(state.hardware.ramBytes).toBe(64);
     expect(state.hardware.ramSpeedMt).toBe(1);
-    expect(getRamLoadRate(state)).toBe(1);
-    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([
-      256,
-      256,
-    ]);
+    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([512]);
 
     state = buyAllRamStickUpgrade(state, "ramCapacity");
 
     expect(state.hardware.ramBits).toBe(1024);
     expect(state.hardware.ramBytes).toBe(128);
-    expect(state.hardware.ramSpeedMt).toBe(1);
-    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([
-      512,
-      512,
-    ]);
+    expect(state.hardware.ramSticks.map((stick) => stick.bits)).toEqual([1024]);
 
     state = buyAllRamStickUpgrade(state, "ramSpeed");
 
@@ -2803,12 +2903,14 @@ describe("IdleBit simulation", () => {
     const cacheSpeedUpgrade = starterVisible.upgrades.find(
       (upgrade) => upgrade.id === "cacheSpeed",
     );
-    const ramVisible = deriveVisibleState(unlockRamControl());
+    const ramState = unlockRamControl();
+    const ramVisible = deriveVisibleState(ramState);
+    const installedRamVisible = deriveVisibleState(buy(ramState, "ram"));
     const ramUpgrade = ramVisible.upgrades.find((upgrade) => upgrade.id === "ram");
-    const ramCapacityUpgrade = ramVisible.upgrades.find(
+    const ramCapacityUpgrade = installedRamVisible.upgrades.find(
       (upgrade) => upgrade.id === "ramCapacity",
     );
-    const ramSpeedUpgrade = ramVisible.upgrades.find(
+    const ramSpeedUpgrade = installedRamVisible.upgrades.find(
       (upgrade) => upgrade.id === "ramSpeed",
     );
 
@@ -3352,6 +3454,15 @@ describe("IdleBit simulation", () => {
 
     expect(state.flags.cron).toBe(true);
     expect(state.flags.autoRepeat).toBe(true);
+    expect(state.hardware.cronScheduleSlots).toBe(0);
+    expect(state.cron.schedules).toHaveLength(0);
+    expect(deriveVisibleState(state).upgrades.map((upgrade) => upgrade.id)).toContain(
+      "cronSchedule",
+    );
+
+    state = buy(state, "cronSchedule");
+
+    expect(state.hardware.cronScheduleSlots).toBe(1);
     expect(state.cron.schedules).toHaveLength(1);
     expect(deriveVisibleState(state).cron.taskOptions.map((task) => task.id)).toEqual(
       expect.arrayContaining([

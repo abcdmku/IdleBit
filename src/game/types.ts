@@ -67,6 +67,7 @@ export type UpgradeId =
   | "ram"
   | "ramCapacity"
   | "ramSpeed"
+  | "cronSchedule"
   | "cronInterval"
   | "psu"
   | "cooling";
@@ -379,6 +380,7 @@ export interface ComponentSkuDefinition {
   type: ComponentSkuType;
   description: string;
   cost: Cost[];
+  cpuPackageCount?: number;
   coreCount?: number;
   clockLevel?: number;
   cacheLevel?: number;
@@ -392,6 +394,7 @@ export interface ComponentSkuDefinition {
 
 export interface MachineComponentSelection {
   cpu: string;
+  cpuPackageCount?: 1 | 2 | 4 | 8;
   ram: string;
   scheduler: string;
   psu: string;
@@ -465,6 +468,7 @@ export interface HardwareState {
   ramSpeedLevel: number;
   ramSpeedMt: number;
   ramSticks: RamStickState[];
+  cronScheduleSlots: number;
   cronIntervalLevel: number;
   psuLevel: number;
   psuWatts: number;
@@ -920,6 +924,12 @@ export interface VisibleRackState {
 
 export interface VisibleComponentSku extends ComponentSkuDefinition {
   canAfford: boolean;
+  clockHz?: number;
+  cacheBits?: number;
+  cacheBytes?: number;
+  ramBits?: number;
+  ramBytes?: number;
+  powerDeltaWatts?: number;
 }
 
 export interface VisibleMachineTemplate extends MachineTemplateDefinition {

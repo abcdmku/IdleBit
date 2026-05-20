@@ -558,11 +558,11 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
 | Benchmark Harness research | Cache Mapping, Packet Check, clock tuning | Reveals benchmark compute inside later research cards |
 | Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
-| RAM Control research | Local Scheduler research | Appears alongside System Scheduler and unlocks 256 b RAM at 1 Hz |
+| RAM Control research | Local Scheduler research | Appears alongside System Scheduler and reveals a paid RAM bay; the first RAM Stick purchase installs 256 b at 1 Hz |
 | System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
 | PSU readouts | New save | Shows draw, capacity, load/stress, state, cr/s, and overload failure pressure from the first screen |
 | PSU Capacity upgrade | New save | Lets the player buy more PSU wattage with credits from the first screen |
-| CRON module | CRON Scheduler research | CRON appears at the top of the system board only after research is bought |
+| CRON module | CRON Scheduler research | CRON appears at the top of the system board as a paid CRON Job Slot install after research is bought |
 | Memory Scrub, Queue Compaction, and Power Telemetry | After first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
 | CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
 | Bus Mirror and Shard Reconcile | Second CPU purchase | Later repeatable system tasks for multi-CPU system management |
@@ -652,9 +652,9 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 
 ### Unlock Condition
 
-RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control unlocks RAM at one 256 b stick and 1 Hz. The RAM hardware surface should sit above the CPU package; after System Scheduler research completes, the System Scheduler surface should sit above RAM. System Scheduler unlocks when the player reaches 4 cores, completes RAM Control, and upgrades RAM capacity to at least 1 Kb.
+RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b stick at 1 Hz. The RAM hardware surface should sit above the CPU package; after System Scheduler research completes, the System Scheduler surface should sit above RAM as an empty paid first-slot bay until the player buys a System Queue Slot. System Scheduler unlocks when the player reaches 4 cores, completes RAM Control, and upgrades installed RAM capacity to at least 1 Kb.
 
-Local Scheduler research enables per-CPU queue-slot purchases. The default CPU scheduler backlog is 0 slots; each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler surface for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
+Local Scheduler research enables per-CPU queue-slot purchases. The default CPU scheduler backlog is 0 slots; until the first CPU Queue Slot is bought, the CPU scheduler renders as a faded paid install outline with that first slot price. Each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler install outline for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
 
 Scheduler Watchdog research appears after Local Scheduler and unlocks per-scheduler auto-kill controls plus the kill policy selector. It also reveals Deadlock Cooldown upgrades that increase the post-deadlock pressure drain rate. Auto-kill applies only to scheduler-owned active tasks, waits for 3 seconds of continuous deadlock, shows the selected victim, target core, and countdown while armed, and kills at most one task per scheduler per tick. The System Scheduler watchdog only owns RAM deadlocks; cache deadlocks from system-scheduled CPU work are owned by the affected CPU scheduler watchdog. Scheduling Policy appears after Scheduler Watchdog and unlocks dispatch policy controls: FIFO, Deadlock-safe, Shortest task, and Smallest memory. These policies affect scheduler dispatch only, not direct core assignment. On the System Scheduler, Deadlock-safe evaluates RAM pressure only; CPU cache pressure is evaluated by each CPU scheduler's own policy.
 
@@ -735,7 +735,7 @@ Cache and RAM pressure uses deadlocks instead of invisible start blockers once t
 
 ### CRON Role
 
-CRON is the first explicit timer automation layer. It is hidden after the second CPU purchase until the player buys CRON Scheduler research.
+CRON is the first explicit timer automation layer. It is hidden after the second CPU purchase until the player buys CRON Scheduler research, then appears as a paid CRON Job Slot install outline. Buying the first slot creates the first schedule row.
 
 CRON v1 rules:
 
@@ -743,7 +743,7 @@ CRON v1 rules:
 - CRON cannot schedule hidden tasks, research benchmark compute, normal CPU-bound task progression, or later locked task groups.
 - Each scheduled entry has seconds and minutes interval modes.
 - Each visible schedule row shows a whole-second countdown to its next job.
-- The default minimum interval is 60 seconds.
+- The default minimum interval is 60 seconds after a CRON Job Slot exists.
 - Each `cronInterval` upgrade lowers the minimum interval by 1 second, with credit costs scaling steeply and data costs scaling moderately so low-second automation remains a long-term target.
 - CRON skips a tick if the same task is already active or queued, if the task is blocked, if the target scheduler queue is full, or if the system is `off`, `booting`, or `shuttingDown`.
 - Skipped or offline time does not catch up later. A missed run is simply missed.
@@ -880,7 +880,8 @@ system still occupies its slot.
 
 Preconfigured systems are the fast purchase path. They should let the player add
 another useful machine without picking every component. They cost the sum of
-their off-the-shelf parts and do not add discounts.
+their off-the-shelf parts and do not add discounts. The premade system view
+lists the complete CPU, RAM, scheduler, and PSU module specs before purchase.
 
 ### Tiered Custom Machine Builder
 
@@ -893,9 +894,15 @@ choices supported by the player's current progression tier.
 | Tier 2: Workstation | Larger CPU/RAM/PSU ranges and role presets for compile, render, or test workloads |
 | Tier 3: Specialist | Later expansion-slot and accelerator choices after specialized compute is introduced |
 
-The builder creates one complete system at a time. All v1 parts are compatible.
-It should validate costs before purchase, show projected draw/stress, allow
-risky PSU choices with warnings, then add exactly one owned-system rack slot.
+The builder creates one complete system at a time through a full-size system
+chassis view. Each visible bay is clickable and opens the curated premade module
+choices for that part. The CPU bay should offer at least ten single-CPU die
+choices and a separate top-level CPU count selector for 1, 2, 4, or 8 packages,
+with current server-preview systems reaching up to 512 total cores.
+CPU module cards list cores, cache, and clock speed directly so the choice is
+scannable before purchase. All v1 parts are compatible. It should validate
+costs before purchase, show projected draw/stress, allow risky PSU choices with
+warnings, then add exactly one owned-system rack slot.
 
 ### Elastic Single-System Tasks
 
@@ -1599,12 +1606,12 @@ A strong first vertical slice should include progression through:
 2. Clock/cache upgrades.
 3. Multi-core unlock.
 4. Four-core milestone.
-5. RAM Control reveal with 256 b RAM at 1 Hz.
+5. RAM Control reveal with a paid 256 b / 1 Hz first-stick install.
 6. 1 Kb RAM gate for System Scheduler.
 7. System Scheduler unlock.
 8. Second CPU package unlock.
 9. Second CPU purchase reveals CRON Scheduler research; PSU has been visible since the start.
-10. CRON Scheduler unlocks CRON v1 for visible repeatable system tasks only.
+10. CRON Scheduler reveals a paid CRON Job Slot install; buying it unlocks CRON v1 for visible repeatable system tasks only.
 11. PSU Management remains deferred until it exposes a new power decision.
 12. Thermal Control remains deferred until the cooling/power tradeoff is ready.
 
@@ -1682,6 +1689,25 @@ Late game should include:
 19. Operating cost should include maintenance, staff, monitoring, and automation.
 20. Every new scale should automate or abstract the previous scale.
 21. Broad auto-repeat should remain deferred until later automation layers can support it without flattening task choice.
+
+### 14.1 Equipment Tier Ladder
+
+Equipment pricing uses a static ladder. The highest module in a newly visible band should feel aspirational at roughly 50x the expected credit high-water mark for that band, but the game does not track max credits for dynamic repricing.
+
+| Tier | Era | CPU Target | Cache Target | RAM Target | Price Band |
+|---|---|---:|---:|---:|---:|
+| T0 | Bit/byte starter | 1-4 Hz, 1-2 cores | 1-8 b | none/256 b | 10-500 credits |
+| T1 | Local scheduler | 4-30 Hz, 2-4 cores | 32-256 b | 1-2 Kb | 500-5k |
+| T2 | System catalog | 30-400 Hz, 4-8 cores | 512 b-8 Kb | 4-16 Kb | 5k-50k |
+| T3 | Custom workstation | 400 Hz-10 KHz, 8-16 cores | 16-512 Kb | 32-256 Kb | 50k-500k |
+| T4 | Server node | 10 KHz-1 MHz, 16-64 cores | 1-64 Mb | 512 Kb-8 Mb | 500k-5M |
+| T5 | Rack server | 1-100 MHz, 64-256 cores | 128 Mb-8 Gb | 16 Mb-1 Gb | 5M-50M |
+| T6 | Cluster blade | 100 MHz-10 GHz | 16 Gb-1 Tb | 2-128 Gb | 50M-500M |
+| T7 | Data center pod | 10 GHz-1 THz equivalent | 2-128 Tb | 256 Gb-16 Tb | 500M-5B |
+| T8 | Availability zone | policy-scale compute | regional cache pools | memory pools | 5B-50B |
+| T9 | Region/global | planetary scheduler scale | edge/global cache | replicated pools | 50B+ |
+
+Catalog CPUs must keep cache speed matched to CPU clock level. CPU-local scheduler slots come from the CPU package's core count, while scheduler modules represent system-level queue/backplane capacity. RAM kits mirror CPU tiers with increasing capacity and frequency, and premade systems should combine matching-tier CPU, RAM, scheduler, and PSU modules.
 
 ---
 

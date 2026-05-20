@@ -141,7 +141,9 @@ export const createCronScheduleState = (
 };
 
 export const getCronScheduleSlotCount = (state: GameState) =>
-  hasResearch(state, "cronScheduler") || state.flags.cron ? 1 : 0;
+  hasResearch(state, "cronScheduler") || state.flags.cron
+    ? Math.max(0, state.hardware.cronScheduleSlots ?? 0)
+    : 0;
 
 export const syncCronSchedules = (state: GameState): GameState => {
   const slotCount = getCronScheduleSlotCount(state);
@@ -359,6 +361,7 @@ const createInitialHardwareState = (): GameState["hardware"] => ({
   ramSpeedLevel: 1,
   ramSpeedMt: getRamSpeedMt(1),
   ramSticks: [],
+  cronScheduleSlots: 0,
   cronIntervalLevel: 0,
   psuLevel: 1,
   psuWatts: getPsuWatts(1),

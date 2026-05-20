@@ -372,6 +372,11 @@ const normalizeState = (state: LegacyState): GameState => {
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
   );
+  const normalizedCronSchedules = normalizeCronSchedules(state.cron?.schedules);
+  const cronScheduleSlots = Math.max(
+    0,
+    hardware.cronScheduleSlots ?? normalizedCronSchedules.length,
+  );
   const resources = {
     ...fresh.resources,
     ...state.resources,
@@ -423,6 +428,7 @@ const normalizeState = (state: LegacyState): GameState => {
           ? hardware.ramSpeedMt
           : getRamSpeedMt(ramSpeedLevel),
       ramSticks,
+      cronScheduleSlots,
       cronIntervalLevel:
         hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
       psuLevel,
@@ -453,7 +459,7 @@ const normalizeState = (state: LegacyState): GameState => {
       failureCount: Math.max(0, savedPower?.failureCount ?? 0),
     },
     cron: {
-      schedules: normalizeCronSchedules(state.cron?.schedules),
+      schedules: normalizedCronSchedules,
       nextScheduleId: Math.max(
         1,
         state.cron?.nextScheduleId ?? fresh.cron.nextScheduleId,

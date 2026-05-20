@@ -448,6 +448,12 @@ describe("HardwareBoard multi-system rack", () => {
             id: "balanced",
             name: "Balanced Node",
             role: "Preset",
+            components: {
+              cpu: "pro",
+              ram: "wide",
+              scheduler: "queue",
+              psu: "supply",
+            },
             cores: 2,
             ramBits: 1024,
             powerDeltaWatts: 18,
@@ -496,6 +502,31 @@ describe("HardwareBoard multi-system rack", () => {
                 },
               ],
             },
+            {
+              id: "scheduler",
+              label: "Scheduler",
+              tiers: [
+                {
+                  id: "queue",
+                  name: "Queue",
+                  schedulerSlots: 4,
+                  costs: [{ resource: "data", amount: 8 }],
+                },
+              ],
+            },
+            {
+              id: "psu",
+              label: "PSU",
+              tiers: [
+                {
+                  id: "supply",
+                  name: "Supply",
+                  psuLevel: 5,
+                  powerDeltaWatts: 24,
+                  costs: [{ resource: "credits", amount: 80 }],
+                },
+              ],
+            },
           ],
         },
       },
@@ -517,15 +548,16 @@ describe("HardwareBoard multi-system rack", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("renders one rack slot per owned system and switches the board selection", () => {
+  it("renders one rack slot per owned system and selects the system scheduler", () => {
     const visible = makeRackVisible();
     const selectComponent = vi.fn();
+    const dispatch = vi.fn();
 
     act(() => {
       root.render(
         <HardwareBoard
           visible={visible}
-          dispatch={() => undefined}
+          dispatch={dispatch}
           selectedComponent="system:alpha::core:1"
           onSelectComponent={selectComponent}
         />,
@@ -543,23 +575,35 @@ describe("HardwareBoard multi-system rack", () => {
       slots[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(selectComponent).toHaveBeenCalledWith("system:beta::core:1");
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "selectSystem",
+      systemId: "beta",
+    });
+    expect(selectComponent).toHaveBeenCalledWith("system:beta::scheduler");
 
     act(() => {
       root.render(
         <HardwareBoard
           visible={visible}
-          dispatch={() => undefined}
-          selectedComponent="system:beta::core:1"
+          dispatch={dispatch}
+          selectedComponent="system:beta::scheduler"
           onSelectComponent={selectComponent}
         />,
       );
     });
 
-    expect(container.querySelectorAll(".core-die")).toHaveLength(2);
+    expect(container.querySelector(".system-board")).toBeNull();
     expect(container.querySelector(".system-rack-slot.selected")?.textContent).toContain(
       "Beta",
     );
+
+    act(() => {
+      container
+        .querySelector(".system-rack-slot.selected")
+        ?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+
+    expect(container.querySelector(".system-board")).not.toBeNull();
   });
 
   it("dispatches task actions with the selected system id", () => {
@@ -606,10 +650,18 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
     const presetButton =
       container.querySelector<HTMLButtonElement>(".system-preset-card");
 
     expect(presetButton?.textContent).toContain("Balanced Node");
+    expect(presetButton?.textContent).toContain("Pro");
+    expect(presetButton?.textContent).toContain("Wide");
+    expect(presetButton?.textContent).toContain("Queue");
+    expect(presetButton?.textContent).toContain("Supply");
 
     act(() => {
       presetButton?.click();
@@ -623,18 +675,47 @@ describe("HardwareBoard multi-system rack", () => {
 
     dispatch.mockClear();
 
-    const tierButtons = Array.from(
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".builder-new-mode-custom")?.click();
+    });
+
+    let tierButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
     );
     const proButton = tierButtons.find((button) =>
       button.textContent?.includes("Pro"),
+    );
+
+    act(() => {
+      proButton?.click();
+    });
+
+    const bayButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".custom-system-bay"),
+    );
+    expect(bayButtons.map((button) => button.dataset.slot)).toEqual([
+      "cpu",
+      "memory",
+      "scheduler",
+      "psu",
+    ]);
+
+    const memoryBay = Array.from(
+      bayButtons,
+    ).find((button) => button.textContent?.includes("RAM"));
+
+    act(() => {
+      memoryBay?.click();
+    });
+
+    tierButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
     );
     const wideButton = tierButtons.find((button) =>
       button.textContent?.includes("Wide"),
     );
 
     act(() => {
-      proButton?.click();
       wideButton?.click();
     });
 
@@ -644,7 +725,13 @@ describe("HardwareBoard multi-system rack", () => {
 
     expect(dispatch).toHaveBeenCalledWith({
       type: "buyCustomSystem",
-      tierIds: { cpu: "pro", memory: "wide" },
+      tierIds: {
+        cpu: "pro",
+        memory: "wide",
+        scheduler: "queue",
+        psu: "supply",
+        cpuPackages: "1",
+      },
       systemId: "beta",
     });
   });
@@ -818,6 +905,87 @@ describe("HardwareBoard second CPU system management", () => {
     expect(
       schedulerSection?.compareDocumentPosition(ramSection!) ?? 0,
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("renders newly unlocked hardware as paid install outlines", () => {
+    const dispatch = vi.fn();
+    const base = createInitialGameState();
+    const visible = deriveVisibleState({
+      ...base,
+      resources: { credits: 20_000, data: 20_000 },
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        systemStats: true,
+        scheduler: true,
+        cron: true,
+      },
+      research: {
+        completed: [
+          "localScheduler",
+          "ramControl",
+          "systemScheduler",
+          "cronScheduler",
+        ],
+      },
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const installSections = Array.from(
+      container.querySelectorAll<HTMLElement>(".install-hardware-section"),
+    );
+    const findInstall = (label: string) =>
+      installSections.find((section) => section.textContent?.includes(label));
+
+    expect(findInstall("Install first queue slot")?.querySelector(".resource-token")).not.toBeNull();
+    expect(
+      findInstall("Install first system queue slot")?.querySelector(".resource-token"),
+    ).not.toBeNull();
+    expect(findInstall("Install first RAM stick")?.querySelector(".resource-token")).not.toBeNull();
+    expect(findInstall("Install first CRON job slot")?.querySelector(".resource-token")).not.toBeNull();
+
+    act(() => {
+      findInstall("Install first queue slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first system queue slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first RAM stick")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first CRON job slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "schedulerSlot",
+      cpuId: 1,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "systemSchedulerSlot",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "ram",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "cronSchedule",
+    });
   });
 
   it("lists matched and unmatched CPU install choices with power deltas", () => {

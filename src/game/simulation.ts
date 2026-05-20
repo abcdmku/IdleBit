@@ -110,7 +110,10 @@ const getMachineSelectionCost = (selection: MachineComponentSelection) =>
 const getTemplateCost = (templateId: string) =>
   getMachineSelectionCost(getMachineTemplate(templateId).components);
 
-const getSku = (selection: MachineComponentSelection, key: keyof MachineComponentSelection) =>
+const getSku = (
+  selection: MachineComponentSelection,
+  key: Exclude<keyof MachineComponentSelection, "cpuPackageCount">,
+) =>
   getComponentSku(selection[key]);
 
 const createHardwareFromMachineSelection = (
@@ -120,7 +123,16 @@ const createHardwareFromMachineSelection = (
   const ram = getSku(selection, "ram");
   const scheduler = getSku(selection, "scheduler");
   const psu = getSku(selection, "psu");
-  const coreCount = Math.max(1, cpu.coreCount ?? 1);
+  const cpuPackageCount = Math.max(
+    1,
+    selection.cpuPackageCount ?? cpu.cpuPackageCount ?? 1,
+  );
+  const coreCount = Math.max(
+    cpuPackageCount,
+    (cpu.coreCount ?? 1) * cpuPackageCount,
+  );
+  const coresPerPackage = Math.max(1, Math.floor(coreCount / cpuPackageCount));
+  const extraCores = coreCount % cpuPackageCount;
   const clockLevel = Math.max(1, cpu.clockLevel ?? 1);
   const cacheLevel = Math.max(1, cpu.cacheLevel ?? 1);
   const cacheSpeedLevel = Math.max(1, cpu.cacheSpeedLevel ?? 1);
@@ -142,31 +154,36 @@ const createHardwareFromMachineSelection = (
     clockLevel,
     clockHz: getClockHz(clockLevel),
     coreClockLevels,
-    cpus: [
-      createCpuHardwareState(1, coreIds, {
+    cpus: Array.from({ length: cpuPackageCount }, (_, index) => {
+      const start = index * coresPerPackage + Math.min(index, extraCores) + 1;
+      const count = coresPerPackage + (index < extraCores ? 1 : 0);
+      const packageCoreIds = Array.from({ length: count }, (_, coreIndex) => start + coreIndex);
+
+      return createCpuHardwareState(index + 1, packageCoreIds, {
         cacheLevel,
         cacheSpeedLevel,
         cacheBits: getCacheBits(cacheLevel),
         cacheBytes: getCacheBytes(cacheLevel),
-        schedulerSlots,
-      }),
-    ],
+        schedulerSlots: count,
+      });
+    }),
     cacheLevel,
     cacheSpeedLevel,
     cacheBits: getCacheBits(cacheLevel),
     cacheBytes: getCacheBytes(cacheLevel),
     cores: coreCount,
-    schedulerSlots,
+    schedulerSlots: coreCount,
     systemSchedulerSlots: schedulerSlots,
     systemSchedulerConfig: createSchedulerConfig({ policy: "deadlockSafe" }),
     deadlockRecoveryLevel: 0,
-    secondCpu: false,
+    secondCpu: cpuPackageCount > 1,
     ramLevel: ramSticks.length,
     ramBits,
     ramBytes: bitsToBytes(ramBits),
     ramSpeedLevel,
     ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
     ramSticks,
+    cronScheduleSlots: 0,
     cronIntervalLevel: 0,
     psuLevel,
     psuWatts: getPsuWatts(psuLevel),
@@ -258,37 +275,50 @@ const normalizeCronSchedule = (
 };
 
 const ensureCronState = (state: GameState) => {
-  if (!state.flags.cron) {
+  const slotCount = state.flags.cron
+    ? Math.max(0, state.hardware.cronScheduleSlots ?? 0)
+    : 0;
+
+  if (slotCount <= 0) {
     return {
       ...state,
       cron: {
         ...state.cron,
-        schedules: state.cron.schedules.map((schedule) =>
-          normalizeCronSchedule(state, schedule),
-        ),
+        schedules: [],
       },
     };
   }
 
-  if (state.cron.schedules.length > 0) {
-    return {
-      ...state,
-      cron: {
-        ...state.cron,
-        schedules: state.cron.schedules.map((schedule) =>
-          normalizeCronSchedule(state, schedule),
-        ),
-      },
-    };
-  }
+  const normalizedSchedules = state.cron.schedules
+    .slice(0, slotCount)
+    .map((schedule) => normalizeCronSchedule(state, schedule));
+  const nextScheduleId = Math.max(
+    1,
+    state.cron.nextScheduleId,
+    ...normalizedSchedules.map((schedule) => schedule.id + 1),
+  );
+  const createdSchedules = Array.from(
+    { length: Math.max(0, slotCount - normalizedSchedules.length) },
+    (_, index) =>
+      createCronSchedule({
+        ...state,
+        cron: {
+          ...state.cron,
+          nextScheduleId: nextScheduleId + index,
+        },
+      }),
+  );
+  const schedules = [...normalizedSchedules, ...createdSchedules];
 
-  const schedule = createCronSchedule(state);
   return {
     ...state,
     cron: {
       ...state.cron,
-      schedules: [schedule],
-      nextScheduleId: schedule.id + 1,
+      schedules,
+      nextScheduleId: Math.max(
+        nextScheduleId,
+        ...schedules.map((schedule) => schedule.id + 1),
+      ),
     },
   };
 };
@@ -2751,25 +2781,7 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
       completed: [...state.research.completed, researchId],
     },
   };
-  const ramSpeedLevel = bought.hardware.ramSpeedLevel ?? 1;
-  const ramSpeedMt = getRamSpeedMt(ramSpeedLevel);
-  const withResearchHardware =
-    researchId === "ramControl" && bought.hardware.ramLevel <= 0
-      ? {
-          ...bought,
-          hardware: {
-            ...bought.hardware,
-            ramLevel: 1,
-            ramBits: getRamBits(1),
-            ramBytes: getRamBytes(1),
-            ramSpeedLevel,
-            ramSpeedMt,
-            ramSticks: [createRamStickState(1, 1, ramSpeedLevel)],
-          },
-        }
-      : bought;
-
-  return pullQueue(ensureCronState(updateProgressionFlags(withResearchHardware)));
+  return pullQueue(ensureCronState(updateProgressionFlags(bought)));
 };
 
 export const buyUpgrade = (

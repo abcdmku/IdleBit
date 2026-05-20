@@ -45,6 +45,10 @@ import {
   getCoreClockLevel,
   getCpuHardware,
   getCpuIdForCore,
+  getCacheBits,
+  getClockHz,
+  getPsuWatts,
+  getRamBits,
   getMilestone,
   getStage,
   getStageLabel,
@@ -1307,6 +1311,23 @@ const combineCosts = (costs: Array<{ resource: "credits" | "data"; amount: numbe
 const getTemplateCost = (template: (typeof machineTemplates)[number]) =>
   combineCosts(getMachineComponentSkus(template.components).flatMap((sku) => sku.cost));
 
+const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[number]) => ({
+  ...sku,
+  canAfford: canAfford(state, sku.cost),
+  clockHz: sku.clockLevel ? getClockHz(sku.clockLevel) : undefined,
+  cacheBits: sku.cacheLevel ? getCacheBits(sku.cacheLevel) : undefined,
+  cacheBytes: sku.cacheLevel ? bitsToBytes(getCacheBits(sku.cacheLevel)) : undefined,
+  ramBits:
+    sku.ramLevel && sku.ramStickCount
+      ? getRamBits(sku.ramLevel) * sku.ramStickCount
+      : undefined,
+  ramBytes:
+    sku.ramLevel && sku.ramStickCount
+      ? bitsToBytes(getRamBits(sku.ramLevel) * sku.ramStickCount)
+      : undefined,
+  powerDeltaWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
+});
+
 const getVisibleMachineBuilder = (state: GameState) => ({
   unlocked: state.flags.systemCatalog,
   templates: machineTemplates
@@ -1331,7 +1352,7 @@ const getVisibleMachineBuilder = (state: GameState) => ({
           ? state.flags.customMachineAssembly
           : state.flags.systemCatalog,
       )
-      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+      .map((sku) => getVisibleComponentSku(state, sku)),
     ram: componentSkus
       .filter((sku) => sku.type === "ram")
       .filter((sku) =>
@@ -1339,7 +1360,7 @@ const getVisibleMachineBuilder = (state: GameState) => ({
           ? state.flags.customMachineAssembly
           : state.flags.systemCatalog,
       )
-      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+      .map((sku) => getVisibleComponentSku(state, sku)),
     scheduler: componentSkus
       .filter((sku) => sku.type === "scheduler")
       .filter((sku) =>
@@ -1347,7 +1368,7 @@ const getVisibleMachineBuilder = (state: GameState) => ({
           ? state.flags.customMachineAssembly
           : state.flags.systemCatalog,
       )
-      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+      .map((sku) => getVisibleComponentSku(state, sku)),
     psu: componentSkus
       .filter((sku) => sku.type === "psu")
       .filter((sku) =>
@@ -1355,7 +1376,7 @@ const getVisibleMachineBuilder = (state: GameState) => ({
           ? state.flags.customMachineAssembly
           : state.flags.systemCatalog,
       )
-      .map((sku) => ({ ...sku, canAfford: canAfford(state, sku.cost) })),
+      .map((sku) => getVisibleComponentSku(state, sku)),
   },
 });
 

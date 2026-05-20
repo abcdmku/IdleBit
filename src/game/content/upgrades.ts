@@ -105,6 +105,11 @@ const cronIntervalCosts = (purchaseCount: number): Cost[] => [
   data(6 * 1.18 ** purchaseCount),
 ];
 
+const cronScheduleCosts = (purchaseCount: number): Cost[] => [
+  credits(160 * 1.62 ** purchaseCount),
+  data(18 * 1.36 ** purchaseCount),
+];
+
 const setHardware = (
   state: GameState,
   update: Partial<GameState["hardware"]>,
@@ -354,6 +359,7 @@ const count = (
     );
     return levels.length > 0 ? Math.max(0, Math.min(...levels) - 1) : 0;
   }
+  if (id === "cronSchedule") return state.hardware.cronScheduleSlots ?? 0;
   if (id === "cronInterval") return state.hardware.cronIntervalLevel ?? 0;
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
@@ -740,13 +746,33 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
   },
   {
+    id: "cronSchedule",
+    name: "CRON Job Slot",
+    component: "cron",
+    accent: "violet",
+    maxPurchases: 1,
+    requirement: (state) =>
+      state.flags.cron && (state.hardware.cronScheduleSlots ?? 0) < 1,
+    cost: (state) =>
+      cronScheduleCosts(Math.max(0, state.hardware.cronScheduleSlots ?? 0)),
+    buy: (state) =>
+      setHardware(state, {
+        cronScheduleSlots: Math.min(
+          1,
+          (state.hardware.cronScheduleSlots ?? 0) + 1,
+        ),
+      }),
+  },
+  {
     id: "cronInterval",
     name: "CRON Interval",
     component: "cron",
     accent: "violet",
     maxPurchases: 59,
     requirement: (state) =>
-      state.flags.cron && (state.hardware.cronIntervalLevel ?? 0) < 59,
+      state.flags.cron &&
+      (state.hardware.cronScheduleSlots ?? 0) > 0 &&
+      (state.hardware.cronIntervalLevel ?? 0) < 59,
     cost: (state) => cronIntervalCosts(Math.max(0, state.hardware.cronIntervalLevel ?? 0)),
     buy: (state) =>
       setHardware(state, {
@@ -848,7 +874,8 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     component: "ram",
     accent: "green",
     requirement: (state) =>
-      state.flags.systemStats || state.research.completed.includes("ramControl"),
+      (state.flags.systemStats || state.research.completed.includes("ramControl")) &&
+      getRamSticks(state).length > 0,
     cost: (state, context) =>
       combineCosts(
         getRamTargetSticks(state, context).flatMap((stick) =>
@@ -905,7 +932,8 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     component: "ram",
     accent: "green",
     requirement: (state) =>
-      state.flags.systemStats || state.research.completed.includes("ramControl"),
+      (state.flags.systemStats || state.research.completed.includes("ramControl")) &&
+      getRamSticks(state).length > 0,
     cost: (state, context) =>
       combineCosts(
         getRamTargetSticks(state, context).flatMap((stick) =>

@@ -412,6 +412,7 @@ interface UiQueueDisplayItem {
   waitingReason: string;
   instanceId?: string;
   active: boolean;
+  progress: number;
   deadlocked?: boolean;
 }
 
@@ -1419,6 +1420,72 @@ const getCoreGridMetrics = (coreCount: number) => {
   };
 };
 
+const getRackCoreGridMetrics = (coreCount: number) => {
+  const count = Math.max(1, coreCount);
+  const withPackageSize = (
+    columns: number,
+    size: number,
+    gap: number,
+    density: string,
+  ) => {
+    const rows = Math.max(1, Math.ceil(count / columns));
+    const gridWidth = columns * size + Math.max(0, columns - 1) * gap;
+    const gridHeight = rows * size + Math.max(0, rows - 1) * gap;
+
+    return {
+      columns,
+      size,
+      gap,
+      density,
+      packageSize: Math.max(gridWidth, gridHeight),
+    };
+  };
+
+  if (count <= 4) {
+    return withPackageSize(2, 16, 4, "normal");
+  }
+
+  if (count <= 16) {
+    return withPackageSize(4, 10, 2, "compact");
+  }
+
+  if (count <= 32) {
+    return withPackageSize(6, 7, 1, "dense");
+  }
+
+  if (count <= 64) {
+    return withPackageSize(8, 3.5, 1, "micro");
+  }
+
+  return withPackageSize(12, 3.5, 1, "nano");
+};
+
+const getRackQueueGridMetrics = (slotCount: number) => {
+  const count = Math.max(1, slotCount);
+
+  if (count <= 2) {
+    return { columns: 2, size: 24, gap: 5, density: "normal" };
+  }
+
+  if (count <= 4) {
+    return { columns: 2, size: 22, gap: 4, density: "normal" };
+  }
+
+  if (count <= 16) {
+    return { columns: 4, size: 13, gap: 2, density: "compact" };
+  }
+
+  if (count <= 32) {
+    return { columns: 4, size: 11, gap: 2, density: "micro" };
+  }
+
+  if (count <= 64) {
+    return { columns: 4, size: 7, gap: 1, density: "micro" };
+  }
+
+  return { columns: 8, size: 5, gap: 1, density: "nano" };
+};
+
 const getTasks = (visible: VisibleState): UiTask[] => {
   const ui = asUiVisible(visible);
   return ((ui.tasks ?? []) as unknown) as UiTask[];
@@ -2255,6 +2322,7 @@ const getQueueDisplayItem = (
     waitingReason: getQueueWaitingReason(task, activeTask, pendingReason),
     instanceId: activeTask?.instanceId,
     active: Boolean(activeTask),
+    progress: clampMeter(activeTask?.progress ?? task?.progress ?? 0),
     deadlocked:
       activeTask?.status === "deadlocked" ||
       activeTask?.memoryState === "deadlock" ||
@@ -2969,6 +3037,42 @@ const getSystemStatusTone = (status: string) => {
   return "online";
 };
 
+const getRackComponentWarnings = (visible: VisibleState, status: string) => {
+  const powerState = normalizePowerState(status || getPowerState(visible));
+  const off = powerState === "off";
+
+  if (off) {
+    return { off, any: false, cpu: false, ram: false, psu: false };
+  }
+
+  const load = getSystemLoad(visible);
+  const power = getPowerStats(visible);
+  const deadlocks = visible.metrics.deadlocks ?? [];
+  const pressure = visible.metrics.deadlockPressure;
+  const pressureActive = Boolean(pressure?.active || pressure?.lockout);
+  const cpuDeadlocked = visible.metrics.cpuSockets.some(
+    (socket) => socket.deadlocked || socket.cores.some((core) => core.deadlocked),
+  );
+  const cacheDeadlocked =
+    deadlocks.some((deadlock) => deadlock.resource === "cache") ||
+    (pressureActive && pressure?.resource === "cache");
+  const ramDeadlocked =
+    deadlocks.some((deadlock) => deadlock.resource === "ram") ||
+    (pressureActive && pressure?.resource === "ram");
+  const cpu =
+    cpuDeadlocked ||
+    cacheDeadlocked ||
+    (load.coolingStress !== null && load.coolingStress >= 0.9);
+  const ram = ramDeadlocked || clampMeter(load.memoryPressure) >= 0.9;
+  const psu =
+    power.stress >= 0.9 ||
+    power.overloadFailure.active ||
+    power.overloadFailure.progress > 0 ||
+    power.overloadFailure.tripped;
+
+  return { off, any: cpu || ram || psu, cpu, ram, psu };
+};
+
 const getRackPipIndexes = (count: number) =>
   Array.from({ length: Math.max(0, count) }, (_, index) => index);
 
@@ -2997,6 +3101,31 @@ function SystemRackPanel({
   const selectSystemScheduler = (systemId: string) => {
     dispatch({ type: "selectSystem", systemId });
     onSelectComponent(scopeSelectionToSystem(systemId, "scheduler"));
+  };
+
+  const toggleRackPower = (
+    event:
+      | MouseEvent<HTMLElement>
+      | KeyboardEvent<HTMLElement>
+      | TouchEvent<HTMLElement>,
+    systemId: string,
+    status: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const powerState = normalizePowerState(status);
+    if (powerState === "booting" || powerState === "shuttingDown") return;
+
+    dispatch({
+      type: "setPowerState",
+      state: powerState === "off" ? "on" : "off",
+      systemId,
+    });
+
+    if (systemId !== activeSystemId) {
+      dispatch({ type: "selectSystem", systemId: activeSystemId });
+    }
   };
 
   const handleRackTouchEnd = (
@@ -3044,15 +3173,29 @@ function SystemRackPanel({
           const powerCap = system.psuCapWatts ?? 0;
           const powerRatio = powerCap > 0 ? system.drawWatts / powerCap : 0;
           const coreActive = system.activeTaskCount ?? 0;
-          const coreRatio =
-            system.cores > 0 ? Math.min(1, coreActive / system.cores) : 0;
           const queueCount = system.queueCount ?? 0;
-          const statusTone = getSystemStatusTone(system.status);
+          const componentWarnings = getRackComponentWarnings(
+            system.visible,
+            system.status,
+          );
+          const statusTone = componentWarnings.off
+            ? "off"
+            : componentWarnings.any
+              ? "warning"
+              : getSystemStatusTone(system.status);
           const selected = system.id === activeSystemId;
-          const idle = coreActive === 0 && queueCount === 0;
-          const cpuPipCount = Math.max(2, Math.min(12, system.cores || 2));
-          const activeCpuPips = Math.round(coreRatio * cpuPipCount);
-          const cpuColumns = Math.min(4, Math.max(2, Math.ceil(cpuPipCount / 2)));
+          const cpuSockets = system.visible.metrics.cpuSockets;
+          const systemQueueItems = getSystemQueueDisplayItems(system.visible);
+          const systemQueueSlotCount = Math.max(
+            getVisibleSystemSchedulerSlots(system.visible),
+            systemQueueItems.length,
+          );
+          const queueMetrics = getRackQueueGridMetrics(systemQueueSlotCount);
+          const cpuPackageCount = cpuSockets.length;
+          const cpuCoreShape =
+            cpuPackageCount > 1 && cpuSockets.every((socket) => socket.cores.length > 0)
+              ? `${formatNumber(cpuPackageCount)}x${formatNumber(cpuSockets[0]?.cores.length ?? 0)}`
+              : formatNumber(system.cores);
           const visibleRamSlots = system.visible.metrics.ramSlots.slice(0, 32);
           const fallbackActiveRamSticks =
             system.ramBits > 0
@@ -3074,23 +3217,6 @@ function SystemRackPanel({
                   active: slotIndex < fallbackActiveRamSticks,
                   title: `RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`,
                 }));
-          const schedulerSlots = system.visible.metrics.cpuSockets.reduce(
-            (total, socket) => total + socket.schedulerSlots,
-            0,
-          );
-          const schedulerPipCount = Math.max(
-            4,
-            Math.min(8, schedulerSlots || system.cores || 4),
-          );
-          const activeSchedulerPips = Math.min(schedulerPipCount, coreActive);
-          const queuedSchedulerPips = Math.min(
-            schedulerPipCount - activeSchedulerPips,
-            queueCount,
-          );
-          const deadlockPips = Math.min(
-            schedulerPipCount,
-            system.visible.metrics.deadlocks.length,
-          );
           const powerBarCount = 6;
           const activePowerBars = Math.ceil(
             Math.max(0, Math.min(1, powerRatio)) * powerBarCount,
@@ -3116,7 +3242,37 @@ function SystemRackPanel({
               title={`Select system ${index + 1} scheduler; double click to open`}
             >
               <span className="rack-slot-rail">
-                <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
+                <span
+                  className={`rack-slot-power-button ${system.status}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${
+                    normalizePowerState(system.status) === "off"
+                      ? "Power on"
+                      : "Power off"
+                  } system ${index + 1}`}
+                  aria-disabled={
+                    normalizePowerState(system.status) === "booting" ||
+                    normalizePowerState(system.status) === "shuttingDown"
+                  }
+                  title={`${
+                    normalizePowerState(system.status) === "off"
+                      ? "Power on"
+                      : "Power off"
+                  } system ${index + 1}`}
+                  onClick={(event) => {
+                    toggleRackPower(event, system.id, system.status);
+                  }}
+                  onTouchEnd={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    toggleRackPower(event, system.id, system.status);
+                  }}
+                >
+                  <Power size={11} strokeWidth={2.6} />
+                </span>
                 <span className="rack-slot-index">{index + 1}</span>
                 {builderUnlocked && (
                   <span
@@ -3148,54 +3304,130 @@ function SystemRackPanel({
                   </span>
                 )}
               </span>
-              <span className="rack-slot-copy">
-                {system.powerCostPerSecond > 0 && (
-                  <span className="rack-slot-cost">
-                    <Zap size={9} />
-                    <span>-{formatPowerRate(system.powerCostPerSecond)} cr/s</span>
-                  </span>
-                )}
-                <small>
-                  <span>{system.role}</span>
-                  <span className="rack-slot-dot" aria-hidden="true">·</span>
-                  <span
-                    className={`rack-slot-activity ${idle ? "idle" : "busy"}`}
-                  >
-                    {system.status !== "on"
-                      ? system.status
-                      : idle
-                        ? "Idle"
-                        : `${coreActive}/${system.cores} running${
-                            queueCount > 0 ? ` · Q ${queueCount}` : ""
-                          }`}
-                  </span>
-                </small>
-              </span>
               <span
                 className="rack-slot-visuals"
                 aria-label={`Component indicators for system ${index + 1}`}
               >
                 <span
-                  className="rack-component-bay rack-component-bay--cpu"
+                  className="rack-component-bay rack-component-bay--scheduler"
+                  title={`${systemQueueItems.length} queued or active scheduler entries across ${systemQueueSlotCount} queue slots`}
+                  aria-label={`${systemQueueItems.length} queued or active scheduler entries across ${systemQueueSlotCount} queue slots`}
+                >
+                  <span
+                    className={`rack-queue-slots rack-system-queue-slots ${queueMetrics.density}`}
+                    style={
+                      {
+                        "--rack-queue-columns": queueMetrics.columns,
+                        "--rack-queue-size": `${queueMetrics.size}px`,
+                        "--rack-queue-gap": `${queueMetrics.gap}px`,
+                      } as CSSProperties
+                    }
+                    aria-hidden="true"
+                  >
+                    {getRackPipIndexes(systemQueueSlotCount).map((slotIndex) => {
+                      const item = systemQueueItems[slotIndex];
+                      const state = item
+                        ? item.deadlocked
+                          ? "deadlocked"
+                          : item.active
+                            ? "active"
+                            : "queued"
+                        : "empty";
+
+                      return (
+                        <span
+                          key={slotIndex}
+                          className={`rack-queue-slot-pip ${state}`}
+                          title={
+                            item
+                              ? `${item.name}: ${formatPercent(item.progress)} · ${item.waitingReason}`
+                              : `Slot ${slotIndex + 1}: open`
+                          }
+                          style={
+                            {
+                              "--rack-queue-progress": `${
+                                (item?.progress ?? 0) * 100
+                              }%`,
+                            } as CSSProperties
+                          }
+                        />
+                      );
+                    })}
+                  </span>
+                  <span className="rack-component-stat">
+                    Q {formatNumber(systemQueueItems.length)}/{formatNumber(systemQueueSlotCount)}
+                  </span>
+                </span>
+                <span
+                  className={`rack-component-bay rack-component-bay--cpu ${
+                    componentWarnings.cpu ? "rack-component-bay--issue" : ""
+                  }`}
                   title={`${coreActive}/${system.cores} cores active at ${formatClock(system.clockHz)}`}
                   aria-label={`${coreActive}/${system.cores} cores active at ${formatClock(system.clockHz)}`}
                 >
                   <span
-                    className="rack-cpu-die-grid"
-                    style={{ "--rack-core-columns": cpuColumns } as CSSProperties}
+                    className="rack-cpu-package-map"
+                    style={
+                      {
+                        "--rack-cpu-packages": Math.min(
+                          4,
+                          Math.max(1, cpuSockets.length),
+                        ),
+                      } as CSSProperties
+                    }
                     aria-hidden="true"
                   >
-                    {getRackPipIndexes(cpuPipCount).map((pipIndex) => (
-                      <span
-                        key={pipIndex}
-                        className={`rack-core-pip ${
-                          pipIndex < activeCpuPips ? "active" : ""
-                        }`}
-                      />
-                    ))}
+                    {cpuSockets.map((socket, socketIndex) => {
+                      const metrics = getRackCoreGridMetrics(socket.cores.length);
+                      const activeCount = socket.cores.filter((core) =>
+                        Boolean(getCoreActiveTask(core)),
+                      ).length;
+
+                      return (
+                        <span
+                          key={socket.id}
+                          className={`rack-cpu-package ${metrics.density} ${
+                            socket.deadlocked ? "deadlocked" : ""
+                          }`}
+                          style={
+                            {
+                              "--rack-cpu-package-size": `${metrics.packageSize}px`,
+                            } as CSSProperties
+                          }
+                          title={`${socket.label || `CPU ${socketIndex + 1}`}: ${activeCount}/${socket.cores.length} cores active`}
+                        >
+                          <span
+                            className="rack-cpu-core-grid"
+                            style={
+                              {
+                                "--rack-core-columns": metrics.columns,
+                                "--rack-core-size": `${metrics.size}px`,
+                                "--rack-core-gap": `${metrics.gap}px`,
+                              } as CSSProperties
+                            }
+                          >
+                            {socket.cores.map((core) => {
+                              const active = Boolean(getCoreActiveTask(core));
+                              return (
+                                <span
+                                  key={core.id}
+                                  className={`rack-cpu-core-dot ${
+                                    core.deadlocked
+                                      ? "deadlocked"
+                                      : active
+                                        ? "active"
+                                        : "idle"
+                                  }`}
+                                />
+                              );
+                            })}
+                          </span>
+                        </span>
+                      );
+                    })}
                   </span>
                   <span className="rack-component-stat">
-                    {formatNumber(system.cores)}C
+                    {cpuPackageCount > 1 ? `${cpuCoreShape}C` : `${formatNumber(system.cores)}C`}
                     {system.clockHz > 0 && (
                       <span className="rack-component-stat-sub">
                         {" @ "}
@@ -3205,11 +3437,13 @@ function SystemRackPanel({
                   </span>
                 </span>
                 {system.ramBits > 0 && (
-                  <span
-                    className="rack-component-bay rack-component-bay--ram"
-                    title={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
-                    aria-label={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
-                  >
+                <span
+                  className={`rack-component-bay rack-component-bay--ram ${
+                    componentWarnings.ram ? "rack-component-bay--issue" : ""
+                  }`}
+                  title={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
+                  aria-label={`RAM ${formatBits(system.ramUsedBits ?? 0)} / ${formatBits(system.ramBits)}`}
+                >
                     <span
                       className={`rack-memory-bank ${
                         ramVisualSlots.length > 8 ? "dense" : ""
@@ -3243,42 +3477,21 @@ function SystemRackPanel({
                     </span>
                   </span>
                 )}
-                <span
-                  className="rack-component-bay rack-component-bay--scheduler"
-                  title={`${coreActive} active tasks, ${queueCount} queued`}
-                  aria-label={`${coreActive} active tasks, ${queueCount} queued`}
-                >
-                  <span className="rack-queue-bank" aria-hidden="true">
-                    {getRackPipIndexes(schedulerPipCount).map((pipIndex) => {
-                      const state =
-                        pipIndex < deadlockPips
-                          ? "deadlocked"
-                          : pipIndex < activeSchedulerPips
-                            ? "active"
-                            : pipIndex < activeSchedulerPips + queuedSchedulerPips
-                              ? "queued"
-                              : "";
-                      return (
-                        <span
-                          key={pipIndex}
-                          className={`rack-queue-pip ${state}`}
-                        />
-                      );
-                    })}
-                  </span>
-                  <span className="rack-component-stat">
-                    {formatNumber(coreActive)}/{formatNumber(system.cores)}
-                    <span className="rack-component-stat-sub">
-                      {" +Q "}
-                      {formatNumber(queueCount)}
-                    </span>
-                  </span>
-                </span>
                 {powerCap > 0 && (
                   <span
-                    className="rack-component-bay rack-component-bay--power"
-                    title={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
-                    aria-label={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}`}
+                    className={`rack-component-bay rack-component-bay--power ${
+                      componentWarnings.psu ? "rack-component-bay--issue" : ""
+                    }`}
+                    title={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}${
+                      system.powerCostPerSecond > 0
+                        ? `, ${formatPowerRate(system.powerCostPerSecond)} credits per second`
+                        : ""
+                    }`}
+                    aria-label={`PSU ${formatWatts(system.drawWatts)} / ${formatWatts(powerCap)}${
+                      system.powerCostPerSecond > 0
+                        ? `, ${formatPowerRate(system.powerCostPerSecond)} credits per second`
+                        : ""
+                    }`}
                   >
                     <span className="rack-power-stack" aria-hidden="true">
                       {getRackPipIndexes(powerBarCount).map((barIndex) => (
@@ -3290,12 +3503,18 @@ function SystemRackPanel({
                         />
                       ))}
                     </span>
-                    <span className="rack-component-stat">
-                      {formatWatts(system.drawWatts)}
-                      <span className="rack-component-stat-sub">
-                        {" / "}
-                        {formatWatts(powerCap)}
+                    <span className="rack-component-stat rack-component-stat--power">
+                      <span className="rack-component-power-value">
+                        {formatWatts(system.drawWatts)}
                       </span>
+                      <span className="rack-component-stat-sub rack-component-power-value">
+                        / {formatWatts(powerCap)}
+                      </span>
+                      {system.powerCostPerSecond > 0 && (
+                        <span className="rack-component-rate">
+                          -{formatPowerRate(system.powerCostPerSecond)} cr/s
+                        </span>
+                      )}
                     </span>
                   </span>
                 )}
@@ -3387,7 +3606,6 @@ function RackStrip({
                   : `Open system ${index + 1}`
               }
             >
-              <span className={`rack-slot-led ${system.status}`} aria-hidden="true" />
               <span className="rack-slot-index">{index + 1}</span>
             </button>
           );

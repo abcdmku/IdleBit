@@ -1,0 +1,298 @@
+/* ============ TASKS PANEL ============ */
+
+.tasks-panel { background: var(--bg-1); }
+
+.tasks-panel .panel-header small { color: var(--amber); font-weight: 600; letter-spacing: 0.08em; }
+
+.task-panel-header {
+  min-width: 0;
+}
+
+.task-panel-header > span {
+  flex: 0 0 auto;
+}
+
+.task-route-picker {
+  display: inline-flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+}
+
+.task-route-select {
+  --select-bg: rgba(4, 8, 7, 0.72);
+  --select-bg-strong: rgba(10, 21, 19, 0.94);
+  --select-border: rgba(120, 220, 200, 0.2);
+  --select-arrow: var(--muted);
+  height: 22px;
+  min-width: 0;
+  border: 1px solid var(--select-border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.task-route-select:hover,
+.task-route-select:focus {
+  --select-border: rgba(36, 231, 195, 0.48);
+  --select-arrow: var(--cyan);
+  color: var(--cyan);
+  outline: none;
+}
+
+.task-route-layer-select {
+  flex: 0 0 52px;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+
+.task-route-target-select {
+  flex: 0 1 82px;
+  max-width: 96px;
+}
+
+.task-route-target-select:disabled {
+  --select-bg: rgba(36, 231, 195, 0.1);
+  --select-bg-strong: rgba(36, 231, 195, 0.16);
+  --select-arrow: var(--cyan);
+  color: var(--cyan);
+  opacity: 0.8;
+}
+
+.task-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.task-group.collapsed {
+  gap: 0;
+}
+
+.task-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  min-width: 0;
+}
+
+.task-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-group-toggle:hover {
+  background: transparent;
+  color: var(--cyan);
+}
+
+.task-group-toggle > svg { flex: 0 0 auto; }
+.task-group-toggle > span { flex: 0 1 auto; }
+
+.task-group-toggle small {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.task-group-title > .task-route-picker {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.task-group-title small {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: rgba(8, 16, 15, 0.62);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.task-card:hover { border-color: rgba(36, 231, 195, 0.32); }
+
+.task-card.benchmark { border-color: rgba(255, 111, 145, 0.4); }
+.task-card.locked { opacity: 0.55; }
+
+.task-row-top {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.task-row-top strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-pin-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.task-pin-button:hover {
+  border-color: rgba(36, 231, 195, 0.45);
+  color: var(--cyan);
+}
+
+.task-pin-button.pinned {
+  border-color: rgba(242, 194, 78, 0.6);
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.08);
+}
+
+.task-meta-line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.task-meta-line .ops {
+  color: var(--green);
+}
+
+.task-meta-line .ops strong {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.task-action-row {
+  display: flex;
+  gap: 5px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.task-run-button {
+  flex: 1 1 auto;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 64px;
+  padding: 4px 8px;
+  border-color: rgba(36, 231, 195, 0.42);
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.06);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.task-run-button span,
+.research-buy-button span,
+.research-compute-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-run-button.blocked,
+.research-buy-button.blocked,
+.research-compute-button.blocked {
+  color: var(--muted);
+  border-color: rgba(242, 194, 78, 0.36);
+  background: rgba(242, 194, 78, 0.045);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.task-run-button:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: rgba(36, 231, 195, 0.14);
+}
+
+.task-inspect-button,
+.task-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.task-inspect-button:hover {
+  color: var(--text);
+  border-color: rgba(36, 231, 195, 0.4);
+}
+
+.task-cancel-button {
+  color: var(--rose);
+  border-color: rgba(255, 111, 145, 0.32);
+  background: rgba(255, 111, 145, 0.035);
+}
+
+.task-cancel-button:hover {
+  color: var(--rose);
+  border-color: var(--rose);
+  background: rgba(255, 111, 145, 0.1);
+}

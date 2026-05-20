@@ -1,0 +1,218 @@
+/* ---------- Load meter ---------- */
+
+.psu-load-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+}
+
+.psu-load-label {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 4px;
+  align-items: baseline;
+  min-width: 58px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.psu-load-label strong {
+  color: var(--amber);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.psu-section.good .psu-load-label strong { color: var(--cyan); }
+.psu-section.warn .psu-load-label strong { color: var(--amber); }
+.psu-section.critical .psu-load-label strong { color: var(--rose); }
+
+.psu-load-label small {
+  color: var(--muted);
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.psu-load-meter {
+  position: relative;
+  height: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: rgba(8, 18, 17, 0.65);
+  overflow: hidden;
+}
+
+.psu-load-meter-fill {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--cyan) 0%,
+    var(--green) 45%,
+    var(--amber) 78%,
+    var(--rose) 100%
+  );
+  box-shadow: inset 0 0 8px rgba(36, 231, 195, 0.28);
+  transition: width 220ms ease-out;
+}
+
+.psu-section.warn .psu-load-meter {
+  border-color: rgba(242, 194, 78, 0.32);
+}
+
+.psu-section.critical .psu-load-meter {
+  border-color: rgba(255, 111, 145, 0.46);
+  animation: psu-pulse 1.4s ease-in-out infinite;
+}
+
+.psu-load-meter-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  left: 75%;
+  background: rgba(242, 194, 78, 0.55);
+  pointer-events: none;
+}
+
+.psu-load-meter-tick.critical {
+  left: 90%;
+  background: rgba(255, 111, 145, 0.65);
+}
+
+.psu-section.power-off .psu-load-meter { opacity: 0.4; }
+
+/* ---------- Overload and grace ---------- */
+
+.psu-overload-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid rgba(242, 194, 78, 0.26);
+  border-radius: var(--radius-sm);
+  background: rgba(242, 194, 78, 0.08);
+  color: var(--amber);
+  font-family: var(--font-mono);
+}
+
+.psu-overload-row.tripped {
+  border-color: rgba(255, 111, 145, 0.48);
+  background: rgba(255, 111, 145, 0.10);
+  color: var(--rose);
+  animation: psu-pulse 1.1s ease-in-out infinite;
+}
+
+.psu-overload-label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.psu-overload-label svg {
+  flex: 0 0 auto;
+}
+
+.psu-overload-label strong {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.psu-overload-meter {
+  position: relative;
+  height: 5px;
+  min-width: 30px;
+  border-radius: 999px;
+  background: rgba(8, 18, 17, 0.86);
+  overflow: hidden;
+}
+
+.psu-overload-meter span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
+}
+
+.psu-meta-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 5px;
+}
+
+.psu-meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid rgba(120, 220, 200, 0.10);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 8, 7, 0.32);
+  font-family: var(--font-mono);
+  min-width: 0;
+}
+
+.psu-meta-cell small {
+  color: var(--muted);
+  font-size: 0.52rem;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+.psu-meta-cell strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.psu-meta-cell.psu-meta-grace {
+  border-color: rgba(36, 231, 195, 0.36);
+  background: rgba(36, 231, 195, 0.10);
+  animation: psu-pulse 2s ease-in-out infinite;
+}
+
+.psu-meta-cell.psu-meta-grace small,
+.psu-meta-cell.psu-meta-grace strong {
+  color: var(--cyan);
+}
+
+@keyframes psu-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes psu-danger-background {
+  0%, 100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .psu-section.overloaded::before,
+  .psu-header-warning.flashing,
+  .psu-section.critical .psu-load-meter,
+  .psu-overload-row.tripped,
+  .psu-meta-cell.psu-meta-grace {
+    animation: none;
+  }
+}

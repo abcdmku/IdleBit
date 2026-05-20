@@ -1,0 +1,100 @@
+.upgrade-stepper {
+  --stepper-color: var(--cyan);
+  --stepper-bg: rgba(36, 231, 195, 0.04);
+  --stepper-border: rgba(36, 231, 195, 0.32);
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: stretch;
+  flex: 1 1 300px;
+  min-width: min(100%, 300px);
+  min-height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--stepper-border);
+  border-radius: var(--radius-sm);
+  color: var(--stepper-color);
+  background: var(--stepper-bg);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+}
+
+.upgrade-stepper.cyan {
+  --stepper-color: var(--cyan);
+  --stepper-bg: rgba(36, 231, 195, 0.04);
+  --stepper-border: rgba(36, 231, 195, 0.32);
+}
+
+.upgrade-stepper.green {
+  --stepper-color: var(--green);
+  --stepper-bg: rgba(115, 240, 92, 0.04);
+  --stepper-border: rgba(115, 240, 92, 0.32);
+}
+
+.upgrade-stepper.violet {
+  --stepper-color: var(--violet);
+  --stepper-bg: rgba(184, 158, 255, 0.04);
+  --stepper-border: rgba(184, 158, 255, 0.32);
+}
+
+.upgrade-stepper.amber {
+  --stepper-color: var(--amber);
+  --stepper-bg: rgba(242, 194, 78, 0.04);
+  --stepper-border: rgba(242, 194, 78, 0.34);
+}
+
+.upgrade-stepper.add-core-stepper {
+  border-style: dashed;
+}
+
+.upgrade-stepper-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 24px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--stepper-color);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.upgrade-stepper-button.minus {
+  border-right: 1px solid var(--stepper-border);
+}
+
+.upgrade-stepper-button.plus {
+  border-left: 1px solid var(--stepper-border);
+}
+
+.upgrade-stepper-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--stepper-color) 14%, transparent);
+}
+
+.upgrade-stepper-button:disabled {
+  opacity: 0.38;
+}
+
+.upgrade-stepper-spec {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 3px 6px;
+}
+
+.upgrade-stepper-spec > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-stepper .resource-cost {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}

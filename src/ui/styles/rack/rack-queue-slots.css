@@ -1,0 +1,62 @@
+.rack-queue-slots {
+  display: grid;
+  grid-template-columns: repeat(var(--rack-queue-columns, 4), var(--rack-queue-size, 4px));
+  align-content: center;
+  justify-content: center;
+  gap: var(--rack-queue-gap, 1px);
+  min-width: 0;
+}
+
+.rack-system-queue-slots {
+  justify-self: stretch;
+  min-height: 72px;
+}
+
+.rack-queue-slot-pip {
+  position: relative;
+  width: var(--rack-queue-size, 4px);
+  height: var(--rack-queue-size, 4px);
+  border: 1px solid rgba(242, 194, 78, 0.16);
+  border-radius: 1px;
+  background: rgba(242, 194, 78, 0.045);
+  overflow: hidden;
+  --rack-queue-fill: rgba(242, 194, 78, 0.72);
+}
+
+.rack-queue-slot-pip::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--rack-queue-progress, 0%);
+  background: var(--rack-queue-fill);
+  box-shadow: 0 0 5px currentColor;
+}
+
+.rack-queue-slots.micro .rack-queue-slot-pip,
+.rack-queue-slots.nano .rack-queue-slot-pip {
+  border-width: 0;
+}
+
+.rack-queue-slot-pip.active {
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.08);
+  border-color: rgba(36, 231, 195, 0.72);
+  box-shadow: 0 0 5px rgba(36, 231, 195, 0.42);
+  --rack-queue-fill: linear-gradient(180deg, rgba(124, 255, 160, 0.78), rgba(36, 231, 195, 0.78));
+}
+
+.rack-queue-slot-pip.queued {
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.08);
+  border-color: rgba(242, 194, 78, 0.76);
+  box-shadow: 0 0 5px rgba(242, 194, 78, 0.42);
+  --rack-queue-fill: rgba(242, 194, 78, 0.72);
+}
+
+.rack-queue-slot-pip.deadlocked {
+  color: var(--rose);
+  background: rgba(255, 100, 120, 0.08);
+  border-color: rgba(255, 100, 120, 0.78);
+  box-shadow: 0 0 5px rgba(255, 100, 120, 0.48);
+  --rack-queue-fill: rgba(255, 100, 120, 0.78);
+}

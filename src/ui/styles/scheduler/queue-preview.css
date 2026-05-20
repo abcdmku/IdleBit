@@ -1,0 +1,197 @@
+/* ----- Scheduler ----- */
+
+.queue-preview {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  contain: layout paint;
+}
+
+.queue-preview-list {
+  display: grid;
+  grid-template-columns: repeat(var(--scheduler-grid-columns, 4), minmax(120px, 1fr));
+  grid-auto-rows: var(--scheduler-slot-height, 20px);
+  gap: 4px;
+  align-content: start;
+  width: 100%;
+  height: var(--scheduler-grid-height, 144px);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.queue-slot-cell {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) 13px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 3px;
+  align-items: center;
+  height: var(--scheduler-slot-height, 20px);
+  padding: 1px 3px;
+  border: 1px solid rgba(184, 158, 255, 0.32);
+  border-radius: 3px;
+  background: rgba(184, 158, 255, 0.035);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  contain: layout paint;
+}
+
+.queue-preview-list.spacious .queue-slot-cell {
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+  padding: 3px 5px;
+  font-size: 0.64rem;
+}
+
+.queue-preview-list.compact .queue-slot-cell {
+  font-size: 0.56rem;
+}
+
+.queue-preview-list.dense .queue-slot-cell,
+.queue-preview-list.micro .queue-slot-cell {
+  grid-template-columns: 13px minmax(0, 1fr) 11px;
+  gap: 2px;
+  padding: 1px 2px;
+  font-size: 0.5rem;
+}
+
+.queue-slot-cell.active {
+  border-color: rgba(115, 240, 92, 0.34);
+  background: rgba(115, 240, 92, 0.035);
+}
+
+.queue-slot-cell.pending {
+  border-color: rgba(184, 158, 255, 0.28);
+}
+
+.queue-slot-cell.deadlocked {
+  border-color: rgba(255, 111, 145, 0.68);
+  background: rgba(255, 111, 145, 0.08);
+}
+
+.queue-slot-cell.empty {
+  border-style: dashed;
+  border-color: rgba(120, 220, 200, 0.12);
+  background: rgba(120, 220, 200, 0.015);
+}
+
+.queue-slot-index {
+  grid-column: 1;
+  color: var(--violet);
+  font-size: 0.54rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.queue-slot-state {
+  min-width: 0;
+  grid-column: 2;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.scheduler-status-marquee {
+  display: inline-flex;
+  min-width: max-content;
+  gap: 22px;
+  will-change: transform;
+  animation: scheduler-status-marquee 12s linear infinite;
+}
+
+.scheduler-status-marquee > span {
+  white-space: nowrap;
+}
+
+.scheduler-status-marquee::after {
+  content: attr(data-status);
+  margin-left: 22px;
+  white-space: nowrap;
+}
+
+.queue-slot-cell:hover .scheduler-status-marquee {
+  animation-play-state: paused;
+}
+
+@keyframes scheduler-status-marquee {
+  0%, 14% { transform: translateX(0); }
+  100% { transform: translateX(calc(-50% - 11px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scheduler-status-marquee {
+    animation: none;
+  }
+}
+
+.queue-preview-list.micro .queue-slot-state {
+  font-size: 0.48rem;
+}
+
+.queue-slot-cell.active .queue-slot-state {
+  color: var(--green);
+}
+
+.queue-slot-cell.deadlocked .queue-slot-index,
+.queue-slot-cell.deadlocked .queue-slot-state {
+  color: var(--rose);
+}
+
+.queue-slot-cell.empty .queue-slot-index,
+.queue-slot-cell.empty .queue-slot-state {
+  color: var(--muted-2);
+}
+
+.queue-preview .queue-empty {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 4px 6px;
+  border: 1px dashed rgba(184, 158, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(184, 158, 255, 0.018);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-style: italic;
+}
+
+.queue-cancel-button {
+  grid-column: 3;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border-color: rgba(255, 111, 145, 0.32);
+  border-radius: 2px;
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.04);
+}
+
+.queue-preview-list.spacious .queue-cancel-button {
+  width: 16px;
+  height: 16px;
+}
+
+.queue-preview-list.dense .queue-cancel-button,
+.queue-preview-list.micro .queue-cancel-button {
+  width: 11px;
+  height: 11px;
+}
+
+.queue-cancel-button svg {
+  width: 9px;
+  height: 9px;
+}
+
+.queue-cancel-button:hover:not(:disabled) {
+  border-color: var(--rose);
+  background: rgba(255, 111, 145, 0.12);
+}

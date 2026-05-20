@@ -1,0 +1,166 @@
+
+:root {
+  --bg-0: #04070a;
+  --bg-1: #07100f;
+  --bg-2: #0b1816;
+  --bg-3: rgba(12, 24, 22, 0.84);
+  --panel: rgba(8, 18, 17, 0.88);
+  --panel-raised: rgba(14, 26, 24, 0.96);
+  --panel-deep: rgba(4, 8, 7, 0.92);
+  --line-soft: rgba(120, 220, 200, 0.12);
+  --line: rgba(120, 220, 200, 0.22);
+  --line-hot: rgba(36, 231, 195, 0.55);
+
+  --cyan: #24e7c3;
+  --cyan-soft: rgba(36, 231, 195, 0.16);
+  --green: #73f05c;
+  --green-soft: rgba(115, 240, 92, 0.16);
+  --amber: #f2c24e;
+  --amber-soft: rgba(242, 194, 78, 0.16);
+  --rose: #ff6f91;
+  --rose-soft: rgba(255, 111, 145, 0.16);
+  --violet: #b89eff;
+  --violet-soft: rgba(184, 158, 255, 0.18);
+  --text: #e7f5ee;
+  --muted: #7a948c;
+  --muted-2: #547069;
+
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-body: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow-glow: 0 0 0 1px rgba(36, 231, 195, 0.18), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --progress-bar-thickness: 3px;
+  --progress-bar-thickness-compact: 2px;
+
+  color: var(--text);
+  background: var(--bg-0);
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+html {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background-color: var(--bg-0);
+  background-image:
+    radial-gradient(1200px 700px at 20% -10%, rgba(36, 231, 195, 0.06), transparent 60%),
+    radial-gradient(900px 600px at 110% 100%, rgba(115, 240, 92, 0.045), transparent 60%),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(36, 231, 195, 0.018) 2px 3px),
+    linear-gradient(180deg, #03060a 0%, #050807 60%, #060a09 100%);
+  color: var(--text);
+  overflow-x: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-y: contain;
+}
+
+/* prevent text selection anywhere in the app shell */
+.app-shell,
+.app-shell * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* allow form fields to still work */
+.app-shell input,
+.app-shell textarea,
+.app-shell select {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+button, select { font: inherit; color: inherit; }
+
+select {
+  --select-bg: rgba(4, 8, 7, 0.92);
+  --select-bg-strong: rgba(10, 21, 19, 0.98);
+  --select-border: rgba(120, 220, 200, 0.24);
+  --select-arrow: var(--cyan);
+  min-height: 22px;
+  padding: 2px 22px 2px 7px;
+  border: 1px solid var(--select-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  color-scheme: dark;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--select-arrow) 50%) right 10px center / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--select-arrow) 50%, transparent 50%) right 6px center / 5px 5px no-repeat,
+    linear-gradient(180deg, var(--select-bg-strong), var(--select-bg));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  appearance: none;
+}
+
+select:hover:not(:disabled) {
+  --select-border: rgba(36, 231, 195, 0.46);
+  --select-arrow: var(--cyan);
+}
+
+select:disabled {
+  --select-arrow: var(--muted-2);
+  color: var(--muted-2);
+  cursor: not-allowed;
+}
+
+select option,
+select optgroup {
+  color: var(--text);
+  background-color: var(--bg-1);
+}
+
+select optgroup {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+select option:checked {
+  color: var(--cyan);
+  background-color: var(--bg-2);
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--line-hot);
+  background: rgba(36, 231, 195, 0.06);
+}
+
+button:disabled { cursor: not-allowed; opacity: 0.42; }
+
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+input:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
+}
+
+h1, h2, p, dl, dt, dd { margin: 0; }
+

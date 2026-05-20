@@ -1,0 +1,23 @@
+.cpu-bank-add {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.cpu-bank-add .upgrade-stepper {
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+
+.cpu-bank-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.cpu-bank-stack > .cpu-package,
+.cpu-bank-stack > .core-cache-row { flex: 1 1 auto; }
+
+@media (max-width: 760px) {
+  .cpu-bank-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}

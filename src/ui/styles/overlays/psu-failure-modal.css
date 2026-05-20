@@ -1,0 +1,104 @@
+/* ============ PSU FAILURE MODAL ============ */
+
+.psu-failure-overlay {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(7, 0, 3, 0.76);
+  backdrop-filter: blur(4px);
+}
+
+.psu-failure-modal {
+  display: grid;
+  gap: 12px;
+  width: min(430px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid rgba(255, 111, 145, 0.58);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 111, 145, 0.24), transparent 34%),
+    linear-gradient(180deg, rgba(28, 5, 11, 0.98), rgba(8, 4, 6, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(255, 111, 145, 0.12) inset,
+    0 18px 48px rgba(0, 0, 0, 0.64),
+    0 0 28px rgba(255, 40, 84, 0.14);
+  overflow-y: auto;
+}
+
+.psu-failure-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(255, 111, 145, 0.22);
+}
+
+.psu-failure-header span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--rose);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.psu-failure-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 111, 145, 0.26);
+  border-radius: 999px;
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.08);
+}
+
+.psu-failure-modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.psu-failure-primary {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  min-height: 34px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 111, 145, 0.42);
+  border-radius: 999px;
+  color: #160407;
+  background: var(--rose);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 560px) {
+  .psu-failure-modal {
+    padding: 14px;
+  }
+
+  .psu-section > .deadlock-help-caption.psuFailure {
+    grid-template-columns: 1fr;
+  }
+
+  .psu-section > .deadlock-help-caption.psuFailure button {
+    justify-self: start;
+  }
+}

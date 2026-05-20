@@ -1,0 +1,769 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createInitialGameState,
+  deriveVisibleState,
+  type VisibleState
+} from "../game";
+import {
+  HardwareBoard
+} from "./HardwareBoard";
+
+const reactActEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+
+describe("HardwareBoard second CPU system management", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  type VisibleOverrides = Omit<
+    Partial<VisibleState>,
+    "flags" | "hardware" | "metrics" | "upgrades"
+  > & {
+    flags?: Record<string, unknown>;
+    hardware?: Record<string, unknown>;
+    metrics?: Record<string, unknown>;
+    upgrades?: unknown[];
+  };
+
+  const makeSecondCpuVisible = (overrides: VisibleOverrides = {}) => {
+    const base = deriveVisibleState(createInitialGameState());
+    const baseSocket = base.metrics.cpuSockets[0]!;
+    const baseCore = baseSocket.cores[0]!;
+    const secondSocket = {
+      ...baseSocket,
+      id: 2,
+      label: "CPU 2",
+      cores: [
+        {
+          ...baseCore,
+          id: 2,
+          label: "Core 2",
+          scheduler: {
+            ...baseCore.scheduler,
+            localQueue: [],
+          },
+        },
+      ],
+      schedulerSlots: 1,
+      queuedCount: 0,
+    };
+    const systemTask = {
+      ...base.tasks[0]!,
+      id: "tinyChecksum",
+      name: "Tiny Checksum",
+      category: "system",
+      operationCount: 8,
+      rewardCredits: 24,
+      rewardData: 1,
+      cacheNeedBits: 8,
+      ramNeedBits: 64,
+      canStart: true,
+      canQueue: true,
+      blockedReason: null,
+      queueBlockedReason: null,
+    };
+
+    return {
+      ...base,
+      ...overrides,
+      flags: {
+        ...base.flags,
+        secondCpu: true,
+        systemStats: true,
+        scheduler: true,
+        ...(overrides.flags ?? {}),
+      },
+      hardware: {
+        ...base.hardware,
+        secondCpu: true,
+        cores: 2,
+        ramLevel: 1,
+        ramBits: 1024,
+        ramBytes: 128,
+        systemSchedulerSlots: 2,
+        psuLevel: 1,
+        psuWatts: 65,
+        ...(overrides.hardware ?? {}),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [baseSocket, secondSocket],
+        activeCoreCount: 1,
+        idleCoreCount: 1,
+        ramUsedBits: 128,
+        ramUsedBytes: 16,
+        powerUsedWatts: 32,
+        powerHeadroomWatts: 33,
+        psuStress: 0.49,
+        powerReliability: 0.86,
+        powerCostPerSecond: 1,
+        ...(overrides.metrics ?? {}),
+      },
+      tasks: [systemTask],
+      upgrades: overrides.upgrades ?? [],
+    } as unknown as VisibleState;
+  };
+
+  const cronUpgrade = {
+    id: "cronMinInterval",
+    name: "CRON Minimum",
+    component: "scheduler",
+    accent: "violet",
+    costs: [{ resource: "data", amount: 10 }],
+    refunds: [],
+    canAfford: true,
+    canDowngrade: false,
+    downgradeBlockedReason: null,
+    purchaseCount: 0,
+  };
+
+  const psuUpgrade = {
+    id: "psu",
+    name: "PSU Capacity",
+    component: "psu",
+    accent: "amber",
+    costs: [{ resource: "credits", amount: 40 }],
+    refunds: [],
+    canAfford: true,
+    canDowngrade: false,
+    downgradeBlockedReason: null,
+    purchaseCount: 1,
+  };
+
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("keeps locked automation and thermal modules hidden after second CPU", () => {
+    const visible = makeSecondCpuVisible();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const flow = container.querySelector(".system-board-flow");
+    const cronSection = container.querySelector(".cron-section");
+    const schedulerSection = container.querySelector(".system-scheduler-section");
+    const ramSection = container.querySelector(".memory-section");
+    const psuSection = container.querySelector(".psu-section");
+
+    expect(flow?.firstElementChild?.className).toContain("system-scheduler-section");
+    expect(container.querySelector(".system-board-frame")).toBeNull();
+    expect(cronSection).toBeNull();
+    expect(psuSection?.textContent).toContain("32 W");
+    expect(psuSection?.textContent).toContain("65 W");
+    expect(psuSection?.textContent).toContain("Boot");
+    expect(psuSection?.textContent).toContain("Kill");
+    expect(psuSection?.textContent).toContain("cr/s");
+    expect(psuSection?.textContent).not.toContain("Research PSU Management");
+    expect(psuSection?.querySelector(".power-control-buttons")).not.toBeNull();
+    expect(container.querySelector(".thermal-section")).toBeNull();
+    expect(schedulerSection?.textContent).toContain("System Scheduler");
+    expect(
+      schedulerSection?.compareDocumentPosition(ramSection!) ?? 0,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("renders newly unlocked hardware as paid install outlines", () => {
+    const dispatch = vi.fn();
+    const base = createInitialGameState();
+    const visible = deriveVisibleState({
+      ...base,
+      resources: { credits: 20_000, data: 20_000 },
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        systemStats: true,
+        scheduler: true,
+        cron: true,
+      },
+      research: {
+        completed: [
+          "localScheduler",
+          "ramControl",
+          "systemScheduler",
+          "cronScheduler",
+        ],
+      },
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const installSections = Array.from(
+      container.querySelectorAll<HTMLElement>(".install-hardware-section"),
+    );
+    const findInstall = (label: string) =>
+      installSections.find((section) => section.textContent?.includes(label));
+
+    expect(findInstall("Install first queue slot")?.querySelector(".resource-token")).not.toBeNull();
+    expect(
+      findInstall("Install first system queue slot")?.querySelector(".resource-token"),
+    ).not.toBeNull();
+    expect(findInstall("Install first RAM stick")?.querySelector(".resource-token")).not.toBeNull();
+    expect(findInstall("Install first CRON job slot")?.querySelector(".resource-token")).not.toBeNull();
+
+    act(() => {
+      findInstall("Install first queue slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first system queue slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first RAM stick")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+      findInstall("Install first CRON job slot")
+        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "schedulerSlot",
+      cpuId: 1,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "systemSchedulerSlot",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "ram",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "cronSchedule",
+    });
+  });
+
+  it("lists matched and unmatched CPU install choices with power deltas", () => {
+    const dispatch = vi.fn();
+    const base = deriveVisibleState(createInitialGameState());
+    const visible = {
+      ...base,
+      flags: {
+        ...base.flags,
+        secondCpu: true,
+      },
+      hardware: {
+        ...base.hardware,
+        secondCpu: false,
+      },
+      upgrades: [
+        {
+          id: "secondCpu",
+          name: "Unmatched CPU",
+          component: "socket",
+          accent: "cyan",
+          costs: [
+            { resource: "credits", amount: 900 },
+            { resource: "data", amount: 24 },
+          ],
+          refunds: [],
+          powerDeltaWatts: 0.0012,
+          canAfford: true,
+          canDowngrade: false,
+          downgradeBlockedReason: null,
+          purchaseCount: 0,
+        },
+        {
+          id: "matchedCpu",
+          name: "Matched CPU",
+          component: "socket",
+          accent: "amber",
+          costs: [
+            { resource: "credits", amount: 1200 },
+            { resource: "data", amount: 36 },
+          ],
+          refunds: [],
+          powerDeltaWatts: 0.0042,
+          canAfford: true,
+          canDowngrade: false,
+          downgradeBlockedReason: null,
+          purchaseCount: 0,
+        },
+      ],
+    } as unknown as VisibleState;
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const socket = container.querySelector(".empty-socket")?.parentElement;
+    const buttons = socket?.querySelectorAll<HTMLButtonElement>(
+      ".cpu-install-option",
+    );
+
+    expect(socket?.textContent).toContain("Unmatched CPU");
+    expect(socket?.textContent).toContain("Matched CPU");
+    expect(socket?.textContent).toContain("+1.2 mW");
+    expect(socket?.textContent).toContain("+4.2 mW");
+    expect(socket?.textContent).not.toContain("MW");
+
+    act(() => {
+      buttons?.[1]?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "matchedCpu",
+    });
+  });
+
+  it("renders active CRON controls and clamps intervals to the unlocked minimum", () => {
+    const dispatch = vi.fn();
+    const visible = makeSecondCpuVisible({
+      flags: { cronScheduler: true },
+      upgrades: [cronUpgrade],
+    });
+    (visible as unknown as Record<string, unknown>).cron = {
+      unlocked: true,
+      minIntervalSeconds: 30,
+      minIntervalUpgradeId: "cronMinInterval",
+      schedules: [
+        {
+          id: "main",
+          taskId: "tinyChecksum",
+          enabled: true,
+          intervalSeconds: 45,
+          minIntervalSeconds: 30,
+          remainingSeconds: 11.2,
+          lastResult: "Queued",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="cron"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const taskSelect = container.querySelector<HTMLSelectElement>(
+      ".cron-task-control select",
+    );
+    const modeButtons = container.querySelectorAll<HTMLButtonElement>(
+      ".cron-mode-control button",
+    );
+    const activeMode = Array.from(modeButtons).find(
+      (button) => button.getAttribute("aria-pressed") === "true",
+    );
+    const intervalInput = container.querySelector<HTMLInputElement>(
+      ".cron-interval-control input",
+    );
+    const toggle = container.querySelector<HTMLInputElement>(".cron-toggle input");
+
+    expect(taskSelect?.value).toBe("tinyChecksum");
+    expect(activeMode?.textContent).toBe("s");
+    expect(intervalInput?.min).toBe("30");
+    expect(intervalInput?.value).toBe("45");
+    expect(toggle?.checked).toBe(true);
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "System Automation",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Next job",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain("12s");
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "11.2s",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Min 30s",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "Min interval",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "Queued",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
+      "Power efficiency",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "Power efficiency",
+    );
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(intervalInput, "20");
+      intervalInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setCronScheduleInterval",
+        scheduleId: "main",
+        intervalSeconds: 30,
+        intervalMode: "seconds",
+        intervalValue: 30,
+      }),
+    );
+
+    act(() => {
+      toggle?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setCronScheduleEnabled",
+      scheduleId: "main",
+      enabled: false,
+    });
+  });
+
+  it("keeps concise CPU cards focused on scheduler and core selection", () => {
+    const onSelectComponent = vi.fn();
+    const visible = makeSecondCpuVisible();
+    visible.tasks = visible.tasks.map((task) =>
+      task.id === "tinyChecksum"
+        ? {
+          ...task,
+          cacheNeedBits: 999_999,
+        }
+        : task,
+    );
+    visible.metrics.cpuSockets = visible.metrics.cpuSockets.map((socket, index) =>
+      index === 0
+        ? {
+          ...socket,
+          schedulerSlots: 4,
+          queuedCount: 1,
+          schedulerConfig: {
+            ...socket.schedulerConfig,
+            policy: "deadlockSafe",
+          },
+          cores: socket.cores.map((core, coreIndex) =>
+            coreIndex === 0
+              ? {
+                ...core,
+                scheduler: {
+                  ...core.scheduler,
+                  localQueue: ["tinyChecksum"],
+                },
+              }
+              : core,
+          ),
+        }
+        : socket,
+    );
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={onSelectComponent}
+        />,
+      );
+    });
+
+    const card = container.querySelector<HTMLElement>(".cpu-summary-card");
+    const queue = card?.querySelector<HTMLElement>(".cpu-summary-queue");
+    const fullViewButton =
+      card?.querySelector<HTMLButtonElement>(".cpu-summary-open");
+    const coreButton =
+      card?.querySelector<HTMLButtonElement>(".cpu-summary-core-cell");
+
+    expect(queue?.classList.contains("slots-1")).toBe(true);
+    expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
+    expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
+    expect(card?.querySelector(".cpu-summary-queue-state")?.textContent).toBe(
+      "CACHE",
+    );
+    expect(card?.textContent).not.toContain("Open");
+    expect(card?.querySelector(".cpu-summary-upgrades")).toBeNull();
+
+    act(() => {
+      card?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+    expect(container.querySelector(".cpu-bank-grid")).not.toBeNull();
+
+    act(() => {
+      coreButton?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("core:1");
+    expect(container.querySelector(".cpu-bank-grid")).not.toBeNull();
+
+    act(() => {
+      fullViewButton?.click();
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+    expect(container.querySelector(".cpu-bank-stack")).not.toBeNull();
+    expect(container.querySelector(".cpu-bank-grid")).toBeNull();
+  });
+
+  it("labels cores locally within each CPU socket", () => {
+    const visible = makeSecondCpuVisible();
+    const [firstSocket, secondSocket] = visible.metrics.cpuSockets;
+    const coreTemplate = firstSocket!.cores[0]!;
+    const makeCore = (id: number) => ({
+      ...coreTemplate,
+      id,
+      scheduler: {
+        ...coreTemplate.scheduler,
+        coreId: id,
+        localQueue: [],
+      },
+    });
+
+    visible.hardware.cores = 8;
+    visible.metrics.cpuSockets = [
+      {
+        ...firstSocket!,
+        label: "CPU A",
+        cores: [1, 2, 3, 4].map(makeCore),
+        schedulerSlots: 4,
+      },
+      {
+        ...secondSocket!,
+        label: "CPU B",
+        cores: [5, 6, 7, 8].map(makeCore),
+        schedulerSlots: 4,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const cards = container.querySelectorAll<HTMLElement>(".cpu-summary-card");
+    const secondCardLabels = Array.from(
+      cards[1]?.querySelectorAll(".cpu-summary-core-tag") ?? [],
+    ).map((label) => label.textContent);
+
+    expect(secondCardLabels).toEqual(["C1", "C2", "C3", "C4"]);
+
+    act(() => {
+      cards[1]?.querySelector<HTMLButtonElement>(".cpu-summary-open")?.click();
+    });
+
+    const fullViewLabels = Array.from(
+      container.querySelectorAll(".cpu-bank-stack .core-label"),
+    ).map((label) => label.textContent);
+
+    expect(fullViewLabels).toEqual(["C1", "C2", "C3", "C4"]);
+  });
+
+  it("shows active PSU power states and readouts without thermal controls", () => {
+    const dispatch = vi.fn();
+    const visible = makeSecondCpuVisible({
+      upgrades: [psuUpgrade],
+      metrics: {
+        powerUsedWatts: 42,
+        powerCostPerSecond: 1.3,
+        psuStress: 0.52,
+      },
+    });
+    (visible as unknown as Record<string, unknown>).systemStatus = {
+      powerState: "booting",
+      powerTransitionSeconds: 6,
+      power: {
+        drawWatts: 42,
+        capacityWatts: 80,
+        costPerSecond: 1.3,
+        transitionSeconds: 6,
+        billingGraceSeconds: 4,
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".psu-section .power-state-chip")).toBeNull();
+    expect(buttons[0]?.className).toContain("active");
+    expect(buttons[0]?.disabled).toBe(true);
+    expect(buttons[1]?.disabled).toBe(false);
+    expect(container.querySelector(".system-scheduler-section")?.textContent).toContain(
+      "System booting",
+    );
+    expect(container.querySelector(".system-scheduler-section")?.textContent).toContain(
+      "6s",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "System booting",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).toContain("42 W");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("80 W");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("cr/s");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("4s");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("grace");
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "RAM/CPU match",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "efficiency",
+    );
+    expect(container.querySelector(".psu-section")?.textContent).toContain(
+      "PSU Capacity",
+    );
+    expect(container.querySelector(".thermal-section")).toBeNull();
+
+    (visible as unknown as { systemStatus: Record<string, unknown> }).systemStatus = {
+      ...(visible as unknown as { systemStatus: Record<string, unknown> })
+        .systemStatus,
+      powerState: "on",
+    };
+    visible.metrics = { ...visible.metrics, powerState: "on" };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const runningButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".psu-section .power-state-chip")).toBeNull();
+    expect(runningButtons[0]?.className).not.toContain("active");
+    expect(runningButtons[0]?.disabled).toBe(true);
+    expect(runningButtons[1]?.disabled).toBe(false);
+    expect(
+      container.querySelector(".system-shutdown-button")?.textContent,
+    ).toContain("Shutdown");
+
+    act(() => {
+      runningButtons[1]?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "killPower" });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".system-shutdown-button")
+        ?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setPowerState",
+      state: "off",
+    });
+
+    (visible as unknown as { systemStatus: Record<string, unknown> }).systemStatus = {
+      ...(visible as unknown as { systemStatus: Record<string, unknown> })
+        .systemStatus,
+      powerState: "off",
+    };
+    visible.metrics = { ...visible.metrics, powerState: "off" };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="psu"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const updatedButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".power-control-buttons button"),
+    );
+
+    expect(container.querySelector(".psu-section .power-state-chip")).toBeNull();
+    expect(container.querySelector(".system-board.power-offline")).not.toBeNull();
+    expect(updatedButtons[0]?.className).toContain("go");
+    expect(updatedButtons[0]?.disabled).toBe(false);
+    expect(updatedButtons[1]?.disabled).toBe(true);
+    expect(
+      container.querySelector(".system-shutdown-button")?.className,
+    ).toContain("start");
+    expect(
+      container.querySelector(".system-shutdown-button")?.textContent,
+    ).toContain("Start system");
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".system-shutdown-button")
+        ?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setPowerState",
+      state: "on",
+    });
+  });
+});
+

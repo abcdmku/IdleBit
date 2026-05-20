@@ -1,0 +1,80 @@
+.cache-control-strip {
+  margin-top: auto;
+}
+
+.cache-control-strip .upgrade-stepper {
+  flex-basis: 112px;
+}
+
+.deadlock-help-caption {
+  position: absolute;
+  z-index: 12;
+  top: 34px;
+  left: 10px;
+  right: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(255, 111, 145, 0.72);
+  border-radius: var(--radius);
+  background: rgba(24, 8, 12, 0.96);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
+  scroll-margin: 14px;
+}
+
+.deadlock-help-caption p {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.deadlock-help-caption button {
+  min-width: 58px;
+  padding: 5px 8px;
+  border-color: rgba(255, 111, 145, 0.62);
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.08);
+  font-size: 0.62rem;
+}
+
+.deadlock-help-caption.psuFailure {
+  border-color: rgba(242, 194, 78, 0.72);
+  background: rgba(25, 17, 5, 0.96);
+}
+
+.psu-section > .deadlock-help-caption.psuFailure {
+  position: static;
+  inset: auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 6px 8px;
+  box-shadow: none;
+}
+
+.psu-section > .deadlock-help-caption.psuFailure p {
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
+.psu-section > .deadlock-help-caption.psuFailure button {
+  min-width: 52px;
+  padding: 4px 7px;
+}
+
+.deadlock-help-caption.psuFailure button {
+  border-color: rgba(242, 194, 78, 0.62);
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.08);
+}
+
+.upgrade-chips .upgrade-stepper {
+  flex: 1 1 112px;
+}
+
+.inline-upgrade-row .upgrade-stepper {
+  flex: initial;
+}

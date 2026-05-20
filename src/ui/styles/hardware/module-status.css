@@ -1,0 +1,37 @@
+/* ----- RAM / PSU / status tiles ----- */
+
+.module-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.module-rail .hw-section {
+  padding: 10px;
+  gap: 6px;
+}
+
+.module-rail .hw-section .hw-section-header {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+}
+
+.module-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+}
+
+.module-stat strong {
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.module-stat small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+}

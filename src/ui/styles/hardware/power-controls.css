@@ -1,0 +1,74 @@
+/* ---------- Header power toggle ---------- */
+
+.power-control-buttons {
+  display: inline-flex;
+  gap: 0;
+  flex: 0 0 auto;
+  justify-self: end;
+  padding: 2px;
+  border: 1px solid rgba(242, 194, 78, 0.2);
+  border-radius: 999px;
+  background: rgba(4, 8, 7, 0.48);
+}
+
+.psu-header-row .power-control-buttons {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.power-control-buttons button {
+  min-height: 20px;
+  min-width: 34px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 120ms linear, background 120ms linear, color 120ms linear;
+}
+
+.power-control-buttons button:hover:not(:disabled) {
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.1);
+}
+
+.power-control-buttons button.active {
+  color: #100d04;
+  background: var(--amber);
+  box-shadow: 0 0 10px rgba(242, 194, 78, 0.22);
+}
+
+.power-control-buttons button.go {
+  color: #04110c;
+  background: var(--green);
+  box-shadow: 0 0 10px rgba(115, 240, 92, 0.22);
+}
+
+.power-control-buttons button.danger {
+  color: var(--rose);
+}
+
+.power-control-buttons button.danger:hover:not(:disabled) {
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.12);
+}
+
+.power-control-buttons button.active:disabled {
+  opacity: 1;
+}
+
+.power-control-buttons button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.power-control-buttons button.danger:disabled {
+  color: var(--muted);
+}

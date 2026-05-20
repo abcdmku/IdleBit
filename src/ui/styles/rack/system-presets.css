@@ -1,0 +1,191 @@
+.system-preset-controls,
+.custom-machine-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(120, 220, 200, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(3, 10, 10, 0.42);
+}
+
+.system-preset-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.system-preset-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 42px;
+  padding: 7px;
+  border-color: rgba(184, 158, 255, 0.26);
+  border-radius: var(--radius-sm);
+  background: rgba(184, 158, 255, 0.045);
+  color: var(--violet);
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+.system-preset-card:hover:not(:disabled) {
+  border-color: rgba(184, 158, 255, 0.48);
+  background: rgba(184, 158, 255, 0.08);
+}
+
+.system-preset-copy {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.system-preset-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.system-preset-copy small,
+.system-preset-stats,
+.system-preset-power,
+.system-preset-action {
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.system-preset-stats {
+  color: var(--green);
+  text-transform: none;
+}
+
+.system-preset-power {
+  color: var(--amber);
+  text-transform: none;
+}
+
+.system-preset-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 18px;
+  color: var(--violet);
+  text-align: right;
+}
+
+.premade-system-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.premade-system-list .system-preset-card {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px;
+}
+
+.premade-card-header,
+.premade-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.premade-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.premade-card-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.premade-card-copy small,
+.premade-card-buy {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.premade-card-buy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.premade-card-buy.blocked {
+  color: var(--rose);
+  white-space: normal;
+  text-align: right;
+}
+
+.premade-card-specs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+  margin: 0;
+}
+
+.premade-card-spec {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(120, 220, 200, 0.1);
+  border-radius: 3px;
+  background: rgba(4, 8, 7, 0.3);
+  font-family: var(--font-mono);
+}
+
+.premade-card-spec dt {
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.premade-card-spec dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.premade-card-spec .tone-amber {
+  color: var(--amber);
+}

@@ -44,13 +44,10 @@ import {
   getCacheBytes,
   getAllCoreIds,
   getClockHz,
-  getCpuForCore,
   getCpuHardware,
   getCpuIdForCore,
   getCoreClockHz,
   getPsuWatts,
-  getRamBits,
-  getRamBytes,
   getRamSpeedMt,
   getOperationProgress,
   POWER_BOOTSTRAP_GRACE_SECONDS,
@@ -106,9 +103,6 @@ const combineCosts = (costs: Cost[]) =>
 
 const getMachineSelectionCost = (selection: MachineComponentSelection) =>
   combineCosts(getMachineComponentSkus(selection).flatMap((sku) => sku.cost));
-
-const getTemplateCost = (templateId: string) =>
-  getMachineSelectionCost(getMachineTemplate(templateId).components);
 
 const getSku = (
   selection: MachineComponentSelection,

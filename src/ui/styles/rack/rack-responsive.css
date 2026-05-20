@@ -1,0 +1,58 @@
+@media (max-width: 760px) {
+  .system-rack-purchase-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-builder-group {
+    grid-template-columns: 1fr;
+  }
+
+  .system-rack-slot--row {
+    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-areas:
+      "rail visuals";
+    min-height: 168px;
+    row-gap: 8px;
+  }
+
+  .system-rack-slot--row > .rack-slot-rail {
+    grid-area: rail;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals {
+    grid-area: visuals;
+    grid-template-columns: 1fr 1fr;
+    min-height: 172px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay {
+    min-height: 78px;
+    border-left: 0;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(even) {
+    border-left: 1px solid rgba(120, 220, 200, 0.11);
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(n + 3) {
+    border-top: 1px solid rgba(120, 220, 200, 0.11);
+  }
+
+  .builder-new-grid,
+  .builder-configure-rows,
+  .custom-system-builder {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-system-board {
+    min-height: 320px;
+    grid-template-areas:
+      "ram"
+      "cpu"
+      "scheduler"
+      "psu";
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(70px, auto));
+  }
+}
+

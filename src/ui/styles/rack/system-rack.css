@@ -1,0 +1,93 @@
+/* ============ SYSTEM RACK ============ */
+
+.system-rack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(120, 220, 200, 0.18);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(140% 80% at 50% -20%, rgba(184, 158, 255, 0.08), transparent 62%),
+    linear-gradient(180deg, rgba(10, 21, 21, 0.96), rgba(4, 10, 10, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55) inset,
+    0 1px 0 rgba(120, 220, 200, 0.06) inset;
+}
+
+.system-rack + .system-board {
+  margin-top: 10px;
+}
+
+.rack-mode-detail,
+.rack-mode-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+}
+
+.rack-mode-detail > .system-board {
+  margin-top: 8px;
+}
+
+.system-rack-header,
+.system-rack-subheader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cyan);
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.system-rack-header small,
+.system-rack-title small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.system-rack-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.rack-build-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-color: rgba(242, 194, 78, 0.46);
+  border-radius: var(--radius-sm);
+  color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.12), rgba(242, 194, 78, 0.04));
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rack-build-new:hover {
+  border-color: rgba(242, 194, 78, 0.7);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.18), rgba(242, 194, 78, 0.07));
+}
+
+.system-rack-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}

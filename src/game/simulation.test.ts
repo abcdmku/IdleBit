@@ -24,6 +24,7 @@ import {
   createSchedulerConfig,
   getClockHz,
   getRamBits,
+  getRamSpeedMt,
   POWER_BOOTSTRAP_GRACE_SECONDS,
   syncCoreSchedulers,
 } from "./progression";
@@ -1010,6 +1011,68 @@ describe("IdleBit simulation", () => {
     expect(restored.research.completed).toEqual([]);
     expect(restored.flags.scheduler).toBe(false);
     expect(restored.systems).toHaveLength(1);
+  });
+
+  it("normalizes malformed RAM sticks from v2 saves", () => {
+    const base = createInitialGameState();
+    const restored = deserializeSave(
+      JSON.stringify({
+        version: 2,
+        savedAt: new Date().toISOString(),
+        state: {
+          ...base,
+          hardware: {
+            ...base.hardware,
+            ramLevel: 2,
+            ramSpeedLevel: 3,
+            ramSticks: [
+              {
+                id: 1,
+                level: 2,
+                bits: -1,
+                bytes: 999,
+                speedLevel: -2,
+                speedMt: 999,
+              },
+              {
+                id: 1,
+                level: 3,
+                bits: null,
+                bytes: 999,
+                speedLevel: 4,
+                speedMt: -10,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const expectedRamBits = getRamBits(2) + getRamBits(3);
+
+    expect(restored.hardware.ramSticks).toEqual([
+      {
+        id: 1,
+        level: 2,
+        bits: getRamBits(2),
+        bytes: Math.ceil(getRamBits(2) / 8),
+        speedLevel: 1,
+        speedMt: getRamSpeedMt(1),
+      },
+      {
+        id: 2,
+        level: 3,
+        bits: getRamBits(3),
+        bytes: Math.ceil(getRamBits(3) / 8),
+        speedLevel: 4,
+        speedMt: getRamSpeedMt(4),
+      },
+    ]);
+    expect(restored.hardware.ramBits).toBe(expectedRamBits);
+    expect(restored.hardware.ramBytes).toBe(Math.ceil(expectedRamBits / 8));
+    expect(restored.hardware.ramSpeedLevel).toBe(4);
+    expect(restored.hardware.ramSpeedMt).toBe(getRamSpeedMt(4));
+    expect(restored.systems[0]?.hardware.ramBits).toBe(expectedRamBits);
   });
 
   it("creates a rack-ready seed with a dense visual stress node", () => {

@@ -1,4 +1,5 @@
 import {
+  bitsToBytes,
   createCoreSchedulers,
   createCpuHardwareState,
   createInitialGameState,
@@ -27,6 +28,7 @@ import type {
   GameState,
   MemoryRuntimeState,
   OperationRuntimeStatus,
+  RamStickState,
   ResearchId,
   TaskId,
 } from "./types";
@@ -293,24 +295,73 @@ const normalizeCronSchedules = (
         })
     : [];
 
+const isSavedRamStick = (value: unknown): value is Partial<RamStickState> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const createUniqueRamStickId = (requestedId: number, usedIds: Set<number>) => {
+  let id = Math.max(1, requestedId);
+  while (usedIds.has(id)) id += 1;
+  usedIds.add(id);
+  return id;
+};
+
+const normalizeRamSticks = (
+  savedSticks: unknown,
+  ramLevel: number,
+  ramSpeedLevel: number,
+): RamStickState[] => {
+  const fallbackSticks = createRamSticksForLevel(ramLevel, ramSpeedLevel);
+  const sourceSticks =
+    Array.isArray(savedSticks) && savedSticks.length > 0
+      ? savedSticks
+      : fallbackSticks;
+  const usedIds = new Set<number>();
+  const normalizedSticks = sourceSticks.filter(isSavedRamStick).map((stick, index) => {
+    const level = Math.max(1, toInteger(stick.level, index + 1));
+    const savedBits = toFiniteNumber(stick.bits, NaN);
+    const bits = savedBits > 0 ? savedBits : getRamBits(level);
+    const speedLevel = Math.max(1, toInteger(stick.speedLevel, ramSpeedLevel));
+
+    return {
+      id: createUniqueRamStickId(toInteger(stick.id, index + 1), usedIds),
+      level,
+      bits,
+      bytes: bitsToBytes(bits),
+      speedLevel,
+      speedMt: getRamSpeedMt(speedLevel),
+    };
+  });
+
+  return normalizedSticks.length > 0 ? normalizedSticks : fallbackSticks;
+};
+
 const normalizeState = (state: LegacyState): GameState => {
   const fresh = createInitialGameState();
   const hardware: LegacyHardwareState = state.hardware ?? {};
   const cacheLevel = hardware.cacheLevel ?? fresh.hardware.cacheLevel;
   const cacheSpeedLevel =
     hardware.cacheSpeedLevel ?? fresh.hardware.cacheSpeedLevel;
-  const ramLevel = hardware.ramLevel ?? (hardware.ramGb ? 1 : fresh.hardware.ramLevel);
+  const ramLevel = Math.max(
+    0,
+    toInteger(hardware.ramLevel, hardware.ramGb ? 1 : fresh.hardware.ramLevel),
+  );
   const ramSpeedLevel =
-    hardware.ramSpeedLevel ??
-    (hardware.ramSpeedMt && hardware.ramSpeedMt > 0
-      ? Math.max(1, Math.round(Math.log2(hardware.ramSpeedMt) + 1))
-      : fresh.hardware.ramSpeedLevel);
+    Math.max(
+      1,
+      toInteger(
+        hardware.ramSpeedLevel,
+        hardware.ramSpeedMt && hardware.ramSpeedMt > 0
+          ? Math.max(1, Math.round(Math.log2(hardware.ramSpeedMt) + 1))
+          : fresh.hardware.ramSpeedLevel,
+      ),
+    );
   const cacheBits = hardware.cacheBits ?? getCacheBits(cacheLevel);
   const ramBits = hardware.ramBits ?? (ramLevel > 0 ? getRamBits(ramLevel) : 0);
-  const ramSticks =
-    hardware.ramSticks && hardware.ramSticks.length > 0
-      ? hardware.ramSticks
-      : createRamSticksForLevel(ramLevel, ramSpeedLevel);
+  const ramSticks = normalizeRamSticks(
+    hardware.ramSticks,
+    ramLevel,
+    ramSpeedLevel,
+  );
   const schedulerSlots = Math.max(
     0,
     hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,

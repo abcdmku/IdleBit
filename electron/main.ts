@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { registerPersistenceIpc } from "./persistence.js";
 
@@ -22,11 +22,31 @@ function preloadPath(): string {
 }
 
 function isAllowedNavigation(url: string): boolean {
-  if (rendererDevUrl) {
-    return url.startsWith(rendererDevUrl);
-  }
+  try {
+    const target = new URL(url);
 
-  return url.startsWith("file://");
+    if (rendererDevUrl) {
+      const rendererUrl = new URL(rendererDevUrl);
+      return target.origin === rendererUrl.origin;
+    }
+
+    const rendererFileUrl = new URL(pathToFileURL(rendererHtmlPath()).href);
+    return (
+      target.protocol === "file:" &&
+      target.pathname === rendererFileUrl.pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedExternalUrl(url: string): boolean {
+  try {
+    const target = new URL(url);
+    return target.protocol === "https:" || target.protocol === "mailto:";
+  } catch {
+    return false;
+  }
 }
 
 async function createMainWindow(): Promise<void> {
@@ -55,13 +75,19 @@ async function createMainWindow(): Promise<void> {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!isAllowedNavigation(url)) {
-      event.preventDefault();
+    if (isAllowedNavigation(url)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (isAllowedExternalUrl(url)) {
       void shell.openExternal(url);
     }
   });

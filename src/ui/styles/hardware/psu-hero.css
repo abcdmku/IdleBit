@@ -1,0 +1,75 @@
+/* ---------- Hero: draw/capacity + billing ---------- */
+
+.psu-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(120, 220, 200, 0.10);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 8, 7, 0.32);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.psu-hero-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.psu-hero-draw {
+  color: var(--text);
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.psu-hero-capacity {
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.psu-hero-divider {
+  color: var(--muted-2);
+  margin: 0 5px;
+  font-weight: 500;
+}
+
+.psu-hero-cost-stat {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.psu-hero-cost {
+  color: var(--amber);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.psu-hero-cost-unit {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.psu-section.warn .psu-hero-draw { color: var(--amber); }
+.psu-section.critical .psu-hero-draw { color: var(--rose); }
+.psu-section.power-off .psu-hero-draw,
+.psu-section.power-off .psu-hero-cost { color: var(--muted); }
+.psu-section.power-off .psu-hero { opacity: 0.65; }

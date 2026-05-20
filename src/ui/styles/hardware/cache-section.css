@@ -1,0 +1,61 @@
+/* ----- Cache section ----- */
+
+.cache-stat-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.cache-stat-row .stat {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.62rem;
+}
+
+.cache-stat-row .stat small {
+  color: var(--muted);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+.cache-stat-row .stat strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.cache-stat-row .cache-capacity-stat {
+  flex: 0 0 auto;
+}
+
+.cache-stat-row .cache-capacity-stat strong {
+  display: inline-block;
+  inline-size: 15ch;
+  text-align: right;
+}
+
+.cache-stat-row .upgrade-chips {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.cache-meter-block {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(24px, 1fr));
+  gap: 5px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 54px;
+}

@@ -1,0 +1,122 @@
+.cache-state-badge {
+  --cache-state-color: var(--muted-2);
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid rgba(120, 220, 200, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 8, 7, 0.42);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.cache-state-badge.buffering { --cache-state-color: var(--cyan); }
+.cache-state-badge.loading { --cache-state-color: var(--amber); }
+.cache-state-badge.loaded { --cache-state-color: var(--green); }
+
+.cache-state-badge > span {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--cache-state-color) 60%, transparent);
+}
+
+.cache-state-badge strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cache-state-badge small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cache-state-badge.active {
+  border-color: color-mix(in srgb, var(--cache-state-color) 50%, transparent);
+  background: color-mix(in srgb, var(--cache-state-color) 8%, transparent);
+}
+
+.cache-pipeline-row .cache-state-badge.active {
+  border: 0;
+  background: transparent;
+}
+
+.cache-state-badge.active strong,
+.cache-state-badge.active small { color: var(--cache-state-color); }
+
+.ram-state-badge {
+  --ram-state-color: var(--muted-2);
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid rgba(120, 220, 200, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 8, 7, 0.42);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.ram-state-badge.reserved { --ram-state-color: var(--cyan); }
+.ram-state-badge.loading { --ram-state-color: var(--amber); }
+.ram-state-badge.loaded { --ram-state-color: var(--green); }
+.ram-state-badge.used { --ram-state-color: var(--violet); }
+
+.ram-state-badge > span {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ram-state-color) 60%, transparent);
+}
+
+.ram-state-badge strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ram-state-badge small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ram-state-badge.active {
+  border-color: color-mix(in srgb, var(--ram-state-color) 50%, transparent);
+  background: color-mix(in srgb, var(--ram-state-color) 8%, transparent);
+}
+
+.ram-pipeline-row .ram-state-badge.active {
+  border: 0;
+  background: transparent;
+}
+
+.ram-state-badge.active strong,
+.ram-state-badge.active small { color: var(--ram-state-color); }
+

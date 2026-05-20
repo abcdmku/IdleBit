@@ -2,5 +2,6 @@ node_modules
 .playwright-mcp
 dist
 dist-electron
+storybook-static
 idlebit-*-smoke.png
 .claude

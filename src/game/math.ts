@@ -465,7 +465,7 @@ export const getCacheLoadCycles = (
 ) => getCacheLoadCyclesForOperation(state, operation);
 
 export const getRamLoadCycles = (
-  state: GameState,
+  _state: GameState,
   operation: TaskOperationDefinition,
 ) => {
   if (operation.ramBits <= 0) return 0;

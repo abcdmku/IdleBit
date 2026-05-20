@@ -5,9 +5,9 @@ import {
   HardwareBoard,
   PinnedTaskBar,
   ResearchPanel,
-  ResourceHud,
   TaskBay,
 } from "./HardwareBoard";
+import { ResourceHud } from "./ResourceHud";
 import type { Dispatch } from "./uiActions";
 import { getVisibleSelection, type SelectedComponent } from "./workbenchData";
 
@@ -68,15 +68,11 @@ function useIsMobile(breakpoint = 760) {
 }
 
 function getTaskCount(visible: VisibleState) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tasks = (visible as any).tasks as unknown[] | undefined;
-  return tasks?.length ?? 0;
+  return visible.tasks.length;
 }
 
 function getResearchCount(visible: VisibleState) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const research = (visible as any).research as Array<{ purchased?: boolean; completed?: boolean }> | undefined;
-  return (research ?? []).filter((r) => !r.purchased && !r.completed).length;
+  return visible.research.filter((research) => !research.completed).length;
 }
 
 export function SystemWorkbench({

@@ -1,0 +1,154 @@
+.rack-strip {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 8px 0;
+  margin-bottom: -1px;
+  border: 1px solid rgba(120, 220, 200, 0.16);
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background:
+    linear-gradient(180deg, rgba(10, 21, 21, 0.92), rgba(4, 10, 10, 0.96));
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.rack-mode-detail > .rack-strip + *,
+.rack-mode-builder > .rack-strip + * {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.rack-strip-home {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border-color: rgba(36, 231, 195, 0.32);
+  border-radius: 3px;
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.08);
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rack-strip-home:hover {
+  background: rgba(36, 231, 195, 0.16);
+}
+
+.rack-strip-chips {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.system-rack-slot--chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 12px 6px 10px;
+  border: 1px solid rgba(120, 220, 200, 0.14);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background:
+    linear-gradient(180deg, rgba(14, 28, 27, 0.6), rgba(4, 10, 10, 0.85));
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.system-rack-slot--chip:hover {
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgba(36, 231, 195, 0.08), rgba(8, 18, 18, 0.92));
+  border-color: rgba(36, 231, 195, 0.32);
+}
+
+.system-rack-slot--chip.selected {
+  z-index: 1;
+  color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.16), rgba(10, 20, 18, 0.98));
+  border-color: rgba(242, 194, 78, 0.55);
+  box-shadow:
+    0 -2px 0 rgba(242, 194, 78, 0.55) inset,
+    0 1px 0 rgba(10, 20, 18, 0.98);
+  transform: translateY(1px);
+}
+
+.system-rack-slot--chip .rack-slot-index {
+  width: 18px;
+  height: 18px;
+  font-size: 0.56rem;
+}
+
+.system-rack-slot--chip .rack-slot-copy strong {
+  font-size: 0.64rem;
+}
+
+.system-rack-slot--chip::before {
+  content: none;
+}
+
+.rack-strip-build {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 4px 10px 6px;
+  border: 1px solid rgba(242, 194, 78, 0.32);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.08), rgba(8, 16, 12, 0.86));
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.rack-strip-build:hover {
+  border-color: rgba(242, 194, 78, 0.7);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.18), rgba(12, 18, 14, 0.94));
+}
+
+.rack-strip-build.selected {
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.22), rgba(10, 20, 18, 0.98));
+  border-color: rgba(242, 194, 78, 0.7);
+  box-shadow:
+    0 -2px 0 rgba(242, 194, 78, 0.7) inset,
+    0 1px 0 rgba(10, 20, 18, 0.98);
+  transform: translateY(1px);
+}
+
+/* === System detail header === */

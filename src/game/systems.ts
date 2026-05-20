@@ -41,7 +41,7 @@ const preserveRuntimeRamOverride = (hardware: HardwareState): HardwareState => {
   };
 };
 
-const getSystemRuntime = (state: GameState, system: SystemState): SystemState => ({
+const getSystemRuntime = (_state: GameState, system: SystemState): SystemState => ({
   ...system,
   hardware: system.hardware,
   activeJobs: system.activeTasks,

@@ -1,0 +1,266 @@
+/* ============ RESPONSIVE ============ */
+
+@media (max-width: 1280px) {
+  .board-stage {
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(260px, 300px);
+  }
+
+  .cron-schedule-row {
+    grid-template-columns: auto minmax(0, 1fr) 56px auto;
+    grid-template-areas:
+      "toggle task task next"
+      "toggle every mode next";
+    column-gap: 6px;
+    row-gap: 4px;
+  }
+
+  .cron-schedule-row .cron-toggle { grid-area: toggle; }
+  .cron-schedule-row .cron-task-control { grid-area: task; }
+  .cron-schedule-row .cron-interval-control { grid-area: every; }
+  .cron-schedule-row .cron-mode-control { grid-area: mode; align-self: end; }
+  .cron-schedule-row .cron-next { grid-area: next; }
+}
+
+@media (max-width: 1080px) {
+  .board-stage {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .tasks-panel { grid-column: 1; grid-row: 1; }
+  .hw-panel { grid-column: 2; grid-row: 1 / span 2; border-left: 1px solid var(--line-soft); }
+  .research-panel { grid-column: 1; grid-row: 2; border-top: 1px solid var(--line-soft); border-left: 0; }
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .topbar-brand { font-size: 0.74rem; letter-spacing: 0.12em; }
+  .topbar-stage { display: none; }
+
+  .topbar-alert-badge {
+    min-height: 26px;
+    padding-inline: 8px;
+    font-size: 0.58rem;
+  }
+
+  .resource-hud {
+    gap: 6px;
+  }
+
+  .resource-readout {
+    padding: 3px 7px;
+  }
+
+  .resource-readout > span { display: none; }
+  .resource-readout > strong { font-size: 0.82rem; }
+
+  .dev-reset-button {
+    display: none;
+  }
+
+  .section-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 6px;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(8, 16, 15, 0.6);
+  }
+
+  .section-tab {
+    flex: 1 1 0;
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 8px 6px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--muted);
+    background: transparent;
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .section-tab .new-dot {
+    flex: 0 0 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: transparent;
+    opacity: 0;
+  }
+
+  .section-tab.has-notification .new-dot {
+    background: var(--rose);
+    box-shadow: 0 0 9px rgba(255, 111, 145, 0.72);
+    opacity: 1;
+  }
+
+  .section-tab.active {
+    color: var(--cyan);
+    border-bottom-color: var(--cyan);
+    background: rgba(36, 231, 195, 0.04);
+  }
+
+  .section-tab.has-notification .count {
+    border-color: rgba(255, 111, 145, 0.72);
+    background: rgba(255, 111, 145, 0.12);
+    color: var(--rose);
+    box-shadow: 0 0 10px rgba(255, 111, 145, 0.14);
+  }
+
+  .section-tab .count {
+    padding: 1px 5px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+  }
+
+  .board-stage {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .panel {
+    display: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    border-left: 0 !important;
+    border-top: 0 !important;
+  }
+
+  .panel.active { display: flex; }
+
+  .panel-body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* section tabs already label the panel - hide the in-panel title chrome */
+  .hw-panel > .panel-header { display: none; }
+
+  .tasks-panel .panel-header > svg:first-child,
+  .tasks-panel .panel-header > span:first-of-type,
+  .research-panel .panel-header > svg:first-child,
+  .research-panel .panel-header > span:first-of-type,
+  .research-panel .panel-header > small {
+    display: none;
+  }
+
+  /* tighten the remaining controls in the header */
+  .tasks-panel .panel-header,
+  .research-panel .panel-header {
+    padding: 6px 10px;
+  }
+
+  .panel-header { padding: 8px 12px; }
+  .panel-body { padding: 10px; }
+
+  .core-grid {
+    --core-cell-min: 108px;
+  }
+
+  .core-grid.compact {
+    --core-cell-min: 74px;
+  }
+
+  .core-grid.dense {
+    --core-cell-min: 48px;
+  }
+
+  .hw-section { padding: 10px; }
+
+  .hw-section-header-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scheduler-header-row {
+    display: flex;
+  }
+
+  .scheduler-controls {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .system-shutdown-button {
+    width: 100%;
+  }
+
+  .scheduler-header-row > .scheduler-watchdog-status {
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .scheduler-control {
+    flex: 1 1 0;
+    max-width: none;
+  }
+
+  .scheduler-control select {
+    max-width: none;
+  }
+
+  .efficiency-readouts {
+    grid-template-columns: 1fr;
+  }
+
+  .cron-schedule-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "toggle task next"
+      "toggle every mode";
+  }
+
+  .psu-header-row {
+    justify-content: center;
+  }
+
+  .psu-header-row > .power-control-buttons {
+    width: auto;
+  }
+
+  .power-control-buttons button {
+    flex: 0 0 auto;
+  }
+
+}
+
+@media (max-width: 420px) {
+  .topbar { gap: 6px; padding: 6px 8px; }
+  .topbar-brand { font-size: 0.7rem; letter-spacing: 0.1em; }
+  .topbar-brand .brand-bar { height: 14px; }
+  .resource-hud { gap: 5px; }
+  .resource-readout { padding: 2px 5px; gap: 4px; }
+  .resource-readout > strong { font-size: 0.74rem; }
+  .core-grid {
+    --core-cell-min: 100px;
+  }
+
+  .core-grid.compact {
+    --core-cell-min: 70px;
+  }
+
+  .core-grid.dense {
+    --core-cell-min: 46px;
+  }
+}
+

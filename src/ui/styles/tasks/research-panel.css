@@ -1,0 +1,210 @@
+/* ============ RESEARCH / UPGRADES PANEL ============ */
+
+.research-panel { background: var(--bg-1); }
+
+.research-filter-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.research-filter-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--violet);
+}
+
+.research-empty {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-align: center;
+  padding: 12px;
+}
+
+.research-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(184, 158, 255, 0.34);
+  border-radius: var(--radius);
+  background: rgba(14, 12, 22, 0.5);
+}
+
+.research-action.cyan { border-color: rgba(36, 231, 195, 0.4); }
+.research-action.green { border-color: rgba(115, 240, 92, 0.4); }
+.research-action.amber { border-color: rgba(242, 194, 78, 0.45); }
+.research-action.purchased { opacity: 0.5; }
+
+.research-action-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.research-action-main.blocked {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.research-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.research-copy strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.research-buy-button {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-color: rgba(184, 158, 255, 0.45);
+  color: var(--violet);
+  background: rgba(184, 158, 255, 0.04);
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.research-buy-button:hover:not(:disabled) {
+  border-color: var(--violet);
+  background: rgba(184, 158, 255, 0.12);
+}
+
+.research-action-main.blocked .research-buy-button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.research-requirements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.research-requirement {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid rgba(120, 200, 180, 0.15);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.18);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.research-requirement b {
+  color: var(--amber);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.58rem;
+}
+
+.research-requirement small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.research-requirement.met b { color: var(--green); }
+
+.research-compute-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.research-compute {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 7px;
+  border: 1px solid rgba(36, 231, 195, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(36, 231, 195, 0.04);
+}
+
+.research-compute.blocked {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.research-compute-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.research-compute-copy strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.research-compute-copy small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.research-compute-copy .task-meta-line {
+  gap: 6px;
+  font-size: 0.6rem;
+}
+
+.research-compute-button {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 3px 7px;
+  color: var(--cyan);
+  font-family: var(--font-display);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.research-compute.blocked .research-compute-button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.research-cost-line {
+  display: block;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+

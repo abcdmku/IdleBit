@@ -1,0 +1,145 @@
+/* ============ SYSTEM BOARD ============ */
+
+.system-board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.system-board-flow {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+}
+
+.system-board > .system-board-flow > .hw-section,
+.system-board > .system-board-flow > .cpu-package,
+.system-board > .system-board-flow > .empty-socket {
+  margin: 0;
+}
+
+.system-board > .system-board-flow > .hw-section,
+.system-board > .system-board-flow > .empty-socket {
+  background:
+    radial-gradient(160% 60% at 50% -10%, rgba(36, 231, 195, 0.06), transparent 60%),
+    linear-gradient(180deg, rgba(14, 26, 24, 0.96), rgba(6, 14, 13, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6) inset,
+    0 1px 0 rgba(36, 231, 195, 0.06) inset,
+    0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+/* ----- System Rail (RAM / PSU / Cooling) ----- */
+
+.system-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.system-rail > .hw-section {
+  margin: 0;
+}
+
+/* ----- Core + Cache row (compact pairing) ----- */
+
+.core-cache-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.scheduler-cache-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.scheduler-cache-row.cache-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.scheduler-cache-row > .hw-section {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.core-cache-row > .hw-section,
+.core-cache-row > .core-array-section {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Allow cache content to wrap inside the narrow column */
+.core-cache-row .cache-stat-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.core-cache-row .cache-stat-row .upgrade-chips {
+  flex-wrap: wrap;
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .core-cache-row,
+  .scheduler-cache-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Section sizing inside system-board; tighten chrome to reduce vertical bulk */
+.system-board > .system-board-flow > .hw-section {
+  padding: 10px 12px;
+}
+
+.system-board > .system-board-flow > .hw-section + .hw-section,
+.system-board > .system-board-flow > .core-cache-row + .hw-section,
+.system-board > .system-board-flow > .hw-section + .core-cache-row,
+.system-board > .system-board-flow > .core-cache-row + .core-cache-row,
+.system-board > .system-board-flow > .scheduler-cache-row + .core-array-section,
+.system-board > .system-board-flow > .scheduler-cache-row + .hw-section,
+.system-board > .system-board-flow > .hw-section + .scheduler-cache-row,
+.system-board > .system-board-flow > .core-cache-row + .scheduler-cache-row,
+.system-board > .system-board-flow > .scheduler-cache-row + .core-cache-row,
+.system-board > .system-board-flow > .cpu-package + .cpu-package,
+.system-board > .system-board-flow > .hw-section + .cpu-package,
+.system-board > .system-board-flow > .cpu-package + .hw-section,
+.system-board > .system-board-flow > .system-rail + .hw-section,
+.system-board > .system-board-flow > .hw-section + .system-rail,
+.system-board > .system-board-flow > .core-cache-row + .system-rail,
+.system-board > .system-board-flow > .cpu-package + .system-rail {
+  margin-top: 10px;
+}
+
+/* Keep the hardware card flow from sitting on the panel grid texture. */
+.hw-panel .panel-body:has(.system-board) {
+  background-image: none;
+  padding: 12px;
+  gap: 0;
+}
+
+@media (max-width: 760px) {
+  .system-board {
+    padding: 0;
+  }
+  .system-rail {
+    grid-template-columns: 1fr;
+  }
+}

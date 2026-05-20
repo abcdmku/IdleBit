@@ -1,0 +1,82 @@
+.rack-memory-bank {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 13px;
+  align-items: end;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 72px;
+}
+
+.rack-memory-bank.dense {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(16, 7px);
+  grid-auto-rows: 29px;
+  align-content: center;
+  gap: 2px;
+  min-height: 62px;
+}
+
+.rack-memory-stick {
+  position: relative;
+  display: block;
+  width: 13px;
+  height: 66px;
+  border: 1px solid rgba(124, 255, 160, 0.22);
+  border-radius: 2px;
+  background:
+    linear-gradient(180deg, rgba(124, 255, 160, 0.04), rgba(124, 255, 160, 0.02));
+  overflow: hidden;
+}
+
+.rack-memory-stick::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(124, 255, 160, 0.28);
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.rack-memory-bank.dense .rack-memory-stick {
+  width: 7px;
+  height: 29px;
+}
+
+.rack-memory-bank.dense .rack-memory-stick::before {
+  top: 4px;
+  width: 2px;
+  height: 2px;
+}
+
+.rack-memory-stick.populated {
+  border-color: rgba(124, 255, 160, 0.36);
+}
+
+.rack-memory-stick-fill {
+  position: absolute;
+  inset: auto 0 0;
+  display: block;
+  background: linear-gradient(180deg, rgba(124, 255, 160, 0.72), rgba(36, 231, 195, 0.52));
+  box-shadow: 0 0 8px rgba(124, 255, 160, 0.42);
+}
+
+.rack-memory-stick.loading::before {
+  animation: rack-memory-dot-blink 1s ease-in-out infinite;
+  background: var(--green);
+  box-shadow: 0 0 7px rgba(124, 255, 160, 0.6);
+}
+
+.rack-memory-bank.dense .rack-memory-stick.loading::before {
+  box-shadow: 0 0 5px rgba(124, 255, 160, 0.58);
+}
+
+@keyframes rack-memory-dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.36; }
+}

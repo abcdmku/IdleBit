@@ -1,0 +1,161 @@
+/* ----- CPU package / core array ----- */
+
+.cpu-package {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(36, 231, 195, 0.2);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(140% 80% at 50% -20%, rgba(36, 231, 195, 0.08), transparent 60%),
+    rgba(6, 15, 14, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.45) inset,
+    0 12px 28px rgba(0, 0, 0, 0.25);
+}
+
+.resource-token.dimmed > span {
+  color: rgba(140, 169, 164, 0.58);
+}
+
+.cpu-package.selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px rgba(242, 194, 78, 0.18), inset 0 0 24px rgba(242, 194, 78, 0.05);
+}
+
+.cpu-package.deadlocked {
+  border-color: rgba(255, 111, 145, 0.72);
+  background:
+    radial-gradient(140% 80% at 50% -20%, rgba(255, 111, 145, 0.12), transparent 60%),
+    rgba(20, 8, 12, 0.64);
+}
+
+.cpu-package.deadlocked .cpu-package-header { color: var(--rose); }
+
+.cpu-package.cooling-down:not(.deadlocked) {
+  border-color: rgba(140, 169, 164, 0.38);
+  background:
+    radial-gradient(140% 80% at 50% -20%, rgba(140, 169, 164, 0.08), transparent 60%),
+    rgba(9, 13, 13, 0.76);
+}
+
+.cpu-package.cooling-down:not(.deadlocked) .cpu-package-header {
+  color: var(--muted);
+}
+
+.cpu-package.cooling-down:not(.deadlocked) .cpu-package-body {
+  filter: grayscale(0.82);
+  opacity: 0.66;
+}
+
+.cpu-package-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.cpu-package-header:hover { background: transparent; border: 0; }
+
+.cpu-package-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.cpu-package-meta strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.deadlock-countdown {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 172px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 111, 145, 0.46);
+  border-radius: var(--radius-sm);
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.08);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.deadlock-countdown.cooldown {
+  border-color: rgba(242, 194, 78, 0.48);
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.08);
+}
+
+.deadlock-countdown-meter {
+  position: absolute;
+  inset: 3px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.deadlock-countdown-meter span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(255, 111, 145, 0.48), rgba(255, 111, 145, 0.86));
+  box-shadow: 0 0 10px rgba(255, 111, 145, 0.28);
+  transition: width 160ms linear;
+}
+
+.deadlock-countdown.cooldown .deadlock-countdown-meter span {
+  background: linear-gradient(90deg, rgba(242, 194, 78, 0.38), rgba(242, 194, 78, 0.78));
+  box-shadow: 0 0 10px rgba(242, 194, 78, 0.22);
+}
+
+.deadlock-countdown-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 62px;
+  padding: 2px 6px;
+  border: 1px solid rgba(222, 241, 237, 0.18);
+  border-radius: 3px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.74);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.34);
+  line-height: 1.1;
+  text-shadow: none;
+}
+
+.deadlock-countdown.compact {
+  margin-left: 2px;
+}
+
+.cpu-package-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}

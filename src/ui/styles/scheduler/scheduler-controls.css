@@ -1,0 +1,183 @@
+.scheduler-controls {
+  display: inline-flex;
+  flex: 0 1 auto;
+  grid-column: 3;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+.system-shutdown-button {
+  display: inline-flex;
+  grid-column: 4;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-color: rgba(242, 194, 78, 0.32);
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.06);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.system-shutdown-button:hover:not(:disabled) {
+  border-color: rgba(242, 194, 78, 0.54);
+  background: rgba(242, 194, 78, 0.12);
+}
+
+.system-shutdown-button.start {
+  border-color: rgba(115, 240, 92, 0.46);
+  color: var(--green);
+  background: rgba(115, 240, 92, 0.08);
+}
+
+.system-shutdown-button.start:hover:not(:disabled) {
+  border-color: rgba(115, 240, 92, 0.68);
+  background: rgba(115, 240, 92, 0.14);
+}
+
+.scheduler-control {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  max-width: 168px;
+  min-height: 20px;
+  padding: 2px 5px;
+  border: 1px solid rgba(184, 158, 255, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 8, 7, 0.3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0;
+}
+
+.scheduler-control > span {
+  flex: 0 0 auto;
+  color: var(--violet);
+  text-transform: uppercase;
+}
+
+.scheduler-control select {
+  --select-bg: rgba(4, 8, 7, 0.18);
+  --select-bg-strong: rgba(11, 24, 22, 0.34);
+  --select-border: transparent;
+  --select-arrow: var(--violet);
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 112px;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+
+.scheduler-control select:hover:not(:disabled),
+.scheduler-control select:focus {
+  --select-arrow: var(--cyan);
+  color: var(--cyan);
+}
+
+.scheduler-control.checkbox {
+  justify-content: center;
+}
+
+.scheduler-control.checkbox input {
+  accent-color: var(--rose);
+  width: 11px;
+  height: 11px;
+}
+
+.scheduler-watchdog-status {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 111, 145, 0.38);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 111, 145, 0.06);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0;
+}
+
+.scheduler-header-row > .scheduler-watchdog-status {
+  grid-column: 2;
+  justify-self: center;
+  width: auto;
+  max-width: 280px;
+  min-width: min(240px, 100%);
+  padding: 2px 5px;
+  gap: 2px;
+}
+
+.scheduler-watchdog-copy {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.scheduler-watchdog-copy span {
+  color: var(--rose);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.scheduler-watchdog-copy em {
+  padding: 1px 4px;
+  border: 1px solid rgba(255, 111, 145, 0.38);
+  border-radius: 2px;
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.08);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheduler-watchdog-copy strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.64rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-watchdog-copy small {
+  color: var(--rose);
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheduler-watchdog-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 111, 145, 0.12);
+  overflow: hidden;
+}
+
+.scheduler-header-row > .scheduler-watchdog-status .scheduler-watchdog-meter {
+  height: 3px;
+}
+
+.scheduler-watchdog-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rose);
+  transition: width 120ms linear;
+}

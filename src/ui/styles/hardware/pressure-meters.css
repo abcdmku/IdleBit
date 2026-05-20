@@ -1,0 +1,123 @@
+.module-meter {
+  display: block;
+  width: 100%;
+  height: var(--progress-bar-thickness);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(120, 220, 200, 0.1);
+}
+
+.module-meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  transition: width 160ms linear;
+}
+
+.module-meter.cache-pressure-meter {
+  display: flex;
+  height: var(--progress-bar-thickness);
+}
+
+.module-meter.cache-pressure-meter > span {
+  flex: 0 0 auto;
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cache-core-color) 48%, transparent);
+  transition: none;
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment.buffering {
+  background: color-mix(in srgb, var(--cache-core-color) 22%, transparent);
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment.loading {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent),
+    color-mix(in srgb, var(--cache-core-color) 36%, transparent);
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-buffer,
+.module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  transition: none;
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-buffer {
+  width: var(--cache-buffer-progress);
+  background: repeating-linear-gradient(45deg,
+    color-mix(in srgb, var(--cache-core-solid-color) 52%, transparent) 0 1px,
+    transparent 1px 6px);
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-fill {
+  width: var(--cache-write-progress);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent),
+    var(--cache-core-solid-color);
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-buffer { opacity: 0; }
+.module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-fill { width: 100%; }
+
+.module-meter.cache-pressure-meter .cache-pressure-overwrite > .cache-pressure-fill {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent),
+    rgba(255, 229, 154, 0.95);
+}
+
+.module-meter.ram-pressure-meter {
+  display: flex;
+  height: var(--progress-bar-thickness);
+}
+
+.module-meter.ram-pressure-meter > span {
+  flex: 0 0 auto;
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ram-core-color) 28%, transparent);
+  transition: none;
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment.reserved {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--ram-core-color) 30%, transparent) 0 1px,
+    transparent 1px 6px
+  );
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment.loading {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent),
+    color-mix(in srgb, var(--ram-core-color) 34%, transparent);
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment > .ram-pressure-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: var(--ram-load-progress);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent),
+    var(--ram-core-solid-color);
+  transition: none;
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment.reserved > .ram-pressure-fill {
+  width: 0;
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment.loaded > .ram-pressure-fill {
+  width: 100%;
+}

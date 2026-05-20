@@ -1,0 +1,145 @@
+/* ============ CREDIT FAILURE POPUPS ============ */
+
+.credit-failure-overlay {
+  position: fixed;
+  z-index: 142;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(7, 5, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.credit-failure-modal {
+  display: grid;
+  gap: 12px;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid rgba(242, 194, 78, 0.58);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(242, 194, 78, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(28, 21, 5, 0.98), rgba(8, 7, 4, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(242, 194, 78, 0.12) inset,
+    0 18px 48px rgba(0, 0, 0, 0.62),
+    0 0 28px rgba(242, 194, 78, 0.12);
+  overflow-y: auto;
+}
+
+.credit-failure-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(242, 194, 78, 0.22);
+}
+
+.credit-failure-header span,
+.credit-failure-toast > span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--amber);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.credit-failure-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(242, 194, 78, 0.26);
+  border-radius: 999px;
+  color: var(--amber);
+  background: rgba(242, 194, 78, 0.08);
+}
+
+.credit-failure-modal p,
+.credit-failure-toast p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.credit-failure-primary,
+.credit-failure-toast button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(242, 194, 78, 0.42);
+  border-radius: 999px;
+  color: #171004;
+  background: var(--amber);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.credit-failure-primary {
+  justify-self: center;
+  min-height: 34px;
+  padding: 8px 14px;
+}
+
+.credit-failure-toast {
+  position: fixed;
+  z-index: 142;
+  top: 68px;
+  right: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  align-items: center;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid rgba(242, 194, 78, 0.58);
+  border-radius: var(--radius);
+  background: rgba(25, 17, 5, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(242, 194, 78, 0.1) inset,
+    0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.credit-failure-toast > span,
+.credit-failure-toast p {
+  min-width: 0;
+}
+
+.credit-failure-toast p {
+  grid-column: 1;
+  font-size: 0.74rem;
+}
+
+.credit-failure-toast button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 30px;
+  padding: 6px 10px;
+}
+
+@media (max-width: 560px) {
+  .credit-failure-modal {
+    padding: 14px;
+  }
+
+  .credit-failure-toast {
+    top: 58px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}

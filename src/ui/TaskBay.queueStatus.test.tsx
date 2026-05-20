@@ -1,0 +1,336 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  applyAction,
+  createInitialGameState,
+  deriveVisibleState,
+  type VisibleState
+} from "../game";
+import {
+  HardwareBoard,
+  PinnedTaskBar,
+  TaskBay
+} from "./HardwareBoard";
+
+const reactActEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+
+describe("TaskBay queue and deadlock status", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it("keeps active pinned tasks queueable through a scheduler route", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+      },
+      tasks: base.tasks.map((task) =>
+        task.id === "fetchBit"
+          ? {
+            ...task,
+            canQueue: true,
+            queueBlockedReason: null,
+          }
+          : task,
+      ),
+      activeTasks: [
+        {
+          instanceId: "fetch-active-1",
+          taskId: "fetchBit",
+          jobId: "fetchBit",
+          schedulerQueued: true,
+          name: "Fetch Bit",
+          coreId: 1,
+          assignedCoreIds: [1],
+          progress: 0.42,
+          status: "running",
+          memoryState: "ready",
+          activeOperationName: "Fetch Bit",
+          coreProgress: [],
+          lockResource: null,
+          lockReason: null,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <PinnedTaskBar
+          visible={visible}
+          pinnedTaskIds={["fetchBit"]}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+          dispatch={dispatch}
+          selectedComponent="scheduler:1"
+        />,
+      );
+    });
+
+    const row = container.querySelector(".pinned-task-row");
+    const runButton = row?.querySelector<HTMLButtonElement>(".pinned-task-action");
+
+    expect(row?.textContent).toContain("Fetch Bit");
+    expect(runButton).not.toBeNull();
+    expect(runButton?.disabled).toBe(false);
+    expect(runButton?.textContent).toContain("Queue");
+
+    act(() => {
+      runButton?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "queueTask",
+      taskId: "fetchBit",
+      cpuId: 1,
+    });
+  });
+
+  it("bubbles CPU scheduler wait reasons up to system scheduler slots", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        systemSchedulerSlots: 1,
+        systemSchedulerConfig: {
+          policy: "fifo",
+          autoKillEnabled: false,
+          killPolicy: "deadlockedTask",
+        },
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            cacheBits: 32,
+            cacheUsedBits: 31.5,
+            schedulerSlots: 4,
+            queuedCount: 1,
+            schedulerConfig: {
+              policy: "deadlockSafe",
+              autoKillEnabled: false,
+              killPolicy: "deadlockedTask",
+            },
+            cores: socket.cores.map((core, index) => ({
+              ...core,
+              scheduler: {
+                ...core.scheduler,
+                localQueue: index === 0 ? ["tinyChecksum"] : [],
+              },
+            })),
+          },
+        ],
+      },
+      queue: ["tinyChecksum"],
+      tasks: [
+        {
+          ...base.tasks[0]!,
+          id: "tinyChecksum",
+          name: "Tiny Checksum",
+          category: "system",
+          operationCount: 332,
+          rewardCredits: 332,
+          rewardData: 2,
+          cacheNeedBits: 8,
+          ramNeedBits: 256,
+          requiredCores: 1,
+          canStart: false,
+          canQueue: false,
+          blockedReason: null,
+          queueBlockedReason: "System scheduler slots full.",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="scheduler"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const systemStatus = container.querySelector(
+      ".system-scheduler-section .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+    const cpuStatus = container.querySelector(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+
+    expect(systemStatus).toBe("Waiting for CPU cache.");
+    expect(cpuStatus).toBe("Waiting for CPU cache.");
+    expect(container.textContent).not.toContain("System scheduler slots full.");
+  });
+
+  it("shows active cancel on cores instead of task cards and keeps queue preview cancel", () => {
+    let state = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+    const dispatch = vi.fn();
+    const activeVisible = deriveVisibleState(state);
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={activeVisible}
+          selectedComponent={null}
+          dispatch={dispatch}
+        />,
+      );
+    });
+
+    const activeTaskCard = container.querySelector(".task-card.active");
+
+    expect(container.querySelector(".task-cancel-button")).toBeNull();
+    expect(activeTaskCard?.querySelector(".task-state-pill")).toBeNull();
+    expect(activeTaskCard?.querySelector(".task-status-line")).toBeNull();
+    expect(activeTaskCard?.textContent).not.toContain("Active");
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={activeVisible}
+          dispatch={dispatch}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const coreCancel = container.querySelector<HTMLButtonElement>(
+      ".core-cancel-button",
+    );
+
+    expect(coreCancel).not.toBeNull();
+
+    act(() => {
+      coreCancel?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "cancelTask",
+      taskId: "fetchBit",
+      instanceId: state.activeTasks[0]?.instanceId,
+    });
+
+    dispatch.mockClear();
+    const queuedBase = createInitialGameState();
+    state = {
+      ...queuedBase,
+      flags: {
+        ...queuedBase.flags,
+        basicQueue: true,
+      },
+      hardware: {
+        ...queuedBase.hardware,
+        schedulerSlots: 1,
+        cpus: queuedBase.hardware.cpus.map((cpu) => ({
+          ...cpu,
+          schedulerSlots: 1,
+        })),
+      },
+      coreSchedulers: {
+        ...queuedBase.coreSchedulers,
+        1: {
+          ...queuedBase.coreSchedulers[1]!,
+          localQueue: ["fetchBit"],
+        },
+      },
+      queue: ["fetchBit"],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={deriveVisibleState(state)}
+          dispatch={dispatch}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const queuedCancel = container.querySelector<HTMLButtonElement>(
+      ".queue-cancel-button",
+    );
+
+    expect(queuedCancel).not.toBeNull();
+
+    act(() => {
+      queuedCancel?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "cancelQueuedTask",
+      taskId: "fetchBit",
+    });
+  });
+
+  it("keeps deadlocked tasks neutral in the task list", () => {
+    const state = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+    const visible = deriveVisibleState(state);
+    const deadlockedVisible: VisibleState = {
+      ...visible,
+      activeTasks: visible.activeTasks.map((task) => ({
+        ...task,
+        status: "deadlocked",
+        memoryState: "deadlock",
+        lockResource: "cache",
+        lockReason: "Deadlock: cache full.",
+      })),
+    };
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={deadlockedVisible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".task-card.deadlock")).toBeNull();
+    expect(container.querySelector(".task-card.active")).not.toBeNull();
+    expect(container.querySelector(".task-cancel-button")).toBeNull();
+  });
+
+});
+

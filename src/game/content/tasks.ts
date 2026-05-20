@@ -201,7 +201,7 @@ const summarizeRamRuntime = (
       activeBits.reduce((total, bits) => total + bits, 0),
     );
 
-    coreStates = coreStates.map((state, coreIndex) => {
+    coreStates = coreStates.map((_state, coreIndex) => {
       if (!isOperationAssignedToCoreIndex(operation, coreIndex)) {
         return emptyCoreRamState();
       }

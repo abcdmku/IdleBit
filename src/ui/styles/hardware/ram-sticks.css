@@ -1,0 +1,127 @@
+.ram-stick-row {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  height: 14px;
+}
+
+.ram-stick-row span {
+  position: relative;
+  flex: var(--slot-size, 1) 1 28px;
+  border: 1px solid rgba(115, 240, 92, 0.42);
+  border-radius: 2px;
+  background: rgba(115, 240, 92, 0.06);
+  overflow: hidden;
+}
+
+.ram-stick-row span::before {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--slot-fill);
+  background: linear-gradient(180deg, rgba(115, 240, 92, 0.7), rgba(115, 240, 92, 0.42));
+  content: "";
+}
+
+.ram-stick-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--ram-stick-grid-columns, 2), minmax(92px, 1fr));
+  gap: 5px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid rgba(115, 240, 92, 0.14);
+  border-radius: var(--radius);
+  background: rgba(4, 12, 11, 0.36);
+}
+
+.ram-stick-module {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid rgba(115, 240, 92, 0.24);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(18, 31, 22, 0.92), rgba(5, 12, 9, 0.96));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.ram-stick-module:hover {
+  border-color: rgba(115, 240, 92, 0.5);
+  transform: translateY(-1px);
+}
+
+.ram-stick-module.active {
+  border-color: rgba(115, 240, 92, 0.6);
+  background:
+    radial-gradient(120% 80% at 50% -20%, rgba(115, 240, 92, 0.12), transparent 62%),
+    linear-gradient(180deg, rgba(18, 31, 22, 0.92), rgba(5, 12, 9, 0.96));
+}
+
+.ram-stick-module.selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px rgba(242, 194, 78, 0.2);
+}
+
+.ram-stick-module-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ram-stick-module-head .ram-stick-label {
+  flex: 1 1 auto;
+  font-size: 0.62rem;
+}
+
+.ram-stick-module-pct {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ram-stick-module.active .ram-stick-module-pct { color: var(--green); }
+.ram-stick-module.ram-stick-state-load .ram-stick-module-pct { color: var(--amber); }
+.ram-stick-module.ram-stick-state-stage .ram-stick-module-pct { color: var(--cyan); }
+
+.ram-stick-module-meter {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(120, 220, 200, 0.08);
+}
+
+.ram-stick-module-meter .module-meter,
+.ram-stick-module-meter .ram-pressure-meter {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.ram-stick-module-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.ram-select-all-button {
+  margin-left: auto;
+}
+
+.ram-stick-label {
+  flex: 1 1 auto;
+  color: var(--green);
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}

@@ -75,7 +75,6 @@
   border-radius: inherit;
   background: currentColor;
   box-shadow: 0 0 9px currentColor;
-  transition: width 160ms linear;
 }
 
 @keyframes power-transition-spin {

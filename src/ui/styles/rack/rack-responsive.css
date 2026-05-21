@@ -3,33 +3,241 @@
 
   .custom-builder-group { grid-template-columns: 1fr; }
 
+  /* Mobile rack slot
+     ------------------------------------------------------------------
+     Layout:
+       ┌──────┬───────────────────────────┬────────┐
+       │ rail │ [sched-viz] [cpu-viz]     │ stats  │
+       │      ├───────────────────────────┤ stack  │
+       │      │ [ram-viz]   [psu-viz]     │        │
+       └──────┴───────────────────────────┴────────┘
+     - Rail (40px) — power, index, configure, detail buttons; top-aligned.
+     - Viz area (2×2 grid) — sched+cpu top, ram+psu bottom.
+     - Stats column (54px) — every gauge value/chip from all four bays
+       collapses into a single vertical stack on the right. No bars.
+  */
+
   .system-rack-slot--row {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 40px minmax(0, 1fr);
     grid-template-areas: "rail visuals";
-    min-height: 150px;
-    row-gap: var(--s-2);
+    align-items: stretch;
+    min-height: 0;
+    row-gap: 0;
+    padding: 3px var(--s-1);
   }
 
-  .system-rack-slot--row > .rack-slot-rail { grid-area: rail; }
+  .system-rack-slot--row > .rack-slot-rail {
+    grid-area: rail;
+    align-content: start;
+    gap: 4px;
+    padding: 3px 0;
+  }
 
+  .system-rack-slot--row > .rack-slot-rail .rack-slot-power-button {
+    width: 30px;
+    height: 26px;
+  }
+
+  .system-rack-slot--row > .rack-slot-rail .rack-slot-index {
+    width: 30px;
+    height: 20px;
+  }
+
+  .system-rack-slot--row > .rack-slot-rail .rack-slot-config,
+  .system-rack-slot--row > .rack-slot-rail .rack-slot-detail {
+    width: 30px;
+    height: 24px;
+  }
+
+  /* Visuals grid: 4 implicit rows × 3 columns.
+     Each viz block spans 2 rows so the right column has room for one
+     strip per bay, stacked vertically. */
   .system-rack-slot--row > .rack-slot-visuals {
     grid-area: visuals;
-    grid-template-columns: 1fr 1fr;
-    min-height: 142px;
+    display: grid;
+    grid-template-columns: minmax(60px, 0.45fr) minmax(0, 1fr) 54px;
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas:
+      "schedV cpuV  schedS"
+      "schedV cpuV  cpuS"
+      "ramV   psuV  ramS"
+      "ramV   psuV  psuS";
+    align-items: center;
+    justify-items: stretch;
+    min-height: 0;
+    padding: 4px;
+    gap: 1px 5px;
+    overflow: hidden;
   }
 
-  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay {
-    min-height: 64px;
-    padding: var(--s-1) var(--s-2);
-    border-left: 0;
+  /* Bays dissolve so their children participate directly in the grid. */
+  .system-rack-slot--row > .rack-slot-visuals > .rack-component-bay {
+    display: contents;
   }
 
-  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(even) {
-    border-left: 1px solid var(--line-soft);
+  /* Viz placements */
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--scheduler > .rack-component-bay-viz {
+    grid-area: schedV;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--cpu > .rack-component-bay-viz {
+    grid-area: cpuV;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--ram > .rack-component-bay-viz {
+    grid-area: ramV;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--power > .rack-component-bay-viz {
+    grid-area: psuV;
   }
 
-  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(n + 3) {
-    border-top: 1px solid var(--line-soft);
+  /* Strip placements (single right column, one row per bay) */
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--scheduler > .rack-gauge-strip {
+    grid-area: schedS;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--cpu > .rack-gauge-strip {
+    grid-area: cpuS;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--ram > .rack-gauge-strip {
+    grid-area: ramS;
+  }
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--power > .rack-gauge-strip {
+    grid-area: psuS;
+  }
+
+  /* Each viz cell: contain content cleanly. Allow natural height — no
+     max-height clipping. Overflow: hidden so anything that doesn't fit
+     gets trimmed rather than spilling. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay-viz {
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    min-height: 0;
+    padding: 1px;
+    overflow: hidden;
+  }
+
+  /* Stats: tiny right-aligned mono stack, no bar. Power gets its own
+     vertical stack so cap + rate chips don't compete for the row width. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-gauge-strip {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    gap: 1px 3px;
+    grid-template-columns: none;
+    text-align: right;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-gauge-bar {
+    display: none;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-gauge-value {
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-gauge-chip {
+    font-size: 8px;
+    padding: 0 3px;
+    border-radius: 3px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--power > .rack-gauge-strip {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+  }
+
+  /* Preserve issue state without bay ::before (display:contents removes it). */
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--issue > .rack-component-bay-viz,
+  .system-rack-slot--row > .rack-slot-visuals .rack-component-bay--issue > .rack-gauge-strip {
+    background:
+      radial-gradient(90% 80% at 50% 42%, rgba(255, 100, 120, 0.18), transparent 68%);
+    box-shadow: 0 0 0 1px rgba(255, 100, 120, 0.28) inset;
+  }
+
+  /* -----------------------------------------------------------------
+     Per-visualization mobile sizing — keep everything horizontal and
+     ensure no overflow inside its cell.
+     ----------------------------------------------------------------- */
+
+  /* CPU: cap visible sockets at 4 on mobile, keep them in a single row. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-cpu-package-map {
+    max-width: 100%;
+    grid-template-columns: repeat(var(--rack-cpu-packages, 1), max-content);
+    gap: 2px;
+    overflow: hidden;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-cpu-package-map .rack-cpu-package:nth-child(n + 5) {
+    display: none;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-cpu-package {
+    /* Shrink dies modestly on mobile so 4 fit horizontally in ~140px cell */
+    max-width: 32px;
+    max-height: 32px;
+  }
+
+  /* RAM: clamp horizontal extent; switch dense/micro modes to 8-column
+     grids so 32-stick configs fit in a ~70px viz cell. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank {
+    max-width: 100%;
+    max-height: 40px;
+    overflow: hidden;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.normal,
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.compact {
+    gap: 2px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.compact .rack-memory-stick,
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.normal .rack-memory-stick {
+    width: 5px;
+    height: 36px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.dense {
+    grid-template-columns: repeat(8, 5px);
+    grid-auto-rows: 16px;
+    gap: 1px;
+    max-height: 40px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.dense .rack-memory-stick {
+    width: 5px;
+    height: 16px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.micro {
+    grid-template-columns: repeat(8, 4px);
+    grid-auto-rows: 10px;
+    gap: 1px;
+  }
+
+  .system-rack-slot--row > .rack-slot-visuals .rack-memory-bank.micro .rack-memory-stick {
+    width: 4px;
+    height: 10px;
+  }
+
+  /* PSU: keep narrow vertical column. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-power-column {
+    height: 36px;
+    width: 12px;
+  }
+
+  /* Queue: cap height, keep tower compact. */
+  .system-rack-slot--row > .rack-slot-visuals .rack-system-queue-slots {
+    max-width: 100%;
+    max-height: 40px;
+    overflow: hidden;
   }
 
   .builder-new-grid,

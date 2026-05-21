@@ -1,6 +1,7 @@
 import { Power, RefreshCw, TriangleAlert } from "lucide-react";
 import { formatNumber } from "../format";
 import type { Dispatch } from "../uiActions";
+import { getProgressStyle } from "./meters";
 
 type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
 
@@ -92,7 +93,7 @@ export function PowerTransitionBanner({
         </span>
       )}
       <span className="power-transition-meter" aria-hidden="true">
-        <span style={{ width: `${progress * 100}%` }} />
+        <span className="progress-fill" style={getProgressStyle(progress)} />
       </span>
     </div>
   );
@@ -121,7 +122,7 @@ export function PsuHeaderWarning({
         <strong>{label}</strong>
       </span>
       <span className="psu-header-warning-meter" aria-hidden="true">
-        <span style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%` }} />
+        <span className="progress-fill" style={getProgressStyle(progress)} />
       </span>
     </span>
   );

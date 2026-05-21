@@ -1,28 +1,41 @@
 .rack-memory-bank {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 13px;
+  grid-auto-columns: var(--rack-ram-stick-width, 14px);
   align-items: end;
   justify-content: center;
-  gap: 7px;
+  gap: var(--rack-ram-gap, 6px);
   min-width: 0;
-  min-height: 72px;
+  max-height: 50px;
+}
+
+.rack-memory-bank.compact {
+  gap: var(--rack-ram-gap, 3px);
 }
 
 .rack-memory-bank.dense {
   grid-auto-flow: row;
-  grid-template-columns: repeat(16, 7px);
-  grid-auto-rows: 29px;
+  grid-template-columns: repeat(var(--rack-ram-columns, 16), var(--rack-ram-stick-width, 7px));
+  grid-auto-rows: var(--rack-ram-stick-height, 22px);
   align-content: center;
-  gap: 2px;
-  min-height: 62px;
+  gap: var(--rack-ram-gap, 2px);
+  max-height: 50px;
+}
+
+.rack-memory-bank.micro {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(var(--rack-ram-columns, 16), var(--rack-ram-stick-width, 6px));
+  grid-auto-rows: var(--rack-ram-stick-height, 14px);
+  align-content: center;
+  gap: var(--rack-ram-gap, 1px);
+  max-height: 50px;
 }
 
 .rack-memory-stick {
   position: relative;
   display: block;
-  width: 13px;
-  height: 66px;
+  width: var(--rack-ram-stick-width, 14px);
+  height: var(--rack-ram-stick-height, 48px);
   border: 1px solid rgba(124, 255, 160, 0.22);
   border-radius: 2px;
   background:
@@ -43,15 +56,21 @@
   z-index: 1;
 }
 
-.rack-memory-bank.dense .rack-memory-stick {
-  width: 7px;
-  height: 29px;
-}
-
-.rack-memory-bank.dense .rack-memory-stick::before {
-  top: 4px;
+.rack-memory-bank.compact .rack-memory-stick::before {
+  top: 5px;
   width: 2px;
   height: 2px;
+}
+
+.rack-memory-bank.dense .rack-memory-stick::before,
+.rack-memory-bank.micro .rack-memory-stick::before {
+  top: 3px;
+  width: 2px;
+  height: 2px;
+}
+
+.rack-memory-bank.micro .rack-memory-stick {
+  border-radius: 1px;
 }
 
 .rack-memory-stick.populated {
@@ -64,6 +83,15 @@
   display: block;
   background: linear-gradient(180deg, rgba(124, 255, 160, 0.72), rgba(36, 231, 195, 0.52));
   box-shadow: 0 0 8px rgba(124, 255, 160, 0.42);
+}
+
+.rack-memory-bank.micro .rack-memory-stick.populated {
+  background: linear-gradient(180deg, rgba(124, 255, 160, 0.18), rgba(36, 231, 195, 0.12));
+}
+
+.rack-memory-bank.micro .rack-memory-stick.loading {
+  background: linear-gradient(180deg, rgba(124, 255, 160, 0.7), rgba(36, 231, 195, 0.52));
+  box-shadow: 0 0 6px rgba(124, 255, 160, 0.5);
 }
 
 .rack-memory-stick.loading::before {

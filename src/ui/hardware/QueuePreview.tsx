@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Dispatch } from "../uiActions";
+import { clampMeter, getProgressStyle } from "./meters";
 
 export interface QueuePreviewItem {
   id: string;
@@ -153,6 +154,8 @@ export function QueuePreview({
                 </small>
               );
             }
+            const progress = clampMeter(item.progress);
+            const progressPercent = Math.round(progress * 1000) / 10;
 
             return (
               <small
@@ -165,6 +168,19 @@ export function QueuePreview({
                 <span className="queue-slot-index">{index + 1}</span>
                 <span className="queue-slot-state">
                   <SchedulerStatusText>{item.waitingReason}</SchedulerStatusText>
+                </span>
+                <span
+                  className="queue-slot-progress"
+                  role="progressbar"
+                  aria-label={`${item.name} total progress ${progressPercent}%`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progressPercent}
+                >
+                  <span
+                    className="progress-fill"
+                    style={getProgressStyle(item.active ? progress : 0)}
+                  />
                 </span>
                 <button
                   type="button"

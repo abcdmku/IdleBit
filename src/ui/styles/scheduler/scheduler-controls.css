@@ -175,9 +175,7 @@
 }
 
 .scheduler-watchdog-meter span {
-  display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--rose);
-  transition: width 120ms linear;
 }

@@ -3,12 +3,12 @@ import { X } from "lucide-react";
 import type { VisibleCore, VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatClock } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
-import { clampMeter } from "../panels/uiNumbers";
 import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCoreGridMetrics } from "./coreGrid";
+import { getProgressStyle } from "./meters";
 import type { CoreGridDensity } from "./visibleState";
 
 export function CoreArraySection({
@@ -203,7 +203,7 @@ function CoreDie({
         </span>
       )}
       <span className="die-progress" aria-hidden="true">
-        <span style={{ width: `${clampMeter(progress) * 100}%` }} />
+        <span className="progress-fill" style={getProgressStyle(progress)} />
       </span>
     </div>
   );

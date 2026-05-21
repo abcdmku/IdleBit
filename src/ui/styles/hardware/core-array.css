@@ -301,10 +301,9 @@
 }
 
 .die-progress span {
-  display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--cyan), var(--green));
-  transition: width var(--dur-2) var(--ease);
+  transition: none;
 }
 
 /* ---------- Control strip (upgrade row beneath grid) ---------- */

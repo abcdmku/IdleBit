@@ -4,6 +4,7 @@ import { clampMeter } from "../panels/uiNumbers";
 import type { Dispatch } from "../uiActions";
 import { formatCountdownSeconds } from "./display";
 import { getCoreTargetLabel } from "./coreTargets";
+import { getProgressStyle } from "./meters";
 
 const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
   fifo: "FIFO",
@@ -71,7 +72,7 @@ export function SchedulerWatchdogStatus({
         aria-valuemax={100}
         aria-valuenow={progressPercent}
       >
-        <span style={{ width: `${progressPercent}%` }} />
+        <span className="progress-fill" style={getProgressStyle(progress)} />
       </div>
     </div>
   );

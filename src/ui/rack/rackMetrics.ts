@@ -51,24 +51,74 @@ export const getRackQueueGridMetrics = (slotCount: number) => {
   const count = Math.max(1, slotCount);
 
   if (count <= 2) {
-    return { columns: 2, size: 24, gap: 5, density: "normal" };
+    return { columns: 2, size: 14, gap: 3, density: "tower" };
   }
 
   if (count <= 4) {
-    return { columns: 2, size: 22, gap: 4, density: "normal" };
+    return { columns: 2, size: 12, gap: 3, density: "tower" };
+  }
+
+  if (count <= 8) {
+    return { columns: 2, size: 10, gap: 2, density: "tower" };
   }
 
   if (count <= 16) {
-    return { columns: 4, size: 13, gap: 2, density: "compact" };
+    return { columns: 4, size: 8, gap: 2, density: "compact" };
   }
 
   if (count <= 32) {
-    return { columns: 4, size: 11, gap: 2, density: "micro" };
+    return { columns: 6, size: 6, gap: 2, density: "compact" };
   }
 
   if (count <= 64) {
-    return { columns: 4, size: 7, gap: 1, density: "micro" };
+    return { columns: 8, size: 5, gap: 1, density: "micro" };
   }
 
-  return { columns: 8, size: 5, gap: 1, density: "nano" };
+  return { columns: 10, size: 4, gap: 1, density: "nano" };
+};
+
+export const getRackRamGridMetrics = (slotCount: number) => {
+  const count = Math.max(1, slotCount);
+
+  if (count <= 4) {
+    return {
+      columns: count,
+      rows: 1,
+      stickWidth: 14,
+      stickHeight: 48,
+      gap: 6,
+      density: "normal",
+    };
+  }
+
+  if (count <= 16) {
+    return {
+      columns: count,
+      rows: 1,
+      stickWidth: 8,
+      stickHeight: 48,
+      gap: 3,
+      density: "compact",
+    };
+  }
+
+  if (count <= 32) {
+    return {
+      columns: 16,
+      rows: 2,
+      stickWidth: 7,
+      stickHeight: 22,
+      gap: 2,
+      density: "dense",
+    };
+  }
+
+  return {
+    columns: 16,
+    rows: Math.ceil(count / 16),
+    stickWidth: 6,
+    stickHeight: 14,
+    gap: 1,
+    density: "micro",
+  };
 };

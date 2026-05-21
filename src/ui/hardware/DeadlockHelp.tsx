@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { VisibleCpuSocket, VisibleState } from "../../game";
 import { formatNumber } from "../format";
-import { clampMeter } from "../panels/uiNumbers";
 import { formatCountdownSeconds } from "./display";
+import { getProgressStyle } from "./meters";
 
 export function DeadlockCountdown({
   pressure,
@@ -18,7 +18,6 @@ export function DeadlockCountdown({
     : pressure.lockout
       ? `${formatCountdownSeconds(pressure.seconds)} lock`
       : `${formatCountdownSeconds(pressure.seconds)} cool`;
-  const meterPercent = `${Math.round(clampMeter(pressure.progress) * 1000) / 10}%`;
   const title = pressure.active
     ? "Time left before all active processes are lost"
     : pressure.lockout
@@ -39,7 +38,7 @@ export function DeadlockCountdown({
       aria-valuetext={label}
     >
       <span className="deadlock-countdown-meter" aria-hidden="true">
-        <span style={{ width: meterPercent }} />
+        <span className="progress-fill" style={getProgressStyle(pressure.progress)} />
       </span>
       <span className="deadlock-countdown-label">{label}</span>
     </span>

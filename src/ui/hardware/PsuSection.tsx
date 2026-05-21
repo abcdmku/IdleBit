@@ -11,6 +11,7 @@ import {
 import { PowerTransitionBanner, PsuHeaderWarning } from "./PowerControls";
 import { getStressTone } from "./stressTone";
 import { InlineUpgradeRow, UpgradeStepper } from "./UpgradeControls";
+import { getProgressStyle } from "./meters";
 
 type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
 
@@ -162,8 +163,8 @@ export function PsuSection({
           aria-label={`PSU load ${formatHardwarePercent(power.stress)}`}
         >
           <div
-            className="psu-load-meter-fill"
-            style={{ width: `${loadPercent}%` }}
+            className="psu-load-meter-fill progress-fill"
+            style={getProgressStyle(loadPercent / 100)}
           />
           <span className="psu-load-meter-tick" aria-hidden="true" />
           <span className="psu-load-meter-tick critical" aria-hidden="true" />

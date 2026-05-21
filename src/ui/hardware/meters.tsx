@@ -24,8 +24,18 @@ export interface RamSegment {
   progress: number;
 }
 
-const clampMeter = (value: number | null) =>
+export const clampMeter = (value: number | null | undefined) =>
   Math.min(1, Math.max(0, value ?? 0));
+
+export const getProgressStyle = (
+  value: number | null | undefined,
+): CSSProperties =>
+  ({
+    "--meter-progress": clampMeter(value),
+  }) as CSSProperties;
+
+const getProgressPercent = (value: number | null | undefined) =>
+  `${clampMeter(value) * 100}%`;
 
 const getCoreHue = (coreId: number) => (168 + (coreId - 1) * 47) % 360;
 
@@ -51,7 +61,7 @@ const getCacheSegmentWriteProgress = (segment: CacheSegment) => {
 export function ModuleMeter({ value }: { value: number }) {
   return (
     <span className="module-meter" aria-hidden="true">
-      <span style={{ width: `${clampMeter(value) * 100}%` }} />
+      <span className="progress-fill" style={getProgressStyle(value)} />
     </span>
   );
 }
@@ -165,6 +175,8 @@ export function RamPressureMeter({
               "--ram-load-progress": `${
                 (segment.state === "loaded" ? 1 : clampMeter(segment.progress)) * 100
               }%`,
+              "--ram-load-progress-ratio":
+                segment.state === "loaded" ? 1 : clampMeter(segment.progress),
             } as CSSProperties
           }
         >
@@ -214,7 +226,14 @@ function CachePressureMeter({
                   ? 1
                   : clampMeter(segment.bufferProgress)) * 100
               }%`,
-              "--cache-write-progress": `${getCacheSegmentWriteProgress(segment) * 100}%`,
+              "--cache-buffer-progress-ratio":
+                segment.state === "loading" || segment.state === "loaded"
+                  ? 1
+                  : clampMeter(segment.bufferProgress),
+              "--cache-write-progress": getProgressPercent(
+                getCacheSegmentWriteProgress(segment),
+              ),
+              "--cache-write-progress-ratio": getCacheSegmentWriteProgress(segment),
             } as CSSProperties
           }
         >

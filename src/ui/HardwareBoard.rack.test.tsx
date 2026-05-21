@@ -307,7 +307,7 @@ describe("HardwareBoard multi-system rack", () => {
     expect(container.querySelector(".system-rack .system-rack-slot--row .rack-slot-copy")).toBeNull();
     expect(container.querySelector(".system-rack .rack-slot-cost")).toBeNull();
     expect(container.querySelector(".system-rack .rack-slot-vitals")).toBeNull();
-    expect(container.querySelectorAll(".system-rack .rack-component-stat").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".system-rack .rack-gauge-strip").length).toBeGreaterThan(0);
     const betaRackSlot = slots[1]!;
     expect(betaRackSlot.querySelector(".rack-component-bay")?.className).toContain(
       "rack-component-bay--scheduler",
@@ -318,6 +318,9 @@ describe("HardwareBoard multi-system rack", () => {
     expect(
       betaRackSlot.querySelectorAll(".rack-component-bay--power .rack-component-power-value"),
     ).toHaveLength(2);
+    expect(
+      betaRackSlot.querySelectorAll(".rack-component-bay .rack-gauge-bar"),
+    ).toHaveLength(4);
     expect(betaRackSlot.querySelectorAll(".rack-cpu-package")).toHaveLength(2);
     expect(betaRackSlot.querySelectorAll(".rack-cpu-core-dot")).toHaveLength(4);
     expect(
@@ -391,9 +394,10 @@ describe("HardwareBoard multi-system rack", () => {
     });
 
     expect(container.querySelector(".system-board")).toBeNull();
-    expect(container.querySelector(".system-rack-slot.selected")?.textContent).toContain(
-      "2x2C",
-    );
+    const selectedSlot = container.querySelector(".system-rack-slot.selected")!;
+    // Multi-socket layout is now spatial (two CPU dies side-by-side), not text.
+    expect(selectedSlot.querySelectorAll(".rack-cpu-package")).toHaveLength(2);
+    expect(selectedSlot.querySelectorAll(".rack-cpu-core-dot")).toHaveLength(4);
 
     act(() => {
       container

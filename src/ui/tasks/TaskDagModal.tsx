@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { formatBits, formatNumber } from "../format";
-import { ModuleMeter } from "../hardware/meters";
+import { getProgressStyle, ModuleMeter } from "../hardware/meters";
 import { clampMeter, firstBits, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import {
@@ -202,7 +202,7 @@ function TaskDagNode({
         {runtime && <em>{runtime}</em>}
         {progress !== null && (
           <span className="dag-node-progress" aria-hidden="true">
-            <span style={{ width: `${progress * 100}%` }} />
+            <span className="progress-fill" style={getProgressStyle(progress)} />
           </span>
         )}
       </article>

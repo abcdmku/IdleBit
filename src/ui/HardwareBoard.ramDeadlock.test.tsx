@@ -449,8 +449,8 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(
       container.querySelector<HTMLElement>(
         ".core-array-header .deadlock-countdown-meter span",
-      )?.style.width,
-    ).toBe("40%");
+      )?.style.getPropertyValue("--meter-progress"),
+    ).toBe("0.4");
     expect(container.querySelector(".core-die .deadlock-countdown")).toBeNull();
     expect(container.querySelector(".cpu-package-header .deadlock-countdown")).toBeNull();
   });
@@ -526,8 +526,8 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(
       container.querySelector<HTMLElement>(
         ".cpu-package-header .deadlock-countdown-meter span",
-      )?.style.width,
-    ).toBe("40%");
+      )?.style.getPropertyValue("--meter-progress"),
+    ).toBe("0.4");
     expect(container.querySelector(".core-array-header .deadlock-countdown")).toBeNull();
     expect(container.querySelector(".core-die .deadlock-countdown")).toBeNull();
   });
@@ -588,8 +588,8 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(
       container.querySelector<HTMLElement>(
         ".cpu-package-header .deadlock-countdown-meter span",
-      )?.style.width,
-    ).toBe("30%");
+      )?.style.getPropertyValue("--meter-progress"),
+    ).toBe("0.3");
     expect(container.querySelector(".cpu-package.cooling-down")).toBeNull();
     expect(container.querySelector(".cache-section.cooling-down")).toBeNull();
     expect(container.querySelector(".cpu-package.deadlocked")).toBeNull();
@@ -653,7 +653,7 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(
       container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
     ).toBe("7s lock");
-    expect(meter()?.style.width).toBe("70%");
+    expect(meter()?.style.getPropertyValue("--meter-progress")).toBe("0.7");
     expect(container.querySelector(".cpu-package.cooling-down")).not.toBeNull();
     expect(container.querySelector(".cache-section.cooling-down")).not.toBeNull();
     expect(container.querySelector(".cpu-package.deadlocked")).toBeNull();
@@ -673,7 +673,7 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(
       container.querySelector(".cpu-package-header .deadlock-countdown")?.textContent,
     ).toBe("3s lock");
-    expect(meter()?.style.width).toBe("30%");
+    expect(meter()?.style.getPropertyValue("--meter-progress")).toBe("0.3");
   });
 
   it("shows the one-time cooldown help after the deadlock caption", () => {

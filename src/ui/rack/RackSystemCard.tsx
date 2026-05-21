@@ -36,7 +36,7 @@ const getRamVisualSlots = (
   system: UiRackSystem,
   ramRatio: number,
 ): RackRamVisualSlot[] => {
-  const visibleRamSlots = system.visible.metrics.ramSlots.slice(0, 32);
+  const visibleRamSlots = system.visible.metrics.ramSlots.slice(0, 64);
   const fallbackActiveRamSticks =
     system.ramBits > 0 ? Math.min(4, Math.ceil(ramRatio * 4)) : 0;
 

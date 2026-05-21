@@ -195,6 +195,76 @@ describe("TaskBay queue and deadlock status", () => {
     expect(container.textContent).not.toContain("System scheduler slots full.");
   });
 
+  it("shows active scheduler slots with whole-task progress", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+      },
+      queue: ["fetchBit"],
+      activeTasks: [
+        {
+          instanceId: "fetch-active-1",
+          taskId: "fetchBit",
+          jobId: "fetchBit",
+          schedulerQueued: true,
+          name: "Fetch Bit",
+          coreId: 1,
+          assignedCoreIds: [1],
+          progress: 0.42,
+          status: "running",
+          memoryState: "ready",
+          activeOperationName: "Fetch Bit",
+          coreProgress: [],
+          lockResource: null,
+          lockReason: null,
+        },
+      ],
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 1,
+            queuedCount: 1,
+            cores: socket.cores.map((core, index) => ({
+              ...core,
+              scheduler: {
+                ...core.scheduler,
+                localQueue: index === 0 ? ["fetchBit"] : [],
+              },
+            })),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const progress = container.querySelector<HTMLElement>(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-progress",
+    );
+
+    expect(progress?.getAttribute("aria-valuenow")).toBe("42");
+    expect(
+      progress
+        ?.querySelector<HTMLElement>(".progress-fill")
+        ?.style.getPropertyValue("--meter-progress"),
+    ).toBe("0.42");
+  });
+
   it("shows active cancel on cores instead of task cards and keeps queue preview cancel", () => {
     let state = applyAction(createInitialGameState(), {
       type: "startTask",

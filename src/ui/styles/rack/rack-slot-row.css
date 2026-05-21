@@ -5,10 +5,10 @@
   display: grid;
   grid-template-areas: "rail visuals";
   grid-template-columns: 34px minmax(0, 1fr);
-  align-items: center;
+  align-items: stretch;
   gap: var(--s-2);
-  min-height: 96px;
-  padding: var(--s-1) var(--s-2) var(--s-1) var(--s-2);
+  min-height: 0;
+  padding: 2px var(--s-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background:
@@ -123,9 +123,9 @@
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: var(--s-1);
-  padding: var(--s-1) 0;
-  min-height: 80px;
+  gap: 2px;
+  padding: 0;
+  min-height: 0;
 }
 
 .rack-slot-power-button {
@@ -133,7 +133,7 @@
   align-items: center;
   justify-content: center;
   width: 22px;
-  height: 22px;
+  height: 20px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
@@ -211,7 +211,7 @@
   align-items: center;
   justify-content: center;
   width: 22px;
-  height: 22px;
+  height: 16px;
   border: 1px solid rgba(36, 231, 195, 0.24);
   border-radius: var(--radius-sm);
   color: var(--cyan);
@@ -228,7 +228,7 @@
   align-items: center;
   justify-content: center;
   width: 22px;
-  height: 22px;
+  height: 18px;
   padding: 0;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);

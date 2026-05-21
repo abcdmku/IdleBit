@@ -284,8 +284,8 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(headerChildren[2]?.className).toContain("scheduler-controls");
     expect(
       status?.querySelector<HTMLElement>(".scheduler-watchdog-meter span")?.style
-        .width,
-    ).toBe("50%");
+        .getPropertyValue("--meter-progress"),
+    ).toBe("0.5");
     expect(
       status
         ?.querySelector<HTMLElement>(".scheduler-watchdog-meter")
@@ -307,7 +307,11 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       ".scheduler-watchdog-meter",
     );
 
-    expect(updatedMeter?.querySelector<HTMLElement>("span")?.style.width).toBe("75%");
+    expect(
+      updatedMeter
+        ?.querySelector<HTMLElement>("span")
+        ?.style.getPropertyValue("--meter-progress"),
+    ).toBe("0.75");
     expect(updatedMeter?.getAttribute("aria-valuenow")).toBe("75");
   });
 

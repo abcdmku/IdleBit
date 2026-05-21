@@ -9,9 +9,9 @@
 
 .module-meter > span {
   display: block;
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, var(--green), var(--cyan));
-  transition: width 160ms linear;
 }
 
 .module-meter.cache-pressure-meter {
@@ -45,26 +45,31 @@
   position: absolute;
   left: 0;
   top: 0;
+  width: 100%;
   height: 100%;
-  transition: none;
+  transform-origin: left center;
+  will-change: transform;
+  transition: transform 80ms linear;
 }
 
 .module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-buffer {
-  width: var(--cache-buffer-progress);
+  transform: scaleX(var(--cache-buffer-progress-ratio, 0));
   background: repeating-linear-gradient(45deg,
     color-mix(in srgb, var(--cache-core-solid-color) 52%, transparent) 0 1px,
     transparent 1px 6px);
 }
 
 .module-meter.cache-pressure-meter .cache-pressure-segment > .cache-pressure-fill {
-  width: var(--cache-write-progress);
+  transform: scaleX(var(--cache-write-progress-ratio, 0));
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent),
     var(--cache-core-solid-color);
 }
 
 .module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-buffer { opacity: 0; }
-.module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-fill { width: 100%; }
+.module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-fill {
+  transform: scaleX(1);
+}
 
 .module-meter.cache-pressure-meter .cache-pressure-overwrite > .cache-pressure-fill {
   background:
@@ -107,17 +112,20 @@
   left: 0;
   top: 0;
   height: 100%;
-  width: var(--ram-load-progress);
+  width: 100%;
+  transform: scaleX(var(--ram-load-progress-ratio, 0));
+  transform-origin: left center;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent),
     var(--ram-core-solid-color);
-  transition: none;
+  will-change: transform;
+  transition: transform 80ms linear;
 }
 
 .module-meter.ram-pressure-meter .ram-pressure-segment.reserved > .ram-pressure-fill {
-  width: 0;
+  transform: scaleX(0);
 }
 
 .module-meter.ram-pressure-meter .ram-pressure-segment.loaded > .ram-pressure-fill {
-  width: 100%;
+  transform: scaleX(1);
 }

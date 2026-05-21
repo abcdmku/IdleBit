@@ -305,6 +305,16 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 .dot.is-rose   { background: var(--rose);   box-shadow: 0 0 6px rgba(255, 111, 145, 0.6); }
 .dot.is-violet { background: var(--violet); box-shadow: 0 0 6px rgba(184, 158, 255, 0.6); }
 
+/* transform-backed fill for high-frequency runtime meters */
+.progress-fill {
+  display: block;
+  width: 100%;
+  transform: scaleX(var(--meter-progress, 0));
+  transform-origin: left center;
+  will-change: transform;
+  transition: transform 80ms linear;
+}
+
 /* visually-hidden helper */
 .sr-only {
   position: absolute;
@@ -337,3 +347,9 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   border-radius: var(--radius-pill);
 }
 *::-webkit-scrollbar-thumb:hover { background: rgba(36, 231, 195, 0.32); }
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+}

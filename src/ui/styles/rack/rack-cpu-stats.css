@@ -1,4 +1,4 @@
-/* ============ RACK BAY VISUALS & STATS ============ */
+/* ============ RACK BAY VISUALS ============ */
 
 .rack-cpu-package-map {
   display: grid;
@@ -8,6 +8,10 @@
   gap: var(--s-1);
   justify-self: center;
   min-width: 0;
+}
+
+.rack-cpu-package-map.multi-row {
+  gap: 2px;
 }
 
 .rack-cpu-package {
@@ -68,62 +72,3 @@
   border-color: rgba(255, 100, 120, 0.75);
   box-shadow: 0 0 5px rgba(255, 100, 120, 0.5);
 }
-
-/* ---------- Single, consistent stat line under each bay ---------- */
-.rack-component-stat {
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: center;
-  column-gap: 4px;
-  row-gap: 0;
-  flex-wrap: nowrap;
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tracking-tight);
-  line-height: 1.1;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.rack-component-stat-sub {
-  display: inline-block;
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  white-space: nowrap;
-  opacity: 0.85;
-}
-
-/* ---------- Power stat: stacked value over rate ---------- */
-.rack-component-stat--power {
-  align-items: center;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  gap: 1px;
-  line-height: 1.05;
-}
-
-.rack-component-power-value {
-  display: block;
-  white-space: nowrap;
-}
-
-.rack-component-rate {
-  display: inline-block;
-  color: var(--rose);
-  font-size: var(--fs-2xs);
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-/* ---------- Color-code stats by bay role ---------- */
-.rack-component-bay--cpu       .rack-component-stat { color: var(--cyan); }
-.rack-component-bay--ram       .rack-component-stat { color: var(--green); }
-.rack-component-bay--scheduler .rack-component-stat { color: var(--violet); }
-.rack-component-bay--power     .rack-component-stat { color: var(--amber); }
-.rack-component-bay--issue     .rack-component-stat { color: var(--rose); }

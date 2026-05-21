@@ -39,6 +39,24 @@ describe("ResourceHud", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
+  it("shows credits before data in the header", () => {
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={makeVisibleState(12, 34)}
+          onReset={() => undefined}
+          animateResourceGains={false}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".resource-readout")).map(
+        (readout) => readout.classList.contains("credits") ? "credits" : "data",
+      ),
+    ).toEqual(["credits", "data"]);
+  });
+
   it("animates earned resources after resource effects are armed", () => {
     act(() => {
       root.render(

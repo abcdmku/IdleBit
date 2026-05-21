@@ -30,7 +30,7 @@ const createResourceGainBurst = (
   targetElement: HTMLElement | null,
 ): ResourceGainBurst => {
   const targetRect = targetElement?.getBoundingClientRect();
-  const fallbackX = window.innerWidth - (kind === "credits" ? 104 : 190);
+  const fallbackX = window.innerWidth - (kind === "data" ? 104 : 190);
   const target = {
     x: targetRect ? targetRect.left + targetRect.width * 0.5 : fallbackX,
     y: targetRect ? targetRect.bottom + 14 : 42,
@@ -159,15 +159,15 @@ export function ResourceHud({
           ))}
         </div>
       )}
-      <div className="resource-readout data" ref={dataReadoutRef}>
-        <Database size={13} />
-        <strong>{formatNumber(Math.floor(visible.resources.data))}</strong>
-        <span>data</span>
-      </div>
       <div className="resource-readout credits" ref={creditsReadoutRef}>
         <Zap size={13} />
         <strong>{formatNumber(Math.floor(visible.resources.credits))}</strong>
         <span>cr</span>
+      </div>
+      <div className="resource-readout data" ref={dataReadoutRef}>
+        <Database size={13} />
+        <strong>{formatNumber(Math.floor(visible.resources.data))}</strong>
+        <span>data</span>
       </div>
       <button
         type="button"

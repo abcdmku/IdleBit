@@ -1,45 +1,106 @@
+/* ============================================================
+   IdleBit — Foundation tokens
+   The single source of truth for color, type, spacing, radii,
+   elevation, motion, and small primitives. Every other
+   stylesheet should pull from these — never invent values.
+   ============================================================ */
 
 :root {
-  --bg-0: #04070a;
-  --bg-1: #07100f;
-  --bg-2: #0b1816;
+  /* ---------- Surfaces ---------- */
+  --bg-0: #04070a;            /* page */
+  --bg-1: #07100f;            /* panel */
+  --bg-2: #0b1816;            /* nested */
   --bg-3: rgba(12, 24, 22, 0.84);
-  --panel: rgba(8, 18, 17, 0.88);
-  --panel-raised: rgba(14, 26, 24, 0.96);
-  --panel-deep: rgba(4, 8, 7, 0.92);
-  --line-soft: rgba(120, 220, 200, 0.12);
-  --line: rgba(120, 220, 200, 0.22);
+  --panel: rgba(10, 20, 19, 0.86);
+  --panel-raised: rgba(16, 28, 26, 0.94);
+  --panel-deep: rgba(4, 9, 8, 0.94);
+  --tile: rgba(255, 255, 255, 0.02);
+  --tile-hover: rgba(36, 231, 195, 0.06);
+  --tile-active: rgba(242, 194, 78, 0.08);
+
+  /* ---------- Strokes ---------- */
+  --line-soft: rgba(120, 220, 200, 0.10);
+  --line: rgba(120, 220, 200, 0.20);
   --line-hot: rgba(36, 231, 195, 0.55);
+  --line-warn: rgba(242, 194, 78, 0.48);
+  --line-danger: rgba(255, 111, 145, 0.48);
+  --line-muted: rgba(140, 169, 164, 0.22);
 
+  /* ---------- Accent ramp ---------- */
   --cyan: #24e7c3;
-  --cyan-soft: rgba(36, 231, 195, 0.16);
+  --cyan-soft: rgba(36, 231, 195, 0.14);
   --green: #73f05c;
-  --green-soft: rgba(115, 240, 92, 0.16);
+  --green-soft: rgba(115, 240, 92, 0.14);
   --amber: #f2c24e;
-  --amber-soft: rgba(242, 194, 78, 0.16);
+  --amber-soft: rgba(242, 194, 78, 0.14);
   --rose: #ff6f91;
-  --rose-soft: rgba(255, 111, 145, 0.16);
+  --rose-soft: rgba(255, 111, 145, 0.14);
   --violet: #b89eff;
-  --violet-soft: rgba(184, 158, 255, 0.18);
-  --text: #e7f5ee;
-  --muted: #7a948c;
-  --muted-2: #547069;
+  --violet-soft: rgba(184, 158, 255, 0.16);
 
+  /* ---------- Text ---------- */
+  --text: #e7f5ee;
+  --muted: #8aa39d;
+  --muted-2: #5d7972;
+
+  /* ---------- Type ---------- */
   --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-body: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
 
+  --fs-2xs: 0.60rem;
+  --fs-xs:  0.68rem;
+  --fs-sm:  0.78rem;
+  --fs-md:  0.86rem;
+  --fs-lg:  1.00rem;
+  --fs-xl:  1.20rem;
+
+  --tracking-loose: 0.14em;
+  --tracking-wide: 0.10em;
+  --tracking-mid: 0.06em;
+  --tracking-tight: 0.02em;
+
+  /* ---------- Spacing scale ---------- */
+  --s-0: 2px;
+  --s-1: 4px;
+  --s-2: 6px;
+  --s-3: 8px;
+  --s-4: 10px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 20px;
+  --s-8: 24px;
+
+  /* ---------- Radii ---------- */
   --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 10px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* ---------- Elevation ---------- */
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-2: 0 12px 28px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(0, 0, 0, 0.18) inset;
+  --shadow-3: 0 24px 48px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(0, 0, 0, 0.22) inset;
   --shadow-glow: 0 0 0 1px rgba(36, 231, 195, 0.18), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --ring-focus: 0 0 0 2px rgba(242, 194, 78, 0.72);
+
+  /* ---------- Motion ---------- */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+
+  /* ---------- Component-local sizes ---------- */
   --progress-bar-thickness: 3px;
   --progress-bar-thickness-compact: 2px;
+  --control-h-sm: 22px;
+  --control-h: 28px;
+  --control-h-lg: 34px;
 
   color: var(--text);
   background: var(--bg-0);
   font-family: var(--font-body);
-  font-feature-settings: "ss01", "cv11";
+  font-feature-settings: "ss01", "cv11", "tnum";
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
 }
@@ -61,7 +122,7 @@ body {
   background-image:
     radial-gradient(1200px 700px at 20% -10%, rgba(36, 231, 195, 0.06), transparent 60%),
     radial-gradient(900px 600px at 110% 100%, rgba(115, 240, 92, 0.045), transparent 60%),
-    repeating-linear-gradient(0deg, transparent 0 2px, rgba(36, 231, 195, 0.018) 2px 3px),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(36, 231, 195, 0.012) 2px 3px),
     linear-gradient(180deg, #03060a 0%, #050807 60%, #060a09 100%);
   color: var(--text);
   overflow-x: hidden;
@@ -90,13 +151,14 @@ body {
 
 button, select { font: inherit; color: inherit; }
 
+/* ---------- Form select ---------- */
 select {
   --select-bg: rgba(4, 8, 7, 0.92);
   --select-bg-strong: rgba(10, 21, 19, 0.98);
-  --select-border: rgba(120, 220, 200, 0.24);
+  --select-border: rgba(120, 220, 200, 0.22);
   --select-arrow: var(--cyan);
-  min-height: 22px;
-  padding: 2px 22px 2px 7px;
+  min-height: var(--control-h-sm);
+  padding: 2px 22px 2px 8px;
   border: 1px solid var(--select-border);
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -107,10 +169,11 @@ select {
     linear-gradient(180deg, var(--select-bg-strong), var(--select-bg));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   appearance: none;
+  transition: border-color var(--dur-1) var(--ease);
 }
 
 select:hover:not(:disabled) {
-  --select-border: rgba(36, 231, 195, 0.46);
+  --select-border: rgba(36, 231, 195, 0.48);
   --select-arrow: var(--cyan);
 }
 
@@ -136,20 +199,30 @@ select option:checked {
   background-color: var(--bg-2);
 }
 
+/* ---------- Buttons ---------- */
 button {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   color: var(--text);
   background: transparent;
   cursor: pointer;
   font-family: var(--font-display);
-  letter-spacing: 0.02em;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+  letter-spacing: var(--tracking-tight);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease);
 }
 
 button:hover:not(:disabled) {
   border-color: var(--line-hot);
   background: rgba(36, 231, 195, 0.06);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled { cursor: not-allowed; opacity: 0.42; }
@@ -158,9 +231,109 @@ button:focus-visible,
 select:focus-visible,
 summary:focus-visible,
 input:focus-visible {
-  outline: 1px solid var(--amber);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-color: var(--amber);
 }
 
 h1, h2, p, dl, dt, dd { margin: 0; }
 
+/* ============================================================
+   Primitive utilities — shared across panels.
+   ============================================================ */
+
+/* chip — small label tag (uppercase, tracked) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-mid);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.chip.is-cyan   { color: var(--cyan);   border-color: rgba(36, 231, 195, 0.32); background: var(--cyan-soft); }
+.chip.is-green  { color: var(--green);  border-color: rgba(115, 240, 92, 0.32); background: var(--green-soft); }
+.chip.is-amber  { color: var(--amber);  border-color: rgba(242, 194, 78, 0.32); background: var(--amber-soft); }
+.chip.is-rose   { color: var(--rose);   border-color: rgba(255, 111, 145, 0.32); background: var(--rose-soft); }
+.chip.is-violet { color: var(--violet); border-color: rgba(184, 158, 255, 0.32); background: var(--violet-soft); }
+
+/* metric — large mono number with caption */
+.metric {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  line-height: 1.05;
+}
+.metric > strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.metric > small {
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+/* status dot — accent indicator */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  flex: 0 0 auto;
+}
+.dot.is-cyan   { background: var(--cyan);   box-shadow: 0 0 6px rgba(36, 231, 195, 0.6); }
+.dot.is-green  { background: var(--green);  box-shadow: 0 0 6px rgba(115, 240, 92, 0.6); }
+.dot.is-amber  { background: var(--amber);  box-shadow: 0 0 6px rgba(242, 194, 78, 0.6); }
+.dot.is-rose   { background: var(--rose);   box-shadow: 0 0 6px rgba(255, 111, 145, 0.6); }
+.dot.is-violet { background: var(--violet); box-shadow: 0 0 6px rgba(184, 158, 255, 0.6); }
+
+/* visually-hidden helper */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* tabular numerals — apply to anything mono */
+.font-mono,
+[class*="-mono"],
+.metric,
+.resource-readout,
+.resource-token,
+.task-meta-line,
+.rack-component-stat,
+.hw-section-meta {
+  font-variant-numeric: tabular-nums;
+}
+
+/* default scrollbar styling */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(36, 231, 195, 0.16);
+  border-radius: var(--radius-pill);
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(36, 231, 195, 0.32); }

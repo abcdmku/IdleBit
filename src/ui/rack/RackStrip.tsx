@@ -1,4 +1,4 @@
-import { Plus, Server } from "lucide-react";
+import { Plus, Server, SlidersHorizontal } from "lucide-react";
 import { getSelectedSystemComponent, scopeSelectionToSystem, type SelectedComponent } from "../workbenchData";
 import type { Dispatch } from "../uiActions";
 import { getSystemStatusTone } from "./rackMetrics";
@@ -90,6 +90,18 @@ export function RackStrip({
           );
         })}
       </div>
+      {builderUnlocked && view === "detail" && (
+        <button
+          type="button"
+          className="rack-strip-configure"
+          onClick={() => onOpenBuilder("configure", activeSystemId)}
+          title="Configure parts on the selected system"
+          aria-label="Configure parts on the selected system"
+        >
+          <SlidersHorizontal size={13} />
+          <span className="rack-strip-build-label">Configure</span>
+        </button>
+      )}
       {builderUnlocked && (
         <button
           type="button"

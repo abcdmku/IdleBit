@@ -1,25 +1,26 @@
+/* ============ RACK SLOT BAY GRID ============ */
+
 .rack-slot-visuals {
   position: relative;
   grid-area: visuals;
   display: grid;
   grid-template-columns:
-    minmax(58px, 0.28fr)
+    minmax(54px, 0.26fr)
     minmax(0, 1fr)
     minmax(0, 1fr)
-    minmax(64px, 0.36fr);
+    minmax(62px, 0.32fr);
   align-items: stretch;
   gap: 0;
   min-width: 0;
-  min-height: 104px;
-  padding: 3px;
-  border: 1px solid rgba(120, 220, 200, 0.14);
-  border-radius: 5px;
+  min-height: 86px;
+  padding: var(--s-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
   background:
-    linear-gradient(90deg, rgba(36, 231, 195, 0.055), transparent 24%, transparent 72%, rgba(242, 194, 78, 0.04)),
-    linear-gradient(180deg, rgba(7, 19, 19, 0.86), rgba(2, 8, 8, 0.8));
+    linear-gradient(180deg, rgba(7, 19, 19, 0.86), rgba(2, 8, 8, 0.78));
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.22) inset,
-    0 8px 18px rgba(0, 0, 0, 0.14) inset;
+    0 8px 18px rgba(0, 0, 0, 0.12) inset;
   overflow: hidden;
 }
 
@@ -27,73 +28,57 @@
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(72px, 1fr) auto;
+  grid-template-rows: minmax(56px, 1fr) auto;
   align-items: center;
   justify-items: center;
-  gap: 3px;
+  gap: var(--s-0);
   min-width: 0;
-  min-height: 98px;
-  padding: 4px 5px 5px;
+  min-height: 78px;
+  padding: var(--s-2) var(--s-2) var(--s-1);
   border: 0;
   border-radius: 0;
   background: transparent;
   overflow: hidden;
+  transition: background var(--dur-1) var(--ease);
 }
 
 .rack-component-bay + .rack-component-bay {
-  border-left: 1px solid rgba(120, 220, 200, 0.11);
+  border-left: 1px solid var(--line-soft);
 }
 
-.rack-component-bay--power {
-  padding-right: 4px;
-  padding-left: 4px;
+.rack-component-bay:hover {
+  background: rgba(255, 255, 255, 0.012);
 }
 
 .rack-component-bay--issue {
   background:
-    radial-gradient(90% 80% at 50% 42%, rgba(255, 100, 120, 0.13), transparent 68%);
+    radial-gradient(90% 80% at 50% 42%, rgba(255, 100, 120, 0.14), transparent 68%);
   box-shadow:
-    0 0 0 1px rgba(255, 100, 120, 0.18) inset,
+    0 0 0 1px rgba(255, 100, 120, 0.2) inset,
     0 0 14px rgba(255, 100, 120, 0.08) inset;
   animation: rack-component-issue-blink 1.15s ease-in-out infinite;
 }
 
-.rack-component-bay::before,
-.rack-component-bay::after {
+/* Top accent rail — telegraphs the bay's role color */
+.rack-component-bay::before {
   content: "";
   position: absolute;
+  inset: 1px 6px auto;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(36, 231, 195, 0.22);
   pointer-events: none;
 }
 
-.rack-component-bay::before {
-  inset: 2px 5px auto;
-  height: 1px;
-  border-radius: 2px;
-  background: rgba(36, 231, 195, 0.18);
-}
-
-.rack-component-bay::after {
-  display: none;
-}
-
-.rack-component-bay--ram::before {
-  background: rgba(124, 255, 160, 0.2);
-}
-
-.rack-component-bay--scheduler::before {
-  background: rgba(242, 194, 78, 0.24);
-}
-
-.rack-component-bay--power::before {
-  background: rgba(255, 100, 120, 0.2);
-}
-
+.rack-component-bay--ram::before       { background: rgba(124, 255, 160, 0.26); }
+.rack-component-bay--scheduler::before { background: rgba(184, 158, 255, 0.32); }
+.rack-component-bay--power::before     { background: rgba(242, 194, 78, 0.30); }
 .rack-component-bay--issue::before {
-  background: rgba(255, 100, 120, 0.72);
+  background: rgba(255, 100, 120, 0.78);
   box-shadow: 0 0 8px rgba(255, 100, 120, 0.5);
 }
 
 @keyframes rack-component-issue-blink {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.64; }
+  50% { opacity: 0.6; }
 }

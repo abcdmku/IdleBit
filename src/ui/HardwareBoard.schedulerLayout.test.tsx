@@ -128,6 +128,79 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     });
   });
 
+  it("selects scheduler sections from non-button surfaces", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const onSelectComponent = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+      },
+      hardware: {
+        ...base.hardware,
+        schedulerSlots: 2,
+        systemSchedulerSlots: 2,
+        cpus: base.hardware.cpus.map((cpu) => ({ ...cpu, schedulerSlots: 2 })),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 2,
+            queuedCount: 0,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={onSelectComponent}
+        />,
+      );
+    });
+
+    const cpuSchedulerSlot = container.querySelector<HTMLElement>(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell.empty",
+    );
+    const systemSchedulerSlot = container.querySelector<HTMLElement>(
+      ".system-scheduler-section .queue-slot-cell.empty",
+    );
+    const shutdownButton = container.querySelector<HTMLButtonElement>(
+      ".system-shutdown-button",
+    );
+
+    act(() => {
+      cpuSchedulerSlot?.click();
+    });
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+
+    act(() => {
+      systemSchedulerSlot?.click();
+    });
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler");
+
+    onSelectComponent.mockClear();
+    act(() => {
+      shutdownButton?.click();
+    });
+
+    expect(onSelectComponent).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setPowerState",
+      state: "off",
+    });
+  });
+
   it("shows scheduler watchdog victim and countdown", () => {
     const base = deriveVisibleState(createInitialGameState());
     const socket = base.metrics.cpuSockets[0]!;

@@ -3,40 +3,46 @@
 .hw-panel { background: var(--bg-1); }
 
 .hw-panel .panel-body {
-  gap: 14px;
+  gap: var(--s-3);
   background-image:
-    repeating-linear-gradient(90deg, transparent 0 28px, rgba(36, 231, 195, 0.025) 28px 29px),
-    repeating-linear-gradient(0deg, transparent 0 28px, rgba(36, 231, 195, 0.022) 28px 29px);
+    repeating-linear-gradient(90deg, transparent 0 32px, rgba(36, 231, 195, 0.016) 32px 33px),
+    repeating-linear-gradient(0deg,  transparent 0 32px, rgba(36, 231, 195, 0.014) 32px 33px);
 }
 
+/* ---------- Section card ---------- */
 .hw-section {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: var(--panel);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease);
 }
 
-.hw-section.cpu-section { border-color: rgba(36, 231, 195, 0.22); }
-.hw-section.cache-section { border-color: rgba(115, 240, 92, 0.22); }
+.hw-section.cpu-section       { border-color: rgba(36, 231, 195, 0.22); }
+.hw-section.cache-section     { border-color: rgba(115, 240, 92, 0.22); }
 .hw-section.scheduler-section { border-color: rgba(184, 158, 255, 0.22); }
-.hw-section.memory-section { border-color: rgba(115, 240, 92, 0.22); }
-.hw-section.psu-section { border-color: rgba(242, 194, 78, 0.22); }
-.hw-section.thermal-section { border-color: rgba(36, 231, 195, 0.22); }
+.hw-section.memory-section    { border-color: rgba(115, 240, 92, 0.22); }
+.hw-section.psu-section       { border-color: rgba(242, 194, 78, 0.22); }
+.hw-section.thermal-section   { border-color: rgba(36, 231, 195, 0.22); }
 
 .hw-section.deadlocked {
-  border-color: rgba(255, 111, 145, 0.74);
+  border-color: var(--line-danger);
   background:
     linear-gradient(180deg, rgba(255, 111, 145, 0.08), transparent 72%),
     var(--panel);
-  box-shadow: 0 0 0 1px rgba(255, 111, 145, 0.14), inset 0 0 24px rgba(255, 111, 145, 0.06);
+  box-shadow:
+    0 0 0 1px rgba(255, 111, 145, 0.16),
+    inset 0 0 24px rgba(255, 111, 145, 0.06);
 }
 
 .hw-section.cooling-down:not(.deadlocked) {
-  border-color: rgba(140, 169, 164, 0.34);
+  border-color: var(--line-muted);
   background:
     linear-gradient(180deg, rgba(140, 169, 164, 0.08), transparent 72%),
     rgba(10, 14, 13, 0.78);
@@ -50,7 +56,9 @@
 
 .hw-section.selected {
   border-color: var(--amber);
-  box-shadow: 0 0 0 1px rgba(242, 194, 78, 0.18), inset 0 0 24px rgba(242, 194, 78, 0.05);
+  box-shadow:
+    0 0 0 1px rgba(242, 194, 78, 0.20),
+    inset 0 0 24px rgba(242, 194, 78, 0.05);
 }
 
 .hw-section.cooling-down.selected:not(.deadlocked) {
@@ -58,9 +66,11 @@
   box-shadow: inset 0 0 24px rgba(140, 169, 164, 0.05);
 }
 
+/* ---------- Section header ---------- */
+
 .hw-section-header-row {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
   align-items: center;
   flex-wrap: wrap;
   width: 100%;
@@ -75,7 +85,7 @@
 
 .hw-section-header {
   display: flex;
-  gap: 8px;
+  gap: var(--s-2);
   align-items: center;
   flex: 0 0 auto;
   min-width: 0;
@@ -85,17 +95,15 @@
   background: transparent;
   color: var(--cyan);
   font-family: var(--font-display);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-loose);
   text-transform: uppercase;
 }
 
 .hw-section-header:hover { background: transparent; border: 0; }
 
-.hw-section-header-row > .hw-section-header {
-  width: auto;
-}
+.hw-section-header-row > .hw-section-header { width: auto; }
 
 .scheduler-header-row > .hw-section-header {
   grid-column: 1;
@@ -103,13 +111,15 @@
   flex: 0 0 auto;
 }
 
-.hw-section.cache-section .hw-section-header { color: var(--green); }
+.hw-section.cache-section     .hw-section-header { color: var(--green); }
 .hw-section.scheduler-section .hw-section-header { color: var(--violet); }
-.hw-section.memory-section .hw-section-header { color: var(--green); }
-.hw-section.psu-section .hw-section-header { color: var(--amber); }
-.hw-section.thermal-section .hw-section-header { color: var(--cyan); }
-.hw-section.deadlocked .hw-section-header { color: var(--rose); }
+.hw-section.memory-section    .hw-section-header { color: var(--green); }
+.hw-section.psu-section       .hw-section-header { color: var(--amber); }
+.hw-section.thermal-section   .hw-section-header { color: var(--cyan); }
+.hw-section.deadlocked        .hw-section-header { color: var(--rose); }
 .hw-section.cooling-down:not(.deadlocked) .hw-section-header { color: var(--muted); }
+
+/* ---------- Power-offline dimming ---------- */
 
 .system-board.power-offline .system-board-flow > :not(.system-rail):not(.system-scheduler-section),
 .system-board.power-offline .system-rail > :not(.psu-section),
@@ -122,7 +132,7 @@
 }
 
 .system-board.power-offline .psu-section {
-  border-color: rgba(140, 169, 164, 0.30);
+  border-color: var(--line-muted);
   background:
     linear-gradient(180deg, rgba(140, 169, 164, 0.06), transparent 72%),
     var(--panel);
@@ -146,13 +156,14 @@
   margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
   text-transform: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .hw-section-header .hw-section-meta strong {
   color: var(--text);
-  font-weight: 600;
+  font-weight: 800;
 }

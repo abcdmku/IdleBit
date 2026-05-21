@@ -1,9 +1,11 @@
+/* ============ RACK BAY VISUALS & STATS ============ */
+
 .rack-cpu-package-map {
   display: grid;
   grid-template-columns: repeat(var(--rack-cpu-packages, 1), max-content);
   align-content: center;
   justify-content: center;
-  gap: 3px;
+  gap: var(--s-1);
   justify-self: center;
   min-width: 0;
 }
@@ -12,19 +14,23 @@
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 4px;
+  gap: var(--s-1);
   width: var(--rack-cpu-package-size);
   height: var(--rack-cpu-package-size);
   min-width: 0;
   padding: 0;
-  border: 1px solid rgba(120, 220, 200, 0.1);
-  border-radius: 3px;
-  background: rgba(36, 231, 195, 0.025);
+  border: 1px solid rgba(120, 220, 200, 0.14);
+  border-radius: var(--radius-sm);
+  background:
+    radial-gradient(80% 80% at 50% 30%, rgba(36, 231, 195, 0.06), transparent 70%),
+    rgba(36, 231, 195, 0.02);
 }
 
 .rack-cpu-package.deadlocked {
-  border-color: rgba(255, 100, 120, 0.42);
-  background: rgba(255, 100, 120, 0.05);
+  border-color: rgba(255, 100, 120, 0.5);
+  background:
+    radial-gradient(80% 80% at 50% 30%, rgba(255, 100, 120, 0.08), transparent 70%),
+    rgba(255, 100, 120, 0.04);
 }
 
 .rack-cpu-core-grid {
@@ -39,9 +45,10 @@
 .rack-cpu-core-dot {
   width: var(--rack-core-size, 4px);
   height: var(--rack-core-size, 4px);
-  border: 1px solid rgba(120, 220, 200, 0.18);
+  border: 1px solid rgba(120, 220, 200, 0.22);
   border-radius: 1px;
-  background: rgba(36, 231, 195, 0.045);
+  background: rgba(36, 231, 195, 0.06);
+  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 
 .rack-cpu-package.micro .rack-cpu-core-dot,
@@ -53,48 +60,52 @@
 .rack-cpu-core-dot.active {
   background: var(--cyan);
   border-color: rgba(36, 231, 195, 0.72);
-  box-shadow: 0 0 5px rgba(36, 231, 195, 0.42);
+  box-shadow: 0 0 5px rgba(36, 231, 195, 0.5);
 }
 
 .rack-cpu-core-dot.deadlocked {
   background: var(--rose);
   border-color: rgba(255, 100, 120, 0.75);
-  box-shadow: 0 0 5px rgba(255, 100, 120, 0.48);
+  box-shadow: 0 0 5px rgba(255, 100, 120, 0.5);
 }
 
+/* ---------- Single, consistent stat line under each bay ---------- */
 .rack-component-stat {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
   justify-content: center;
-  column-gap: 3px;
-  row-gap: 1px;
-  flex-wrap: wrap;
+  column-gap: 4px;
+  row-gap: 0;
+  flex-wrap: nowrap;
   max-width: 100%;
   overflow: hidden;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.1;
   text-align: center;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .rack-component-stat-sub {
   display: inline-block;
   color: var(--muted);
-  font-size: 0.52rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   white-space: nowrap;
+  opacity: 0.85;
 }
 
+/* ---------- Power stat: stacked value over rate ---------- */
 .rack-component-stat--power {
   align-items: center;
   flex-direction: column;
   flex-wrap: nowrap;
   gap: 1px;
-  line-height: 1.04;
+  line-height: 1.05;
 }
 
 .rack-component-power-value {
@@ -105,7 +116,14 @@
 .rack-component-rate {
   display: inline-block;
   color: var(--rose);
-  font-size: 0.54rem;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   white-space: nowrap;
 }
+
+/* ---------- Color-code stats by bay role ---------- */
+.rack-component-bay--cpu       .rack-component-stat { color: var(--cyan); }
+.rack-component-bay--ram       .rack-component-stat { color: var(--green); }
+.rack-component-bay--scheduler .rack-component-stat { color: var(--violet); }
+.rack-component-bay--power     .rack-component-stat { color: var(--amber); }
+.rack-component-bay--issue     .rack-component-stat { color: var(--rose); }

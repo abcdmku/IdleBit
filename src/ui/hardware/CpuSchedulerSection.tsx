@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import { ListTodo } from "lucide-react";
 import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import type { Dispatch } from "../uiActions";
@@ -25,12 +26,20 @@ export function SchedulerSection({
     socket.schedulerSlotUpgrade,
     socket.deadlockRecoveryUpgrade,
   ].filter((upgrade): upgrade is VisibleUpgrade => Boolean(upgrade));
+  const selectFromSection = (event: MouseEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest("button")) {
+      return;
+    }
+
+    onSelect();
+  };
 
   return (
     <section
       className={`hw-section scheduler-section ${selected ? "selected" : ""} ${
         socket.deadlocked ? "deadlocked" : ""
       }`}
+      onClick={selectFromSection}
     >
       <div className="hw-section-header-row scheduler-header-row">
         <button type="button" className="hw-section-header" onClick={onSelect}>

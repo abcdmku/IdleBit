@@ -4,15 +4,15 @@
 
 .research-filter-toggle {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--s-2);
   align-items: center;
   margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-tight);
   text-transform: none;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -26,30 +26,35 @@
 .research-empty {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   text-align: center;
-  padding: 12px;
+  padding: var(--s-5);
 }
 
 .research-action {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid rgba(184, 158, 255, 0.34);
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid rgba(184, 158, 255, 0.30);
   border-radius: var(--radius);
-  background: rgba(14, 12, 22, 0.5);
+  background: rgba(14, 12, 22, 0.45);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease);
 }
 
-.research-action.cyan { border-color: rgba(36, 231, 195, 0.4); }
-.research-action.green { border-color: rgba(115, 240, 92, 0.4); }
-.research-action.amber { border-color: rgba(242, 194, 78, 0.45); }
-.research-action.purchased { opacity: 0.5; }
+.research-action:hover { background: rgba(18, 14, 28, 0.6); }
+
+.research-action.cyan  { border-color: rgba(36, 231, 195, 0.34); }
+.research-action.green { border-color: rgba(115, 240, 92, 0.34); }
+.research-action.amber { border-color: rgba(242, 194, 78, 0.4); }
+.research-action.purchased { opacity: 0.45; }
 
 .research-action-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--s-3);
   align-items: center;
 }
 
@@ -61,38 +66,40 @@
 .research-copy {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--s-1);
   min-width: 0;
 }
 
 .research-copy strong {
   color: var(--text);
   font-family: var(--font-display);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
 }
 
 .research-buy-button {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--s-1);
   align-items: center;
   justify-content: center;
-  min-height: 26px;
-  padding: 4px 9px;
-  border-color: rgba(184, 158, 255, 0.45);
+  min-height: var(--control-h);
+  padding: var(--s-1) var(--s-4);
+  border: 1px solid rgba(184, 158, 255, 0.5);
+  border-radius: var(--radius-sm);
   color: var(--violet);
-  background: rgba(184, 158, 255, 0.04);
+  background: var(--violet-soft);
   font-family: var(--font-display);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
 }
 
 .research-buy-button:hover:not(:disabled) {
   border-color: var(--violet);
-  background: rgba(184, 158, 255, 0.12);
+  background: rgba(184, 158, 255, 0.18);
+  box-shadow: 0 0 12px rgba(184, 158, 255, 0.18);
 }
 
 .research-action-main.blocked .research-buy-button {
@@ -103,52 +110,54 @@
 .research-requirements {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: var(--s-1);
 }
 
 .research-requirement {
   display: inline-flex;
-  gap: 5px;
+  gap: var(--s-1);
   align-items: center;
-  padding: 2px 6px;
-  border: 1px solid rgba(120, 200, 180, 0.15);
-  border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.18);
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.22);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
   color: var(--muted);
 }
 
 .research-requirement b {
   color: var(--amber);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 800;
+  letter-spacing: var(--tracking-mid);
   text-transform: uppercase;
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
 }
 
 .research-requirement small {
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
 }
 
 .research-requirement.met b { color: var(--green); }
 
+/* ---------- Inline compute steps ---------- */
+
 .research-compute-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: var(--s-1);
 }
 
 .research-compute {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: var(--s-2);
   align-items: center;
-  padding: 5px 7px;
+  padding: var(--s-2) var(--s-3);
   border: 1px solid rgba(36, 231, 195, 0.22);
   border-radius: var(--radius-sm);
-  background: rgba(36, 231, 195, 0.04);
+  background: var(--cyan-soft);
 }
 
 .research-compute.blocked {
@@ -166,34 +175,42 @@
 .research-compute-copy strong {
   color: var(--text);
   font-family: var(--font-display);
-  font-size: 0.74rem;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: 700;
 }
 
 .research-compute-copy small {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
 }
 
 .research-compute-copy .task-meta-line {
-  gap: 6px;
-  font-size: 0.6rem;
+  gap: var(--s-2);
+  font-size: var(--fs-2xs);
 }
 
 .research-compute-button {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--s-1);
   align-items: center;
   justify-content: center;
-  min-height: 22px;
-  padding: 3px 7px;
+  min-height: var(--control-h-sm);
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid rgba(36, 231, 195, 0.4);
+  border-radius: var(--radius-sm);
   color: var(--cyan);
+  background: var(--cyan-soft);
   font-family: var(--font-display);
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+}
+
+.research-compute-button:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: rgba(36, 231, 195, 0.16);
 }
 
 .research-compute.blocked .research-compute-button {
@@ -205,6 +222,5 @@
   display: block;
   font-style: normal;
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
 }
-

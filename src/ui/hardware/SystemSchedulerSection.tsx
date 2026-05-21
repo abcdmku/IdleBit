@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import { ListTodo } from "lucide-react";
 import type { VisibleState, VisibleUpgrade } from "../../game";
 import { getVisibleSystemSchedulerSlots } from "../tasks/taskData";
@@ -28,6 +29,13 @@ export function SystemSchedulerSection({
   const deadlocked = queueItems.some((item) => item.deadlocked);
   const power = getPowerStats(visible);
   const installUpgrade = upgrades.find((upgrade) => upgrade.id === "systemSchedulerSlot");
+  const selectFromSection = (event: MouseEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest("button")) {
+      return;
+    }
+
+    onSelect();
+  };
 
   if (slotCapacity <= 0) {
     return (
@@ -50,6 +58,7 @@ export function SystemSchedulerSection({
       className={`hw-section scheduler-section system-scheduler-section ${
         selected ? "selected" : ""
       } ${deadlocked ? "deadlocked" : ""}`}
+      onClick={selectFromSection}
     >
       <div className="hw-section-header-row scheduler-header-row">
         <button type="button" className="hw-section-header" onClick={onSelect}>

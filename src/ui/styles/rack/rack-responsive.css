@@ -1,41 +1,35 @@
 @media (max-width: 760px) {
-  .system-rack-purchase-grid {
-    grid-template-columns: 1fr;
-  }
+  .system-rack-purchase-grid { grid-template-columns: 1fr; }
 
-  .custom-builder-group {
-    grid-template-columns: 1fr;
-  }
+  .custom-builder-group { grid-template-columns: 1fr; }
 
   .system-rack-slot--row {
-    grid-template-columns: 34px minmax(0, 1fr);
-    grid-template-areas:
-      "rail visuals";
-    min-height: 168px;
-    row-gap: 8px;
+    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-areas: "rail visuals";
+    min-height: 150px;
+    row-gap: var(--s-2);
   }
 
-  .system-rack-slot--row > .rack-slot-rail {
-    grid-area: rail;
-  }
+  .system-rack-slot--row > .rack-slot-rail { grid-area: rail; }
 
   .system-rack-slot--row > .rack-slot-visuals {
     grid-area: visuals;
     grid-template-columns: 1fr 1fr;
-    min-height: 172px;
+    min-height: 142px;
   }
 
   .system-rack-slot--row > .rack-slot-visuals .rack-component-bay {
-    min-height: 78px;
+    min-height: 64px;
+    padding: var(--s-1) var(--s-2);
     border-left: 0;
   }
 
   .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(even) {
-    border-left: 1px solid rgba(120, 220, 200, 0.11);
+    border-left: 1px solid var(--line-soft);
   }
 
   .system-rack-slot--row > .rack-slot-visuals .rack-component-bay:nth-child(n + 3) {
-    border-top: 1px solid rgba(120, 220, 200, 0.11);
+    border-top: 1px solid var(--line-soft);
   }
 
   .builder-new-grid,
@@ -55,4 +49,3 @@
     grid-template-rows: repeat(4, minmax(70px, auto));
   }
 }
-

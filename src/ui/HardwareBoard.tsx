@@ -7,7 +7,6 @@ import { getSystemScopedAction } from "./panels/systemScopedAction";
 import {
   BuilderScreen,
   RackStrip,
-  SystemDetailHeader,
   SystemRackPanel,
   getBuilderGroups,
   getFallbackRackSystem,
@@ -190,12 +189,6 @@ export function HardwareBoard({
   return (
     <div className="rack-mode-detail">
       {strip}
-      <SystemDetailHeader
-        systemName={activeSystem.name}
-        builderUnlocked={builderUnlocked}
-        onBack={backToRack}
-        onConfigure={() => openBuilder("configure", activeSystem.id)}
-      />
       {systemBoardNode}
     </div>
   );

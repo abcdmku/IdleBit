@@ -30,7 +30,7 @@ Target scope from `game-spec.md` section 13.2:
 - Completed System Scheduler research reveals a paid system-level scheduler install outline above RAM; buying the first System Queue Slot makes it usable for whole system tasks.
 - System Queue Slot upgrades are separate from CPU Queue Slot upgrades.
 - Second CPU purchase reveals CRON Scheduler research only; the CRON board module stays hidden until that research is bought, while baseline PSU/power readouts are already present.
-- The empty CPU socket offers unmatched and matched CPU install choices, with projected power increase shown for each option.
+- Once the CPU package frame is visible, the CPU card offers unmatched and matched second-CPU install choices with projected power increase shown for each option; before that package frame exists, the empty CPU socket remains the fallback install surface.
 - RAM stays hidden/actionless before RAM Control, then appears as a paid first-stick install outline before becoming the staging surface needed for System Scheduler; CRON stays hidden/actionless before CRON Scheduler research, and Thermal plus advanced PSU/tuning research are deferred.
 - CRON Scheduler research reveals a paid CRON Job Slot install; buying it unlocks CRON v1 timer automation for visible repeatable system tasks only.
 - PSU/power readouts, powered-on billing, power state behavior, credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
@@ -118,7 +118,7 @@ Target scope from `game-spec.md` section 13.3:
   - System Scheduler unlocks at the four-core milestone after RAM Control and at least 1 Kb RAM.
   - Second CPU unlock requires System Scheduler, multi-core benchmark completion, and System Bus research.
   - Second CPU purchase reveals CRON Scheduler research while baseline PSU/power readouts were already visible; locked CRON, advanced PSU/tuning, and Thermal modules stay hidden.
-  - Unmatched CPU installs a base package, matched CPU copies the current package, and both socket choices list projected power increase.
+  - Unmatched CPU installs a base package, matched CPU copies the current package, and both second-CPU choices list projected power increase on the CPU card once the package frame is visible.
   - Matched CPU purchase copies the source CPU's cores, core clocks, cache, cache speed, and scheduler slots, and charges for the base CPU plus copied upgrades.
   - CRON Scheduler research reveals the CRON bay; buying the first CRON Job Slot unlocks CRON v1 controls and no other task classes.
   - PSU Capacity upgrades are credits-only and available from the first screen; PSU Management research is deferred.

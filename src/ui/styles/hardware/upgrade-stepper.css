@@ -1,12 +1,14 @@
+/* ============ UPGRADE STEPPER ============ */
+
 .upgrade-stepper {
   --stepper-color: var(--cyan);
-  --stepper-bg: rgba(36, 231, 195, 0.04);
+  --stepper-bg: rgba(36, 231, 195, 0.05);
   --stepper-border: rgba(36, 231, 195, 0.32);
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
   align-items: stretch;
-  flex: 1 1 300px;
-  min-width: min(100%, 300px);
+  flex: 1 1 240px;
+  min-width: min(100%, 240px);
   min-height: 24px;
   overflow: hidden;
   border: 1px solid var(--stepper-border);
@@ -14,87 +16,76 @@
   color: var(--stepper-color);
   background: var(--stepper-bg);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-tight);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease);
 }
 
-.upgrade-stepper.cyan {
-  --stepper-color: var(--cyan);
-  --stepper-bg: rgba(36, 231, 195, 0.04);
-  --stepper-border: rgba(36, 231, 195, 0.32);
+.upgrade-stepper:hover {
+  border-color: color-mix(in srgb, var(--stepper-color) 60%, transparent);
 }
 
-.upgrade-stepper.green {
-  --stepper-color: var(--green);
-  --stepper-bg: rgba(115, 240, 92, 0.04);
-  --stepper-border: rgba(115, 240, 92, 0.32);
-}
+.upgrade-stepper.cyan   { --stepper-color: var(--cyan);   --stepper-bg: rgba(36, 231, 195, 0.05); --stepper-border: rgba(36, 231, 195, 0.32); }
+.upgrade-stepper.green  { --stepper-color: var(--green);  --stepper-bg: rgba(115, 240, 92, 0.05); --stepper-border: rgba(115, 240, 92, 0.32); }
+.upgrade-stepper.violet { --stepper-color: var(--violet); --stepper-bg: rgba(184, 158, 255, 0.05); --stepper-border: rgba(184, 158, 255, 0.32); }
+.upgrade-stepper.amber  { --stepper-color: var(--amber);  --stepper-bg: rgba(242, 194, 78, 0.05); --stepper-border: rgba(242, 194, 78, 0.34); }
 
-.upgrade-stepper.violet {
-  --stepper-color: var(--violet);
-  --stepper-bg: rgba(184, 158, 255, 0.04);
-  --stepper-border: rgba(184, 158, 255, 0.32);
-}
-
-.upgrade-stepper.amber {
-  --stepper-color: var(--amber);
-  --stepper-bg: rgba(242, 194, 78, 0.04);
-  --stepper-border: rgba(242, 194, 78, 0.34);
-}
-
-.upgrade-stepper.add-core-stepper {
-  border-style: dashed;
-}
+.upgrade-stepper.add-core-stepper { border-style: dashed; }
 
 .upgrade-stepper-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 0;
-  width: 24px;
+  width: 22px;
   height: 100%;
   padding: 0;
   border: 0;
   border-radius: 0;
   color: var(--stepper-color);
-  background: rgba(255, 255, 255, 0.018);
+  background: transparent;
+  transition: background var(--dur-1) var(--ease);
 }
 
-.upgrade-stepper-button.minus {
-  border-right: 1px solid var(--stepper-border);
-}
-
-.upgrade-stepper-button.plus {
-  border-left: 1px solid var(--stepper-border);
-}
+.upgrade-stepper-button.minus { border-right: 1px solid var(--stepper-border); }
+.upgrade-stepper-button.plus  { border-left:  1px solid var(--stepper-border); }
 
 .upgrade-stepper-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--stepper-color) 14%, transparent);
+  background: color-mix(in srgb, var(--stepper-color) 16%, transparent);
 }
 
-.upgrade-stepper-button:disabled {
-  opacity: 0.38;
-}
+.upgrade-stepper-button:disabled { opacity: 0.36; }
 
 .upgrade-stepper-spec {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--s-2);
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 0 var(--s-3);
+  font-weight: 700;
 }
 
 .upgrade-stepper-spec > span {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-mid);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  color: var(--text);
+  font-weight: 800;
 }
 
 .upgrade-stepper .resource-cost {
+  flex: 0 0 auto;
   font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-tight);
   text-transform: none;
 }

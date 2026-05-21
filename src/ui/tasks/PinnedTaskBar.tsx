@@ -67,10 +67,10 @@ export function PinnedTaskBar({
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse pinned tasks" : "Expand pinned tasks"}
         >
-          <Pin size={12} />
-          <span>Pinned</span>
+          <Pin size={11} />
           <span className="pinned-task-bar-count">{pinned.length}</span>
-          {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          <span className="pinned-task-bar-label">Pinned</span>
+          {expanded ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
         {expanded && (
           <button
@@ -81,7 +81,7 @@ export function PinnedTaskBar({
             title={editing ? "Done editing" : "Edit pins"}
             aria-label={editing ? "Done editing pinned tasks" : "Edit pinned tasks"}
           >
-            <Pencil size={12} />
+            <Pencil size={11} />
           </button>
         )}
         {editing && (
@@ -92,7 +92,7 @@ export function PinnedTaskBar({
             title="Unpin all"
             aria-label="Unpin all tasks"
           >
-            <X size={13} />
+            <X size={12} />
           </button>
         )}
       </header>
@@ -139,7 +139,7 @@ export function PinnedTaskBar({
                   }
                   title={buttonLabel}
                 >
-                  {!disabledReason && <Play size={11} />}
+                  {!disabledReason && <Play size={10} />}
                   <span>{buttonLabel}</span>
                 </button>
               </li>

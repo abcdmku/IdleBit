@@ -58,29 +58,19 @@ describe("TaskBay task and research behavior", () => {
       );
     });
 
-    const layerSelect = container.querySelector<HTMLSelectElement>(
-      ".task-route-layer-select",
-    );
-    const targetSelect = container.querySelector<HTMLSelectElement>(
-      ".task-route-target-select",
+    const routeSelect = container.querySelector<HTMLSelectElement>(
+      ".task-route-combo-select",
     );
 
     expect(container.textContent).not.toContain("Auto");
     expect(
-      Array.from(layerSelect?.options ?? []).map((option) => option.textContent),
-    ).toEqual(["C", "CPU"]);
-    expect(layerSelect?.value).toBe("core");
-    expect(targetSelect?.value).toBe("1");
+      Array.from(routeSelect?.options ?? []).map((option) => option.textContent),
+    ).toEqual(["C1", "CPU 1"]);
+    expect(routeSelect?.value).toBe("core:1");
 
     act(() => {
-      targetSelect!.value = "1";
-      targetSelect?.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(selectComponent).toHaveBeenLastCalledWith("core:1");
-
-    act(() => {
-      layerSelect!.value = "scheduler";
-      layerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+      routeSelect!.value = "scheduler:1";
+      routeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(selectComponent).toHaveBeenLastCalledWith("scheduler:1");
   });
@@ -118,7 +108,7 @@ describe("TaskBay task and research behavior", () => {
     expect(button?.disabled).toBe(true);
     expect(button?.textContent).toContain("Cache capacity too low.");
     expect(meta?.textContent).toContain("ops");
-    expect(meta?.querySelector(".resource-token.credits")).not.toBeNull();
+    expect(taskCard?.querySelector(".task-card-head .resource-token.credits")).not.toBeNull();
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
   });
 
@@ -174,7 +164,9 @@ describe("TaskBay task and research behavior", () => {
 
     expect(fetchMeta?.textContent).not.toContain("1 cores");
     expect(busMeta?.textContent).toContain("2 cores");
-    expect(compileMeta?.textContent).toContain("uses idle cores");
+    expect(compileMeta?.textContent).toContain("∞");
+    expect(compileMeta?.textContent).not.toContain("Inf");
+    expect(compileMeta?.querySelector(".meta-chip.elastic svg")).not.toBeNull();
   });
 
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {

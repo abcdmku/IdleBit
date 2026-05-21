@@ -273,10 +273,13 @@ describe("HardwareBoard second CPU system management", () => {
       flags: {
         ...base.flags,
         secondCpu: true,
+        systemStats: true,
       },
       hardware: {
         ...base.hardware,
         secondCpu: false,
+        ramBits: 1024,
+        ramBytes: 128,
       },
       upgrades: [
         {
@@ -325,16 +328,18 @@ describe("HardwareBoard second CPU system management", () => {
       );
     });
 
-    const socket = container.querySelector(".empty-socket")?.parentElement;
-    const buttons = socket?.querySelectorAll<HTMLButtonElement>(
+    const cpuPackage = container.querySelector(".cpu-package");
+    const buttons = cpuPackage?.querySelectorAll<HTMLButtonElement>(
       ".cpu-install-option",
     );
 
-    expect(socket?.textContent).toContain("Unmatched CPU");
-    expect(socket?.textContent).toContain("Matched CPU");
-    expect(socket?.textContent).toContain("+1.2 mW");
-    expect(socket?.textContent).toContain("+4.2 mW");
-    expect(socket?.textContent).not.toContain("MW");
+    expect(container.querySelector(".empty-socket")).toBeNull();
+    expect(cpuPackage?.textContent).toContain("Add CPU");
+    expect(cpuPackage?.textContent).toContain("Unmatched CPU");
+    expect(cpuPackage?.textContent).toContain("Matched CPU");
+    expect(cpuPackage?.textContent).toContain("+1.2 mW");
+    expect(cpuPackage?.textContent).toContain("+4.2 mW");
+    expect(cpuPackage?.textContent).not.toContain("MW");
 
     act(() => {
       buttons?.[1]?.click();
@@ -515,13 +520,15 @@ describe("HardwareBoard second CPU system management", () => {
     const coreButton =
       card?.querySelector<HTMLButtonElement>(".cpu-summary-core-cell");
 
-    expect(queue?.classList.contains("slots-1")).toBe(true);
+    const queueStates = Array.from(
+      card?.querySelectorAll(".cpu-summary-queue-state") ?? [],
+    ).map((state) => state.textContent);
+
+    expect(queue?.classList.contains("slots-4")).toBe(true);
     expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
     expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
-    expect(card?.querySelector(".cpu-summary-queue-state")?.textContent).toBe(
-      "CACHE",
-    );
-    expect(card?.textContent).not.toContain("Open");
+    expect(queueStates).toEqual(["CACHE", "Open", "Open", "Open"]);
+    expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(3);
     expect(card?.querySelector(".cpu-summary-upgrades")).toBeNull();
 
     act(() => {
@@ -544,6 +551,7 @@ describe("HardwareBoard second CPU system management", () => {
 
     expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
     expect(container.querySelector(".cpu-bank-stack")).not.toBeNull();
+    expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
     expect(container.querySelector(".cpu-bank-grid")).toBeNull();
   });
 
@@ -603,6 +611,7 @@ describe("HardwareBoard second CPU system management", () => {
       container.querySelectorAll(".cpu-bank-stack .core-label"),
     ).map((label) => label.textContent);
 
+    expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
     expect(fullViewLabels).toEqual(["C1", "C2", "C3", "C4"]);
   });
 

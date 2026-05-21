@@ -180,7 +180,11 @@ function CoreDie({
       }`}
     >
       <span className="core-die-head">
+        <span className="core-status-dot" aria-hidden="true" />
         <span className="core-label">{coreLabel}</span>
+        <span className="core-clock">
+          <strong>{formatClock(core.clockHz)}</strong>
+        </span>
         {active && (
           <button
             type="button"
@@ -192,12 +196,8 @@ function CoreDie({
             <X size={11} />
           </button>
         )}
-        <span className="core-status-dot" aria-hidden="true" />
       </span>
-      <span className="core-clock">
-        <strong>{formatClock(core.clockHz)}</strong>
-      </span>
-      {density === "normal" && (
+      {density === "normal" && active && (
         <span className="core-work" title={work}>
           {work}
         </span>

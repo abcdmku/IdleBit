@@ -1,74 +1,115 @@
+/* ============ CRON / SYSTEM AUTOMATION ============
+   One row = one cron line: [toggle] task ▼  every [N][unit]  next 12s
+   The unit toggle is a flush segmented suffix on the number input so
+   the trio reads as a single time expression. The footer collapses
+   the cadence floor + its upgrade stepper into a single inline strip.
+   ==================================================================== */
+
 .cron-section {
-  gap: 8px;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+}
+
+.cron-header-row {
+  position: relative;
+  padding-bottom: var(--s-1);
+  flex-wrap: nowrap;
+  gap: var(--s-2);
+}
+
+.cron-header-row::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(184, 158, 255, 0.42),
+    rgba(184, 158, 255, 0.08) 38%,
+    transparent 72%
+  );
+  pointer-events: none;
 }
 
 .cron-header-row .hw-section-header {
   width: auto;
+  flex: 1 1 auto;
 }
 
+.cron-floor-inline {
+  margin-left: var(--s-1);
+  color: var(--muted-2);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.cron-min-stepper {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 200px;
+  min-height: 22px;
+  align-self: center;
+  font-size: var(--fs-2xs);
+}
+
+.cron-min-stepper .upgrade-stepper-spec > span {
+  font-size: var(--fs-2xs);
+}
+
+/* ---------- Schedule list ---------- */
 .cron-schedule-list {
   display: grid;
-  gap: 5px;
+  gap: var(--s-1);
 }
 
 .cron-schedule-row {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 66px auto auto;
-  gap: 8px;
+  grid-template-columns: 22px minmax(0, 1fr) 50px auto auto;
+  column-gap: var(--s-2);
+  row-gap: var(--s-1);
   align-items: center;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid rgba(184, 158, 255, 0.16);
-  border-radius: var(--radius);
+  padding: 3px var(--s-2) 3px var(--s-3);
+  border: 1px solid rgba(184, 158, 255, 0.14);
+  border-radius: var(--radius-sm);
   background: rgba(4, 8, 7, 0.32);
-  transition: border-color 120ms ease, background 120ms ease;
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
+
+.cron-schedule-row::before {
+  /* violet status bar pinned to the leading edge */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(184, 158, 255, 0.20);
+  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 
 .cron-schedule-row.enabled {
-  border-color: rgba(184, 158, 255, 0.36);
+  border-color: rgba(184, 158, 255, 0.32);
   background:
-    linear-gradient(90deg, rgba(184, 158, 255, 0.1), transparent 40%),
-    rgba(4, 8, 7, 0.36);
+    linear-gradient(90deg, rgba(184, 158, 255, 0.08), transparent 32%),
+    rgba(4, 8, 7, 0.40);
 }
 
-.cron-schedule-row.paused {
-  opacity: 0.78;
+.cron-schedule-row.enabled::before {
+  background: var(--violet);
+  box-shadow: 0 0 8px rgba(184, 158, 255, 0.55);
 }
 
-.cron-control {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 0.52rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+.cron-schedule-row.paused { opacity: 0.66; }
 
-.cron-control select,
-.cron-control input {
-  min-width: 0;
-  width: 100%;
-  min-height: 24px;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-}
-
-.cron-control input {
-  padding: 3px 6px;
-  border: 1px solid rgba(120, 220, 200, 0.2);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  background: rgba(4, 8, 7, 0.62);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.cron-task-control select {
-  padding-right: 18px;
-}
-
+/* ---------- Toggle (column 1) ---------- */
 .cron-toggle {
   position: relative;
   display: inline-flex;
@@ -90,116 +131,157 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 1px solid rgba(184, 158, 255, 0.28);
+  border: 1px solid rgba(184, 158, 255, 0.32);
   border-radius: 50%;
-  background: rgba(184, 158, 255, 0.08);
+  background: rgba(184, 158, 255, 0.06);
   color: var(--violet);
   cursor: pointer;
-  transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+  transition:
+    background var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease);
 }
 
 .cron-toggle-button:hover {
   background: rgba(184, 158, 255, 0.18);
+  transform: scale(1.06);
 }
 
 .cron-toggle-button[aria-pressed="true"] {
   background: var(--violet);
   color: #0a0708;
-  box-shadow: 0 0 0 2px rgba(184, 158, 255, 0.16), 0 0 12px rgba(184, 158, 255, 0.42);
+  box-shadow:
+    0 0 0 2px rgba(184, 158, 255, 0.18),
+    0 0 14px rgba(184, 158, 255, 0.55);
+}
+
+/* ---------- Controls (label wrappers) ---------- */
+.cron-control {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+.cron-control > span {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.50rem;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.cron-control select,
+.cron-control input {
+  min-width: 0;
+  width: 100%;
+  min-height: 22px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.cron-task-control select {
+  padding-right: 20px;
+  border-color: rgba(184, 158, 255, 0.22);
+}
+
+.cron-task-control select:hover:not(:disabled) {
+  --select-border: rgba(184, 158, 255, 0.55);
+  --select-arrow: var(--violet);
+}
+
+/* ---------- Interval input + unit toggle (cols 3 & 4) ----------
+   Visually fused: the number's right edge melts into the s/m segment.
+   A negative margin eats the grid gap between the two columns. */
+.cron-interval-control input {
+  padding: 3px 6px;
+  border: 1px solid rgba(184, 158, 255, 0.28);
+  border-right: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  color: var(--text);
+  background: rgba(4, 8, 7, 0.62);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.cron-interval-control input:focus-visible {
+  border-color: var(--amber);
 }
 
 .cron-mode-control {
   display: inline-flex;
-  border: 1px solid rgba(184, 158, 255, 0.22);
-  border-radius: var(--radius-sm);
+  align-self: center;
+  height: 22px;
+  margin-left: calc(var(--s-2) * -1); /* eat the column gap, fuse with input */
+  border: 1px solid rgba(184, 158, 255, 0.28);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: rgba(4, 8, 7, 0.62);
   overflow: hidden;
-  background: rgba(4, 8, 7, 0.4);
 }
 
 .cron-mode-control button {
-  min-width: 22px;
-  height: 24px;
+  min-width: 20px;
+  height: 100%;
   padding: 0 6px;
   border: 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--muted-2);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: lowercase;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
 
 .cron-mode-control button + button {
   border-left: 1px solid rgba(184, 158, 255, 0.18);
 }
 
-.cron-mode-control button:hover {
-  color: var(--text);
-}
+.cron-mode-control button:hover:not(.active) { color: var(--text); }
 
 .cron-mode-control button.active {
-  background: rgba(184, 158, 255, 0.18);
+  background: rgba(184, 158, 255, 0.20);
   color: var(--violet);
+  text-shadow: 0 0 8px rgba(184, 158, 255, 0.55);
 }
 
+/* ---------- Next job (column 5) ---------- */
 .cron-next {
   display: grid;
-  gap: 1px;
+  gap: 0;
   justify-items: end;
-  min-width: 56px;
-  padding-left: 4px;
+  min-width: 54px;
+  padding-left: var(--s-2);
+  margin-left: 2px;
+  border-left: 1px solid rgba(184, 158, 255, 0.16);
   font-family: var(--font-mono);
   text-align: right;
+  line-height: 1.05;
 }
 
 .cron-next small {
-  color: var(--muted);
-  font-size: 0.52rem;
-  letter-spacing: 0.08em;
+  color: var(--muted-2);
+  font-size: 0.50rem;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
 }
 
 .cron-next strong {
   color: var(--text);
-  font-size: 0.74rem;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 
-.cron-schedule-row.paused .cron-next strong {
-  color: var(--muted);
-}
-
-.cron-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.cron-min-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 7px;
-  border: 1px solid rgba(184, 158, 255, 0.22);
-  border-radius: var(--radius-sm);
+.cron-schedule-row.enabled .cron-next strong {
   color: var(--violet);
-  background: rgba(184, 158, 255, 0.08);
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(184, 158, 255, 0.32);
 }
 
-.cron-min-stepper {
-  flex: 1 1 200px;
-  max-width: 260px;
-}
+.cron-schedule-row.paused .cron-next strong { color: var(--muted); }
 

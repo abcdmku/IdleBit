@@ -98,7 +98,7 @@ export function SystemRackPanel({
     <SystemRack>
       <div className="system-rack-header">
         <span className="system-rack-title">
-          <Server size={14} />
+          <Server size={15} />
           <span>Rack</span>
           <small>
             {rack.systems.length} unit{rack.systems.length === 1 ? "" : "s"}
@@ -111,7 +111,7 @@ export function SystemRackPanel({
             onClick={() => onOpenBuilder("new")}
             title="Open builder to buy a new system"
           >
-            <Plus size={12} />
+            <Plus size={13} />
             <span>Build New</span>
           </button>
         )}

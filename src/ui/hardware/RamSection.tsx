@@ -332,6 +332,11 @@ function RamStickCard({
     >
       <span className="ram-stick-module-head">
         <span className="ram-stick-label">R{slot.id}</span>
+        <span className="ram-stick-module-foot">
+          <span>{formatBits(slot.sizeBits)}</span>
+          <span className="ram-stick-foot-sep" aria-hidden="true">·</span>
+          <span>{formatClock(slot.speedMt)}</span>
+        </span>
         <span className="ram-stick-module-pct">{pct}%</span>
       </span>
       <span className="ram-stick-module-meter" aria-hidden="true">
@@ -340,10 +345,6 @@ function RamStickCard({
         ) : (
           <ModuleMeter value={0} />
         )}
-      </span>
-      <span className="ram-stick-module-foot">
-        <span>{formatBits(slot.sizeBits)}</span>
-        <span>{formatClock(slot.speedMt)}</span>
       </span>
     </button>
   );

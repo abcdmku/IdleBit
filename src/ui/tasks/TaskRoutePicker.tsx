@@ -1,6 +1,6 @@
 import type { VisibleState } from "../../game";
 import { getSocketCoreLabel, getSocketForCore } from "../panels/cpuLabels";
-import { getSelectedCoreId, getSelectedSchedulerId } from "../panels/selectionIds";
+import { getRackData } from "../rack/rackData";
 import {
   getSelectedSystemComponent,
   getSelectedSystemId,
@@ -8,7 +8,7 @@ import {
   type SelectedComponent,
 } from "../workbenchData";
 import { getQueueEntries, resolveTaskRoute } from "./taskData";
-import type { TaskCategoryId, TaskRouteLayer } from "./taskTypes";
+import type { TaskCategoryId } from "./taskTypes";
 
 export function getRouteTargetLabel(
   visible: VisibleState,
@@ -35,137 +35,151 @@ export function TaskGroupRoutePicker({
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
 }) {
-  const systemId = getSelectedSystemId(selection);
-  const routeSelection = getSelectedSystemComponent(selection);
-  const selectComponent = (component: SelectedComponent) =>
-    onSelectComponent(scopeSelectionToSystem(systemId, component));
-
-  if (category === "cpu") {
-    return (
-      <TaskRoutePicker
-        visible={visible}
-        selection={routeSelection}
-        onSelectComponent={selectComponent}
-      />
-    );
-  }
-
-  if (category === "system") {
-    if (!visible.flags.scheduler) return null;
-    return (
-      <div className="task-route-picker" aria-label="System route">
-        <select
-          className="task-route-select task-route-target-select"
-          value="system"
-          onChange={() => selectComponent("scheduler")}
-          aria-label="System target"
-          title="System scheduler"
-        >
-          <option value="system">System</option>
-        </select>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function TaskRoutePicker({
-  visible,
-  selection,
-  onSelectComponent,
-}: {
-  visible: VisibleState;
-  selection: SelectedComponent;
-  onSelectComponent: (component: SelectedComponent) => void;
-}) {
-  const systemId = getSelectedSystemId(selection);
+  const rack = getRackData(visible);
+  const routeSystems = rack.systems.length > 1 ? rack.systems : [];
+  const requestedSystemId =
+    getSelectedSystemId(selection) ?? rack.selectedSystemId ?? routeSystems[0]?.id ?? null;
   const routeSelection =
-    getSelectedSystemComponent(selection) ?? ("core:1" as SelectedComponent);
-  const selectComponent = (component: SelectedComponent) =>
-    onSelectComponent(scopeSelectionToSystem(systemId, component));
-  const sockets = visible.metrics.cpuSockets;
-  const cores = sockets.flatMap((socket) => socket.cores);
-  const firstCoreId = cores[0]?.id ?? 1;
-  const firstSocketId = sockets[0]?.id ?? 1;
-  const schedulerVisible =
-    visible.flags.basicQueue ||
-    visible.flags.scheduler ||
-    getQueueEntries(visible).length > 0;
-  const selectedCoreId = getSelectedCoreId(routeSelection) ?? firstCoreId;
-  const selectedSchedulerId = getSelectedSchedulerId(routeSelection) ?? firstSocketId;
-  const layer: TaskRouteLayer =
-    routeSelection?.startsWith("scheduler:") && schedulerVisible
-      ? "scheduler"
-      : "core";
-  const layerOptions: Array<{ value: TaskRouteLayer; label: string; title: string }> = [
-    { value: "core", label: "C", title: "Direct core" },
-    ...(schedulerVisible
-      ? [{ value: "scheduler" as const, label: "CPU", title: "CPU scheduler" }]
-      : []),
-  ];
+    getSelectedSystemComponent(selection) ??
+    (category === "system" ? "scheduler" : ("core:1" as SelectedComponent));
+  const options =
+    category === "cpu"
+      ? getCpuRouteOptions(visible, routeSystems)
+      : category === "system"
+        ? getSystemRouteOptions(visible, routeSystems)
+        : [];
 
-  const selectLayer = (nextLayer: TaskRouteLayer) => {
-    if (nextLayer === "core") {
-      selectComponent(`core:${selectedCoreId || firstCoreId}`);
-      return;
-    }
+  if (options.length === 0) return null;
 
-    if (nextLayer === "scheduler") {
-      selectComponent(`scheduler:${selectedSchedulerId || firstSocketId}`);
-    }
-  };
-
-  const selectTarget = (value: string) => {
-    if (layer === "core") {
-      selectComponent(`core:${Number(value) || firstCoreId}`);
-      return;
-    }
-
-    if (layer === "scheduler") {
-      selectComponent(`scheduler:${Number(value) || firstSocketId}`);
-    }
-  };
+  const selectedValue = getSelectedRouteValue(
+    routeSystems.length > 1 ? requestedSystemId : null,
+    routeSelection,
+    options,
+  );
 
   return (
     <div className="task-route-picker" aria-label="Task route">
       <select
-        className="task-route-select task-route-layer-select"
-        value={layer}
-        onChange={(event) => selectLayer(event.currentTarget.value as TaskRouteLayer)}
-        aria-label="Route layer"
-        title="Route layer"
+        className="task-route-select task-route-combo-select"
+        value={selectedValue}
+        onChange={(event) =>
+          onSelectComponent(event.currentTarget.value as SelectedComponent)
+        }
+        aria-label={category === "system" ? "System target" : "Task route target"}
+        title={category === "system" ? "System target" : "Task route target"}
       >
-        {layerOptions.map((option) => (
+        {options.map((option) => (
           <option key={option.value} value={option.value} title={option.title}>
             {option.label}
           </option>
         ))}
       </select>
-      <select
-        className="task-route-select task-route-target-select"
-        value={layer === "core" ? String(selectedCoreId) : String(selectedSchedulerId)}
-        onChange={(event) => selectTarget(event.currentTarget.value)}
-        aria-label={layer === "core" ? "Core target" : "CPU target"}
-        title={layer === "core" ? "Core target" : "CPU target"}
-      >
-        {layer === "core" &&
-          sockets.map((socket) => (
-            <optgroup key={socket.id} label={socket.label}>
-              {socket.cores.map((core) => (
-                <option key={core.id} value={core.id}>
-                  {getSocketCoreLabel(socket, core.id)}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        {layer === "scheduler" &&
-          sockets.map((socket) => (
-            <option key={socket.id} value={socket.id}>
-              CPU {socket.id}
-            </option>
-          ))}
-      </select>
     </div>
   );
 }
+
+type RouteSelectValue = Exclude<SelectedComponent, null>;
+
+interface RouteOption {
+  value: RouteSelectValue;
+  label: string;
+  title: string;
+}
+
+interface RouteSystemTarget {
+  id: string | null;
+  name: string;
+  visible: VisibleState;
+}
+
+const getRouteSystemTargets = (
+  visible: VisibleState,
+  systems: Array<{ id: string; name: string; visible: VisibleState }>,
+): RouteSystemTarget[] =>
+  systems.length > 1
+    ? systems.map((system, index) => ({
+        id: system.id,
+        name: system.name || `System ${index + 1}`,
+        visible: system.visible,
+      }))
+    : [{ id: null, name: "", visible }];
+
+const formatRouteLabel = (
+  target: RouteSystemTarget,
+  label: string,
+  hasMultipleSystems: boolean,
+) => (hasMultipleSystems ? `${target.name} / ${label}` : label);
+
+const getRouteValue = (
+  target: RouteSystemTarget,
+  component: RouteSelectValue,
+): RouteSelectValue =>
+  target.id ? (scopeSelectionToSystem(target.id, component) as RouteSelectValue) : component;
+
+const getCpuRouteOptions = (
+  visible: VisibleState,
+  systems: Array<{ id: string; name: string; visible: VisibleState }>,
+): RouteOption[] => {
+  const targets = getRouteSystemTargets(visible, systems);
+  const hasMultipleSystems = targets.length > 1;
+
+  return targets.flatMap((target) => {
+    const sockets = target.visible.metrics.cpuSockets;
+    const schedulerVisible =
+      target.visible.flags.basicQueue ||
+      target.visible.flags.scheduler ||
+      getQueueEntries(target.visible).length > 0;
+    const coreOptions = sockets.flatMap((socket) =>
+      socket.cores.map((core) => {
+        const label = getSocketCoreLabel(socket, core.id);
+        return {
+          value: getRouteValue(target, `core:${core.id}` as RouteSelectValue),
+          label: formatRouteLabel(target, label, hasMultipleSystems),
+          title: `${target.name ? `${target.name}: ` : ""}${socket.label} ${label}`,
+        };
+      }),
+    );
+    const schedulerOptions = schedulerVisible
+      ? sockets.map((socket) => ({
+          value: getRouteValue(target, `scheduler:${socket.id}` as RouteSelectValue),
+          label: formatRouteLabel(target, `CPU ${socket.id}`, hasMultipleSystems),
+          title: `${target.name ? `${target.name}: ` : ""}CPU scheduler ${socket.id}`,
+        }))
+      : [];
+
+    return [...coreOptions, ...schedulerOptions];
+  });
+};
+
+const getSystemRouteOptions = (
+  visible: VisibleState,
+  systems: Array<{ id: string; name: string; visible: VisibleState }>,
+): RouteOption[] => {
+  const targets = getRouteSystemTargets(visible, systems);
+  const hasMultipleSystems = targets.length > 1;
+  const schedulerVisible =
+    targets.length > 1 || visible.flags.scheduler || targets.some((target) => target.visible.flags.scheduler);
+
+  if (!schedulerVisible) return [];
+
+  return targets.map((target) => ({
+    value: getRouteValue(target, "scheduler"),
+    label: formatRouteLabel(target, "System", hasMultipleSystems),
+    title: `${target.name ? `${target.name}: ` : ""}System scheduler`,
+  }));
+};
+
+const getSelectedRouteValue = (
+  systemId: string | null,
+  routeSelection: SelectedComponent,
+  options: RouteOption[],
+) => {
+  const component = (routeSelection ?? "core:1") as RouteSelectValue;
+  const candidate = systemId
+    ? (scopeSelectionToSystem(systemId, component) as RouteSelectValue)
+    : component;
+
+  return options.some((option) => option.value === candidate)
+    ? candidate
+    : (options[0]?.value ?? candidate);
+};

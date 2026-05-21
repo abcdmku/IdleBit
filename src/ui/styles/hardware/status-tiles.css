@@ -1,30 +1,35 @@
+/* ============ STATUS TILES ============ */
+
 .status-tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 9px 10px;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: rgba(4, 8, 7, 0.5);
+  background: rgba(4, 8, 7, 0.55);
   font-family: var(--font-mono);
+  transition: border-color var(--dur-1) var(--ease);
 }
 
 .status-tile span {
   display: inline-flex;
-  gap: 5px;
+  gap: var(--s-1);
   align-items: center;
   color: var(--muted);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+  font-weight: 700;
 }
 
 .status-tile strong {
   color: var(--text);
-  font-size: 0.86rem;
+  font-size: var(--fs-md);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
-.status-tile.good { border-color: rgba(115, 240, 92, 0.32); }
-.status-tile.warn { border-color: rgba(242, 194, 78, 0.5); }
+.status-tile.good     { border-color: rgba(115, 240, 92, 0.32); }
+.status-tile.warn     { border-color: rgba(242, 194, 78, 0.5); }
 .status-tile.critical { border-color: rgba(255, 111, 145, 0.55); }

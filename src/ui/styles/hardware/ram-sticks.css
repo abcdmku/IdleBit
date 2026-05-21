@@ -1,6 +1,8 @@
+/* ============ RAM STICK TILES ============ */
+
 .ram-stick-row {
   display: flex;
-  gap: 4px;
+  gap: var(--s-1);
   width: 100%;
   height: 14px;
 }
@@ -22,24 +24,28 @@
   content: "";
 }
 
+/* ---------- Grid ---------- */
+
 .ram-stick-grid {
   display: grid;
   grid-template-columns: repeat(var(--ram-stick-grid-columns, 2), minmax(92px, 1fr));
-  gap: 5px;
+  gap: var(--s-1);
   min-width: 0;
-  padding: 6px;
+  padding: var(--s-2);
   border: 1px solid rgba(115, 240, 92, 0.14);
   border-radius: var(--radius);
   background: rgba(4, 12, 11, 0.36);
 }
 
+/* ---------- Module tile ---------- */
+
 .ram-stick-module {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--s-1);
   min-width: 0;
-  padding: 6px 7px;
+  padding: var(--s-2) var(--s-3);
   border: 1px solid rgba(115, 240, 92, 0.24);
   border-radius: var(--radius-sm);
   background: linear-gradient(180deg, rgba(18, 31, 22, 0.92), rgba(5, 12, 9, 0.96));
@@ -47,7 +53,10 @@
   cursor: pointer;
   text-align: left;
   font-family: var(--font-mono);
-  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease);
 }
 
 .ram-stick-module:hover {
@@ -67,31 +76,60 @@
   box-shadow: 0 0 0 1px rgba(242, 194, 78, 0.2);
 }
 
+/* ---------- Single-line head: label · spec · % ---------- */
+
 .ram-stick-module-head {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
 }
 
 .ram-stick-module-head .ram-stick-label {
-  flex: 1 1 auto;
-  font-size: 0.62rem;
+  flex: 0 0 auto;
+  color: var(--green);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
 }
 
-.ram-stick-module-pct {
+.ram-stick-module-foot {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  min-width: 0;
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ram-stick-foot-sep { opacity: 0.6; }
+
+.ram-stick-module-pct {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .ram-stick-module.active .ram-stick-module-pct { color: var(--green); }
-.ram-stick-module.ram-stick-state-load .ram-stick-module-pct { color: var(--amber); }
+.ram-stick-module.ram-stick-state-load  .ram-stick-module-pct { color: var(--amber); }
 .ram-stick-module.ram-stick-state-stage .ram-stick-module-pct { color: var(--cyan); }
+
+/* ---------- Meter ---------- */
 
 .ram-stick-module-meter {
   display: block;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
   background: rgba(120, 220, 200, 0.08);
 }
@@ -99,29 +137,17 @@
 .ram-stick-module-meter .module-meter,
 .ram-stick-module-meter .ram-pressure-meter {
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
 }
 
-.ram-stick-module-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 0.56rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.ram-select-all-button {
-  margin-left: auto;
-}
+.ram-select-all-button { margin-left: auto; }
 
 .ram-stick-label {
   flex: 1 1 auto;
   color: var(--green);
   font-family: var(--font-display);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
 }

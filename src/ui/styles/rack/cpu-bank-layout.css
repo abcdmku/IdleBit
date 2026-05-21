@@ -13,9 +13,12 @@
 .cpu-bank-stack {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
 .cpu-bank-stack > .cpu-package,
+.cpu-bank-stack > .hw-section,
+.cpu-bank-stack > .scheduler-cache-row,
 .cpu-bank-stack > .core-cache-row { flex: 1 1 auto; }
 
 @media (max-width: 760px) {

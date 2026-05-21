@@ -42,7 +42,7 @@ export function EmptySocketSection({
 const getCpuInstallDescription = (upgrade: VisibleUpgrade) =>
   upgrade.id === "matchedCpu" ? "Matched package" : "Base package";
 
-function CpuInstallOptions({
+export function CpuInstallOptions({
   upgrades,
   resources,
   dispatch,

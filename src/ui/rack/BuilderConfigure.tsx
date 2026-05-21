@@ -97,8 +97,9 @@ export function BuilderConfigure({
         return (
           <section className="builder-configure-group" key={component}>
             <header className="builder-configure-group-header">
-              <Icon size={13} />
+              <Icon size={14} />
               <span>{componentLabels[component]}</span>
+              <span className="builder-configure-group-count">{items.length}</span>
             </header>
             <div className="builder-configure-rows">
               {items.map((upgrade) =>

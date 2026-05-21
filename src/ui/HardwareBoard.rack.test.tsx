@@ -509,12 +509,41 @@ describe("HardwareBoard multi-system rack", () => {
   it("dispatches task actions with the selected system id", () => {
     const visible = makeRackVisible();
     const dispatch = vi.fn();
+    const selectComponent = vi.fn();
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent="system:alpha::scheduler"
+          onSelectComponent={selectComponent}
+          dispatch={dispatch}
+        />,
+      );
+    });
+
+    const routeSelect =
+      container.querySelector<HTMLSelectElement>(".task-route-combo-select");
+
+    expect(routeSelect).not.toBeNull();
+    expect(routeSelect?.value).toBe("system:alpha::scheduler");
+    expect(
+      Array.from(routeSelect?.options ?? []).map((option) => option.textContent),
+    ).toEqual(["Alpha / System", "Beta / System"]);
+
+    act(() => {
+      routeSelect!.value = "system:beta::scheduler";
+      routeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(selectComponent).toHaveBeenCalledWith("system:beta::scheduler");
 
     act(() => {
       root.render(
         <TaskBay
           visible={visible}
           selectedComponent="system:beta::scheduler"
+          onSelectComponent={selectComponent}
           dispatch={dispatch}
         />,
       );

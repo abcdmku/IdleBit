@@ -158,6 +158,10 @@ export function HardwareSystemBoard({
       return <Fragment key={socket.id}>{moduleLayout}</Fragment>;
     }
 
+    if (multiCpu && bankView === "tabs") {
+      return <Fragment key={socket.id}>{moduleLayout}</Fragment>;
+    }
+
     return (
       <CpuPackage
         key={socket.id}
@@ -166,6 +170,7 @@ export function HardwareSystemBoard({
         showSocketLabel={showSocketLabel}
         onSelect={() => onSelectComponent("cpu")}
         cpuUpgrades={cpuUpgrades}
+        socketUpgrades={socketUpgrades}
         resources={visible.resources}
         dispatch={dispatch}
         deadlockPressure={visible.metrics.deadlockPressure}
@@ -247,7 +252,7 @@ export function HardwareSystemBoard({
         sockets.map(renderSocket)
       )}
 
-      {showEmptySocket && (
+      {showEmptySocket && !memoryVisible && (
         <EmptySocketSection
           selected={selectedComponent === "socket"}
           onSelect={() => onSelectComponent("socket")}

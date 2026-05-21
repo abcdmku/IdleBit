@@ -46,7 +46,10 @@ function CpuSummaryCard({
   const queueCapacity = Math.max(socket.schedulerSlots ?? 0, 0);
   const queueCount = socket.queuedCount ?? 0;
   const queueItems = schedulerVisible ? getQueueDisplayItems(visible, socket) : [];
-  const compactSlotCount = Math.min(queueItems.length, 16);
+  const compactSlotCount = Math.min(
+    Math.max(queueItems.length, queueCapacity),
+    16,
+  );
   const hiddenQueueCount = Math.max(0, queueItems.length - compactSlotCount);
   const summaryQueueColumns = getCompactSchedulerColumnCount(compactSlotCount);
   const deadlocked = socket.deadlocked;
@@ -123,6 +126,23 @@ function CpuSummaryCard({
             >
               {Array.from({ length: compactSlotCount }, (_, index) => {
                 const item = queueItems[index];
+                if (!item) {
+                  return (
+                    <li
+                      key={`open-${socket.id}-${index}`}
+                      className="cpu-summary-queue-slot empty"
+                      title={`Slot ${index + 1}: open`}
+                    >
+                      <span className="cpu-summary-queue-index">
+                        {index + 1}
+                      </span>
+                      <span className="cpu-summary-queue-state" title="Open">
+                        Open
+                      </span>
+                    </li>
+                  );
+                }
+
                 const state = getCompactSchedulerItemState(item);
                 return (
                   <li

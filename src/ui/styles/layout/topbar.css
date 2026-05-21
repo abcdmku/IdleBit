@@ -1,14 +1,25 @@
 /* ============ TOPBAR ============ */
 
 .topbar {
+  position: relative;
   display: flex;
   flex-wrap: nowrap;
-  gap: 14px;
+  gap: var(--s-3);
   align-items: center;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(8, 18, 17, 0.96), rgba(5, 12, 11, 0.84));
+  padding: var(--s-2) var(--s-5);
+  border-bottom: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, rgba(8, 18, 17, 0.96), rgba(5, 12, 11, 0.84));
   backdrop-filter: blur(12px);
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(36, 231, 195, 0.18), transparent);
+  pointer-events: none;
 }
 
 .topbar-brand { flex: 0 0 auto; }
@@ -18,30 +29,34 @@
 
 .topbar-brand {
   display: inline-flex;
-  gap: 10px;
+  gap: var(--s-3);
   align-items: center;
   font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--cyan);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  letter-spacing: 0.20em;
+  color: var(--text);
   text-transform: uppercase;
 }
 
 .topbar-brand .brand-bar {
   width: 3px;
-  height: 18px;
-  background: var(--cyan);
-  box-shadow: 0 0 8px var(--cyan);
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--cyan), rgba(36, 231, 195, 0.4));
+  box-shadow:
+    0 0 12px var(--cyan),
+    0 0 2px var(--cyan);
 }
 
 .topbar-stage {
   display: inline-flex;
-  gap: 10px;
+  gap: var(--s-3);
   align-items: center;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-loose);
   text-transform: uppercase;
   overflow: hidden;
 }
@@ -59,48 +74,52 @@
   min-width: 0;
   color: var(--text);
   font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: var(--tracking-mid);
   text-transform: none;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .topbar-stage strong::before {
-  content: "\00b7";
-  padding-right: 8px;
-  color: var(--muted);
+  content: "·";
+  padding-right: var(--s-3);
+  color: var(--muted-2);
 }
 
 .topbar-alert-badge {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--s-2);
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  padding: 5px 9px;
-  border: 1px solid rgba(255, 111, 145, 0.42);
-  border-radius: 999px;
-  background: rgba(255, 40, 84, 0.14);
+  min-height: 26px;
+  padding: 2px var(--s-3);
+  border: 1px solid var(--line-danger);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 40, 84, 0.12);
   color: var(--rose);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   white-space: nowrap;
   box-shadow: 0 0 14px rgba(255, 40, 84, 0.12);
   cursor: pointer;
-  justify-self: end;
+  animation: alert-pulse 1.4s ease-in-out infinite;
 }
 
 .topbar-alert-badge:hover {
-  border-color: rgba(255, 111, 145, 0.68);
+  border-color: var(--rose);
   background: rgba(255, 40, 84, 0.22);
+  animation-play-state: paused;
 }
 
-.topbar-alert-badge svg {
-  flex: 0 0 auto;
+.topbar-alert-badge svg { flex: 0 0 auto; }
+
+@keyframes alert-pulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(255, 40, 84, 0.12); }
+  50%      { box-shadow: 0 0 22px rgba(255, 40, 84, 0.32); }
 }

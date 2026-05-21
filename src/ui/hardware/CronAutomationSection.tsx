@@ -84,8 +84,23 @@ export function CronAutomationSection({
           <span>System Automation</span>
           <span className="hw-section-meta">
             <strong>{activeCount}</strong>/{schedules.length} active
+            <span
+              className="cron-floor-inline"
+              title="Smallest interval CRON can schedule"
+            >
+              · Min {formatCronInterval(baseMinimumSeconds)}
+            </span>
           </span>
         </button>
+        {minUpgrade && (
+          <UpgradeStepper
+            upgrade={minUpgrade}
+            dispatch={dispatch}
+            label="Min interval"
+            className="cron-min-stepper"
+            resources={visible.resources}
+          />
+        )}
       </div>
 
       <div className="cron-schedule-list" aria-label="CRON schedules">
@@ -99,21 +114,6 @@ export function CronAutomationSection({
             dispatch={dispatch}
           />
         ))}
-      </div>
-
-      <div className="cron-footer">
-        <span className="cron-min-chip" title="Smallest interval CRON can schedule">
-          Min {formatCronInterval(baseMinimumSeconds)}
-        </span>
-        {minUpgrade && (
-          <UpgradeStepper
-            upgrade={minUpgrade}
-            dispatch={dispatch}
-            label="Min interval"
-            className="cron-min-stepper"
-            resources={visible.resources}
-          />
-        )}
       </div>
     </section>
   );
@@ -210,7 +210,6 @@ function CronScheduleRow({
       </label>
 
       <label className="cron-control cron-task-control">
-        <span>Task</span>
         <select
           value={selectedTaskId}
           onChange={(event) =>
@@ -235,8 +234,7 @@ function CronScheduleRow({
         </select>
       </label>
 
-      <label className="cron-control cron-interval-control">
-        <span>Every</span>
+      <label className="cron-control cron-interval-control" title="Interval between runs">
         <input
           type="number"
           min={minValue}

@@ -5,6 +5,7 @@ import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
 import { InlineUpgradeRow } from "./UpgradeControls";
+import { CpuInstallOptions } from "./CpuInstallOptions";
 
 export function CpuPackage({
   socket,
@@ -12,6 +13,7 @@ export function CpuPackage({
   showSocketLabel,
   onSelect,
   cpuUpgrades,
+  socketUpgrades = [],
   resources,
   dispatch,
   deadlockPressure,
@@ -22,6 +24,7 @@ export function CpuPackage({
   showSocketLabel: boolean;
   onSelect: () => void;
   cpuUpgrades: VisibleUpgrade[];
+  socketUpgrades?: VisibleUpgrade[];
   resources: VisibleState["resources"];
   dispatch: Dispatch;
   deadlockPressure: VisibleState["metrics"]["deadlockPressure"];
@@ -58,6 +61,19 @@ export function CpuPackage({
       </button>
 
       <div className="cpu-package-body">{children}</div>
+      {socketUpgrades.length > 0 && (
+        <div className="cpu-package-install" aria-label="Add CPU">
+          <span className="cpu-package-install-copy">
+            <strong>Add CPU</strong>
+            <small>Install another package in this system.</small>
+          </span>
+          <CpuInstallOptions
+            upgrades={socketUpgrades}
+            resources={resources}
+            dispatch={dispatch}
+          />
+        </div>
+      )}
       {selected && otherCpuUpgrades.length > 0 && (
         <InlineUpgradeRow
           upgrades={otherCpuUpgrades}

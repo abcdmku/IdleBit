@@ -8,7 +8,7 @@ import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCoreGridMetrics } from "./coreGrid";
-import { getProgressStyle } from "./meters";
+import { getCoreSegmentColor, getProgressStyle } from "./meters";
 import type { CoreGridDensity } from "./visibleState";
 
 export function CoreArraySection({
@@ -149,6 +149,10 @@ function CoreDie({
   const progress =
     active?.coreProgress?.find((operation) => operation.coreId === core.id)?.progress ?? 0;
   const work = active?.name ?? "Idle";
+  const coreStyle = {
+    "--core-status-color": getCoreSegmentColor(core.id, 0.94),
+    "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
+  } as CSSProperties;
   const cancelActiveTask = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!active) return;
@@ -175,6 +179,7 @@ function CoreDie({
       onClick={onSelect}
       onKeyDown={selectOnKeyDown}
       aria-pressed={selected}
+      style={coreStyle}
       title={`${coreLabel} - ${formatClock(core.clockHz)} - ${
         core.deadlocked ? "Deadlocked" : work
       }`}

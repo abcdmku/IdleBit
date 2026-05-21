@@ -225,13 +225,17 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--muted-2);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+  background: var(--core-status-color, var(--muted-2));
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.6),
+    0 0 7px var(--core-status-glow, transparent);
+  opacity: 0.78;
 }
 
 .core-die.running .core-status-dot {
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green);
+  background: var(--core-status-color, var(--green));
+  box-shadow: 0 0 8px var(--core-status-glow, var(--green));
+  opacity: 1;
   animation: status-pulse 1.6s ease-in-out infinite;
 }
 

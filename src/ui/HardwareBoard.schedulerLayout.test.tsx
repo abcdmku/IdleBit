@@ -330,13 +330,17 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     });
 
     const standaloneCores = container.querySelector(".core-array-section");
+    const coreDie = standaloneCores?.querySelector<HTMLElement>(".core-die");
 
     expect(container.querySelector(".cpu-package")).toBeNull();
     expect(standaloneCores).not.toBeNull();
     expect(standaloneCores?.closest(".cpu-package")).toBeNull();
     expect(
-      standaloneCores?.querySelector(".core-die .core-work")?.textContent,
+      coreDie?.querySelector(".core-work")?.textContent,
     ).toBe("Idle");
+    expect(coreDie?.style.getPropertyValue("--core-status-color")).toBe(
+      "hsla(168, 82%, 62%, 0.94)",
+    );
 
     const ramVisible: VisibleState = {
       ...base,

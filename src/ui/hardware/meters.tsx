@@ -37,9 +37,9 @@ export const getProgressStyle = (
 const getProgressPercent = (value: number | null | undefined) =>
   `${clampMeter(value) * 100}%`;
 
-const getCoreHue = (coreId: number) => (168 + (coreId - 1) * 47) % 360;
+export const getCoreHue = (coreId: number) => (168 + (coreId - 1) * 47) % 360;
 
-const getCoreSegmentColor = (coreId: number, alpha: number) =>
+export const getCoreSegmentColor = (coreId: number, alpha: number) =>
   `hsla(${getCoreHue(coreId)}, 82%, 62%, ${alpha})`;
 
 const cacheStateLabels: Array<{ state: CacheSegmentState; label: string }> = [

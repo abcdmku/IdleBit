@@ -16,6 +16,23 @@ const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
 
+const makePointerEvent = (type: string) => {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    button: 0,
+    buttons: type === "pointerup" ? 0 : 1,
+    cancelable: true,
+  });
+
+  Object.defineProperties(event, {
+    pointerId: { value: 1 },
+    pointerType: { value: "mouse" },
+    isPrimary: { value: true },
+  });
+
+  return event;
+};
+
 describe("TaskBay task and research behavior", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -110,6 +127,136 @@ describe("TaskBay task and research behavior", () => {
     expect(meta?.textContent).toContain("ops");
     expect(taskCard?.querySelector(".task-card-head .resource-token.credits")).not.toBeNull();
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
+  });
+
+  it("repeats task actions immediately while the run button is held", () => {
+    vi.useFakeTimers();
+
+    try {
+      const base = deriveVisibleState(createInitialGameState());
+      const dispatch = vi.fn();
+      const visible: VisibleState = {
+        ...base,
+        flags: {
+          ...base.flags,
+          basicQueue: true,
+        },
+        tasks: base.tasks.map((task) =>
+          task.id === "fetchBit"
+            ? {
+              ...task,
+              canQueue: true,
+              queueBlockedReason: null,
+            }
+            : task,
+        ),
+      };
+
+      act(() => {
+        root.render(
+          <TaskBay
+            visible={visible}
+            selectedComponent="scheduler:1"
+            dispatch={dispatch}
+          />,
+        );
+      });
+
+      const button = container.querySelector<HTMLButtonElement>(".task-run-button");
+
+      expect(button?.disabled).toBe(false);
+
+      act(() => {
+        button?.dispatchEvent(makePointerEvent("pointerdown"));
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch).toHaveBeenLastCalledWith({
+        type: "queueTask",
+        taskId: "fetchBit",
+        cpuId: 1,
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(330);
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(4);
+
+      act(() => {
+        window.dispatchEvent(makePointerEvent("pointerup"));
+        button?.click();
+        vi.advanceTimersByTime(220);
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(4);
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      act(() => {
+        button?.click();
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps held task retriggers after ten seconds", () => {
+    vi.useFakeTimers();
+
+    try {
+      const base = deriveVisibleState(createInitialGameState());
+      const dispatch = vi.fn();
+      const visible: VisibleState = {
+        ...base,
+        flags: {
+          ...base.flags,
+          basicQueue: true,
+        },
+        tasks: base.tasks.map((task) =>
+          task.id === "fetchBit"
+            ? {
+              ...task,
+              canQueue: true,
+              queueBlockedReason: null,
+            }
+            : task,
+        ),
+      };
+
+      act(() => {
+        root.render(
+          <TaskBay
+            visible={visible}
+            selectedComponent="scheduler:1"
+            dispatch={dispatch}
+          />,
+        );
+      });
+
+      const button = container.querySelector<HTMLButtonElement>(".task-run-button");
+
+      act(() => {
+        button?.dispatchEvent(makePointerEvent("pointerdown"));
+        vi.advanceTimersByTime(12_000);
+      });
+
+      const countAtCap = dispatch.mock.calls.length;
+
+      expect(countAtCap).toBeGreaterThan(80);
+
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(countAtCap);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lists multi-core task requirements without labeling single-core tasks", () => {

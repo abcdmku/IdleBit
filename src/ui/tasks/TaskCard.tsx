@@ -1,6 +1,7 @@
 import { Cpu, Eye, HardDrive, MemoryStick, Pin, PinOff, Play, Zap } from "lucide-react";
 import { formatBits, formatNumber } from "../format";
 import { ResourceCost } from "../ResourceTokens";
+import { PressRepeatButton } from "./PressRepeatButton";
 import {
   getRequiredCoreCount,
   getTaskCacheBits,
@@ -149,16 +150,15 @@ export function TaskCard({
         </span>
       </div>
 
-      <button
-        type="button"
+      <PressRepeatButton
         className={`task-run-button ${isBlocked ? "blocked" : ""}`}
         disabled={disabled}
-        onClick={onRun}
+        onPress={onRun}
         title={buttonLabel}
       >
         {!isBlocked && <Play size={11} />}
         <span>{buttonLabel}</span>
-      </button>
+      </PressRepeatButton>
     </article>
   );
 }

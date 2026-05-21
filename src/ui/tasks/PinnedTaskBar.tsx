@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Pencil, Pin, PinOff, Play, X } from "lucide-rea
 import type { VisibleState } from "../../game";
 import type { Dispatch } from "../uiActions";
 import type { SelectedComponent } from "../workbenchData";
+import { PressRepeatButton } from "./PressRepeatButton";
 import {
   dispatchRunTask,
   getCoreActiveTask,
@@ -130,18 +131,17 @@ export function PinnedTaskBar({
                   </button>
                 )}
                 <strong className="pinned-task-name">{task.name}</strong>
-                <button
-                  type="button"
+                <PressRepeatButton
                   className={`pinned-task-action ${disabledReason ? "blocked" : ""}`}
                   disabled={disabled}
-                  onClick={() =>
+                  onPress={() =>
                     dispatchRunTask(task, visible, selectedComponent, dispatch)
                   }
                   title={buttonLabel}
                 >
                   {!disabledReason && <Play size={10} />}
                   <span>{buttonLabel}</span>
-                </button>
+                </PressRepeatButton>
               </li>
             );
           })}

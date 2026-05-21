@@ -141,7 +141,7 @@ export const createRackReadyGameState = (): GameState => {
       systemStats: true,
       cron: true,
       systemCatalog: true,
-      customMachineAssembly: false,
+      customMachineAssembly: true,
     },
     research: {
       completed: [

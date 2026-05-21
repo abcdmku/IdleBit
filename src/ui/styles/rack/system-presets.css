@@ -214,7 +214,7 @@
   display: grid;
   grid-template-columns: 68px minmax(0, 1fr);
   gap: var(--s-3);
-  align-items: center;
+  align-items: start;
   min-width: 0;
   padding: var(--s-2) var(--s-3);
   border: 1px solid rgba(120, 220, 200, 0.1);
@@ -238,7 +238,7 @@
   font-size: var(--fs-xs);
   line-height: 1.35;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  white-space: pre-line;
   overflow: hidden;
   text-overflow: ellipsis;
 }

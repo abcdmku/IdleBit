@@ -5,6 +5,7 @@ import { firstBits, firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
 import {
+  formatModuleStats,
   getBuilderOptionMap,
   getModuleSpecRows,
   getPresetId,
@@ -109,7 +110,10 @@ export function PremadeSystemList({
               {(componentSpecs.length > 0
                 ? componentSpecs.map((spec) => ({
                     label: spec.label,
-                    value: [spec.name, ...spec.stats].join(" / "),
+                    value:
+                      spec.stats.length > 0
+                        ? formatModuleStats(spec.groupId, spec.stats)
+                        : "-",
                   }))
                 : specs
               ).map((spec) => (

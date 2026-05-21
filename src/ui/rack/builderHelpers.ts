@@ -212,6 +212,15 @@ export const summarizeTier = (tier: UiCustomMachineTier) => {
   return parts.join(" / ");
 };
 
+const formatCoreCount = (cores: number) =>
+  `${formatNumber(cores)} ${cores === 1 ? "core" : "cores"}`;
+
+const formatOptionalClock = (hz: number | undefined) =>
+  hz ? formatClock(hz) : null;
+
+export const formatModuleStats = (_groupId: string, stats: string[]) =>
+  stats.join("\n");
+
 export const getModuleStats = (
   groupId: string,
   module: UiCustomMachineTier | null | undefined,
@@ -219,41 +228,60 @@ export const getModuleStats = (
   if (!module) return [];
 
   if (groupId === "cpu") {
+    const coreCount = firstNumber(module.cores, module.coreCount);
+    const clock = formatOptionalClock(module.clockHz);
+    const cacheBits = firstBits([module.cacheBits], [module.cacheBytes]);
+    const cacheSpeed = formatOptionalClock(module.cacheSpeedHz);
+    const cacheCapacity = cacheBits > 0 ? `cache ${formatBits(cacheBits)}` : null;
+
     return [
-      module.cpuPackageCount ? `${module.cpuPackageCount} CPU` : null,
-      firstNumber(module.cores, module.coreCount) !== undefined
-        ? `${formatNumber(firstNumber(module.cores, module.coreCount) ?? 0)} cores`
+      coreCount !== undefined
+        ? [formatCoreCount(coreCount), clock].filter(Boolean).join(" @ ")
         : null,
-      module.clockHz
-        ? formatClock(module.clockHz)
-        : module.clockLevel
-          ? `clock L${module.clockLevel}`
-          : null,
-      module.cacheLevel ? `cache L${module.cacheLevel}` : null,
-      module.cacheSpeedLevel ? `cache bus L${module.cacheSpeedLevel}` : null,
+      cacheCapacity || cacheSpeed
+        ? [cacheCapacity ?? "cache", cacheSpeed].filter(Boolean).join(" @ ")
+        : null,
     ].filter((item): item is string => item !== null);
   }
 
   if (groupId === "ram" || groupId === "memory") {
     const ramBits = firstBits([module.ramBits], [module.ramBytes]);
+    const ramStickCount = module.ramStickCount ?? 0;
+    const hasRam =
+      ramBits > 0 ||
+      ramStickCount > 0 ||
+      (module.ramLevel ?? 0) > 0;
+    const capacity = ramBits > 0 ? formatBits(ramBits) : ramStickCount === 0 ? "0 b" : null;
+    const speed =
+      hasRam && module.ramSpeedMt ? formatClock(module.ramSpeedMt) : null;
+    const stickBits =
+      ramStickCount > 0 && ramBits > 0 ? ramBits / ramStickCount : 0;
+    const sticks =
+      module.ramStickCount && stickBits > 0
+        ? `${module.ramStickCount} x ${formatBits(stickBits)} sticks`
+        : module.ramStickCount
+          ? `${module.ramStickCount} sticks`
+          : null;
+
     return [
-      ramBits > 0 ? formatBits(ramBits) : null,
-      module.ramStickCount ? `${module.ramStickCount} sticks` : null,
-      module.ramLevel ? `capacity L${module.ramLevel}` : null,
-      module.ramSpeedLevel ? `speed L${module.ramSpeedLevel}` : null,
-    ].filter((item): item is string => item !== null);
+      [capacity, speed].filter(Boolean).join(" @ "),
+      sticks,
+    ].filter((item): item is string => Boolean(item));
   }
 
   if (groupId === "scheduler") {
     return [
-      module.schedulerSlots ? `${module.schedulerSlots} queue slots` : null,
+      module.schedulerSlots !== undefined
+        ? `${formatNumber(module.schedulerSlots)} queue slots`
+        : null,
     ].filter((item): item is string => item !== null);
   }
 
   if (groupId === "psu" || groupId === "powerSupply") {
+    const watts = module.psuWatts ?? module.powerDeltaWatts;
+
     return [
-      module.psuLevel ? `capacity L${module.psuLevel}` : null,
-      module.powerDeltaWatts ? `+${formatWatts(module.powerDeltaWatts)}` : null,
+      watts ? `${formatWatts(watts)} capacity` : null,
     ].filter((item): item is string => item !== null);
   }
 
@@ -276,6 +304,7 @@ export const getModuleSpecRows = (
             : groupId;
 
   return {
+    groupId,
     label,
     name: module ? getTierLabel(module, 0) : "Unselected",
     stats: getModuleStats(groupId, module),

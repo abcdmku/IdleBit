@@ -925,10 +925,13 @@ export interface VisibleRackState {
 export interface VisibleComponentSku extends ComponentSkuDefinition {
   canAfford: boolean;
   clockHz?: number;
+  cacheSpeedHz?: number;
   cacheBits?: number;
   cacheBytes?: number;
   ramBits?: number;
   ramBytes?: number;
+  ramSpeedMt?: number;
+  psuWatts?: number;
   powerDeltaWatts?: number;
 }
 

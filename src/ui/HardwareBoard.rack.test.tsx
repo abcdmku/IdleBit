@@ -157,6 +157,10 @@ describe("HardwareBoard multi-system rack", () => {
         ...base.hardware,
         systemSchedulerSlots: 1,
       },
+      resources: {
+        credits: 1_000,
+        data: 1_000,
+      },
       tasks: [systemTask],
       rack: {
         visible: true,
@@ -211,6 +215,9 @@ describe("HardwareBoard multi-system rack", () => {
                   id: "pro",
                   name: "Pro",
                   cores: 2,
+                  clockHz: 2.5,
+                  cacheBits: 2,
+                  cacheSpeedHz: 1.5,
                   powerDeltaWatts: 12,
                   costs: [{ resource: "credits", amount: 240 }],
                 },
@@ -224,12 +231,20 @@ describe("HardwareBoard multi-system rack", () => {
                   id: "thin",
                   name: "Thin",
                   ramBits: 256,
+                  ramStickCount: 2,
+                  ramLevel: 1,
+                  ramSpeedLevel: 1,
+                  ramSpeedMt: 1,
                   costs: [{ resource: "data", amount: 10 }],
                 },
                 {
                   id: "wide",
                   name: "Wide",
                   ramBits: 1024,
+                  ramStickCount: 4,
+                  ramLevel: 3,
+                  ramSpeedLevel: 2,
+                  ramSpeedMt: 2,
                   costs: [{ resource: "data", amount: 24 }],
                 },
               ],
@@ -254,6 +269,7 @@ describe("HardwareBoard multi-system rack", () => {
                   id: "supply",
                   name: "Supply",
                   psuLevel: 5,
+                  psuWatts: 24,
                   powerDeltaWatts: 24,
                   costs: [{ resource: "credits", amount: 80 }],
                 },
@@ -318,9 +334,10 @@ describe("HardwareBoard multi-system rack", () => {
     expect(
       betaRackSlot.querySelectorAll(".rack-component-bay--power .rack-component-power-value"),
     ).toHaveLength(2);
+    expect(betaRackSlot.querySelector(".rack-component-bay--power .rack-gauge-bar")).toBeNull();
     expect(
       betaRackSlot.querySelectorAll(".rack-component-bay .rack-gauge-bar"),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
     expect(betaRackSlot.querySelectorAll(".rack-cpu-package")).toHaveLength(2);
     expect(betaRackSlot.querySelectorAll(".rack-cpu-core-dot")).toHaveLength(4);
     expect(
@@ -591,10 +608,16 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelector<HTMLButtonElement>(".system-preset-card");
 
     expect(presetButton?.textContent).toContain("Balanced Node");
-    expect(presetButton?.textContent).toContain("Pro");
-    expect(presetButton?.textContent).toContain("Wide");
-    expect(presetButton?.textContent).toContain("Queue");
-    expect(presetButton?.textContent).toContain("Supply");
+    expect(presetButton?.textContent).toContain("2 cores @ 2.5 Hz");
+    expect(presetButton?.textContent).toContain("cache 2 b @ 1.5 Hz");
+    expect(presetButton?.textContent).toContain("1 Kb @ 2 Hz");
+    expect(presetButton?.textContent).toContain("4 x 256 b sticks");
+    expect(presetButton?.textContent).toContain("4 queue slots");
+    expect(presetButton?.textContent).toContain("24 W capacity");
+    expect(presetButton?.textContent).not.toContain("Pro");
+    expect(presetButton?.textContent).not.toContain("Wide");
+    expect(presetButton?.textContent).not.toContain("Queue");
+    expect(presetButton?.textContent).not.toContain("Supply");
 
     act(() => {
       presetButton?.click();
@@ -616,8 +639,11 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
     );
     const proButton = tierButtons.find((button) =>
-      button.textContent?.includes("Pro"),
+      button.textContent?.includes("2 cores @ 2.5 Hz"),
     );
+    const proButtonText = proButton?.textContent ?? "";
+    expect(proButtonText.match(/2 cores @ 2\.5 Hz/g) ?? []).toHaveLength(1);
+    expect(proButtonText.match(/cache 2 b @ 1\.5 Hz/g) ?? []).toHaveLength(1);
 
     act(() => {
       proButton?.click();
@@ -645,12 +671,20 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
     );
     const wideButton = tierButtons.find((button) =>
-      button.textContent?.includes("Wide"),
+      button.textContent?.includes("1 Kb @ 2 Hz"),
     );
+    const wideButtonText = wideButton?.textContent ?? "";
+    expect(wideButtonText).toContain("4 x 256 b sticks");
 
     act(() => {
       wideButton?.click();
     });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
 
     act(() => {
       container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();

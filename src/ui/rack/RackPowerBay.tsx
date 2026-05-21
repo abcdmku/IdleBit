@@ -69,11 +69,6 @@ export function RackPowerBay({
         </span>
       </span>
       <span className="rack-gauge-strip rack-gauge-strip--power">
-        <span
-          className="rack-gauge-bar"
-          style={{ "--rack-gauge-fill": fill } as CSSProperties}
-          aria-hidden="true"
-        />
         <span className="rack-gauge-value rack-component-power-value">
           {formatWatts(drawWatts)}
         </span>

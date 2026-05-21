@@ -143,30 +143,38 @@ const createHardwareFromMachineSelection = (
   );
   const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
   const psuLevel = Math.max(1, psu.psuLevel ?? 1);
+  const cpus = Array.from({ length: cpuPackageCount }, (_, index) => {
+    const start = index * coresPerPackage + Math.min(index, extraCores) + 1;
+    const count = coresPerPackage + (index < extraCores ? 1 : 0);
+    const packageCoreIds = Array.from(
+      { length: count },
+      (_, coreIndex) => start + coreIndex,
+    );
+
+    return createCpuHardwareState(index + 1, packageCoreIds, {
+      cacheLevel,
+      cacheSpeedLevel,
+      cacheBits: getCacheBits(cacheLevel),
+      cacheBytes: getCacheBytes(cacheLevel),
+      schedulerSlots: Math.max(0, cpu.schedulerSlots ?? count),
+    });
+  });
+  const cpuSchedulerSlots = cpus.reduce(
+    (total, cpuPackage) => total + cpuPackage.schedulerSlots,
+    0,
+  );
 
   return {
     clockLevel,
     clockHz: getClockHz(clockLevel),
     coreClockLevels,
-    cpus: Array.from({ length: cpuPackageCount }, (_, index) => {
-      const start = index * coresPerPackage + Math.min(index, extraCores) + 1;
-      const count = coresPerPackage + (index < extraCores ? 1 : 0);
-      const packageCoreIds = Array.from({ length: count }, (_, coreIndex) => start + coreIndex);
-
-      return createCpuHardwareState(index + 1, packageCoreIds, {
-        cacheLevel,
-        cacheSpeedLevel,
-        cacheBits: getCacheBits(cacheLevel),
-        cacheBytes: getCacheBytes(cacheLevel),
-        schedulerSlots: count,
-      });
-    }),
+    cpus,
     cacheLevel,
     cacheSpeedLevel,
     cacheBits: getCacheBits(cacheLevel),
     cacheBytes: getCacheBytes(cacheLevel),
     cores: coreCount,
-    schedulerSlots: coreCount,
+    schedulerSlots: cpuSchedulerSlots,
     systemSchedulerSlots: schedulerSlots,
     systemSchedulerConfig: createSchedulerConfig({ policy: "deadlockSafe" }),
     deadlockRecoveryLevel: 0,
@@ -3165,7 +3173,7 @@ const buyCustomMachine = (
   components: MachineComponentSelection,
 ) => {
   const ensured = ensureSystems(state);
-  if (!ensured.flags.customMachineAssembly) return ensured;
+  if (!ensured.flags.systemCatalog) return ensured;
 
   try {
     getMachineComponentSkus(components);
@@ -3215,6 +3223,11 @@ export const getAvailableJobs = getAvailableTasks;
 export const getAvailableResearch = (state: GameState) =>
   researchDefinitions.filter(
     (research) =>
+      !(
+        (research.id === "systemCatalog" && state.flags.systemCatalog) ||
+        (research.id === "customMachineAssembly" &&
+          state.flags.customMachineAssembly)
+      ) &&
       !state.research.completed.includes(research.id) &&
       research.reveal(state) &&
       research.requirement(state),

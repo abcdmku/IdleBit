@@ -12,11 +12,11 @@ import {
   getBuilderGroupOption,
   getBuilderGroups,
   getBuilderSelections,
+  formatModuleStats,
   getModuleStats,
   getRecordCosts,
   getSelectedBuilderTiers,
   getTierId,
-  getTierLabel,
   sumCosts,
   summarizeTier,
 } from "./builderHelpers";
@@ -27,6 +27,9 @@ interface CustomSystemBuilderProps {
   resources: VisibleState["resources"];
   dispatch: Dispatch;
 }
+
+const formatModuleOptionTitle = (summary: string, costs: ReturnType<typeof getRecordCosts>) =>
+  costs.length > 0 ? `${summary}: ${formatCost(costs)}` : summary;
 
 export function CustomSystemBuilder({
   builder,
@@ -50,9 +53,11 @@ export function CustomSystemBuilder({
   const [activeSlotId, setActiveSlotId] = useState<string | null>(
     initialActiveSlot,
   );
+  const [confirmingPurchase, setConfirmingPurchase] = useState(false);
 
   useEffect(() => {
     setSelections((current) => getBuilderSelections(groups, current));
+    setConfirmingPurchase(false);
   }, [groupsKey]);
 
   useEffect(() => {
@@ -84,19 +89,26 @@ export function CustomSystemBuilder({
     getRecordCosts(builder).length > 0
       ? getRecordCosts(builder)
       : sumCosts(selectedTiers.map(getRecordCosts));
+  const canAffordBuild = costs.every((cost) =>
+    cost.resource === "credits" || cost.resource === "data"
+      ? resources[cost.resource] >= cost.amount
+      : true,
+  );
   const tierBlocked = selectedTiers.find(
     (tier) =>
       tier.disabled ||
-      firstBoolean(tier.canSelect, tier.canAfford) === false ||
+      firstBoolean(tier.canSelect) === false ||
       Boolean(tier.blockedReason),
   );
   const canBuy =
     !tierBlocked &&
-    (firstBoolean(builder.canBuy, builder.canAfford) ?? true);
+    canAffordBuild &&
+    (firstBoolean(builder.canBuy) ?? true);
   const blockedReason =
     tierBlocked?.blockedReason ??
     builder.blockedReason ??
     builder.lockedReason ??
+    (!canAffordBuild ? "Insufficient resources." : null) ??
     "Locked";
   const totalCores =
     (firstNumber(selectedCpuTier?.cores, selectedCpuTier?.coreCount) ?? 0) *
@@ -133,16 +145,10 @@ export function CustomSystemBuilder({
           const selectedTier = options.find(
             (tier, tierIndex) => getTierId(tier, tierIndex) === selectedTierId,
           );
-          const selectedLabel = selectedTier
-            ? getTierLabel(
-                selectedTier,
-                options.indexOf(selectedTier),
-              )
-            : "-";
           const Icon = builderGroupIconFor(groupId);
           const isActive = activeSlotId === groupId;
           const summary = selectedTier
-            ? getModuleStats(groupId, selectedTier).join(" / ") ||
+            ? formatModuleStats(groupId, getModuleStats(groupId, selectedTier)) ||
               summarizeTier(selectedTier)
             : "Choose";
 
@@ -161,7 +167,6 @@ export function CustomSystemBuilder({
                 <Icon size={11} />
                 <span>{groupLabel}</span>
               </span>
-              <span className="custom-system-bay-module">{selectedLabel}</span>
               <span className="custom-system-bay-summary">{summary}</span>
             </button>
           );
@@ -186,12 +191,13 @@ export function CustomSystemBuilder({
                     type="button"
                     className={cpuPackageCount === count ? "active" : ""}
                     aria-pressed={cpuPackageCount === count}
-                    onClick={() =>
+                    onClick={() => {
+                      setConfirmingPurchase(false);
                       setSelections((current) => ({
                         ...current,
                         cpuPackages: String(count),
-                      }))
-                    }
+                      }));
+                    }}
                   >
                     {count}
                   </button>
@@ -201,14 +207,23 @@ export function CustomSystemBuilder({
           )}
           <div className="custom-system-modules">
             {activeOptions.map((tier, tierIndex) => {
+              const activeGroupId = getBuilderGroupId(activeGroup, activeGroupIndex);
               const tierId = getTierId(tier, tierIndex);
               const selected =
-                selections[getBuilderGroupId(activeGroup, activeGroupIndex)] ===
-                tierId;
+                selections[activeGroupId] === tierId;
               const tierCosts = getRecordCosts(tier);
+              const moduleStats = getModuleStats(activeGroupId, tier);
+              const moduleSpecSummary =
+                formatModuleStats(activeGroupId, moduleStats) ||
+                summarizeTier(tier) ||
+                "-";
+              const optionTitle = formatModuleOptionTitle(
+                moduleSpecSummary.replace(/\n/g, " / ") || "Module",
+                tierCosts,
+              );
               const disabled =
                 tier.disabled ||
-                firstBoolean(tier.canSelect, tier.canAfford) === false;
+                firstBoolean(tier.canSelect) === false;
 
               return (
                 <button
@@ -219,30 +234,21 @@ export function CustomSystemBuilder({
                   }`}
                   disabled={disabled}
                   aria-pressed={selected}
-                  onClick={() =>
+                  onClick={() => {
+                    setConfirmingPurchase(false);
                     setSelections((current) => ({
                       ...current,
-                      [getBuilderGroupId(activeGroup, activeGroupIndex)]:
-                        tierId,
-                    }))
-                  }
+                      [activeGroupId]: tierId,
+                    }));
+                  }}
                   title={
                     disabled
                       ? tier.blockedReason ?? "Locked"
-                      : getTierLabel(tier, tierIndex)
+                      : optionTitle
                   }
                 >
-                  <span className="custom-system-module-name">
-                    {getTierLabel(tier, tierIndex)}
-                  </span>
-                  <span className="custom-system-module-summary">
-                    {summarizeTier(tier) || "-"}
-                  </span>
                   <span className="custom-system-module-specs">
-                    {getModuleStats(
-                      getBuilderGroupId(activeGroup, activeGroupIndex),
-                      tier,
-                    ).join(" / ")}
+                    {moduleSpecSummary}
                   </span>
                   {tierCosts.length > 0 && (
                     <span className="custom-system-module-cost">
@@ -286,20 +292,36 @@ export function CustomSystemBuilder({
             className="custom-builder-buy"
             disabled={!canBuy}
             title={
-              canBuy ? `Buy custom system: ${formatCost(costs)}` : blockedReason
+              canBuy
+                ? confirmingPurchase
+                  ? `Confirm custom system purchase: ${formatCost(costs)}`
+                  : `Review custom system purchase: ${formatCost(costs)}`
+                : blockedReason
             }
-            onClick={() =>
+            onClick={() => {
+              if (!confirmingPurchase) {
+                setConfirmingPurchase(true);
+                return;
+              }
+
               dispatch({
                 type: "buyCustomSystem",
                 tierIds: {
                   ...selections,
                   cpuPackages: String(cpuPackageCount),
                 },
-              })
-            }
+              });
+              setConfirmingPurchase(false);
+            }}
           >
             {canBuy ? <Plus size={12} /> : null}
-            <span>{canBuy ? "Build system" : blockedReason}</span>
+            <span>
+              {canBuy
+                ? confirmingPurchase
+                  ? "Confirm purchase"
+                  : "Review build"
+                : blockedReason}
+            </span>
           </button>
         </div>
       </footer>

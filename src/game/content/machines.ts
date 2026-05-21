@@ -37,6 +37,22 @@ const data = (amount: number): Cost => ({
 
 export const componentSkus: CatalogComponentSkuDefinition[] = [
   {
+    id: "cpu-barebones-1",
+    name: "Barebones CPU",
+    tier: "starter",
+    type: "cpu",
+    unlockResearchId: "systemCatalog",
+    offTheShelf: true,
+    description: "The single-core CPU package from the starting PC.",
+    cost: [credits(6)],
+    cpuPackageCount: 1,
+    coreCount: 1,
+    clockLevel: 1,
+    cacheLevel: 1,
+    cacheSpeedLevel: 1,
+    schedulerSlots: 0,
+  },
+  {
     id: "cpu-sip-core",
     name: "SIP Core",
     tier: "starter",
@@ -187,6 +203,19 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     cacheSpeedLevel: 36,
   },
   {
+    id: "ram-none",
+    name: "No RAM",
+    tier: "starter",
+    type: "ram",
+    unlockResearchId: "systemCatalog",
+    offTheShelf: true,
+    description: "The empty RAM bay from the starting PC.",
+    cost: [],
+    ramStickCount: 0,
+    ramLevel: 0,
+    ramSpeedLevel: 1,
+  },
+  {
     id: "ram-1kb-basic",
     name: "1 Kb RAM Kit",
     tier: "starter",
@@ -304,6 +333,17 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     ramSpeedLevel: 19,
   },
   {
+    id: "scheduler-none",
+    name: "No System Scheduler",
+    tier: "starter",
+    type: "scheduler",
+    unlockResearchId: "systemCatalog",
+    offTheShelf: true,
+    description: "The empty scheduler bay from the starting PC.",
+    cost: [],
+    schedulerSlots: 0,
+  },
+  {
     id: "scheduler-2-slot",
     name: "2 Slot System Scheduler",
     tier: "starter",
@@ -357,6 +397,17 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     description: "Server-preview backplane for rack-node queues.",
     cost: [credits(420_000), data(520)],
     schedulerSlots: 24,
+  },
+  {
+    id: "psu-barebones",
+    name: "Barebones PSU",
+    tier: "starter",
+    type: "psu",
+    unlockResearchId: "systemCatalog",
+    offTheShelf: true,
+    description: "The baseline power supply from the starting PC.",
+    cost: [credits(2)],
+    psuLevel: 1,
   },
   {
     id: "psu-compact",
@@ -416,6 +467,20 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
 ];
 
 export const machineTemplates: CatalogMachineTemplateDefinition[] = [
+  {
+    id: "barebonesPc",
+    name: "Barebones PC",
+    tier: "starter",
+    unlockResearchId: "systemCatalog",
+    description: "The same minimal machine the game starts with.",
+    intendedTasks: ["fetchBit", "decodeBit"],
+    components: {
+      cpu: "cpu-barebones-1",
+      ram: "ram-none",
+      scheduler: "scheduler-none",
+      psu: "psu-barebones",
+    },
+  },
   {
     id: "starterNode",
     name: "Starter Node",

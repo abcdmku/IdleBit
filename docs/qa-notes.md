@@ -48,12 +48,12 @@ Target scope from `game-spec.md` section 13.2:
 
 Target scope from `game-spec.md` section 13.3:
 
-- This phase starts from a clean pre-live save reset; stale vertical-slice saves should not be migrated into multi-system/rack state.
+- This phase starts from a clean pre-live save reset; stale vertical-slice saves should not be migrated into multi-system/rack state, and rack/system acquisition stays hidden until System Catalog research after CRON/system-bus progression.
 - The rack is a visual owned-system surface, not full Stage 10 rack infrastructure.
 - The rack shows exactly one visible slot per owned system; buying a preconfigured system or completing a custom build adds one occupied slot.
 - Owned systems remain one-to-one with visible rack slots, including powered-off systems.
-- Preconfigured systems create complete, immediately inspectable machines without requiring manual part selection.
-- The tiered custom machine builder exposes only validated choices for the current progression tier and creates one complete system at a time.
+- Preconfigured systems create complete, immediately inspectable machines without requiring manual part selection, including a Barebones PC that matches the starting machine.
+- The tiered custom machine builder appears with System Catalog, does not require separate Custom Machine Assembly research, lets players configure module choices by bay, and creates one complete system only after explicit purchase confirmation.
 - Compile Code, Render Frame, and Regression Test are elastic single-system tasks: fixed work and reward use idle cores on the selected system to finish sooner, but work does not split across systems.
 - Shared queues, networking, sharding, cluster scheduling, distributed computing, true rack-unit constraints, data centers, and SLA contracts remain out of scope.
 - `FEATURES.md` rows for this phase move to `Tested` as automated or smoke evidence lands.
@@ -64,13 +64,14 @@ Target scope from `game-spec.md` section 13.3:
   - New or reset browser persistence starts from the rack-phase schema with no stale active tasks, queues, schedules, completed task IDs, or obsolete system state.
   - Existing pre-live saves either reset cleanly or are ignored by the new save version with clear reset behavior.
 - Visual rack:
-  - A new save shows one visible rack slot for the starting owned system.
+  - A new save shows the normal single-system hardware board and no rack/build surface before System Catalog.
   - Every owned-system purchase adds exactly one visible slot.
   - No future empty rack slots, rack units, rack power, rack heat, or backplane bandwidth appear in this phase.
   - Each slot opens or highlights the matching system and reflects its power/work state.
 - System acquisition:
-  - Each preconfigured package debits the correct cost and creates the advertised complete system.
-  - Custom builder tiers hide unavailable choices, validate requirements and costs, and create exactly one system on purchase.
+  - Each preconfigured package debits the correct cost and creates the advertised complete system; Barebones PC matches the fresh-save hardware.
+  - Premade cards and custom module choice lists show specs and price without exposing internal hardware part names.
+  - Custom builder tiers are available after System Catalog without Custom Machine Assembly research, allow module configuration before purchase, validate requirements and costs, and create exactly one system only after confirmation.
   - Canceling or backing out of the builder leaves credits/data and owned systems unchanged.
 - Elastic single-system tasks:
   - Compile Code, Render Frame, and Regression Test list fixed operation count, uses-idle-cores routing, cache/RAM needs, target system, and payout before start.
@@ -310,7 +311,10 @@ Current `FEATURES.md` observations:
 - Mobile unlock tab notifications on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage verifies red mobile Tasks/R&D tab notifications for unseen unlocked task/research IDs and clears/persists each notification when the tab is opened.
 - Pinned task queue action on May 19, 2026: `npm test -- src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies an active pinned task keeps its scheduler-route action button and dispatches `queueTask` for another copy.
 - System builder module view on May 20, 2026: `npx vitest run src/ui/HardwareBoard.test.tsx`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Coverage verifies premade systems show their CPU/RAM/scheduler/PSU module specs and the custom builder exposes clickable full-system bays for CPU, RAM, scheduler, and PSU modules. Browser smoke at `http://127.0.0.1:6174/?seed=rack-ready` opened the builder, verified premade Starter Node CPU/RAM module specs, and found no console errors.
-- Custom CPU module expansion on May 20, 2026: earlier coverage verified the custom CPU catalog had ten single-CPU die choices and an 8-package 16-core build. The later equipment tier rebalance supersedes that ceiling with ten starter-through-server-preview CPU modules and an 8-package 64-core build reaching 512 total cores.
+- System acquisition update on May 21, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Coverage now checks pre-catalog rack hiding, the Barebones PC starting template, System Catalog unlocking the rack/build path, custom-machine access without separate Custom Machine Assembly research, all catalog templates in the rack-ready seed, and custom builder purchase confirmation. Browser smoke at `http://127.0.0.1:6174/` verified the fresh hardware board remains playable before catalog, the rack/build entry appears after catalog-state progression, Barebones PC appears in premades, custom build opens, and Review build changes to Confirm purchase without console errors.
+- System catalog label cleanup on May 21, 2026: `npm test -- src/ui/HardwareBoard.rack.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Browser smoke at `http://127.0.0.1:6174/?seed=rack-ready` verified premade cards and custom module lists show specs and prices without internal CPU/RAM/scheduler/PSU part names, including custom option titles, and found no console errors.
+- Builder module format cleanup on May 21, 2026: `npm test -- src/ui/HardwareBoard.rack.test.tsx`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Browser smoke at `http://127.0.0.1:6174/?seed=rack-ready` verified builder CPU rows render once as `core(s) @ speed` followed by actual cache capacity at speed, RAM rows use actual capacity/speed plus stick count and stick size, scheduler rows show queue slots, PSU rows show actual watt capacity, and no package-count, cache-bus, level-label, internal part-name, or console-error noise appears.
+- Custom CPU module expansion on May 20, 2026: earlier coverage verified the custom CPU catalog had ten single-CPU die choices and an 8-package 16-core build. The later equipment tier rebalance superseded that ceiling with ten starter-through-server-preview CPU modules and an 8-package 64-core build reaching 512 total cores; the May 21 barebones update adds one baseline CPU option ahead of those tiers.
 - Browser smoke on May 19, 2026: `http://127.0.0.1:6173/` loaded without console errors other than the React DevTools info message. Desktop and 390x844 mobile snapshots verified the compact PSU section with no headroom/efficiency row, power controls in the header, load adjacent to the meter, and a first-screen PSU Capacity upgrade row.
 - Task resource reconciliation on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now checks every task definition against per-core operation residency for operation count, cache need, and RAM need; Shard Reconcile is blocked at 1 Kb RAM because its four parallel shard pages peak at 4 Kb, and Bus Mirror reports its 1 Kb two-core RAM footprint.
 - Crash/restart hardening on May 18, 2026: `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage now includes a stale pre-live save with removed task IDs in completed counts, active tasks, queue, CRON, benchmarks, and autorepeat loading into a renderable/tickable state. Vite, Electron, and `wait-on` now share fixed dev renderer port `6173` with strict-port startup so the desktop shell cannot silently load another project or a stale renderer.

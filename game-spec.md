@@ -844,9 +844,9 @@ not full server-rack infrastructure.
 ### Unlock Condition
 
 The Multi-System Rack Phase unlocks through `System Catalog` research after the
-CRON/system-bus slice. That research reveals the visual rack and preconfigured
-systems. `Custom Machine Assembly` unlocks the custom builder after the player
-owns two systems or completes the first Compile Code task.
+CRON/system-bus slice. That research reveals the visual rack and the system
+purchase path for buying a second PC. `Custom Machine Assembly` no longer gates
+the v1 custom builder separately; the custom path appears with the catalog.
 
 ### New Mechanics
 
@@ -874,6 +874,7 @@ system still occupies its slot.
 
 | Package | Purpose |
 |---|---|
+| Barebones PC | The same minimal one-core, no-RAM, no-scheduler PC the game starts with |
 | Starter Node | Compact rack node for familiar system work |
 | Compile Box | CPU/RAM-heavy Compile Code and Regression Test work |
 | Render Brick | Core-heavy Render Frame work before distributed rendering exists |
@@ -881,12 +882,14 @@ system still occupies its slot.
 Preconfigured systems are the fast purchase path. They should let the player add
 another useful machine without picking every component. They cost the sum of
 their off-the-shelf parts and do not add discounts. The premade system view
-lists the complete CPU, RAM, scheduler, and PSU module specs before purchase.
+lists the complete CPU, RAM, scheduler, and PSU module specs and price before
+purchase, without exposing internal hardware part names.
 
 ### Tiered Custom Machine Builder
 
-The custom builder is the deliberate purchase path. It should expose only the
-choices supported by the player's current progression tier.
+The custom builder is the deliberate purchase path. It appears with `System
+Catalog` and should expose compatible v1 choices without requiring separate
+`Custom Machine Assembly` research.
 
 | Tier | Builder Scope |
 |---|---|
@@ -900,9 +903,16 @@ choices for that part. The CPU bay should offer at least ten single-CPU die
 choices and a separate top-level CPU count selector for 1, 2, 4, or 8 packages,
 with current server-preview systems reaching up to 512 total cores.
 CPU module cards list cores, cache, and clock speed directly so the choice is
-scannable before purchase. All v1 parts are compatible. It should validate
-costs before purchase, show projected draw/stress, allow risky PSU choices with
-warnings, then add exactly one owned-system rack slot.
+scannable before purchase: `cores @ speed` on the first line and
+`cache capacity @ speed` on the second line. Other builder module cards follow
+the same single spec-block pattern with actual values, such as RAM capacity at
+speed, stick count and stick size, scheduler slots, or PSU watt capacity. Module
+choice lists show specs and price only rather than internal hardware part names
+or level labels. Module selection configures the build only; it never buys the
+part immediately. All v1 parts are compatible. It should validate costs before
+purchase, require an explicit purchase confirmation, show projected draw/stress,
+allow risky PSU choices with warnings, then add exactly one owned-system rack
+slot.
 
 ### Elastic Single-System Tasks
 

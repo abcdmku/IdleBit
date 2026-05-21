@@ -109,11 +109,14 @@ export interface UiCustomMachineTier {
   clockLevel?: number;
   cacheLevel?: number;
   cacheSpeedLevel?: number;
+  cacheSpeedHz?: number;
   schedulerSlots?: number;
   ramStickCount?: number;
   ramLevel?: number;
   ramSpeedLevel?: number;
+  ramSpeedMt?: number;
   psuLevel?: number;
+  psuWatts?: number;
   powerDeltaWatts?: number;
   clockHz?: number;
 }

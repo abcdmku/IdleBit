@@ -151,7 +151,7 @@ describe("App failure modals", () => {
     expect(window.location.search).toBe("");
     expect(restored.resources).toEqual({ credits: 20_000, data: 20_000 });
     expect(restored.flags.systemCatalog).toBe(true);
-    expect(restored.flags.customMachineAssembly).toBe(false);
+    expect(restored.flags.customMachineAssembly).toBe(true);
     expect(restored.systems).toHaveLength(2);
     expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
     expect(restored.systems[1]?.hardware.cores).toBe(128);

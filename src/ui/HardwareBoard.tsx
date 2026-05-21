@@ -73,6 +73,10 @@ export function HardwareBoard({
 
   const builderUnlocked =
     rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
+  const effectiveRackView =
+    rack.showRack && rack.systems.length === 1 && rackView === "list"
+      ? "detail"
+      : rackView;
 
   useEffect(() => {
     if (!rack.showRack && rackView !== "list") {
@@ -92,10 +96,15 @@ export function HardwareBoard({
   };
 
   const backToRack = () => setRackView("list");
-  const boardVisible = activeSystem.visible;
+  const useTopLevelSingleSystem =
+    rack.showRack &&
+    rack.systems.length === 1 &&
+    effectiveRackView === "detail" &&
+    !scopedSelectionRequested;
+  const boardVisible = useTopLevelSingleSystem ? visible : activeSystem.visible;
   const boardSelection =
     getSelectedSystemComponent(selectedComponent) ?? ("core:1" as SelectedComponent);
-  const shouldScopeSystemActions = rackActive;
+  const shouldScopeSystemActions = rackActive && !useTopLevelSingleSystem;
   const selectComponent = (component: SelectedComponent) =>
     onSelectComponent(
       shouldScopeSystemActions && rack.hasSystemModel
@@ -126,7 +135,7 @@ export function HardwareBoard({
     return systemBoardNode;
   }
 
-  if (rackView === "list") {
+  if (effectiveRackView === "list") {
     return (
       <SystemRackPanel
         rack={rack}
@@ -147,7 +156,7 @@ export function HardwareBoard({
       rack={rack}
       activeSystemId={activeSystem.id}
       builderUnlocked={builderUnlocked}
-      view={rackView}
+      view={effectiveRackView}
       builderTab={builderTab}
       onHome={backToRack}
       onSelectSystem={openSystemDetail}
@@ -158,7 +167,7 @@ export function HardwareBoard({
     />
   );
 
-  if (rackView === "builder") {
+  if (effectiveRackView === "builder") {
     return (
       <div className="rack-mode-builder">
         {strip}

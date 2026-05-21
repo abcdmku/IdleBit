@@ -78,7 +78,7 @@ export const ensureSystems = (state: GameState): GameState => {
   const existingSystems =
     state.systems && state.systems.length > 0
       ? state.systems
-      : [createSystemFromRuntime(state, 1, "Starter Node", "starterNode")];
+      : [createSystemFromRuntime(state, 1, "Barebones PC", "barebonesPc")];
   const systems = existingSystems.map((system) => getSystemRuntime(state, system));
   const selectedSystemId = systems.some((system) => system.id === state.selectedSystemId)
     ? state.selectedSystemId
@@ -102,7 +102,7 @@ export const syncSelectedSystemRuntime = (state: GameState): GameState => {
   const existingSystems =
     state.systems && state.systems.length > 0
       ? state.systems
-      : [createSystemFromRuntime(state, 1, "Starter Node", "starterNode")];
+      : [createSystemFromRuntime(state, 1, "Barebones PC", "barebonesPc")];
   const selectedSystem =
     existingSystems.find((system) => system.id === state.selectedSystemId) ??
     existingSystems[0];
@@ -146,7 +146,7 @@ export const getSelectedSystem = (
   return (
     ensured.systems.find((system) => system.id === systemId) ??
     ensured.systems[0] ??
-    createSystemState(1, "Starter Node", "starterNode")
+    createSystemState(1, "Barebones PC", "barebonesPc")
   );
 };
 

@@ -429,7 +429,7 @@ const hasCompleted = (state: GameState, id: keyof GameState["completedTasks"]) =
   getCompletedCount(state, id) > 0 || state.completedBenchmarks.includes(id);
 
 export const createInitialGameState = (): GameState => {
-  const firstSystem = createSystemState(1, "Starter Node", "starterNode");
+  const firstSystem = createSystemState(1, "Barebones PC", "barebonesPc");
 
   return {
     version: 2,
@@ -605,6 +605,8 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         state.flags.systemCatalog || researched.includes("systemCatalog"),
       customMachineAssembly:
         state.flags.customMachineAssembly ||
+        state.flags.systemCatalog ||
+        researched.includes("systemCatalog") ||
         researched.includes("customMachineAssembly"),
       psuManagement: false,
       cooling: false,
@@ -637,6 +639,5 @@ export const getMilestone = (state: GameState) => {
   if (!state.flags.cron) return "Research CRON scheduler.";
   if (!state.flags.systemCatalog) return "Research the system catalog.";
   if (state.systems.length < 2) return "Add another system to the rack.";
-  if (!state.flags.customMachineAssembly) return "Research custom machine assembly.";
   return "Balance rack systems under load.";
 };

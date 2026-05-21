@@ -49,6 +49,7 @@ import {
   getClockHz,
   getPsuWatts,
   getRamBits,
+  getRamSpeedMt,
   getMilestone,
   getStage,
   getStageLabel,
@@ -1153,43 +1154,54 @@ const getResearchComputeTask = (
   };
 };
 
-const getVisibleResearch = (state: GameState) =>
-  researchDefinitions.filter((research) => research.reveal(state) || state.research.completed.includes(research.id)).map((research) => {
-    const costs = research.cost(state);
-    const completed = state.research.completed.includes(research.id);
-    const canAffordResearch = canAfford(state, costs);
-    const requirements = research.requirements(state).map((item) => ({
-      id: item.id,
-      label: item.label,
-      kind: item.kind,
-      met: item.met(state),
-    }));
-    const firstUnmetRequirement = requirements.find((item) => !item.met);
-    const canBuy = !completed && research.requirement(state);
-    const computeTasks = (research.computeTaskIds ?? []).map((taskId) =>
-      getResearchComputeTask(state, getTaskDefinition(taskId)),
-    );
+const isBuilderResearchHidden = (state: GameState, researchId: string) =>
+  (researchId === "systemCatalog" && state.flags.systemCatalog) ||
+  (researchId === "customMachineAssembly" && state.flags.customMachineAssembly);
 
-    return {
-      id: research.id,
-      name: research.name,
-      description: research.description,
-      grants: research.grants,
-      costs,
-      canAfford: canAffordResearch,
-      canBuy,
-      completed,
-      blockedReason: completed
-        ? null
-        : firstUnmetRequirement
-          ? `Needs ${firstUnmetRequirement.label}.`
-          : canAffordResearch
-            ? null
-            : "Insufficient resources.",
-      requirements,
-      computeTasks,
-    };
-  });
+const getVisibleResearch = (state: GameState) =>
+  researchDefinitions
+    .filter(
+      (research) =>
+        !isBuilderResearchHidden(state, research.id) &&
+        (research.reveal(state) ||
+          state.research.completed.includes(research.id)),
+    )
+    .map((research) => {
+      const costs = research.cost(state);
+      const completed = state.research.completed.includes(research.id);
+      const canAffordResearch = canAfford(state, costs);
+      const requirements = research.requirements(state).map((item) => ({
+        id: item.id,
+        label: item.label,
+        kind: item.kind,
+        met: item.met(state),
+      }));
+      const firstUnmetRequirement = requirements.find((item) => !item.met);
+      const canBuy = !completed && research.requirement(state);
+      const computeTasks = (research.computeTaskIds ?? []).map((taskId) =>
+        getResearchComputeTask(state, getTaskDefinition(taskId)),
+      );
+
+      return {
+        id: research.id,
+        name: research.name,
+        description: research.description,
+        grants: research.grants,
+        costs,
+        canAfford: canAffordResearch,
+        canBuy,
+        completed,
+        blockedReason: completed
+          ? null
+          : firstUnmetRequirement
+            ? `Needs ${firstUnmetRequirement.label}.`
+            : canAffordResearch
+              ? null
+              : "Insufficient resources.",
+        requirements,
+        computeTasks,
+      };
+    });
 
 const getVisibleJobs = (state: GameState): VisibleJob[] =>
   getAvailableTasks(state).map((task) => {
@@ -1315,6 +1327,7 @@ const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[nu
   ...sku,
   canAfford: canAfford(state, sku.cost),
   clockHz: sku.clockLevel ? getClockHz(sku.clockLevel) : undefined,
+  cacheSpeedHz: sku.cacheSpeedLevel ? getClockHz(sku.cacheSpeedLevel) : undefined,
   cacheBits: sku.cacheLevel ? getCacheBits(sku.cacheLevel) : undefined,
   cacheBytes: sku.cacheLevel ? bitsToBytes(getCacheBits(sku.cacheLevel)) : undefined,
   ramBits:
@@ -1325,58 +1338,44 @@ const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[nu
     sku.ramLevel && sku.ramStickCount
       ? bitsToBytes(getRamBits(sku.ramLevel) * sku.ramStickCount)
       : undefined,
+  ramSpeedMt: sku.ramSpeedLevel ? getRamSpeedMt(sku.ramSpeedLevel) : undefined,
+  psuWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
   powerDeltaWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
 });
 
 const getVisibleMachineBuilder = (state: GameState) => ({
   unlocked: state.flags.systemCatalog,
-  templates: machineTemplates
-    .filter((template) =>
-      template.unlockResearchId === "customMachineAssembly"
-        ? state.flags.customMachineAssembly
-        : state.flags.systemCatalog,
-    )
-    .map((template) => {
-      const cost = getTemplateCost(template);
-      return {
-        ...template,
-        cost,
-        canAfford: canAfford(state, cost),
-      };
-    }),
+  templates: state.flags.systemCatalog
+    ? machineTemplates.map((template) => {
+        const cost = getTemplateCost(template);
+        return {
+          ...template,
+          cost,
+          canAfford: canAfford(state, cost),
+        };
+      })
+    : [],
   components: {
-    cpu: componentSkus
-      .filter((sku) => sku.type === "cpu")
-      .filter((sku) =>
-        sku.unlockResearchId === "customMachineAssembly"
-          ? state.flags.customMachineAssembly
-          : state.flags.systemCatalog,
-      )
-      .map((sku) => getVisibleComponentSku(state, sku)),
-    ram: componentSkus
-      .filter((sku) => sku.type === "ram")
-      .filter((sku) =>
-        sku.unlockResearchId === "customMachineAssembly"
-          ? state.flags.customMachineAssembly
-          : state.flags.systemCatalog,
-      )
-      .map((sku) => getVisibleComponentSku(state, sku)),
-    scheduler: componentSkus
-      .filter((sku) => sku.type === "scheduler")
-      .filter((sku) =>
-        sku.unlockResearchId === "customMachineAssembly"
-          ? state.flags.customMachineAssembly
-          : state.flags.systemCatalog,
-      )
-      .map((sku) => getVisibleComponentSku(state, sku)),
-    psu: componentSkus
-      .filter((sku) => sku.type === "psu")
-      .filter((sku) =>
-        sku.unlockResearchId === "customMachineAssembly"
-          ? state.flags.customMachineAssembly
-          : state.flags.systemCatalog,
-      )
-      .map((sku) => getVisibleComponentSku(state, sku)),
+    cpu: state.flags.systemCatalog
+      ? componentSkus
+          .filter((sku) => sku.type === "cpu")
+          .map((sku) => getVisibleComponentSku(state, sku))
+      : [],
+    ram: state.flags.systemCatalog
+      ? componentSkus
+          .filter((sku) => sku.type === "ram")
+          .map((sku) => getVisibleComponentSku(state, sku))
+      : [],
+    scheduler: state.flags.systemCatalog
+      ? componentSkus
+          .filter((sku) => sku.type === "scheduler")
+          .map((sku) => getVisibleComponentSku(state, sku))
+      : [],
+    psu: state.flags.systemCatalog
+      ? componentSkus
+          .filter((sku) => sku.type === "psu")
+          .map((sku) => getVisibleComponentSku(state, sku))
+      : [],
   },
 });
 
@@ -1490,8 +1489,8 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     systemSummaries[0] ??
     {
       id: 1,
-      name: "Starter Node",
-      templateId: "starterNode",
+      name: "Barebones PC",
+      templateId: "barebonesPc",
       selected: true,
       powerState: syncedState.power.state,
       coreCount: syncedState.hardware.cores,

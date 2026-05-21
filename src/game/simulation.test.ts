@@ -513,7 +513,7 @@ const unlockSystemStats = () => {
 };
 
 describe("IdleBit simulation", () => {
-  it("starts at 1 Hz with bit-scale cache and a filtered catalog", () => {
+  it("starts at 1 Hz with bit-scale cache before the system catalog", () => {
     const state = createInitialGameState();
     const visible = deriveVisibleState(state);
 
@@ -531,6 +531,15 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.systemSchedulerSlots).toBe(0);
     expect(visible.stage).toBe("primitiveCpu");
     expect(visible.flags.systemStats).toBe(false);
+    expect(visible.rack.unlocked).toBe(false);
+    expect(visible.rack.systems[0]?.name).toBe("Barebones PC");
+    expect(visible.machineBuilder.templates).toEqual([]);
+    expect(
+      applyAction(state, {
+        type: "buyMachineTemplate",
+        templateId: "barebonesPc",
+      }).systems,
+    ).toHaveLength(1);
     expect(visible.metrics.powerUsedWatts).toBeGreaterThan(0);
     expect(visible.metrics.billedPowerWatts).toBe(visible.metrics.powerUsedWatts);
     expect(visible.metrics.powerCostPerSecond).toBeGreaterThan(0);
@@ -1082,7 +1091,7 @@ describe("IdleBit simulation", () => {
     expect(state.version).toBe(2);
     expect(state.resources).toEqual({ credits: 20_000, data: 20_000 });
     expect(state.flags.systemCatalog).toBe(true);
-    expect(state.flags.customMachineAssembly).toBe(false);
+    expect(state.flags.customMachineAssembly).toBe(true);
     expect(state.systems).toHaveLength(2);
     expect(state.systems[1]?.hardware.cores).toBe(128);
     expect(state.systems[1]?.hardware.ramSticks).toHaveLength(32);
@@ -1093,8 +1102,11 @@ describe("IdleBit simulation", () => {
     expect(visible.rack.systems[1]?.coreCount).toBe(128);
     expect(visible.rack.systems[1]?.ramBits).toBe(state.systems[1]?.hardware.ramBits);
     expect(visible.machineBuilder.templates.map((template) => template.id)).toEqual([
+      "barebonesPc",
       "starterNode",
       "compileBox",
+      "renderBrick",
+      "workstationTower",
     ]);
     expect(visible.tasks.some((task) => task.id === "compileCode")).toBe(true);
 
@@ -1313,7 +1325,7 @@ describe("IdleBit simulation", () => {
     const compileSystem = state.systems.at(-1);
 
     expect(state.systems.map((system) => system.name)).toEqual([
-      "Starter Node",
+      "Barebones PC",
       "Compile Box",
     ]);
     expect(state.selectedSystemId).toBe(2);
@@ -1391,7 +1403,8 @@ describe("IdleBit simulation", () => {
     const visible = deriveVisibleState(state);
     const cpuModules = visible.machineBuilder.components.cpu;
 
-    expect(cpuModules).toHaveLength(10);
+    expect(cpuModules).toHaveLength(11);
+    expect(cpuModules[0]?.id).toBe("cpu-barebones-1");
     expect(cpuModules.every((module) => (module.cpuPackageCount ?? 1) === 1)).toBe(
       true,
     );

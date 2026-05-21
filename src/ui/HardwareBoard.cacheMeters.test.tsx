@@ -99,11 +99,15 @@ describe("HardwareBoard cache and upgrade meters", () => {
     const bufferBadge = container.querySelector<HTMLElement>(
       ".cache-state-badge.buffering",
     );
+    const loadedBadge = container.querySelector<HTMLElement>(
+      ".cache-state-badge.loaded",
+    );
     expect(
       Array.from(bufferBadge?.children ?? []).map((child) =>
         child.tagName.toLowerCase(),
       ),
     ).toEqual(["strong", "span", "small"]);
+    expect(loadedBadge?.querySelector("small")?.textContent).toBe("Loaded");
   });
 
   it("renders Byte Copy read and write cache residency as separate segments", () => {

@@ -104,6 +104,71 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(container.querySelector(".ram-stick-module-meter")).not.toBeNull();
   });
 
+  it("labels loaded RAM residency as loaded", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramLevel: 1,
+        ramBits: 256,
+        ramBytes: 32,
+        ramSpeedLevel: 1,
+        ramSpeedMt: 1,
+      },
+      metrics: {
+        ...base.metrics,
+        ramUsedBits: 256,
+        ramUsedBytes: 32,
+        ramSlots: [
+          {
+            id: 1,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 256,
+            usedBytes: 32,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+        ],
+        ramResidency: [
+          {
+            coreId: 1,
+            taskId: "tinyChecksum",
+            operationId: "tinyChecksum:stage-checksum",
+            bits: 256,
+            state: "loaded",
+            progress: 1,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="ram"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const stick = container.querySelector<HTMLElement>(".ram-stick-module");
+
+    expect(stick?.className).toContain("ram-stick-state-loaded");
+    expect(stick?.title).toContain("Loaded");
+    expect(stick?.title).not.toContain("Ready");
+  });
+
   it("uses module, size, and frequency labels for RAM controls", () => {
     const base = deriveVisibleState(createInitialGameState());
     const makeRamUpgrade = (

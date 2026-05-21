@@ -44,7 +44,7 @@ const getCoreSegmentColor = (coreId: number, alpha: number) =>
 
 const cacheStateLabels: Array<{ state: CacheSegmentState; label: string }> = [
   { state: "buffering", label: "Buffer" },
-  { state: "loaded", label: "Ready" },
+  { state: "loaded", label: "Loaded" },
 ];
 
 const getCacheSegmentAlpha = (state: CacheSegmentState) => {

@@ -67,7 +67,7 @@ export const getCacheStateBits = (segments: CacheSegment[]) =>
 
 export const getCachePrimaryState = (segments: CacheSegment[]) => {
   if (segments.some((segment) => segment.bufferBits > 0)) return "Buffer";
-  if (segments.some((segment) => segment.readyBits > 0)) return "Ready";
+  if (segments.some((segment) => segment.readyBits > 0)) return "Loaded";
   return "Idle";
 };
 

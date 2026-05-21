@@ -30,7 +30,7 @@ export interface RamReservation {
 const getRamPrimaryState = (segments: RamSegment[]) => {
   if (segments.some((segment) => segment.state === "loading")) return "Load";
   if (segments.some((segment) => segment.state === "reserved")) return "Stage";
-  if (segments.some((segment) => segment.state === "loaded")) return "Ready";
+  if (segments.some((segment) => segment.state === "loaded")) return "Loaded";
   return "Idle";
 };
 

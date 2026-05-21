@@ -89,13 +89,11 @@ export function SystemSchedulerSection({
         startSmall
       />
 
-      {selected && (
-        <InlineUpgradeRow
-          upgrades={upgrades}
-          resources={visible.resources}
-          dispatch={dispatch}
-        />
-      )}
+      <InlineUpgradeRow
+        upgrades={upgrades}
+        resources={visible.resources}
+        dispatch={dispatch}
+      />
     </section>
   );
 }

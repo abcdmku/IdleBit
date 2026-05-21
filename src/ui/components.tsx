@@ -52,12 +52,16 @@ interface SystemWorkbenchProps {
 
 function useIsMobile(breakpoint = 760) {
   const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
     return window.matchMedia(`(max-width: ${breakpoint}px)`).matches;
   });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
     const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
     const onChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
     mq.addEventListener("change", onChange);
@@ -102,6 +106,7 @@ export function SystemWorkbench({
   const isMobile = useIsMobile();
   const hardwarePanelRef = useRef<HTMLElement | null>(null);
   const [activeSection, setActiveSection] = useState<SectionKey>("hardware");
+  const [hardwareUpgradesHidden, setHardwareUpgradesHidden] = useState(false);
 
   const taskCount = getTaskCount(visible);
   const researchCount = getResearchCount(visible);
@@ -260,13 +265,25 @@ export function SystemWorkbench({
         </aside>
 
         <section
-          className={`panel hw-panel ${activeSection === "hardware" ? "active" : ""}`}
+          className={`panel hw-panel ${activeSection === "hardware" ? "active" : ""} ${
+            hardwareUpgradesHidden ? "hide-upgrades" : ""
+          }`}
           aria-label="Hardware"
           ref={hardwarePanelRef}
         >
           <div className="panel-header">
             <Cpu size={14} />
             <span>Hardware</span>
+            <label className="hardware-upgrade-toggle">
+              <input
+                type="checkbox"
+                checked={hardwareUpgradesHidden}
+                onChange={(event) =>
+                  setHardwareUpgradesHidden(event.currentTarget.checked)
+                }
+              />
+              <span>Hide upgrades</span>
+            </label>
           </div>
           <div className="panel-body">
             <HardwareBoard

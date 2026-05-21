@@ -52,6 +52,27 @@
   letter-spacing: var(--tracking-mid);
 }
 
+.hardware-upgrade-toggle {
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  text-transform: none;
+  cursor: pointer;
+}
+
+.hardware-upgrade-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--cyan);
+}
+
 .panel-body {
   display: flex;
   flex: 1 1 auto;
@@ -65,3 +86,18 @@
 .hw-panel .panel-body { padding: var(--s-3); gap: var(--s-3); }
 .tasks-panel .panel-body { gap: var(--s-3); }
 .research-panel .panel-body { gap: var(--s-2); }
+
+.hw-panel.hide-upgrades .inline-upgrade-row,
+.hw-panel.hide-upgrades .core-control-strip,
+.hw-panel.hide-upgrades .cache-control-strip,
+.hw-panel.hide-upgrades .ram-control-strip,
+.hw-panel.hide-upgrades .power-upgrade-row,
+.hw-panel.hide-upgrades .cpu-package-install,
+.hw-panel.hide-upgrades .cpu-bank-add,
+.hw-panel.hide-upgrades .cpu-summary-upgrades,
+.hw-panel.hide-upgrades .upgrade-stepper,
+.hw-panel.hide-upgrades .cpu-install-options,
+.hw-panel.hide-upgrades .install-hardware-button,
+.hw-panel.hide-upgrades .install-hardware-body .resource-cost {
+  display: none;
+}

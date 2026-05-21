@@ -212,6 +212,20 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
         systemSchedulerSlots: 2,
         cpus: base.hardware.cpus.map((cpu) => ({ ...cpu, schedulerSlots: 2 })),
       },
+      upgrades: [
+        {
+          id: "systemSchedulerSlot",
+          name: "System Queue Slot",
+          component: "scheduler",
+          accent: "violet",
+          costs: [],
+          refunds: [],
+          canAfford: true,
+          canDowngrade: false,
+          downgradeBlockedReason: null,
+          purchaseCount: 2,
+        },
+      ],
       metrics: {
         ...base.metrics,
         cpuSockets: [
@@ -244,6 +258,11 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     const shutdownButton = container.querySelector<HTMLButtonElement>(
       ".system-shutdown-button",
     );
+    const systemSchedulerUpgrade = container.querySelector<HTMLElement>(
+      ".system-scheduler-section .inline-upgrade-row",
+    );
+
+    expect(systemSchedulerUpgrade?.textContent).toContain("System Queue Slot");
 
     act(() => {
       cpuSchedulerSlot?.click();

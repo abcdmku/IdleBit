@@ -564,7 +564,7 @@ describe("IdleBit simulation", () => {
     ]);
 
     const psuUpgrade = visible.upgrades.find((upgrade) => upgrade.id === "psu");
-    expect(psuUpgrade?.costs).toEqual([{ resource: "credits", amount: 130 }]);
+    expect(psuUpgrade?.costs).toEqual([{ resource: "credits", amount: 24 }]);
     expect(psuUpgrade?.costs.some((cost) => cost.resource === "data")).toBe(false);
 
     const upgraded = buy(fund(state), "psu");
@@ -2975,7 +2975,7 @@ describe("IdleBit simulation", () => {
     expect(visibleTask?.blockedReason).toBe("No idle core available.");
   });
 
-  it("prices cache and RAM upgrades with data as the larger cost", () => {
+  it("prices cache and RAM capacity with data-heavy costs and frequency with credits-only costs", () => {
     const starterVisible = deriveVisibleState(createInitialGameState());
     const cacheUpgrade = starterVisible.upgrades.find(
       (upgrade) => upgrade.id === "cache",
@@ -2994,17 +2994,18 @@ describe("IdleBit simulation", () => {
       (upgrade) => upgrade.id === "ramSpeed",
     );
 
-    for (const upgrade of [
-      cacheUpgrade,
-      cacheSpeedUpgrade,
-      ramUpgrade,
-      ramCapacityUpgrade,
-      ramSpeedUpgrade,
-    ]) {
+    for (const upgrade of [cacheUpgrade, ramUpgrade, ramCapacityUpgrade]) {
       expect(upgrade).toBeDefined();
       expect(costAmount(upgrade?.costs ?? [], "data")).toBeGreaterThan(
         costAmount(upgrade?.costs ?? [], "credits"),
       );
+    }
+
+    for (const upgrade of [cacheSpeedUpgrade, ramSpeedUpgrade]) {
+      expect(upgrade).toBeDefined();
+      expect(upgrade?.costs).toEqual([
+        expect.objectContaining({ resource: "credits" }),
+      ]);
     }
   });
 

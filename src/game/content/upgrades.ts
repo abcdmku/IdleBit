@@ -73,7 +73,6 @@ const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
 
 const cacheSpeedCosts = (purchaseCount: number): Cost[] => [
   credits(2 * 1.38 ** purchaseCount),
-  data(5 * 1.64 ** purchaseCount),
 ];
 
 const ramCapacityCosts = (purchaseCount: number): Cost[] => [
@@ -83,7 +82,6 @@ const ramCapacityCosts = (purchaseCount: number): Cost[] => [
 
 const ramSpeedCosts = (purchaseCount: number): Cost[] => [
   credits(14 * 1.45 ** purchaseCount),
-  data(30 * 1.64 ** purchaseCount),
 ];
 
 const coreCosts = (purchaseCount: number): Cost[] => [
@@ -92,7 +90,7 @@ const coreCosts = (purchaseCount: number): Cost[] => [
 ];
 
 const psuCosts = (purchaseCount: number): Cost[] => [
-  credits(130 * 1.9 ** purchaseCount),
+  credits(24 * 1.42 ** purchaseCount),
 ];
 
 const coolingCosts = (purchaseCount: number): Cost[] => [

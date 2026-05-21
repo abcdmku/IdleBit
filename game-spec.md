@@ -161,7 +161,7 @@ Spent on:
 - Data center management tools.
 - Availability zone and region unlocks.
 
-Cache and RAM upgrades can still include a small credit installation cost, but their primary cost should be data. Memory tuning should feel like spending learned architecture/data knowledge, while broader CPU, power, and facility purchases can stay more credit-heavy.
+Cache and RAM capacity upgrades can still include a small credit installation cost, but their primary cost should be data. Cache speed and RAM frequency tuning cost credits only, while broader CPU, power, and facility purchases can stay more credit-heavy.
 
 Hardware upgrades should be reversible where doing so supports CPU/system matching or efficiency tuning. Downgrading returns 50% of the last purchased level's credit/data cost, rounded down per resource. Capacity downgrades are blocked when active work, queued scheduler entries, cache/RAM reservations, or an occupied removable core would no longer fit. The control surface should present each reversible spec as one compact +/- control: the minus side removes a level, the plus side buys the next level, and unaffordable credit/data costs appear unlit instead of disabling the whole spec row. Core clock tuning should support both selected-core control and, after CPU Operation Scheduler unlock, per-CPU all-core tuning. All-core mode is an upgrade-only selection, not a task provisioning route; it shows the combined next-level cost or downgrade refund and applies the clock step to the selected CPU's cores together.
 
@@ -194,7 +194,7 @@ At system scale, RAM stages larger active work and intermediate results. RAM dec
 
 Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and FIFO scheduler pulls require total installed cache/RAM fit, but competing tasks may begin staging even when their combined footprint will eventually exceed free capacity. A deadlock is created only when active cache/RAM loading would write more staged bits than the hardware can hold. Deadlocked cache halts every active process on that CPU package until resolved; deadlocked RAM halts every active process in the system until resolved. Deadlock pressure counts up to 10 seconds while a deadlock is unresolved. If the player clears the deadlock before 10 seconds, the pressure cools down while work continues. If pressure reaches 10 seconds, all active processes are lost and new work stays locked out until pressure drains back to 0. Deadlock-safe CPU scheduler policy uses active-work footprint lookahead for CPU-local cache and system RAM. Deadlock-safe System Scheduler policy only gates whole-task intake on RAM; CPU-local cache safety remains the responsibility of the selected CPU scheduler. FIFO can still dispatch into deadlock. System Scheduler intake can reserve CPU scheduler work when the target CPU has scheduler-slot capacity even if all of that CPU's cores are currently busy or its CPU scheduler policy is waiting on CPU-local cache; execution starts when the CPU scheduler can pick it up. Scheduler unlocks do not grant infinite backlog capacity or infinite multicore provisioning width by default.
 
-Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." Cache and RAM capacity/speed upgrades should cost more data than credits. RAM load speed uses the same bit-scale start as CPU throughput: RAM begins as one 256 b stick at a 1 Hz load rate when RAM Control is researched, then adds more base sticks for capacity and upgrades each stick's capacity and frequency separately. RAM sticks can mix capacity and frequency; stick frequencies are not added into a total RAM speed, and each module reports and loads at its own frequency. The RAM surface should show a selectable stick array with an All target for applying capacity or frequency upgrades across installed sticks, with Stage/Load/Ready state shown per stick.
+Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." Cache and RAM capacity upgrades should cost more data than credits, while cache speed and RAM frequency upgrades should cost credits only. RAM load speed uses the same bit-scale start as CPU throughput: RAM begins as one 256 b stick at a 1 Hz load rate when RAM Control is researched, then adds more base sticks for capacity and upgrades each stick's capacity and frequency separately. RAM sticks can mix capacity and frequency; stick frequencies are not added into a total RAM speed, and each module reports and loads at its own frequency. The RAM surface should show a selectable stick array with an All target for applying capacity or frequency upgrades across installed sticks, with Stage/Load/Ready state shown per stick.
 
 At data center scale, capacity includes:
 
@@ -212,7 +212,7 @@ At system scale:
 
 - The PSU is a system reliability component, not a per-task requirement.
 - The PSU is visible from the first screen so power is part of the opening earn-vs-idle balance.
-- Basic PSU wattage upgrades are purchasable with credits from the first screen so the player can buy headroom before deeper management research.
+- Basic PSU wattage upgrades are cheap and purchasable with credits from the first screen so the player can buy headroom before deeper management research.
 - Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill once the player has credits.
 - Starting draw should be mW/uW-scale and primarily tied to CPU frequency, so faster credit generation also increases operating cost.
 - If power billing reaches 0 credits, the system performs an emergency shutdown instead of allowing negative credits. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
@@ -553,7 +553,7 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Bit Flip | Decode Logic research | First mutation task |
 | Bit Shift | Decode Logic research | First shift task |
 | Byte Copy | Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
-| Cache upgrades | New save | Cache capacity and cache speed upgrades are available immediately and use data-weighted costs |
+| Cache upgrades | New save | Cache capacity upgrades are data-weighted; cache speed upgrades are available immediately and cost credits only |
 | Packet Check | Cache Mapping research | First cache-fill waiting task |
 | Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
 | Benchmark Harness research | Cache Mapping, Packet Check, clock tuning | Reveals benchmark compute inside later research cards |
@@ -581,7 +581,7 @@ The player improves a single-core CPU through clock and cache.
 ### Main Decisions
 
 - Buy clock speed for broad speed.
-- Buy cache capacity and cache speed with data-heavy costs for operation queue/fill efficiency.
+- Buy cache capacity with data-heavy costs and cache speed with credits-only costs for operation queue/fill efficiency.
 - Choose jobs that match current hardware.
 
 ### New Mechanics
@@ -727,7 +727,7 @@ RAM determines:
 - How well memory-heavy jobs perform.
 - How quickly larger staged work can move when RAM load speed is upgraded from the 1 Hz bit-scale start.
 - Capacity and load speed as separate upgrade decisions.
-- Capacity and speed upgrades that cost more data than credits.
+- Capacity upgrades that cost more data than credits and frequency upgrades that cost credits only.
 
 RAM should not be heavily exposed before RAM Control. After RAM Control it becomes the required staging layer for System Scheduler and larger cache-backed tasks. RAM should use compact +/- controls and a single selectable module-card strip that can show mixed stick sizes and mixed per-module frequencies without presenting a summed total speed; four sticks should render as a 2x2 grid instead of stretching into a wide row. Cache uses the matching compact lane treatment with Buffer and Ready only.
 
@@ -751,7 +751,7 @@ CRON v1 rules:
 
 ### Power Supply Role
 
-The PSU is visible from the first screen. It shows draw, capacity, load, state, live billing, prominent overload failure pressure when draw exceeds capacity, and a credits-only wattage upgrade so the player immediately understands that powered-on idle time has a cost and headroom can be bought. PSU Management research is deferred until advanced tuning or telemetry exposes a new player-facing decision. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
+The PSU is visible from the first screen. It shows draw, capacity, load, state, live billing, prominent overload failure pressure when draw exceeds capacity, and a cheap credits-only wattage upgrade so the player immediately understands that powered-on idle time has a cost and headroom can be bought. PSU Management research is deferred until advanced tuning or telemetry exposes a new player-facing decision. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
 
 Power is paid over time while the system is powered on. The early draw curve should be tiny but meaningful: active starter work should be profitable, while idling with positive credits should slowly drain money. Fully `off` systems bill zero, grey hardware, and leave only power/start controls active; they cannot start work, dispatch queues, or run CRON. If billing would take credits below 0, the system emergency-shuts down, clamps credits at 0, and shows a first-time explanatory popup or a brief repeat popup; starting again from 0 credits provides a short bootstrap grace window.
 

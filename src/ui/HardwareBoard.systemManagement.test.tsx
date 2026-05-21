@@ -573,8 +573,6 @@ describe("HardwareBoard second CPU system management", () => {
 
     const card = container.querySelector<HTMLElement>(".cpu-summary-card");
     const queue = card?.querySelector<HTMLElement>(".cpu-summary-queue");
-    const fullViewButton =
-      card?.querySelector<HTMLButtonElement>(".cpu-summary-open");
     const coreButton =
       card?.querySelector<HTMLButtonElement>(".cpu-summary-core-cell");
 
@@ -604,7 +602,29 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".cpu-bank-grid")).not.toBeNull();
 
     act(() => {
-      fullViewButton?.click();
+      card?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+
+    expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
+    expect(container.querySelector(".cpu-bank-stack")).not.toBeNull();
+    expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
+    expect(container.querySelector(".cpu-bank-grid")).toBeNull();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={onSelectComponent}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".cpu-summary-open")
+        ?.click();
     });
 
     expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");

@@ -1,4 +1,4 @@
-import { type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Cpu, HardDrive, LayoutGrid, ListTodo, Rows3 } from "lucide-react";
 import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatBits, formatClock } from "../format";
@@ -61,6 +61,11 @@ function CpuSummaryCard({
     event.preventDefault();
     onSelect();
   };
+  const handleCardDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("button, input, select, textarea, a")) return;
+    onOpenFull();
+  };
 
   return (
     <div
@@ -70,6 +75,7 @@ function CpuSummaryCard({
       role="button"
       tabIndex={0}
       onClick={onSelect}
+      onDoubleClick={handleCardDoubleClick}
       onKeyDown={handleCardKeyDown}
       title={`Select ${socket.label} scheduler`}
       aria-label={`Select ${socket.label} scheduler, ${activeCount} of ${totalCores} active`}

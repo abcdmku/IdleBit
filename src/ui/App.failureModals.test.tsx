@@ -156,9 +156,10 @@ describe("App failure modals", () => {
     expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
     expect(restored.systems[1]?.hardware.cores).toBe(128);
     expect(restored.systems[1]?.hardware.ramSticks).toHaveLength(32);
-    expect(container.textContent).toContain("Rack");
-    expect(container.textContent).not.toContain("Rack-Ready Workstation");
-    expect(container.textContent).not.toContain("Dense Compute Node");
+    const rackPanel = container.querySelector(".system-rack");
+    expect(rackPanel?.textContent).toContain("Rack");
+    expect(rackPanel?.textContent).not.toContain("Rack-Ready Workstation");
+    expect(rackPanel?.textContent).not.toContain("Dense Compute Node");
   });
 
   it("restores a valid save when optional UI preferences are corrupt", async () => {

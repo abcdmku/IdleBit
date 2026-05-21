@@ -334,6 +334,9 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(container.querySelector(".cpu-package")).toBeNull();
     expect(standaloneCores).not.toBeNull();
     expect(standaloneCores?.closest(".cpu-package")).toBeNull();
+    expect(
+      standaloneCores?.querySelector(".core-die .core-work")?.textContent,
+    ).toBe("Idle");
 
     const ramVisible: VisibleState = {
       ...base,

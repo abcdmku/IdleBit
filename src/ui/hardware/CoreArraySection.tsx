@@ -197,8 +197,8 @@ function CoreDie({
           </button>
         )}
       </span>
-      {density === "normal" && active && (
-        <span className="core-work" title={work}>
+      {density === "normal" && (
+        <span className={`core-work ${active ? "" : "idle"}`} title={work}>
           {work}
         </span>
       )}

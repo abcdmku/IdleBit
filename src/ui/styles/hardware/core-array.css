@@ -287,6 +287,8 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.core-work.idle { color: var(--muted); }
+
 .core-die.deadlocked .core-work { color: var(--rose); }
 
 /* ---------- Progress bar ---------- */

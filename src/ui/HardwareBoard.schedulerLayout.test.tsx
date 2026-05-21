@@ -404,7 +404,27 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(
       coreDie?.querySelector(".core-work")?.textContent,
     ).toBe("Idle");
-    expect(coreDie?.style.getPropertyValue("--core-status-color")).toBe(
+    expect(coreDie?.style.getPropertyValue("--core-status-color")).toBe("");
+
+    const runningState = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={deriveVisibleState(runningState)}
+          dispatch={() => undefined}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const runningCoreDie = container.querySelector<HTMLElement>(".core-die.running");
+
+    expect(runningCoreDie?.style.getPropertyValue("--core-status-color")).toBe(
       "hsla(168, 82%, 62%, 0.94)",
     );
 

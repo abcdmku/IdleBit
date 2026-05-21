@@ -466,6 +466,64 @@ describe("HardwareBoard second CPU system management", () => {
     });
   });
 
+  it("shows blank CRON schedules as Select Task and filters unavailable system tasks", () => {
+    const visible = makeSecondCpuVisible({
+      flags: { cronScheduler: true },
+    });
+    const runnableTask = visible.tasks[0]!;
+    visible.tasks = [
+      runnableTask,
+      {
+        ...runnableTask,
+        id: "memoryScrub",
+        name: "Memory Scrub",
+        canQueue: false,
+        queueBlockedReason: "RAM capacity too low.",
+      },
+      {
+        ...runnableTask,
+        id: "fetchBit",
+        name: "Fetch Bit",
+        category: "cpu",
+        canQueue: true,
+      },
+    ];
+    (visible as unknown as Record<string, unknown>).cron = {
+      unlocked: true,
+      minIntervalSeconds: 60,
+      schedules: [
+        {
+          id: "main",
+          taskId: null,
+          enabled: false,
+          intervalSeconds: 60,
+          remainingSeconds: 60,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cron"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const taskSelect = container.querySelector<HTMLSelectElement>(
+      ".cron-task-control select",
+    );
+    const optionLabels = Array.from(taskSelect?.options ?? []).map((option) =>
+      option.textContent,
+    );
+
+    expect(taskSelect?.value).toBe("");
+    expect(optionLabels).toEqual(["Select Task", "Tiny Checksum"]);
+  });
+
   it("keeps concise CPU cards focused on scheduler and core selection", () => {
     const onSelectComponent = vi.fn();
     const visible = makeSecondCpuVisible();

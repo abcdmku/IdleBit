@@ -1,7 +1,7 @@
 import type { VisibleState } from "../../game";
 import { formatNumber } from "../format";
 import { firstNumber } from "../panels/uiNumbers";
-import { getTasks } from "../tasks/taskData";
+import { getTaskCanUseAction, getTasks } from "../tasks/taskData";
 import type { UiTask } from "../tasks/taskTypes";
 import { formatCountdownSeconds } from "./display";
 import { asUiVisible, type CronIntervalMode, type UiCronSchedule, type UiCronState } from "./visibleState";
@@ -33,11 +33,13 @@ export const hasPsuManagement = (visible: VisibleState) => {
   );
 };
 
-const isSystemQueueTask = (task: UiTask | undefined) =>
+const isSystemQueueTask = (task: UiTask | undefined): task is UiTask =>
   task?.category === "system" || task?.category === "distributed";
 
 export const getSystemTaskOptions = (visible: VisibleState) =>
-  getTasks(visible).filter(isSystemQueueTask);
+  getTasks(visible).filter(
+    (task) => isSystemQueueTask(task) && getTaskCanUseAction(task, "systemScheduler"),
+  );
 
 export const getCronMinimumSeconds = (
   cron: UiCronState | null,

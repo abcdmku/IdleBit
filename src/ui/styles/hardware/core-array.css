@@ -225,11 +225,9 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--core-status-color, var(--muted-2));
-  box-shadow:
-    0 0 0 2px rgba(0, 0, 0, 0.6),
-    0 0 7px var(--core-status-glow, transparent);
-  opacity: 0.78;
+  background: var(--muted-2);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+  opacity: 0.52;
 }
 
 .core-die.running .core-status-dot {

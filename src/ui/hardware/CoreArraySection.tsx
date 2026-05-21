@@ -149,10 +149,12 @@ function CoreDie({
   const progress =
     active?.coreProgress?.find((operation) => operation.coreId === core.id)?.progress ?? 0;
   const work = active?.name ?? "Idle";
-  const coreStyle = {
-    "--core-status-color": getCoreSegmentColor(core.id, 0.94),
-    "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
-  } as CSSProperties;
+  const coreStyle = active
+    ? ({
+        "--core-status-color": getCoreSegmentColor(core.id, 0.94),
+        "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
+      } as CSSProperties)
+    : undefined;
   const cancelActiveTask = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!active) return;

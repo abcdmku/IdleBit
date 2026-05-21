@@ -148,7 +148,7 @@ function CronScheduleRow({
   const selectedTaskId =
     schedule.taskId && tasks.some((task) => task.id === schedule.taskId)
       ? schedule.taskId
-      : (tasks[0]?.id ?? "");
+      : "";
   const enabled = schedule.enabled !== false;
 
   const dispatchInterval = (rawValue: string, nextMode = mode) => {
@@ -223,13 +223,18 @@ function CronScheduleRow({
           aria-label={`CRON schedule ${index + 1} system task`}
         >
           {tasks.length === 0 ? (
-            <option value="">No system tasks</option>
+            <option value="">No available tasks</option>
           ) : (
-            tasks.map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.name}
+            <>
+              <option value="" disabled>
+                Select Task
               </option>
-            ))
+              {tasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.name}
+                </option>
+              ))}
+            </>
           )}
         </select>
       </label>

@@ -235,6 +235,7 @@ describe("HardwareBoard power telemetry", () => {
 
     const psuSection = container.querySelector(".psu-section");
 
+    expect(container.querySelector(".system-board.power-offline")).not.toBeNull();
     expect(psuSection?.textContent).toContain("System booting");
     expect(psuSection?.textContent).toContain("7s");
 

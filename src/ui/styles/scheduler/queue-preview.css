@@ -1,4 +1,4 @@
-/* ----- Scheduler ----- */
+/* ============ Scheduler queue preview ============ */
 
 .queue-preview {
   display: flex;
@@ -20,132 +20,233 @@
   scrollbar-width: thin;
 }
 
+/* ---------- Slot cell ---------- */
+
 .queue-slot-cell {
   position: relative;
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) 13px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "idx name cancel";
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  gap: 3px;
+  gap: 0 5px;
   align-items: center;
   height: var(--scheduler-slot-height, 20px);
-  padding: 1px 3px;
-  border: 1px solid rgba(184, 158, 255, 0.32);
-  border-radius: 3px;
-  background: rgba(184, 158, 255, 0.035);
+  padding: 2px 5px 4px;
+  border: 1px solid rgba(184, 158, 255, 0.30);
+  border-radius: 4px;
+  background: rgba(184, 158, 255, 0.04);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
-  line-height: 1;
+  line-height: 1.15;
   contain: layout paint;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
 
+.queue-slot-cell:hover {
+  border-color: rgba(184, 158, 255, 0.6);
+  background: rgba(184, 158, 255, 0.08);
+}
+
+/* Spacious tier (≤8 slots): 2-line layout — name on top, reason underneath.
+   Denser tiers collapse to 1 line; reason hides. */
 .queue-preview-list.spacious .queue-slot-cell {
-  grid-template-columns: 20px minmax(0, 1fr) 16px;
-  padding: 3px 5px;
-  font-size: 0.64rem;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "idx name   cancel"
+    "idx reason cancel";
+  row-gap: 1px;
+  column-gap: 6px;
+  padding: 4px 6px 6px;
+}
+
+.queue-preview-list.spacious .queue-slot-cell.empty {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "idx name cancel";
+  padding-block: 0;
 }
 
 .queue-preview-list.compact .queue-slot-cell {
-  font-size: 0.56rem;
+  font-size: 0.58rem;
+  padding: 2px 5px 4px;
 }
 
 .queue-preview-list.dense .queue-slot-cell,
 .queue-preview-list.micro .queue-slot-cell {
-  grid-template-columns: 13px minmax(0, 1fr) 11px;
-  gap: 2px;
-  padding: 1px 2px;
-  font-size: 0.5rem;
+  grid-template-columns: 13px minmax(0, 1fr) auto;
+  gap: 0 3px;
+  padding: 1px 3px 3px;
+  font-size: 0.52rem;
+  letter-spacing: -0.02em;
 }
 
+/* ---------- State variants ---------- */
+
 .queue-slot-cell.active {
-  border-color: rgba(115, 240, 92, 0.34);
-  background: rgba(115, 240, 92, 0.035);
+  border-color: rgba(115, 240, 92, 0.5);
+  background:
+    linear-gradient(180deg, rgba(115, 240, 92, 0.06), rgba(115, 240, 92, 0.02));
 }
 
 .queue-slot-cell.pending {
-  border-color: rgba(184, 158, 255, 0.28);
+  border-color: rgba(184, 158, 255, 0.36);
 }
 
 .queue-slot-cell.deadlocked {
-  border-color: rgba(255, 111, 145, 0.68);
-  background: rgba(255, 111, 145, 0.08);
+  border-color: rgba(255, 111, 145, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 111, 145, 0.10), rgba(255, 111, 145, 0.04));
 }
 
 .queue-slot-cell.empty {
   border-style: dashed;
-  border-color: rgba(120, 220, 200, 0.12);
-  background: rgba(120, 220, 200, 0.015);
+  border-color: rgba(120, 220, 200, 0.14);
+  background: rgba(120, 220, 200, 0.02);
 }
+
+.queue-slot-cell.empty:hover {
+  border-color: rgba(120, 220, 200, 0.32);
+  background: rgba(120, 220, 200, 0.05);
+}
+
+/* ---------- Index chip ---------- */
 
 .queue-slot-index {
-  grid-column: 1;
+  grid-area: idx;
+  align-self: center;
+  justify-self: center;
   color: var(--violet);
   font-size: 0.54rem;
-  font-weight: 700;
+  font-weight: 800;
   text-align: center;
+  opacity: 0.78;
 }
 
-.queue-slot-state {
-  min-width: 0;
-  grid-column: 2;
-  color: var(--muted);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.scheduler-status-marquee {
-  display: inline-flex;
-  min-width: max-content;
-  gap: 22px;
-  will-change: transform;
-  animation: scheduler-status-marquee 12s linear infinite;
-}
-
-.scheduler-status-marquee > span {
-  white-space: nowrap;
-}
-
-.scheduler-status-marquee::after {
-  content: attr(data-status);
-  margin-left: 22px;
-  white-space: nowrap;
-}
-
-.queue-slot-cell:hover .scheduler-status-marquee {
-  animation-play-state: paused;
-}
-
-@keyframes scheduler-status-marquee {
-  0%, 14% { transform: translateX(0); }
-  100% { transform: translateX(calc(-50% - 11px)); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .scheduler-status-marquee {
-    animation: none;
-  }
-}
-
-.queue-preview-list.micro .queue-slot-state {
+.queue-preview-list.dense .queue-slot-index,
+.queue-preview-list.micro .queue-slot-index {
   font-size: 0.48rem;
 }
 
-.queue-slot-cell.active .queue-slot-state {
-  color: var(--green);
+.queue-slot-cell.active .queue-slot-index { color: var(--green); }
+.queue-slot-cell.deadlocked .queue-slot-index { color: var(--rose); }
+.queue-slot-cell.empty .queue-slot-index { color: var(--muted-2); }
+
+/* ---------- Task name (primary) ---------- */
+
+.queue-slot-name {
+  grid-area: name;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.queue-slot-cell.active .queue-slot-name { color: var(--green); }
+.queue-slot-cell.deadlocked .queue-slot-name { color: var(--rose); }
+.queue-slot-cell.empty .queue-slot-name {
+  color: var(--muted-2);
+  font-weight: 500;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ---------- Waiting reason (secondary) ---------- */
+
+.queue-slot-state {
+  grid-area: reason;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.54rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hide secondary reason in denser tiers — there's no room and the tooltip
+   carries the same text. */
+.queue-preview-list.compact .queue-slot-state,
+.queue-preview-list.dense .queue-slot-state,
+.queue-preview-list.micro .queue-slot-state {
+  display: none;
+}
+
+.queue-slot-cell.active .queue-slot-state { color: var(--green); opacity: 0.75; }
+.queue-slot-cell.deadlocked .queue-slot-state { color: var(--rose); opacity: 0.9; }
+
+/* ---------- Cancel button ---------- */
+
+.queue-cancel-button {
+  grid-area: cancel;
+  align-self: center;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255, 111, 145, 0.3);
+  border-radius: 3px;
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.04);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+
+.queue-preview-list.spacious .queue-cancel-button {
+  width: 18px;
+  height: 18px;
+}
+
+.queue-preview-list.dense .queue-cancel-button,
+.queue-preview-list.micro .queue-cancel-button {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.queue-preview-list.spacious .queue-cancel-button {
+  align-self: start;
+  margin-top: 1px;
+}
+
+.queue-cancel-button svg {
+  width: 10px;
+  height: 10px;
+}
+
+.queue-preview-list.dense .queue-cancel-button svg,
+.queue-preview-list.micro .queue-cancel-button svg {
+  width: 8px;
+  height: 8px;
+}
+
+.queue-cancel-button:hover:not(:disabled) {
+  border-color: var(--rose);
+  background: rgba(255, 111, 145, 0.15);
+}
+
+/* ---------- Progress bar (bottom edge of cell) ---------- */
 
 .queue-slot-progress {
   position: absolute;
-  left: 3px;
-  right: 3px;
+  left: 4px;
+  right: 4px;
   bottom: 1px;
   height: 2px;
   border-radius: 999px;
   overflow: hidden;
-  background: rgba(115, 240, 92, 0.08);
+  background: rgba(115, 240, 92, 0.10);
   pointer-events: none;
 }
 
@@ -156,74 +257,29 @@
   opacity: 0;
 }
 
-.queue-slot-cell.active .queue-slot-progress > span {
-  opacity: 1;
-}
+.queue-slot-cell.active .queue-slot-progress > span { opacity: 1; }
 
 .queue-slot-cell.deadlocked .queue-slot-progress {
-  background: rgba(255, 111, 145, 0.12);
+  background: rgba(255, 111, 145, 0.14);
 }
 
 .queue-slot-cell.deadlocked .queue-slot-progress > span {
   background: var(--rose);
+  opacity: 1;
 }
 
-.queue-slot-cell.deadlocked .queue-slot-index,
-.queue-slot-cell.deadlocked .queue-slot-state {
-  color: var(--rose);
-}
-
-.queue-slot-cell.empty .queue-slot-index,
-.queue-slot-cell.empty .queue-slot-state {
-  color: var(--muted-2);
-}
+/* ---------- Empty state ---------- */
 
 .queue-preview .queue-empty {
   display: flex;
   align-items: center;
   height: 34px;
-  padding: 4px 6px;
-  border: 1px dashed rgba(184, 158, 255, 0.18);
+  padding: 4px 8px;
+  border: 1px dashed rgba(184, 158, 255, 0.22);
   border-radius: 4px;
-  background: rgba(184, 158, 255, 0.018);
+  background: rgba(184, 158, 255, 0.025);
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.62rem;
   font-style: italic;
-}
-
-.queue-cancel-button {
-  grid-column: 3;
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  border-color: rgba(255, 111, 145, 0.32);
-  border-radius: 2px;
-  color: var(--rose);
-  background: rgba(255, 111, 145, 0.04);
-}
-
-.queue-preview-list.spacious .queue-cancel-button {
-  width: 16px;
-  height: 16px;
-}
-
-.queue-preview-list.dense .queue-cancel-button,
-.queue-preview-list.micro .queue-cancel-button {
-  width: 11px;
-  height: 11px;
-}
-
-.queue-cancel-button svg {
-  width: 9px;
-  height: 9px;
-}
-
-.queue-cancel-button:hover:not(:disabled) {
-  border-color: var(--rose);
-  background: rgba(255, 111, 145, 0.12);
 }

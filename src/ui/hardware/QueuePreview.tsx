@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 import type { Dispatch } from "../uiActions";
 import { clampMeter, getProgressStyle } from "./meters";
@@ -95,19 +95,6 @@ function getSchedulerGridMetrics(
   return { columns, rows, gridHeight, slotHeight, density };
 }
 
-function SchedulerStatusText({ children }: { children: ReactNode }) {
-  const statusText =
-    typeof children === "string" || typeof children === "number"
-      ? String(children)
-      : "";
-
-  return (
-    <span className="scheduler-status-marquee" data-status={statusText}>
-      <span>{children}</span>
-    </span>
-  );
-}
-
 export function QueuePreview({
   items,
   slotCapacity,
@@ -150,7 +137,7 @@ export function QueuePreview({
                   title={`Slot ${index + 1}: open`}
                 >
                   <span className="queue-slot-index">{index + 1}</span>
-                  <span className="queue-slot-state">Open</span>
+                  <span className="queue-slot-name">Open</span>
                 </small>
               );
             }
@@ -166,9 +153,8 @@ export function QueuePreview({
                 title={`${item.name}: ${item.waitingReason}`}
               >
                 <span className="queue-slot-index">{index + 1}</span>
-                <span className="queue-slot-state">
-                  <SchedulerStatusText>{item.waitingReason}</SchedulerStatusText>
-                </span>
+                <span className="queue-slot-name">{item.name}</span>
+                <span className="queue-slot-state">{item.waitingReason}</span>
                 <span
                   className="queue-slot-progress"
                   role="progressbar"

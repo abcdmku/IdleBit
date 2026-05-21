@@ -23,8 +23,8 @@ export function SchedulerSection({
   const queueItems = getQueueDisplayItems(visible, socket);
   const slotCapacity = socket.schedulerSlots;
   const schedulerUpgrades = [
-    socket.schedulerSlotUpgrade,
     socket.deadlockRecoveryUpgrade,
+    socket.schedulerSlotUpgrade,
   ].filter((upgrade): upgrade is VisibleUpgrade => Boolean(upgrade));
   const selectFromSection = (event: MouseEvent<HTMLElement>) => {
     if (event.target instanceof Element && event.target.closest("button")) {

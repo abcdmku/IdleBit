@@ -5,6 +5,18 @@
     grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(260px, 300px);
   }
 
+}
+
+@media (max-width: 1080px) {
+  .board-stage {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .tasks-panel    { grid-column: 1; grid-row: 1; }
+  .hw-panel       { grid-column: 2; grid-row: 1 / span 2; border-left: 1px solid var(--line-soft); }
+  .research-panel { grid-column: 1; grid-row: 2; border-top: 1px solid var(--line-soft); border-left: 0; }
+
   .cron-schedule-row {
     grid-template-columns: auto minmax(0, 1fr) 56px auto;
     grid-template-areas:
@@ -19,17 +31,6 @@
   .cron-schedule-row .cron-interval-control { grid-area: every; }
   .cron-schedule-row .cron-mode-control { grid-area: mode; align-self: end; }
   .cron-schedule-row .cron-next { grid-area: next; }
-}
-
-@media (max-width: 1080px) {
-  .board-stage {
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-    grid-template-rows: 1fr 1fr;
-  }
-
-  .tasks-panel    { grid-column: 1; grid-row: 1; }
-  .hw-panel       { grid-column: 2; grid-row: 1 / span 2; border-left: 1px solid var(--line-soft); }
-  .research-panel { grid-column: 1; grid-row: 2; border-top: 1px solid var(--line-soft); border-left: 0; }
 }
 
 @media (max-width: 760px) {

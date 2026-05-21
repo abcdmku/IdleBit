@@ -128,6 +128,72 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     });
   });
 
+  it("shows deadlock cooldown before the CPU queue slot upgrade", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const makeUpgrade = (
+      id: "schedulerSlot" | "deadlockRecovery",
+      name: string,
+    ): VisibleState["upgrades"][number] => ({
+      id,
+      name,
+      component: "scheduler",
+      accent: "violet",
+      costs: [],
+      refunds: [],
+      canAfford: true,
+      canDowngrade: false,
+      downgradeBlockedReason: null,
+      purchaseCount: 0,
+    });
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        schedulerWatchdog: true,
+      },
+      hardware: {
+        ...base.hardware,
+        schedulerSlots: 1,
+        cpus: base.hardware.cpus.map((cpu) => ({ ...cpu, schedulerSlots: 1 })),
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 1,
+            schedulerSlotUpgrade: makeUpgrade("schedulerSlot", "CPU Queue Slot"),
+            deadlockRecoveryUpgrade: makeUpgrade(
+              "deadlockRecovery",
+              "Deadlock Cooldown",
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll(
+          ".scheduler-section .inline-upgrade-row .upgrade-stepper-spec > span:first-child",
+        ),
+      ).map((label) => label.textContent),
+    ).toEqual(["Deadlock Cooldown", "CPU Queue Slot"]);
+  });
+
   it("selects scheduler sections from non-button surfaces", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();

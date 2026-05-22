@@ -76,7 +76,9 @@ export interface UiTask {
   requiredCycles?: number;
   requiredCores?: number;
   minCores?: number;
-  coreScaling?: "fixed" | "elastic";
+  coreScaling?: "fixed" | "chunked";
+  workUnitCount?: number;
+  workUnitName?: string;
   rewardCredits?: number;
   rewardData?: number;
   rewards?: Partial<Record<"credits" | "data", number>>;

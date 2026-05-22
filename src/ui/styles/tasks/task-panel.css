@@ -292,16 +292,9 @@
 .meta-chip.ops > svg { color: var(--green); opacity: 1; }
 .meta-chip.ops > strong { color: var(--green); }
 
-.meta-chip.elastic > svg {
+.meta-chip.chunked > svg {
   color: var(--cyan);
   opacity: 1;
-}
-
-.elastic-core-symbol {
-  color: var(--cyan);
-  font-size: var(--fs-sm);
-  font-weight: 800;
-  line-height: 1;
 }
 
 /* ---------- Rewards ---------- */

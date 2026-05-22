@@ -103,7 +103,7 @@ export type TaskKind = "task" | "job" | "benchmark";
 
 export type TaskCategory = "cpu" | "system" | "distributed";
 
-export type TaskCoreScaling = "fixed" | "elastic";
+export type TaskCoreScaling = "fixed" | "chunked";
 
 export type TaskOperationKind = "memory" | "compute" | "barrier";
 
@@ -232,6 +232,12 @@ export interface TaskDefinition {
   parallelizable: boolean;
   repeatable: boolean;
   coreScaling: TaskCoreScaling;
+  workUnitCount: number;
+  workUnitName: string;
+  workUnitOperationCount: number;
+  workUnitCycles: number;
+  workUnitCacheNeedBits: number;
+  workUnitRamNeedBits: number;
   minCores: number;
   maxCores?: number;
   reveal: (state: GameState) => boolean;
@@ -299,6 +305,7 @@ export interface UpgradeContext {
 
 export interface ActiveCoreOperation {
   coreId: number;
+  workUnitIndex?: number | null;
   operationIndex: number;
   operationId: string | null;
   operationName: string | null;
@@ -323,6 +330,9 @@ export interface ActiveTask {
   schedulerQueued: boolean;
   coreId: number;
   assignedCoreIds: number[];
+  workUnitsTotal?: number;
+  workUnitsStarted?: number;
+  workUnitsCompleted?: number;
   coreOperations: ActiveCoreOperation[];
   remainingCycles: number;
   totalCycles: number;
@@ -675,6 +685,8 @@ export interface VisibleTask {
   dagNodes: VisibleTaskSubtask[];
   requiredCores: number;
   coreScaling: TaskCoreScaling;
+  workUnitCount: number;
+  workUnitName: string;
   cacheFit: "bonus" | "met" | "low";
   canStart: boolean;
   canQueue: boolean;

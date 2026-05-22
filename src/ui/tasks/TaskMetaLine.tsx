@@ -6,7 +6,7 @@ import {
   getTaskOperationCount,
   getTaskRamBits,
   getTaskRewardCosts,
-  isElasticTask,
+  isChunkedTask,
 } from "./taskData";
 import type { UiTask } from "./taskTypes";
 
@@ -28,8 +28,8 @@ export function TaskMetaLine({
       <span className="ops">
         <strong>{operationCount === undefined ? "?" : formatNumber(operationCount)}</strong> ops
       </span>
-      {isElasticTask(task) ? (
-        <span>uses idle cores</span>
+      {isChunkedTask(task) ? (
+        <span>{formatNumber(task.workUnitCount ?? 1)} chunks</span>
       ) : (
         requiredCores > 1 && <span>{formatNumber(requiredCores)} cores</span>
       )}

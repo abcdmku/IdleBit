@@ -412,4 +412,4 @@ export const getTaskRewardCosts = (task: UiTask): DisplayCost[] => {
 export const getRequiredCoreCount = (task: UiTask | undefined) =>
   Math.max(1, firstNumber(task?.requiredCores, task?.minCores) ?? 1);
 
-export const isElasticTask = (task: UiTask | undefined) => task?.coreScaling === "elastic";
+export const isChunkedTask = (task: UiTask | undefined) => task?.coreScaling === "chunked";

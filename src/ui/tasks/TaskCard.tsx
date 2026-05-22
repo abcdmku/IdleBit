@@ -8,7 +8,7 @@ import {
   getTaskOperationCount,
   getTaskRamBits,
   getTaskRewardCosts,
-  isElasticTask,
+  isChunkedTask,
 } from "./taskData";
 import type { QueueMode, TaskState, UiTask } from "./taskTypes";
 
@@ -103,14 +103,15 @@ export function TaskCard({
             <strong>{opCountText}</strong>
             <em className="sr-only">{" "}ops</em>
           </span>
-          {isElasticTask(task) ? (
+          {isChunkedTask(task) ? (
             <span
-              className="meta-chip elastic"
-              title="Elastic cores: uses idle cores"
-              aria-label="Elastic cores: uses idle cores"
+              className="meta-chip chunked"
+              title={`Chunked work: ${formatNumber(task.workUnitCount ?? 1)} chunks fill idle cores`}
+              aria-label={`Chunked work ${formatNumber(task.workUnitCount ?? 1)} chunks`}
             >
               <Cpu size={11} aria-hidden="true" />
-              <span className="elastic-core-symbol" aria-hidden="true">∞</span>
+              <strong>{formatNumber(task.workUnitCount ?? 1)}</strong>
+              <em className="sr-only">{" "}chunks</em>
             </span>
           ) : (
             requiredCores > 1 && (

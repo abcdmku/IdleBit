@@ -101,6 +101,14 @@ const getCacheFit = (
 const getBusyCoreIds = (state: GameState) =>
   new Set(state.activeTasks.flatMap((task) => task.assignedCoreIds));
 
+const taskFitsCpuHardware = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId: number,
+) =>
+  task.cacheNeedBits <= getCpuHardware(state, cpuId).cacheBits &&
+  task.ramNeedBits <= getMemoryCapacityBits(state);
+
 const getMaxIdleCoresInCpu = (state: GameState) => {
   const busyCoreIds = getBusyCoreIds(state);
   return Math.max(
@@ -111,11 +119,60 @@ const getMaxIdleCoresInCpu = (state: GameState) => {
   );
 };
 
+const getIdleCoreCountInSystem = (state: GameState, task?: TaskDefinition) => {
+  const busyCoreIds = getBusyCoreIds(state);
+  return state.hardware.cpus.reduce(
+    (total, cpu) =>
+      total +
+      getCpuHardware(state, cpu.id).coreIds.filter(
+        (coreId) =>
+          !busyCoreIds.has(coreId) &&
+          (task === undefined || taskFitsCpuHardware(state, task, cpu.id)),
+      ).length,
+    0,
+  );
+};
+
+const getCoreCountInSystem = (state: GameState, task?: TaskDefinition) =>
+  state.hardware.cpus.reduce(
+    (total, cpu) =>
+      total +
+      (task === undefined || taskFitsCpuHardware(state, task, cpu.id)
+        ? getCpuHardware(state, cpu.id).coreIds.length
+        : 0),
+    0,
+  );
+
+const getCpuSchedulerWidthInSystem = (state: GameState) =>
+  state.hardware.cpus.reduce(
+    (total, cpu) => total + getCpuHardware(state, cpu.id).schedulerSlots,
+    0,
+  );
+
+const isSystemScheduledTask = (task: TaskDefinition) =>
+  task.category === "system" || task.category === "distributed";
+
+const isChunkedSystemTask = (task: TaskDefinition) =>
+  task.coreScaling === "chunked" && isSystemScheduledTask(task);
+
+const getMaxIdleCoresForTask = (state: GameState, task: TaskDefinition) =>
+  isChunkedSystemTask(task)
+    ? getIdleCoreCountInSystem(state, task)
+    : getMaxIdleCoresInCpu(state);
+
 const getMaxSchedulerWidthForTask = (
   state: GameState,
   task: TaskDefinition,
   requireIdleCores: boolean,
 ) => {
+  if (isChunkedSystemTask(task)) {
+    const availableCores = requireIdleCores
+      ? getIdleCoreCountInSystem(state, task)
+      : getCoreCountInSystem(state, task);
+
+    return availableCores >= task.minCores ? getCpuSchedulerWidthInSystem(state) : 0;
+  }
+
   const busyCoreIds = getBusyCoreIds(state);
   return Math.max(
     0,
@@ -143,9 +200,6 @@ const isTaskRevealed = (state: GameState, task: TaskDefinition) =>
   task.reveal(state) || task.requirement(state);
 
 const isPlayerFacingTask = (task: TaskDefinition) => task.kind !== "benchmark";
-
-const isSystemScheduledTask = (task: TaskDefinition) =>
-  task.category === "system" || task.category === "distributed";
 
 const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
@@ -207,7 +261,7 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
       : "Deadlock active.";
   }
 
-  const idleCoreCount = getMaxIdleCoresInCpu(state);
+  const idleCoreCount = getMaxIdleCoresForTask(state, task);
   if (idleCoreCount < task.minCores) {
     return task.minCores > 1
       ? `Needs ${task.minCores} idle cores.`
@@ -327,6 +381,8 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   dagNodes: task.dagNodes.map(getVisibleTaskSubtask),
   requiredCores: task.minCores,
   coreScaling: task.coreScaling,
+  workUnitCount: task.workUnitCount,
+  workUnitName: task.workUnitName,
   cacheFit: getCacheFit(state, task),
   canStart: getTaskCanStart(state, task),
   canQueue: getTaskCanQueue(state, task),

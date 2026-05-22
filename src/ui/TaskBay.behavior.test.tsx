@@ -282,7 +282,8 @@ describe("TaskBay task and research behavior", () => {
           id: "compileCode",
           name: "Compile Code",
           requiredCores: 1,
-          coreScaling: "elastic",
+          coreScaling: "chunked",
+          workUnitCount: 16,
           operationCount: 512,
         },
       ],
@@ -311,9 +312,9 @@ describe("TaskBay task and research behavior", () => {
 
     expect(fetchMeta?.textContent).not.toContain("1 cores");
     expect(busMeta?.textContent).toContain("2 cores");
-    expect(compileMeta?.textContent).toContain("∞");
+    expect(compileMeta?.textContent).toContain("16");
     expect(compileMeta?.textContent).not.toContain("Inf");
-    expect(compileMeta?.querySelector(".meta-chip.elastic svg")).not.toBeNull();
+    expect(compileMeta?.querySelector(".meta-chip.chunked svg")).not.toBeNull();
   });
 
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {

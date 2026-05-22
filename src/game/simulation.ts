@@ -207,6 +207,11 @@ const canRunPoweredWork = (state: GameState) =>
 const isSystemScheduledTask = (task: TaskDefinition) =>
   task.category === "system" || task.category === "distributed";
 
+const isChunkedTask = (task: TaskDefinition) => task.coreScaling === "chunked";
+
+const isChunkedSystemTask = (task: TaskDefinition) =>
+  isChunkedTask(task) && isSystemScheduledTask(task);
+
 const isCronEligibleTask = (state: GameState, task: TaskDefinition) =>
   task.kind === "task" &&
   task.repeatable &&
@@ -343,33 +348,14 @@ const isOperationAssignedToCore = (
   task: ActiveTask,
   operation: TaskOperationDefinition,
   coreId: number,
-) => operation.parallel || operation.kind === "barrier" || coreId === task.coreId;
+) => {
+  if (isChunkedTask(getTaskDefinition(task.taskId))) return true;
+  return operation.parallel || operation.kind === "barrier" || coreId === task.coreId;
+};
 
 const getOperation = (task: ActiveTask, operationIndex: number) => {
   const taskDefinition = getTaskDefinition(task.taskId);
-  const operation = taskDefinition.operations[operationIndex] ?? null;
-  if (!operation) return null;
-  if (
-    taskDefinition.coreScaling !== "elastic" ||
-    !operation.parallel ||
-    task.assignedCoreIds.length <= 1
-  ) {
-    return operation;
-  }
-
-  const width = Math.max(1, task.assignedCoreIds.length);
-  const cycles = Math.ceil(operation.cycles / width);
-  const cacheBits = Math.ceil(operation.cacheBits / width);
-  const ramBits = Math.ceil(operation.ramBits / width);
-
-  return {
-    ...operation,
-    cycles,
-    cacheBits,
-    ramBits,
-    cacheBytes: bitsToBytes(cacheBits),
-    ramBytes: bitsToBytes(ramBits),
-  };
+  return taskDefinition.operations[operationIndex] ?? null;
 };
 
 const getRuntimeWork = (
@@ -389,21 +375,50 @@ const getRuntimeWork = (
   };
 };
 
+const getFutureWorkUnitCycles = (
+  taskDefinition: TaskDefinition,
+  operationIndex: number,
+) =>
+  taskDefinition.operations
+    .slice(operationIndex + 1)
+    .reduce((sum, operation) => sum + operation.cycles, 0);
+
 const refreshTaskTotals = (task: ActiveTask): ActiveTask => {
-  const remainingCycles = task.coreOperations.reduce(
+  const taskDefinition = getTaskDefinition(task.taskId);
+  const activeRemainingCycles = task.coreOperations.reduce(
     (sum, operation) =>
       sum + getRuntimeWork(getOperation(task, operation.operationIndex), operation).remaining,
     0,
   );
-  const totalCycles = task.coreOperations.reduce(
+  const activeTotalCycles = task.coreOperations.reduce(
     (sum, operation) =>
       sum + getRuntimeWork(getOperation(task, operation.operationIndex), operation).total,
     0,
   );
+
+  if (isChunkedTask(taskDefinition)) {
+    const totalWorkUnits = task.workUnitsTotal ?? taskDefinition.workUnitCount;
+    const startedWorkUnits = task.workUnitsStarted ?? 0;
+    const unstartedWorkUnits = Math.max(0, totalWorkUnits - startedWorkUnits);
+    const futureActiveCycles = task.coreOperations.reduce((sum, operation) => {
+      if (operation.status === "complete" || operation.workUnitIndex == null) return sum;
+      return sum + getFutureWorkUnitCycles(taskDefinition, operation.operationIndex);
+    }, 0);
+
+    return {
+      ...task,
+      remainingCycles:
+        activeRemainingCycles +
+        futureActiveCycles +
+        unstartedWorkUnits * taskDefinition.workUnitCycles,
+      totalCycles: Math.max(1, taskDefinition.requiredCycles),
+    };
+  }
+
   return {
     ...task,
-    remainingCycles,
-    totalCycles,
+    remainingCycles: activeRemainingCycles,
+    totalCycles: activeTotalCycles,
   };
 };
 
@@ -453,14 +468,37 @@ const activeTaskRunsOnCpu = (state: GameState, task: ActiveTask, cpuId: number) 
 const getActiveCpuCacheFootprintBits = (state: GameState, cpuId: number) =>
   state.activeTasks.reduce((sum, activeTask) => {
     if (!activeTaskRunsOnCpu(state, activeTask, cpuId)) return sum;
-    return sum + getTaskDefinition(activeTask.taskId).cacheNeedBits;
+    const definition = getTaskDefinition(activeTask.taskId);
+    if (isChunkedTask(definition)) {
+      return (
+        sum +
+        activeTask.coreOperations.filter(
+          (operation) =>
+            operation.workUnitIndex != null &&
+            operation.status !== "complete" &&
+            getCpuIdForCore(state, operation.coreId) === cpuId,
+        ).length *
+          definition.cacheNeedBits
+      );
+    }
+    return sum + definition.cacheNeedBits;
   }, 0);
 
 const getActiveMemoryFootprintBits = (state: GameState) =>
-  state.activeTasks.reduce(
-    (sum, activeTask) => sum + getTaskDefinition(activeTask.taskId).ramNeedBits,
-    0,
-  );
+  state.activeTasks.reduce((sum, activeTask) => {
+    const definition = getTaskDefinition(activeTask.taskId);
+    if (isChunkedTask(definition)) {
+      return (
+        sum +
+        activeTask.coreOperations.filter(
+          (operation) =>
+            operation.workUnitIndex != null && operation.status !== "complete",
+        ).length *
+          definition.ramNeedBits
+      );
+    }
+    return sum + definition.ramNeedBits;
+  }, 0);
 
 const getDeadlockSafeAvailableCacheBits = (state: GameState, cpuId?: number) => {
   if (cpuId !== undefined) {
@@ -532,6 +570,33 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
 const getCpuSchedulerWidth = (state: GameState, cpuId: number) =>
   Math.max(0, getCpuHardware(state, cpuId).schedulerSlots);
 
+const getSystemCpuSchedulerWidth = (state: GameState) =>
+  state.hardware.cpus.reduce(
+    (total, cpu) => total + getCpuSchedulerWidth(state, cpu.id),
+    0,
+  );
+
+const getChunkedSystemCoreIds = (
+  state: GameState,
+  task: TaskDefinition,
+  idleOnly: boolean,
+) => {
+  const coreIds = idleOnly ? availableCoreIds(state) : getAllCoreIds(state);
+  return coreIds.filter((coreId) =>
+    taskFitsCpuHardware(state, task, getCpuIdForCore(state, coreId)),
+  );
+};
+
+const canProvisionChunkedSystemTask = (
+  state: GameState,
+  task: TaskDefinition,
+  coreCount = getChunkedSystemCoreIds(state, task, false).length,
+) => {
+  if (coreCount < task.minCores) return false;
+  if (task.minCores <= 1) return true;
+  return state.flags.scheduler && getSystemCpuSchedulerWidth(state) >= task.minCores;
+};
+
 const cpuCanProvisionTask = (
   state: GameState,
   task: TaskDefinition,
@@ -548,6 +613,10 @@ const hasCpuThatCanProvisionTask = (
   task: TaskDefinition,
   cpuId?: number,
 ) => {
+  if (cpuId === undefined && isChunkedSystemTask(task)) {
+    return canProvisionChunkedSystemTask(state, task);
+  }
+
   const cpus =
     cpuId === undefined
       ? state.hardware.cpus
@@ -605,6 +674,31 @@ const selectCoreIdsForTask = (
   preferredCoreId?: number,
   cpuId?: number,
 ) => {
+  if (
+    preferredCoreId === undefined &&
+    cpuId === undefined &&
+    isChunkedSystemTask(task)
+  ) {
+    const ordered = getChunkedSystemCoreIds(state, task, true);
+    const requiredCores = task.minCores;
+    const schedulerWidth = getSystemCpuSchedulerWidth(state);
+
+    if (ordered.length < requiredCores) return [];
+    if (requiredCores > 1 && !state.flags.scheduler) return [];
+    if (requiredCores > 1 && schedulerWidth < requiredCores) return [];
+
+    const wantedCores =
+      task.parallelizable && state.flags.scheduler
+        ? Math.min(
+            ordered.length,
+            task.workUnitCount,
+            Math.max(requiredCores, schedulerWidth),
+          )
+        : requiredCores;
+
+    return ordered.slice(0, Math.max(requiredCores, wantedCores));
+  }
+
   const targetCpuId = selectCpuIdForTask(state, task, preferredCoreId, cpuId);
   if (targetCpuId === undefined) return [];
 
@@ -671,8 +765,10 @@ const schedulerCanDispatchOnCpu = (state: GameState, cpuId: number) =>
 const idleCoreOperation = (
   coreId: number,
   operationIndex: number,
+  workUnitIndex: number | null = null,
 ): ActiveCoreOperation => ({
   coreId,
+  workUnitIndex,
   operationIndex,
   operationId: null,
   operationName: null,
@@ -715,6 +811,10 @@ const enterOperation = (
       lockReason: null,
       deadlockSeconds: 0,
     };
+  }
+
+  if (operation.kind === "barrier" && isChunkedTask(getTaskDefinition(task.taskId))) {
+    return enterOperation(state, task, coreOperation, operationIndex + 1);
   }
 
   if (!isOperationAssignedToCore(task, operation, coreOperation.coreId)) {
@@ -850,14 +950,22 @@ const createActiveTask = (
     schedulerQueued,
     coreId: primaryCoreId,
     assignedCoreIds,
+    workUnitsTotal: isChunkedTask(taskDefinition)
+      ? taskDefinition.workUnitCount
+      : undefined,
+    workUnitsStarted: isChunkedTask(taskDefinition)
+      ? Math.min(assignedCoreIds.length, taskDefinition.workUnitCount)
+      : undefined,
+    workUnitsCompleted: isChunkedTask(taskDefinition) ? 0 : undefined,
     coreOperations: [],
     remainingCycles: taskDefinition.requiredCycles,
     totalCycles: taskDefinition.requiredCycles,
   };
   const coreOperations: ActiveCoreOperation[] = [];
 
-  assignedCoreIds.forEach((coreId) => {
-    const seeded = idleCoreOperation(coreId, 0);
+  assignedCoreIds.forEach((coreId, index) => {
+    const workUnitIndex = isChunkedTask(taskDefinition) ? index : null;
+    const seeded = idleCoreOperation(coreId, 0, workUnitIndex);
     const stagedTask = { ...shell, coreOperations };
     const stagedState = {
       ...state,
@@ -880,8 +988,14 @@ const assignTaskToCores = (
   schedulerQueued = false,
 ): GameState => {
   const task = getTaskDefinition(taskId);
-  const targetCpuId = selectCpuIdForTask(state, task, preferredCoreId, cpuId);
-  if (targetCpuId === undefined) return state;
+  const systemWideChunked =
+    preferredCoreId === undefined &&
+    cpuId === undefined &&
+    isChunkedSystemTask(task);
+  const targetCpuId = systemWideChunked
+    ? undefined
+    : selectCpuIdForTask(state, task, preferredCoreId, cpuId);
+  if (!systemWideChunked && targetCpuId === undefined) return state;
   if (!canStartTask(state, taskId, targetCpuId)) return state;
 
   const assignedCoreIds = selectCoreIdsForTask(
@@ -1169,6 +1283,7 @@ const selectQueuedTaskCpuId = (
 ) => {
   if (queuedCpuId !== undefined) return queuedCpuId;
   if (!isSystemScheduledTask(task)) return undefined;
+  if (isChunkedSystemTask(task)) return undefined;
 
   const candidates = state.hardware.cpus.filter((cpu) => {
     const normalizedCpu = getCpuHardware(state, cpu.id);
@@ -1303,10 +1418,24 @@ const getQueuedDispatchCandidates = (
     const task = getTaskDefinition(taskId);
     const occurrenceIndex = getQueueOccurrenceIndex(queue, taskId, index);
     const queuedCpuId = getQueuedTaskCpuId(state, taskId, occurrenceIndex);
+    const systemWideChunked = isChunkedSystemTask(task) && queuedCpuId === undefined;
     const candidateCpuId =
       queuedCpuId ?? (isSystemScheduledTask(task) ? undefined : selectCpuIdForTask(state, task));
     const cpuId = selectQueuedTaskCpuId(state, task, candidateCpuId);
-    if (isSystemScheduledTask(task) && cpuId === undefined) return [];
+    if (isSystemScheduledTask(task) && cpuId === undefined && !systemWideChunked) {
+      return [];
+    }
+    if (
+      systemWideChunked &&
+      (!canStartTask(state, task.id) ||
+        !canProvisionChunkedSystemTask(
+          state,
+          task,
+          getChunkedSystemCoreIds(state, task, true).length,
+        ))
+    ) {
+      return [];
+    }
     if (cpuId !== undefined && !schedulerCanDispatchOnCpu(state, cpuId)) return [];
     if (
       (!isSystemScheduledTask(task) || queuedCpuId !== undefined) &&
@@ -1786,19 +1915,93 @@ const tickDeadlocked = (
   };
 };
 
+const assignNextChunkedWorkUnits = (
+  state: GameState,
+  activeTask: ActiveTask,
+  coreOperations: ActiveCoreOperation[],
+): ActiveTask => {
+  const definition = getTaskDefinition(activeTask.taskId);
+  if (!isChunkedTask(definition)) {
+    return refreshTaskTotals({ ...activeTask, coreOperations });
+  }
+
+  const totalWorkUnits = activeTask.workUnitsTotal ?? definition.workUnitCount;
+  let startedWorkUnits = activeTask.workUnitsStarted ?? 0;
+  let completedWorkUnits = activeTask.workUnitsCompleted ?? 0;
+  const reassignedOperations: ActiveCoreOperation[] = [];
+
+  for (const operation of coreOperations) {
+    let nextOperation = operation;
+    const previousOperation = activeTask.coreOperations.find(
+      (candidate) => candidate.coreId === operation.coreId,
+    );
+    const completedNow =
+      operation.status === "complete" &&
+      operation.workUnitIndex != null &&
+      !(
+        previousOperation?.status === "complete" &&
+        previousOperation.workUnitIndex === operation.workUnitIndex
+      );
+
+    if (completedNow) completedWorkUnits += 1;
+
+    if (operation.status === "complete" && operation.workUnitIndex != null) {
+      if (startedWorkUnits < totalWorkUnits) {
+        const workUnitIndex = startedWorkUnits;
+        startedWorkUnits += 1;
+        const stagedTask = {
+          ...activeTask,
+          workUnitsTotal: totalWorkUnits,
+          workUnitsStarted: startedWorkUnits,
+          workUnitsCompleted: completedWorkUnits,
+          coreOperations: reassignedOperations,
+        };
+        nextOperation = enterOperation(
+          state,
+          stagedTask,
+          idleCoreOperation(operation.coreId, 0, workUnitIndex),
+          0,
+        );
+      } else {
+        nextOperation = {
+          ...operation,
+          workUnitIndex: null,
+        };
+      }
+    }
+
+    reassignedOperations.push(nextOperation);
+  }
+
+  return refreshTaskTotals({
+    ...activeTask,
+    workUnitsTotal: totalWorkUnits,
+    workUnitsStarted: startedWorkUnits,
+    workUnitsCompleted: completedWorkUnits,
+    coreOperations: reassignedOperations,
+  });
+};
+
 const tickActiveTask = (
   state: GameState,
   activeTask: ActiveTask,
   deltaSeconds: number,
 ): ActiveTask => {
-  const deadlockScope = getDeadlockScopeResource(state, activeTask);
+  const ramDeadlocked = Boolean(getRamDeadlockOperation(state));
+  const cacheDeadlockedCpuIds = getCacheDeadlockedCpuIds(state);
   const recoveryActive = state.deadlockProcessLockout === true;
   const coreOperations: ActiveCoreOperation[] = activeTask.coreOperations.map((operation) => {
     if (operation.status === "deadlocked") {
       return tickDeadlocked(state, activeTask, operation, deltaSeconds);
     }
 
-    if (deadlockScope !== null || recoveryActive) return operation;
+    if (
+      recoveryActive ||
+      ramDeadlocked ||
+      cacheDeadlockedCpuIds.has(getCpuIdForCore(state, operation.coreId))
+    ) {
+      return operation;
+    }
 
     if (operation.status === "loadingCache" || operation.status === "loadingRam") {
       return tickLoad(state, activeTask, operation, deltaSeconds);
@@ -1815,10 +2018,7 @@ const tickActiveTask = (
     return operation;
   });
 
-  return refreshTaskTotals({
-    ...activeTask,
-    coreOperations,
-  });
+  return assignNextChunkedWorkUnits(state, activeTask, coreOperations);
 };
 
 const shouldReleaseWaitingOperation = (
@@ -1903,9 +2103,14 @@ const settleActiveTasks = (state: GameState): GameState => {
     const [settledState, settledTask] = settleTaskBarriers(nextState, activeTask);
     nextState = settledState;
 
-    const complete = settledTask.coreOperations.every(
+    const settledDefinition = getTaskDefinition(settledTask.taskId);
+    const operationsComplete = settledTask.coreOperations.every(
       (operation) => operation.status === "complete",
     );
+    const complete = isChunkedTask(settledDefinition)
+      ? operationsComplete &&
+        (settledTask.workUnitsCompleted ?? 0) >= settledDefinition.workUnitCount
+      : operationsComplete;
 
     if (complete) {
       nextState = completeTask(nextState, settledTask);

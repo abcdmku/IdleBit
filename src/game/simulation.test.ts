@@ -144,7 +144,7 @@ const repeatTask = (state: GameState, taskId: TaskId, times: number) => {
 };
 
 const getTaskCoreCount = (task: TaskDefinition) =>
-  task.coreScaling === "elastic" ? 1 : task.maxCores ?? task.minCores;
+  task.coreScaling === "chunked" ? 1 : task.maxCores ?? task.minCores;
 
 const getCoreIndexes = (task: TaskDefinition) =>
   Array.from({ length: Math.max(1, getTaskCoreCount(task)) }, (_, index) => index);
@@ -248,9 +248,10 @@ const getExpectedRamProfile = (task: TaskDefinition) => {
 };
 
 const getExpectedTaskOperationCount = (task: TaskDefinition) =>
-  getExpectedCpuWork(task) +
-  getExpectedCacheLoadWork(task) +
-  getExpectedRamProfile(task).loadWork;
+  (getExpectedCpuWork(task) +
+    getExpectedCacheLoadWork(task) +
+    getExpectedRamProfile(task).loadWork) *
+  task.workUnitCount;
 
 const tickSeconds = (state: GameState, seconds: number) => {
   let nextState = state;
@@ -1488,7 +1489,7 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("runs elastic tasks faster on more selected-system cores without cross-system work", () => {
+  it("runs chunked tasks faster on more selected-system cores without cross-system work", () => {
     let state = fund({
       ...createInitialGameState(),
       flags: {
@@ -1506,7 +1507,7 @@ describe("IdleBit simulation", () => {
     });
 
     const compileDefinition = getTaskDefinition("compileCode");
-    expect(compileDefinition.coreScaling).toBe("elastic");
+    expect(compileDefinition.coreScaling).toBe("chunked");
 
     const selectedCpu = state.hardware.cpus[0]!;
     const firstCoreId = selectedCpu.coreIds[0]!;
@@ -1552,6 +1553,66 @@ describe("IdleBit simulation", () => {
     expect(getTaskDefinition("compileCode").operationCount).toBe(
       compileDefinition.operationCount,
     );
+  });
+
+  it("spans chunked system tasks across every idle core in all CPU packages", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        scheduler: true,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemScheduler", "systemCatalog", "customMachineAssembly"],
+      },
+    });
+    state = {
+      ...state,
+      resources: { credits: 50_000_000, data: 50_000 },
+    };
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components: {
+        cpu: "cpu-compile-die",
+        cpuPackageCount: 2,
+        ram: "ram-2kb-fast",
+        scheduler: "scheduler-4-slot",
+        psu: "psu-balanced",
+      },
+    });
+
+    const busyCoreId = state.hardware.cpus[0]?.coreIds[0];
+    expect(busyCoreId).toBeDefined();
+
+    state = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "fetchBit",
+      coreId: busyCoreId!,
+    });
+    const busyCoreIds = new Set(
+      state.activeTasks.flatMap((task) => task.assignedCoreIds),
+    );
+    const expectedIdleCoreIds = state.hardware.cpus
+      .flatMap((cpu) => cpu.coreIds)
+      .filter((coreId) => !busyCoreIds.has(coreId));
+
+    state = applyAction(state, {
+      type: "startTask",
+      taskId: "compileCode",
+    });
+
+    const compileTask = state.activeTasks.find(
+      (task) => task.taskId === "compileCode",
+    );
+    expect(state.hardware.cpus).toHaveLength(2);
+    expect(compileTask?.assignedCoreIds).toEqual(expectedIdleCoreIds);
+    for (const cpu of state.hardware.cpus) {
+      expect(
+        cpu.coreIds.some((coreId) => compileTask?.assignedCoreIds.includes(coreId)),
+      ).toBe(true);
+    }
   });
 
   it("starts system-scheduled work into RAM deadlock when free RAM is exhausted", () => {

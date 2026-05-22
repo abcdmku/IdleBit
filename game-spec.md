@@ -856,7 +856,7 @@ the v1 custom builder separately; the custom path appears with the catalog.
 - View owned systems in a rack-style surface.
 - Assign eligible jobs to one selected system.
 - Compare machine roles.
-- Run elastic single-system tasks.
+- Run chunked single-system tasks.
 
 ### Visual Rack Rule
 
@@ -914,22 +914,26 @@ purchase, require an explicit purchase confirmation, show projected draw/stress,
 allow risky PSU choices with warnings, then add exactly one owned-system rack
 slot.
 
-### Elastic Single-System Tasks
+### Chunked Single-System Tasks
 
-This phase introduces three elastic tasks:
+This phase introduces three chunked tasks:
 
 | Task | Bottleneck | Rule |
 |---|---|---|
-| Compile Code | CPU/RAM | Fixed work/reward; uses idle cores on the selected system to finish sooner |
-| Render Frame | Parallel compute inside one system | Fixed work/reward; rewards local cores and scheduler width with shorter duration |
-| Regression Test | CPU/cache/RAM balance | Fixed validation workload that remains selected-system only |
+| Compile Code | CPU/RAM | Fixed number of compile units; idle cores across all CPU packages each run one unit at a time |
+| Render Frame | Parallel compute inside one system | Fixed number of render tiles; local cores and scheduler width shorten duration by processing more tiles at once |
+| Regression Test | CPU/cache/RAM balance | Fixed number of test cases that remains selected-system only |
 
-Elastic means the task reserves currently idle cores within the selected system
-at dispatch time and splits the fixed local workload across those cores. Reward,
-operation count, cache footprint, and RAM footprint stay fixed; more assigned
-cores shorten duration. It does not mean distributed execution. Each accepted
-task runs on one selected system and uses that system's CPU packages, RAM, PSU,
-and local scheduler constraints.
+Chunked means the task is made from many smaller work units. At dispatch time,
+the selected system assigns currently idle eligible cores across every CPU
+package to those units. Each core runs one unit at a time, then pulls another
+unit while work remains. Reward and total operation count scale with the number
+of units, but cache and RAM fit are evaluated per active unit so a CPU only needs
+the cache for the section of work it is actually running. It does not mean
+distributed execution. Each accepted task runs on one selected system and uses
+that system's CPU packages, RAM, PSU, and local scheduler constraints. Later
+distributed workloads can use the same unit/shard shape with thousands of shards
+once networking and cluster schedulers exist.
 
 ### Automation
 
@@ -988,7 +992,7 @@ Complexity appears later through sharding, distributed computing, SLA jobs, and 
 Large jobs are split across machines.
 
 This stage remains deferred during the Multi-System Rack Phase. Compile Code,
-Render Frame, and Regression Test are elastic single-system tasks until
+Render Frame, and Regression Test are chunked single-system tasks until
 networking and cluster scheduling are introduced.
 
 ### Sharding
@@ -1487,10 +1491,10 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | Family | Bottleneck | Purpose |
 |---|---|---|
 | Compression | CPU/cache | Rewards instruction/cache upgrades |
-| Compile Code | CPU/RAM | Elastic single-system software build workload |
+| Compile Code | CPU/RAM | Chunked single-system software build workload |
 | Database Query | RAM/cache | Rewards memory and cache |
 | Render Frame | Parallel compute inside one system | Rewards cores/scheduler before distributed rendering |
-| Regression Test | CPU/cache/RAM | Elastic single-system validation workload |
+| Regression Test | CPU/cache/RAM | Chunked single-system validation workload |
 | Simulation Tick | CPU-heavy | Benchmark/boss jobs |
 
 ### 10.3 Late System/Fleet Jobs
@@ -1538,7 +1542,7 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 17 | Multi-system rack phase | Introduces the owned-system rack surface |
 | 18 | Preconfigured systems | Adds ready-made system purchases |
 | 19 | Tiered custom machine builder | Adds curated custom system construction |
-| 20 | Elastic single-system tasks | Adds Compile Code, Render Frame, and Regression Test without distributed compute |
+| 20 | Chunked single-system tasks | Adds Compile Code, Render Frame, and Regression Test without distributed compute |
 | 21 | Multiple systems | Fleet management begins; each owned system adds one visible rack slot |
 | 22 | Expansion slots | Adds specialization |
 | 23 | GPU/NPU | Adds specialized workloads |
@@ -1637,7 +1641,7 @@ The next pre-live phase should include:
   system.
 - Preconfigured system purchases.
 - A tiered custom machine builder that creates one complete system at a time.
-- Elastic single-system tasks: Compile Code, Render Frame, and Regression Test.
+- Chunked single-system tasks: Compile Code, Render Frame, and Regression Test.
 - Per-system task targeting and local system constraints.
 
 This phase should not include shared queues, networking, sharding, distributed

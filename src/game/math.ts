@@ -58,30 +58,10 @@ const isTaskOperationAssignedToCore = (
 ) => operation.parallel || operation.kind === "barrier" || coreId === activeTask.coreId;
 
 const getRuntimeTaskOperation = (
-  activeTask: ActiveTask,
+  _activeTask: ActiveTask,
   operation: TaskOperationDefinition,
 ) => {
-  const definition = getTaskDefinition(activeTask.taskId);
-  if (
-    definition.coreScaling !== "elastic" ||
-    !operation.parallel ||
-    activeTask.assignedCoreIds.length <= 1
-  ) {
-    return operation;
-  }
-
-  const width = Math.max(1, activeTask.assignedCoreIds.length);
-  const cacheBits = Math.ceil(operation.cacheBits / width);
-  const ramBits = Math.ceil(operation.ramBits / width);
-
-  return {
-    ...operation,
-    cycles: Math.ceil(operation.cycles / width),
-    cacheBits,
-    cacheBytes: bitsToBytes(cacheBits),
-    ramBits,
-    ramBytes: bitsToBytes(ramBits),
-  };
+  return operation;
 };
 
 const isCurrentOperationCacheResident = (runtime: ActiveCoreOperation) =>

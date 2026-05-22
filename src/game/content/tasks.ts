@@ -44,6 +44,8 @@ type RawTask = {
   parallelizable: boolean;
   repeatable: boolean;
   coreScaling?: TaskCoreScaling;
+  workUnitCount?: number;
+  workUnitName?: string;
   minCores: number;
   maxCores?: number;
   reveal: (state: GameState) => boolean;
@@ -974,8 +976,10 @@ const rawTasks: RawTask[] = [
     rewardData: 12,
     parallelizable: true,
     repeatable: true,
+    coreScaling: "chunked",
+    workUnitCount: 16,
+    workUnitName: "compile unit",
     minCores: 1,
-    maxCores: 4,
     reveal: (state) => hasResearch(state, systemCatalogResearchId),
     requirement: (state) => hasResearch(state, systemCatalogResearchId),
     operations: [
@@ -1061,8 +1065,10 @@ const rawTasks: RawTask[] = [
     rewardData: 18,
     parallelizable: true,
     repeatable: true,
+    coreScaling: "chunked",
+    workUnitCount: 24,
+    workUnitName: "render tile",
     minCores: 1,
-    maxCores: 6,
     reveal: (state) =>
       hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
     requirement: (state) =>
@@ -1150,8 +1156,10 @@ const rawTasks: RawTask[] = [
     rewardData: 24,
     parallelizable: true,
     repeatable: true,
+    coreScaling: "chunked",
+    workUnitCount: 32,
+    workUnitName: "test case",
     minCores: 1,
-    maxCores: 6,
     reveal: (state) => hasResearch(state, customMachineAssemblyResearchId),
     requirement: (state) =>
       hasResearch(state, customMachineAssemblyResearchId) &&
@@ -1583,10 +1591,11 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
 
   const operations = raw.operations.map((operation) => op(raw.id, operation));
   const parallelCoreCount = raw.maxCores ?? raw.minCores;
-  const coreScaling =
-    raw.coreScaling ??
-    (raw.parallelizable && parallelCoreCount > raw.minCores ? "elastic" : "fixed");
-  const summaryCoreCount = coreScaling === "elastic" ? 1 : parallelCoreCount;
+  const coreScaling = raw.coreScaling ?? "fixed";
+  const workUnitCount =
+    coreScaling === "chunked" ? Math.max(1, raw.workUnitCount ?? 1) : 1;
+  const workUnitName = raw.workUnitName ?? "chunk";
+  const summaryCoreCount = coreScaling === "chunked" ? 1 : parallelCoreCount;
   const subtasks = deriveRecipeNodes(
     raw.id,
     raw.recipe,
@@ -1595,6 +1604,8 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
   );
   const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks, summaryCoreCount);
   const summary = summarizeGraphNodes(dagNodes, summaryCoreCount);
+  const operationCount = summary.operationCount * workUnitCount;
+  const requiredCycles = summary.cycles * workUnitCount;
   const definition: TaskDefinition = {
     id: raw.id,
     name: raw.name,
@@ -1604,15 +1615,21 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,
     coreScaling,
+    workUnitCount,
+    workUnitName,
+    workUnitOperationCount: summary.operationCount,
+    workUnitCycles: summary.cycles,
+    workUnitCacheNeedBits: summary.cacheBits,
+    workUnitRamNeedBits: summary.ramBits,
     minCores: raw.minCores,
     maxCores: raw.maxCores,
     reveal: raw.reveal,
     requirement: raw.requirement,
     subtasks,
     operations,
-    operationCount: summary.operationCount,
-    rewardCredits: summary.operationCount,
-    requiredCycles: summary.cycles,
+    operationCount,
+    rewardCredits: operationCount,
+    requiredCycles,
     cacheNeedBits: summary.cacheBits,
     ramNeedBits: summary.ramBits,
     cacheNeedBytes: bitsToBytes(summary.cacheBits),

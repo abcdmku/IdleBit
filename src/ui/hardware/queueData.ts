@@ -79,15 +79,23 @@ const getCpuSchedulerPendingReason = (
 const getCpuQueueReservationMap = (visible: VisibleState) => {
   const occurrences = new Map<string, number>();
   const reservations = new Map<string, VisibleCpuSocket>();
+  const tasksById = new Map(getQueueLookupTasks(visible).map((task) => [task.id, task]));
 
   visible.metrics.cpuSockets.forEach((socket) => {
-    socket.cores
-      .flatMap((core) => core.scheduler?.localQueue ?? [])
-      .forEach((taskId) => {
-        const occurrence = occurrences.get(taskId) ?? 0;
-        occurrences.set(taskId, occurrence + 1);
-        reservations.set(`${taskId}:${occurrence}`, socket);
-      });
+    const entries = socket.cores.flatMap((core) => core.scheduler?.localQueue ?? []);
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const taskId = entries[index] ?? "";
+      const occurrence = occurrences.get(taskId) ?? 0;
+      const requiredSlots = Math.max(
+        1,
+        getRequiredCoreCount(tasksById.get(taskId)),
+      );
+
+      occurrences.set(taskId, occurrence + 1);
+      reservations.set(`${taskId}:${occurrence}`, socket);
+      index += requiredSlots - 1;
+    }
   });
 
   return reservations;
@@ -118,8 +126,9 @@ const getSystemSchedulerPendingReason = (
     );
   });
   if (compatibleSockets.length > 0) {
+    const requiredCores = getRequiredCoreCount(task);
     const socketWithSlot = compatibleSockets.find(
-      (socket) => getSocketAvailableSchedulerSlots(socket) > 0,
+      (socket) => getSocketAvailableSchedulerSlots(socket) >= requiredCores,
     );
     if (socketWithSlot) {
       return getCpuSchedulerPendingReason(visible, task, socketWithSlot);
@@ -146,6 +155,14 @@ const getActiveTaskOccurrenceMap = (activeTasks: UiActiveTask[]) => {
 
   return activeByOccurrence;
 };
+
+const expandCpuSchedulerActiveSlots = (activeTasks: UiActiveTask[]) =>
+  activeTasks.flatMap((activeTask) =>
+    Array.from(
+      { length: Math.max(1, activeTask.assignedCoreIds?.length ?? 1) },
+      () => activeTask,
+    ),
+  );
 
 const getQueueDisplayItem = (
   entry: UiQueueEntry,
@@ -231,7 +248,7 @@ export const getQueueDisplayItems = (visible: VisibleState, socket?: VisibleCpuS
     return getQueueDisplayItemsFromEntries(
       entries,
       tasksById,
-      socketActiveTasks,
+      expandCpuSchedulerActiveSlots(socketActiveTasks),
       (_entry, _occurrence, task, activeTask) =>
         activeTask ? undefined : getCpuSchedulerPendingReason(visible, task, socket),
     );

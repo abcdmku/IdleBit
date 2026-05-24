@@ -572,6 +572,11 @@ const getSystemCpuSchedulerWidth = (state: GameState) =>
     0,
   );
 
+const getSchedulerSlotReservationCount = (
+  task: TaskDefinition,
+  assignedCoreIds?: number[],
+) => Math.max(1, assignedCoreIds?.length ?? task.minCores);
+
 const getChunkedSystemCoreIds = (
   state: GameState,
   task: TaskDefinition,
@@ -631,6 +636,7 @@ const hasCpuThatCanProvisionTask = (
 const canQueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
   const systemScheduled = isSystemScheduledTask(task);
+  const schedulerSlotCount = getSchedulerSlotReservationCount(task);
 
   if (!canAcceptPoweredWork(state)) return false;
   if (!canAcceptTask(state, taskId)) return false;
@@ -644,7 +650,18 @@ const canQueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
     hasCpuThatCanProvisionTask(state, task, cpuId) &&
     (systemScheduled
       ? getAvailableSystemSchedulerSlots(state) > 0
-      : getAvailableSchedulerSlots(state, cpuId) > 0)
+      : cpuId === undefined
+        ? state.hardware.cpus.some(
+            (cpu) =>
+              cpuCanProvisionTask(
+                state,
+                task,
+                cpu.id,
+                getCpuHardware(state, cpu.id).coreIds.length,
+              ) &&
+              getAvailableSchedulerSlots(state, cpu.id) >= schedulerSlotCount,
+          )
+        : getAvailableSchedulerSlots(state, cpuId) >= schedulerSlotCount)
   );
 };
 
@@ -1120,17 +1137,21 @@ const assignTaskToIdleCores = (
   schedulerQueued = false,
 ): GameState => assignTaskToCores(state, taskId, undefined, cpuId, schedulerQueued);
 
-const selectQueueCoreId = (state: GameState, cpuId?: number) => {
+const selectQueueCoreId = (
+  state: GameState,
+  cpuId?: number,
+  slotCount = 1,
+) => {
   const candidateCoreIds =
     cpuId === undefined
       ? state.hardware.cpus
           .filter(
             (cpu) =>
-              getAvailableSchedulerSlots(state, cpu.id) > 0 &&
+              getAvailableSchedulerSlots(state, cpu.id) >= slotCount &&
               schedulerCanDispatchOnCpu(state, cpu.id),
           )
           .flatMap((cpu) => cpu.coreIds)
-      : getAvailableSchedulerSlots(state, cpuId) > 0 &&
+      : getAvailableSchedulerSlots(state, cpuId) >= slotCount &&
           schedulerCanDispatchOnCpu(state, cpuId)
         ? getCpuHardware(state, cpuId).coreIds
         : [];
@@ -1150,11 +1171,13 @@ const reserveTaskOnCpuScheduler = (
   state: GameState,
   taskId: TaskId,
   cpuId: number,
+  slotCount = getSchedulerSlotReservationCount(getTaskDefinition(taskId)),
 ) => {
-  if (getAvailableSchedulerSlots(state, cpuId) <= 0) return state;
+  const reservedSlots = Math.max(1, Math.trunc(slotCount));
+  if (getAvailableSchedulerSlots(state, cpuId) < reservedSlots) return state;
 
-  const coreId = selectQueueCoreId(state, cpuId);
-  const scheduler = state.coreSchedulers[coreId];
+  const coreId = selectQueueCoreId(state, cpuId, reservedSlots);
+  const scheduler = state.coreSchedulers[coreId] ?? createCoreSchedulerState(coreId);
 
   return syncCoreSchedulers({
     ...state,
@@ -1162,10 +1185,39 @@ const reserveTaskOnCpuScheduler = (
       ...state.coreSchedulers,
       [coreId]: {
         ...scheduler,
-        localQueue: [...(scheduler?.localQueue ?? []), taskId],
+        localQueue: [
+          ...scheduler.localQueue,
+          ...Array.from({ length: reservedSlots }, () => taskId),
+        ],
       },
     },
   });
+};
+
+const reserveTaskOnAssignedCpuSchedulers = (
+  state: GameState,
+  taskId: TaskId,
+  assignedCoreIds: number[],
+) => {
+  const slotsByCpu = assignedCoreIds.reduce((counts, coreId) => {
+    const cpuId = getCpuIdForCore(state, coreId);
+    counts.set(cpuId, (counts.get(cpuId) ?? 0) + 1);
+    return counts;
+  }, new Map<number, number>());
+
+  if (
+    Array.from(slotsByCpu).some(
+      ([cpuId, slotCount]) => getAvailableSchedulerSlots(state, cpuId) < slotCount,
+    )
+  ) {
+    return state;
+  }
+
+  return Array.from(slotsByCpu).reduce(
+    (nextState, [cpuId, slotCount]) =>
+      reserveTaskOnCpuScheduler(nextState, taskId, cpuId, slotCount),
+    state,
+  );
 };
 
 const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
@@ -1179,10 +1231,13 @@ const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
     });
   }
 
+  const schedulerSlotCount = getSchedulerSlotReservationCount(task);
+
   return reserveTaskOnCpuScheduler(
     { ...state, queue: [...state.queue, taskId] },
     taskId,
-    cpuId ?? getCpuIdForCore(state, selectQueueCoreId(state, cpuId)),
+    cpuId ?? getCpuIdForCore(state, selectQueueCoreId(state, cpuId, schedulerSlotCount)),
+    schedulerSlotCount,
   );
 };
 
@@ -1190,28 +1245,32 @@ const removeQueuedTaskFromLocalScheduler = (
   state: GameState,
   taskId: TaskId,
   occurrenceIndex = 0,
+  slotCount = getSchedulerSlotReservationCount(getTaskDefinition(taskId)),
 ): GameState => {
-  let seen = 0;
-  let removed = false;
+  let slotsToSkip = Math.max(0, occurrenceIndex) * Math.max(1, slotCount);
+  let slotsToRemove = Math.max(1, slotCount);
   const coreSchedulers = Object.fromEntries(
     Object.entries(state.coreSchedulers).map(([rawCoreId, scheduler]) => [
       rawCoreId,
       {
         ...scheduler,
         localQueue: scheduler.localQueue.filter((queuedTaskId) => {
-          if (queuedTaskId !== taskId || removed) return true;
-          if (seen === occurrenceIndex) {
-            removed = true;
+          if (queuedTaskId !== taskId || slotsToRemove <= 0) return true;
+          if (slotsToSkip > 0) {
+            slotsToSkip -= 1;
+            return true;
+          }
+          if (slotsToRemove > 0) {
+            slotsToRemove -= 1;
             return false;
           }
-          seen += 1;
           return true;
         }),
       },
     ]),
   );
 
-  if (!removed) return state;
+  if (slotsToRemove >= Math.max(1, slotCount)) return state;
 
   return {
     ...state,
@@ -1223,6 +1282,7 @@ const removeQueuedTaskReservation = (
   state: GameState,
   taskId: TaskId,
   occurrenceIndex = 0,
+  slotCount = getSchedulerSlotReservationCount(getTaskDefinition(taskId)),
 ): GameState => {
   let seen = 0;
   const queue = state.queue.filter((queuedTaskId) => {
@@ -1242,6 +1302,7 @@ const removeQueuedTaskReservation = (
     },
     taskId,
     occurrenceIndex,
+    slotCount,
   );
 };
 
@@ -1284,7 +1345,15 @@ const cancelActiveTask = (
     cacheResidency: [],
   };
   const released = activeTask.schedulerQueued
-    ? removeQueuedTaskReservation(withoutActive, activeTask.taskId, occurrenceIndex)
+    ? removeQueuedTaskReservation(
+        withoutActive,
+        activeTask.taskId,
+        occurrenceIndex,
+        getSchedulerSlotReservationCount(
+          getTaskDefinition(activeTask.taskId),
+          activeTask.assignedCoreIds,
+        ),
+      )
     : withoutActive;
 
   return pullQueue(updateProgressionFlags(released));
@@ -1356,14 +1425,19 @@ const getQueuedTaskCpuId = (
 ) => {
   let seen = 0;
   const queuedCoreId = Number(
-    Object.entries(state.coreSchedulers).find(([, scheduler]) =>
-      scheduler.localQueue.some((queuedTaskId) => {
-        if (queuedTaskId !== taskId) return false;
+    Object.entries(state.coreSchedulers).find(([, scheduler]) => {
+      const slotCount = getSchedulerSlotReservationCount(getTaskDefinition(taskId));
+
+      for (let index = 0; index < scheduler.localQueue.length; index += 1) {
+        const queuedTaskId = scheduler.localQueue[index];
+        if (queuedTaskId !== taskId) continue;
         if (seen === occurrenceIndex) return true;
         seen += 1;
-        return false;
-      }),
-    )?.[0] ?? 0,
+        index += slotCount - 1;
+      }
+
+      return false;
+    })?.[0] ?? 0,
   );
 
   return queuedCoreId > 0 ? getCpuIdForCore(state, queuedCoreId) : undefined;
@@ -1382,7 +1456,8 @@ const selectQueuedTaskCpuId = (
     const normalizedCpu = getCpuHardware(state, cpu.id);
     return (
       schedulerCanDispatchOnCpu(state, normalizedCpu.id) &&
-      getAvailableSchedulerSlots(state, normalizedCpu.id) > 0 &&
+      getAvailableSchedulerSlots(state, normalizedCpu.id) >=
+        getSchedulerSlotReservationCount(task) &&
       cpuCanProvisionTask(
         state,
         task,
@@ -1415,10 +1490,10 @@ const reserveSystemScheduledCpuWork = (
   );
   if (!startedTask) return startedState;
 
-  return reserveTaskOnCpuScheduler(
+  return reserveTaskOnAssignedCpuSchedulers(
     startedState,
     taskId,
-    getCpuIdForCore(startedState, startedTask.coreId),
+    startedTask.assignedCoreIds,
   );
 };
 
@@ -1595,6 +1670,7 @@ const pullQueue = (state: GameState): GameState => {
         attemptState,
         candidate.taskId,
         candidate.cpuId,
+        getSchedulerSlotReservationCount(candidate.task),
       );
       if (reserved === attemptState) break;
 
@@ -1631,7 +1707,12 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
   );
   const rewarded = addRewards(state, task.rewardCredits, task.rewardData);
   const queueReleased = activeTask.schedulerQueued
-    ? removeQueuedTaskReservation(rewarded, task.id)
+    ? removeQueuedTaskReservation(
+        rewarded,
+        task.id,
+        0,
+        getSchedulerSlotReservationCount(task, activeTask.assignedCoreIds),
+      )
     : rewarded;
 
   return updateProgressionFlags({

@@ -107,7 +107,10 @@
 
 * { box-sizing: border-box; }
 
-html, body, #root { height: 100%; }
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
 
 html {
   touch-action: pan-x pan-y;
@@ -125,7 +128,7 @@ body {
     repeating-linear-gradient(0deg, transparent 0 2px, rgba(36, 231, 195, 0.012) 2px 3px),
     linear-gradient(180deg, #03060a 0%, #050807 60%, #060a09 100%);
   color: var(--text);
-  overflow-x: hidden;
+  overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;

@@ -2192,9 +2192,20 @@ describe("IdleBit simulation", () => {
     );
     expect(state.hardware.cpus).toHaveLength(2);
     expect(compileTask?.assignedCoreIds).toEqual(expectedIdleCoreIds);
+    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
+      expectedIdleCoreIds.map(() => "compileCode"),
+    );
     for (const cpu of state.hardware.cpus.filter((cpu) =>
       cpu.coreIds.some((coreId) => expectedIdleCoreIds.includes(coreId)),
     )) {
+      const cpuQueueSlots = cpu.coreIds.flatMap(
+        (coreId) => state.coreSchedulers[coreId]?.localQueue ?? [],
+      );
+      const assignedCpuCoreCount = cpu.coreIds.filter((coreId) =>
+        expectedIdleCoreIds.includes(coreId),
+      ).length;
+
+      expect(cpuQueueSlots).toHaveLength(assignedCpuCoreCount);
       expect(
         cpu.coreIds.some((coreId) => compileTask?.assignedCoreIds.includes(coreId)),
       ).toBe(true);
@@ -2825,6 +2836,42 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks).toHaveLength(4);
     expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toHaveLength(
       8,
+    );
+  });
+
+  it("reserves one CPU scheduler slot per core for fixed-width system tasks", () => {
+    let state = withPrimaryCpuCache(
+      withRamCapacity(unlockSystemStats(), getTaskDefinition("shardReconcile").ramNeedBits),
+      getTaskDefinition("shardReconcile").cacheNeedBits,
+    );
+
+    state = applyAction(state, { type: "startTask", taskId: "shardReconcile" });
+
+    const shardTask = state.activeTasks.find(
+      (task) => task.taskId === "shardReconcile",
+    );
+    const localQueue = Object.values(state.coreSchedulers).flatMap(
+      (core) => core.localQueue,
+    );
+
+    expect(shardTask?.assignedCoreIds).toHaveLength(4);
+    expect(shardTask?.coreOperations).toHaveLength(4);
+    expect(localQueue).toEqual([
+      "shardReconcile",
+      "shardReconcile",
+      "shardReconcile",
+      "shardReconcile",
+    ]);
+
+    state = applyAction(state, {
+      type: "cancelTask",
+      taskId: "shardReconcile",
+      instanceId: shardTask?.instanceId,
+    });
+
+    expect(state.queue).toEqual([]);
+    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
+      [],
     );
   });
 

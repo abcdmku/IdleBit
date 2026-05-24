@@ -265,6 +265,74 @@ describe("TaskBay queue and deadlock status", () => {
     ).toBe("0.42");
   });
 
+  it("marks every reserved multicore CPU scheduler slot as active", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+      },
+      queue: ["fetchBit"],
+      activeTasks: [
+        {
+          instanceId: "fetch-active-1",
+          taskId: "fetchBit",
+          jobId: "fetchBit",
+          schedulerQueued: true,
+          name: "Fetch Bit",
+          coreId: 1,
+          assignedCoreIds: [1, 2, 3, 4],
+          progress: 0.42,
+          status: "running",
+          memoryState: "ready",
+          activeOperationName: "Fetch Bit",
+          coreProgress: [],
+          lockResource: null,
+          lockReason: null,
+        },
+      ],
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            schedulerSlots: 4,
+            queuedCount: 4,
+            cores: socket.cores.map((core, index) => ({
+              ...core,
+              scheduler: {
+                ...core.scheduler,
+                localQueue:
+                  index === 0
+                    ? ["fetchBit", "fetchBit", "fetchBit", "fetchBit"]
+                    : [],
+              },
+            })),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelectorAll(
+        ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell.active",
+      ),
+    ).toHaveLength(4);
+  });
+
   it("shows active cancel on cores instead of task cards and keeps queue preview cancel", () => {
     let state = applyAction(createInitialGameState(), {
       type: "startTask",

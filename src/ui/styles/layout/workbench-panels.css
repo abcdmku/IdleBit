@@ -81,6 +81,8 @@
   min-height: 0;
   padding: var(--s-4);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  contain: layout paint;
 }
 
 .hw-panel .panel-body { padding: var(--s-3); gap: var(--s-3); }

@@ -169,7 +169,7 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(stick?.title).not.toContain("Ready");
   });
 
-  it("uses module, size, and frequency labels for RAM controls", () => {
+  it("uses new-stick, size, and frequency labels for RAM controls after RAM exists", () => {
     const base = deriveVisibleState(createInitialGameState());
     const makeRamUpgrade = (
       id: "ram" | "ramCapacity" | "ramSpeed",
@@ -246,32 +246,31 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
       );
     });
 
-    const statLabels = Array.from(
-      container.querySelectorAll<HTMLElement>(".ram-stat-row .stat small"),
-    ).map((label) => label.textContent);
-    const statValues = Array.from(
-      container.querySelectorAll<HTMLElement>(".ram-stat-row .stat strong"),
-    ).map((label) => label.textContent);
     const controlText = Array.from(
       container.querySelectorAll<HTMLElement>(".ram-control-strip .upgrade-stepper"),
     ).map((control) => control.textContent ?? "");
     const stickText = container.querySelector(".ram-stick-module-foot")?.textContent ?? "";
     const ramText = container.querySelector(".memory-section")?.textContent ?? "";
 
-    expect(statLabels).toEqual(["Capacity", "Module Freq", "Modules"]);
-    expect(statValues).toEqual(["512 b", "64 Hz", "2"]);
+    expect(container.querySelector(".ram-stat-row")).toBeNull();
     expect(controlText).toEqual([
-      expect.stringContaining("Module"),
+      expect.stringContaining("New stick"),
       expect.stringContaining("R1 Size"),
       expect.stringContaining("R1 Freq"),
     ]);
+    expect(container.querySelector(".ram-header-row .ram-select-all-button")?.textContent).toBe(
+      "All",
+    );
+    expect(container.querySelector(".ram-control-strip .ram-select-all-button")).toBeNull();
+    expect(container.querySelector(".ram-install-tier-button")).toBeNull();
     expect(stickText).toContain("256 b");
     expect(stickText).toContain("64 Hz");
     expect(container.querySelector(".ram-stick-grid")?.getAttribute("data-grid")).toBe(
       "2x1",
     );
     expect(ramText).not.toContain("128 Hz");
-    expect(ramText).not.toContain("New stick");
+    expect(ramText).toContain("New stick");
+    expect(ramText).not.toContain("Choose tier");
     expect(ramText).not.toContain("R1 cap");
     expect(ramText).not.toContain("R1 Hz");
   });
@@ -378,7 +377,6 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(text).not.toContain("used");
     expect(text).not.toContain("2 open");
     expect(text).not.toContain("Queue");
-    expect(boardTextWithoutRail).not.toContain("CPU");
     expect(boardTextWithoutRail).not.toContain("CPU A");
     expect(boardTextWithoutRail).not.toContain("CPU A Cache");
     expect(boardTextWithoutRail).not.toContain("CPU A Scheduler");
@@ -386,11 +384,9 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(container.querySelector(".queue-preview-header")).toBeNull();
     expect(container.querySelector(".scheduler-capacity-bar")).toBeNull();
     expect(container.querySelector(".scheduler-slot")).toBeNull();
-    expect(grid?.dataset.grid).toBe("2x2");
-    expect(grid?.style.getPropertyValue("--scheduler-grid-columns")).toBe("2");
-    expect(grid?.style.getPropertyValue("--scheduler-grid-height")).toBe("64px");
-    expect(grid?.style.getPropertyValue("--scheduler-slot-height")).toBe("30px");
-    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(3);
+    expect(grid).toBeNull();
+    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(0);
+    expect(container.querySelector(".queue-empty")?.textContent).toBe("3 slots open");
   });
 
   it("renders deadlocked hardware red with the first-time help caption", () => {

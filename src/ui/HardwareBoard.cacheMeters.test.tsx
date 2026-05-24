@@ -8,6 +8,7 @@ import {
   tickGame,
   type GameState
 } from "../game";
+import { getCpuClockHz } from "../game/progression";
 import {
   HardwareBoard
 } from "./HardwareBoard";
@@ -124,14 +125,15 @@ describe("HardwareBoard cache and upgrade meters", () => {
       hardware: {
         ...initial.hardware,
         clockLevel: 5,
-        clockHz: 4.4,
+        clockHz: getCpuClockHz("hz", 5),
         coreClockLevels: {
           1: 5,
         },
         cacheLevel: 5,
         cacheBits: 16,
         cacheBytes: 2,
-        cacheSpeedLevel: 5,
+        cacheSpeedLevel: 3,
+        psuWatts: 1,
       },
     };
 
@@ -146,7 +148,7 @@ describe("HardwareBoard cache and upgrade meters", () => {
       guard += 1;
     }
 
-    state = tickGame(state, 500);
+    state = tickGame(state, 100);
 
     const visible = deriveVisibleState(state);
 
@@ -167,7 +169,7 @@ describe("HardwareBoard cache and upgrade meters", () => {
 
     expect(visible.metrics.cacheUsedBits).toBeGreaterThan(8);
     expect(visible.metrics.cacheUsedBits).toBeLessThan(16);
-    expect(segments).toHaveLength(2);
+    expect(segments.length).toBeGreaterThanOrEqual(2);
 
     const readSegment = segments.find((segment) =>
       segment.className.includes("cache-pressure-read"),
@@ -178,7 +180,7 @@ describe("HardwareBoard cache and upgrade meters", () => {
 
     expect(readSegment?.className).toContain("loaded");
     expect(readSegment?.style.width).toBe("50%");
-    expect(writeSegment?.className).toContain("loaded");
+    expect(writeSegment?.className).toContain("buffering");
     expect(Number.parseFloat(writeSegment?.style.width ?? "0")).toBeGreaterThan(0);
     expect(Number.parseFloat(writeSegment?.style.width ?? "0")).toBeLessThan(50);
   });

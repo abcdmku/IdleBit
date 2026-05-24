@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import {
   customMachineAssemblyResearchId,
+  hasDecodeLogic,
   hasResearch,
   systemCatalogResearchId,
 } from "./research";
@@ -535,7 +536,7 @@ const rawTasks: RawTask[] = [
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => hasResearch(state, "byteOperations"),
+    reveal: hasDecodeLogic,
     requirement: (state) => hasResearch(state, "byteOperations"),
     operations: [
       {
@@ -579,7 +580,7 @@ const rawTasks: RawTask[] = [
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => hasResearch(state, "cacheMapping"),
+    reveal: hasDecodeLogic,
     requirement: (state) => hasResearch(state, "cacheMapping"),
     operations: [
       {

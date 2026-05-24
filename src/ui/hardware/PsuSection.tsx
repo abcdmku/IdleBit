@@ -1,5 +1,9 @@
 import { Power } from "lucide-react";
-import type { VisibleState, VisibleUpgrade } from "../../game";
+import {
+  POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+  type VisibleState,
+  type VisibleUpgrade,
+} from "../../game";
 import { formatWatts } from "../format";
 import type { Dispatch } from "../uiActions";
 import { DeadlockHelpCaption } from "./DeadlockHelp";
@@ -23,6 +27,7 @@ export interface HardwarePowerStats {
   stress: number;
   transitionSeconds: number;
   billingGraceSeconds: number;
+  unpaidShutdownWarningSeconds: number;
   overloadFailure: {
     active: boolean;
     progress: number;
@@ -79,11 +84,36 @@ export function PsuSection({
   const loadPercent = Math.min(100, Math.max(0, power.stress * 100));
   const showOverloadFailure =
     power.overloadFailure.active || power.overloadFailure.progress > 0;
+  const showCreditWarning = power.unpaidShutdownWarningSeconds > 0;
+  const creditWarningProgress = Math.min(
+    1,
+    Math.max(
+      0,
+      1 -
+        power.unpaidShutdownWarningSeconds /
+          POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+    ),
+  );
   const overloadLabel = power.overloadFailure.tripped
     ? "PSU failure"
     : power.stress > 1
       ? `${formatCountdownSeconds(power.overloadFailure.remainingSeconds)} to fail`
       : "Resetting";
+  const headerWarning = showCreditWarning
+    ? {
+        label: `${formatCountdownSeconds(power.unpaidShutdownWarningSeconds)} to cutoff`,
+        progress: creditWarningProgress,
+        flashing: true,
+        tripped: false,
+      }
+    : showOverloadFailure
+      ? {
+          label: overloadLabel,
+          progress: power.overloadFailure.progress,
+          flashing: power.overloadFailure.active || power.overloadFailure.tripped,
+          tripped: power.overloadFailure.tripped,
+        }
+      : null;
 
   return (
     <section
@@ -96,12 +126,12 @@ export function PsuSection({
           <Power size={14} />
           <span>PSU</span>
         </button>
-        {showOverloadFailure && (
+        {headerWarning && (
           <PsuHeaderWarning
-            label={overloadLabel}
-            progress={power.overloadFailure.progress}
-            flashing={power.overloadFailure.active || power.overloadFailure.tripped}
-            tripped={power.overloadFailure.tripped}
+            label={headerWarning.label}
+            progress={headerWarning.progress}
+            flashing={headerWarning.flashing}
+            tripped={headerWarning.tripped}
           />
         )}
         {powerControls.showControls && (
@@ -176,6 +206,17 @@ export function PsuSection({
           <div className="psu-meta-cell psu-meta-grace">
             <small>grace</small>
             <strong>{formatCountdownSeconds(power.billingGraceSeconds)}</strong>
+          </div>
+        </div>
+      )}
+
+      {showCreditWarning && (
+        <div className="psu-meta-row">
+          <div className="psu-meta-cell psu-meta-credit-warning">
+            <small>credits</small>
+            <strong>
+              {formatCountdownSeconds(power.unpaidShutdownWarningSeconds)} cutoff
+            </strong>
           </div>
         </div>
       )}

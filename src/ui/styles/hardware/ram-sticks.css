@@ -1,5 +1,18 @@
 /* ============ RAM STICK TILES ============ */
 
+.ram-header-row {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.ram-header-row .hw-section-header {
+  flex: 1 1 auto;
+  width: auto;
+}
+
 .ram-stick-row {
   display: flex;
   gap: var(--s-1);
@@ -140,7 +153,20 @@
   border-radius: var(--radius-pill);
 }
 
-.ram-select-all-button { margin-left: auto; }
+.ram-select-all-button {
+  height: auto;
+  min-height: 24px;
+  margin-left: 0;
+  padding-inline: var(--s-3);
+}
+
+.ram-header-all-button {
+  flex: 0 0 auto;
+  height: 18px;
+  min-height: 18px;
+  margin-left: auto;
+  padding-inline: var(--s-2);
+}
 
 .ram-stick-label {
   flex: 1 1 auto;
@@ -150,4 +176,92 @@
   font-weight: 800;
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+}
+
+/* ---------- RAM install tier choices ---------- */
+
+.ram-install-hardware-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ram-install-tier-controls {
+  display: grid;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.ram-install-tier-controls.compact {
+  flex: 1 1 100%;
+}
+
+.ram-install-tier-title {
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.ram-install-tier-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.ram-install-tier-button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  min-height: 32px;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid rgba(115, 240, 92, 0.28);
+  border-radius: var(--radius-sm);
+  background: rgba(115, 240, 92, 0.055);
+  color: var(--green);
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+.ram-install-tier-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.ram-install-tier-button:not(:disabled):hover {
+  border-color: rgba(115, 240, 92, 0.58);
+  background: rgba(115, 240, 92, 0.11);
+}
+
+.ram-install-tier-spec {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.ram-install-tier-spec strong,
+.ram-install-tier-spec small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ram-install-tier-spec strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-mid);
+  text-transform: uppercase;
+}
+
+.ram-install-tier-spec small {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
 }

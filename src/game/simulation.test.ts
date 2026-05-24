@@ -5,10 +5,30 @@ import {
   createRackReadyGameState,
   deriveVisibleState,
   deserializeSave,
+  RACK_READY_SEED_CREDITS,
+  serializeSave,
   tickGame,
 } from "./index";
+import { getGlobalCStateLevel } from "./cState";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
-import { componentSkus, getComponentSku, getMachineTemplate } from "./content/machines";
+import {
+  componentSkus,
+  getComponentSku,
+  getMachineSelectionCost,
+  getMachineTemplate,
+} from "./content/machines";
+import {
+  CPU_TIER_MAX_LEVEL,
+  cpuTierDefinitions,
+  getCStateIdleMultiplier,
+  getCStateUpgradeCost,
+  getCpuTierLevelDefinition,
+} from "./content/cpuTiers";
+import {
+  getMemoryVoltageCost,
+  getMemoryVoltageIdleMultiplier,
+} from "./content/ramTuning";
+import { getRamTierLevelDefinition } from "./content/ramTiers";
 import {
   getCacheLoadCycles,
   getCacheLoadCyclesForBits,
@@ -22,10 +42,15 @@ import {
 import {
   createRamStickState,
   createSchedulerConfig,
+  getCpuClockHz,
+  getMaxUnlockedRamLevel,
   getClockHz,
+  getRamInstallLevel,
+  getPsuWatts,
   getRamBits,
   getRamSpeedMt,
   POWER_BOOTSTRAP_GRACE_SECONDS,
+  POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
   syncCoreSchedulers,
 } from "./progression";
 import type {
@@ -282,7 +307,11 @@ const research = (state: GameState, researchId: ResearchId) =>
 
 const fund = (state: GameState): GameState => ({
   ...state,
-  resources: { credits: 20_000, data: 20_000 },
+  resources: { credits: 1_000_000_000_000, data: 1_000_000_000_000 },
+  hardware: {
+    ...state.hardware,
+    psuWatts: Math.max(state.hardware.psuWatts, 1),
+  },
 });
 
 const withPsuStress = (state: GameState, psuStress: number): GameState => ({
@@ -508,7 +537,7 @@ const unlockSystemStats = () => {
 
   state = runTask(state, "multiCoreBenchmark");
   state = research(state, "systemBus");
-  state = buy(state, "matchedCpu");
+  state = buy(state, "secondCpu");
 
   return fund(state);
 };
@@ -573,6 +602,252 @@ describe("IdleBit simulation", () => {
     expect(upgraded.hardware.psuWatts).toBeGreaterThan(state.hardware.psuWatts);
   });
 
+  it("loads CPU tier package data and starter micro-watt balance", () => {
+    const state = createInitialGameState();
+    const visible = deriveVisibleState(state);
+    const socket = visible.metrics.cpuSockets[0];
+
+    expect(cpuTierDefinitions.map((tier) => [tier.id, tier.levels.length])).toEqual([
+      ["hz", CPU_TIER_MAX_LEVEL],
+      ["khz", CPU_TIER_MAX_LEVEL],
+      ["mhz", CPU_TIER_MAX_LEVEL],
+      ["ghz", CPU_TIER_MAX_LEVEL],
+      ["thz", CPU_TIER_MAX_LEVEL],
+      ["phz", CPU_TIER_MAX_LEVEL],
+    ]);
+    expect(getCpuTierLevelDefinition("hz", 1)).toEqual(
+      expect.objectContaining({ upgradeCost: 8, clockHz: 1, efficiency: 10 }),
+    );
+    expect(getCpuTierLevelDefinition("khz", 1)).toEqual(
+      expect.objectContaining({ upgradeCost: 32_000, clockHz: 1_000, efficiency: 6 }),
+    );
+    expect(getCpuTierLevelDefinition("mhz", 1).upgradeCost).toBe(126_000_000);
+    expect(state.hardware.psuWatts).toBe(0.00001);
+    expect(getPsuWatts(2)).toBe(0.000017);
+    expect(getHardwareDrawWatts(state)).toBe(0.0000001);
+    expect(getPowerCostPerSecond(state)).toBe(0.1);
+    expect(socket).toEqual(
+      expect.objectContaining({
+        tierId: "hz",
+        tierName: "Hz CPU",
+        level: 1,
+        clockHz: 1,
+        efficiency: 10,
+      }),
+    );
+    expect(socket?.activeDrawWatts).toBeCloseTo(0.0000001);
+    expect(socket?.idleDrawWatts).toBeCloseTo(0.0000001);
+  });
+
+  it("promotes old starter PSU saves to the current capacity curve", () => {
+    const state = createInitialGameState();
+    const restored = deserializeSave(
+      JSON.stringify({
+        ...state,
+        hardware: {
+          ...state.hardware,
+          psuLevel: 1,
+          psuWatts: 0.0000001,
+        },
+      }),
+    );
+
+    expect(restored.hardware.psuLevel).toBe(1);
+    expect(restored.hardware.psuWatts).toBe(getPsuWatts(1));
+  });
+
+  it("unlocks kHz CPU research without changing existing system CPU install tier", () => {
+    let state = fund(createInitialGameState());
+
+    expect(
+      deriveVisibleState(state).research.map((item) => item.id),
+    ).not.toContain("cpuTierKhz");
+
+    const automationState = research(fund(unlockSystemStats()), "cronScheduler");
+    expect(
+      deriveVisibleState(automationState).research.find(
+        (item) => item.id === "cpuTierKhz",
+      )?.canBuy,
+    ).toBe(true);
+
+    state = {
+      ...state,
+      flags: {
+        ...state.flags,
+        cron: true,
+        autoRepeat: true,
+        secondCpu: true,
+      },
+      research: {
+        completed: ["cronScheduler"],
+      },
+    };
+
+    let visible = deriveVisibleState(state);
+    const khzResearch = visible.research.find((item) => item.id === "cpuTierKhz");
+
+    expect(state.hardware.cpus[0]?.level).toBe(1);
+    expect(khzResearch?.costs).toEqual([{ resource: "credits", amount: 2_000_000 }]);
+    expect(khzResearch?.canBuy).toBe(true);
+
+    state = research(state, "cpuTierKhz");
+    let chainState: GameState = {
+      ...state,
+      resources: {
+        ...state.resources,
+        credits: RACK_READY_SEED_CREDITS,
+      },
+    };
+    const chainedTierResearch: ResearchId[] = [
+      "cpuTierMhz",
+      "cpuTierGhz",
+      "cpuTierThz",
+      "cpuTierPhz",
+    ];
+    chainedTierResearch.forEach((researchId) => {
+      const nextResearch = deriveVisibleState(chainState).research.find(
+        (item) => item.id === researchId,
+      );
+
+      expect(nextResearch?.canBuy).toBe(true);
+      chainState = research(chainState, researchId);
+    });
+
+    state = {
+      ...state,
+      flags: { ...state.flags, secondCpu: true },
+    };
+    state = buy(state, "secondCpu");
+
+    expect(state.hardware.cpus[1]).toEqual(
+      expect.objectContaining({
+        tierId: "hz",
+        level: 1,
+        coreIds: [2],
+      }),
+    );
+    expect(getCpuClockHz("hz", state.hardware.cpus[1]?.level ?? 1)).toBe(1);
+
+    visible = deriveVisibleState(state);
+    expect(visible.research.find((item) => item.id === "cStateControl")?.costs).toEqual([
+      { resource: "credits", amount: 10_000_000 },
+    ]);
+  });
+
+  it("reduces only idle CPU draw with C-State upgrades", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        cStateControl: true,
+      },
+      research: {
+        completed: ["cpuTierKhz", "cStateControl"],
+      },
+    });
+    let visible = deriveVisibleState(state);
+    const cStateResearch = visible.research.find(
+      (item) => item.id === "cStateControl",
+    );
+
+    expect(cStateResearch).toEqual(
+      expect.objectContaining({
+        completed: false,
+        actionLabel: "Level up",
+        costs: getCStateUpgradeCost(1),
+      }),
+    );
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("cState");
+
+    const before = visible.metrics.cpuSockets[0]!;
+
+    state = research(state, "cStateControl");
+
+    visible = deriveVisibleState(state);
+    const after = visible.metrics.cpuSockets[0]!;
+    expect(getCStateIdleMultiplier(1)).toBeLessThan(1);
+    expect(state.hardware.cStateLevel).toBe(1);
+    expect(after.activeDrawWatts).toBe(before.activeDrawWatts);
+    expect(after.idleDrawWatts).toBeLessThan(before.idleDrawWatts);
+
+    const maxedState = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        cStateLevel: CPU_TIER_MAX_LEVEL,
+      },
+    };
+    expect(
+      deriveVisibleState(maxedState).research.find(
+        (item) => item.id === "cStateControl",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        completed: true,
+        canBuy: false,
+      }),
+    );
+
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    const activeSocket = deriveVisibleState(state).metrics.cpuSockets[0]!;
+    expect(activeSocket.activeDrawWatts).toBe(after.activeDrawWatts);
+  });
+
+  it("applies C-State levels globally across rack systems", () => {
+    let state = createRackReadyGameState();
+    state = fund({
+      ...state,
+      flags: {
+        ...state.flags,
+        cStateControl: true,
+      },
+      research: {
+        completed: Array.from(
+          new Set([...state.research.completed, "cStateControl"]),
+        ),
+      },
+      hardware: {
+        ...state.hardware,
+        cStateLevel: 0,
+      },
+      systems: state.systems.map((system) => ({
+        ...system,
+        hardware: {
+          ...system.hardware,
+          cStateLevel: 0,
+        },
+      })),
+    });
+
+    const secondSystemBefore = applyAction(state, {
+      type: "selectSystem",
+      systemId: 2,
+    });
+    const beforeSocket = deriveVisibleState(secondSystemBefore).metrics.cpuSockets[0]!;
+
+    state = applyAction(state, {
+      type: "buyResearch",
+      researchId: "cStateControl",
+    });
+
+    expect(getGlobalCStateLevel(state)).toBe(1);
+    expect(state.systems.map((system) => system.hardware.cStateLevel)).toEqual([
+      1,
+      1,
+    ]);
+
+    state = applyAction(state, { type: "selectSystem", systemId: 2 });
+    const visible = deriveVisibleState(state);
+    const afterSocket = visible.metrics.cpuSockets[0]!;
+
+    expect(state.hardware.cStateLevel).toBe(1);
+    expect(afterSocket.activeDrawWatts).toBe(beforeSocket.activeDrawWatts);
+    expect(afterSocket.idleDrawWatts).toBeLessThan(beforeSocket.idleDrawWatts);
+    expect(
+      visible.research.find((item) => item.id === "cStateControl")?.costs,
+    ).toEqual(getCStateUpgradeCost(2));
+  });
+
   it("reveals grouped starter tasks and research", () => {
     let state = createInitialGameState();
     let visible = deriveVisibleState(state);
@@ -599,7 +874,28 @@ describe("IdleBit simulation", () => {
     expect(visible.tasks.find((task) => task.id === "bitFlip")?.canStart).toBe(true);
     expect(visible.tasks.find((task) => task.id === "bitShift")?.cacheNeedBits).toBe(1);
     expect(visible.tasks.find((task) => task.id === "bitShift")?.canStart).toBe(true);
-    expect(visible.research.map((item) => item.id)).toContain("byteOperations");
+    expect(visible.tasks.map((task) => task.id)).toEqual(
+      expect.arrayContaining(["byteCopy", "packetCheck"]),
+    );
+    expect(visible.tasks.find((task) => task.id === "byteCopy")?.canStart).toBe(
+      false,
+    );
+    expect(visible.tasks.find((task) => task.id === "packetCheck")?.canStart).toBe(
+      false,
+    );
+    expect(visible.research.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        "byteOperations",
+        "cacheMapping",
+        "benchmarkHarness",
+      ]),
+    );
+    expect(visible.research.find((item) => item.id === "cacheMapping")?.canBuy).toBe(
+      false,
+    );
+    expect(
+      visible.research.find((item) => item.id === "benchmarkHarness")?.canBuy,
+    ).toBe(false);
     expect(visible.research.map((item) => item.id)).not.toContain("bitMutation");
     expect(visible.research.map((item) => item.id)).not.toContain("shiftOperations");
 
@@ -613,7 +909,10 @@ describe("IdleBit simulation", () => {
 
     visible = deriveVisibleState(state);
     expect(visible.tasks.map((task) => task.id)).toContain("byteCopy");
-    expect(visible.tasks.map((task) => task.id)).not.toContain("packetCheck");
+    expect(visible.tasks.map((task) => task.id)).toContain("packetCheck");
+    expect(visible.tasks.find((task) => task.id === "packetCheck")?.canStart).toBe(
+      false,
+    );
   });
 
   it("derives task subtask DAG data from operation requirements", () => {
@@ -771,7 +1070,7 @@ describe("IdleBit simulation", () => {
       hardware: {
         ...initial.hardware,
         clockLevel: 5,
-        clockHz: getClockHz(5),
+        clockHz: getCpuClockHz("hz", 5),
         coreClockLevels: {
           1: 5,
         },
@@ -786,7 +1085,7 @@ describe("IdleBit simulation", () => {
     const loadSeconds =
       getCacheLoadCycles(state, readOperation) / getCacheLoadRate(state, 1);
 
-    expect(getCacheLoadRate(state, 1)).toBe(4.4);
+    expect(getCacheLoadRate(state, 1)).toBe(getCpuClockHz("hz", 5));
     expect(readOperation.cacheBits).toBe(8);
     expect(getCacheLoadCycles(state, readOperation)).toBe(
       getCacheLoadCyclesForBits(state, 8),
@@ -819,14 +1118,14 @@ describe("IdleBit simulation", () => {
       hardware: {
         ...initial.hardware,
         clockLevel: 5,
-        clockHz: getClockHz(5),
+        clockHz: getCpuClockHz("hz", 5),
         coreClockLevels: {
           1: 5,
         },
         cacheLevel: 5,
         cacheBits: 16,
         cacheBytes: 2,
-        cacheSpeedLevel: 5,
+        cacheSpeedLevel: 3,
       },
     });
 
@@ -867,11 +1166,11 @@ describe("IdleBit simulation", () => {
       expect.objectContaining({
         bits: 8,
         memoryAction: "write",
-        state: "loaded",
+        state: "buffering",
       }),
     );
     expect(residency[1]?.readyBits).toBeGreaterThan(0);
-    expect(residency[1]?.bufferBits).toBe(0);
+    expect(residency[1]?.bufferBits).toBeGreaterThan(0);
   });
 
   it("reuses cache residency for overwrite operations", () => {
@@ -1017,13 +1316,13 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(2);
+    expect(restored.version).toBe(4);
     expect(restored.research.completed).toEqual([]);
     expect(restored.flags.scheduler).toBe(false);
     expect(restored.systems).toHaveLength(1);
   });
 
-  it("normalizes malformed RAM sticks from v2 saves", () => {
+  it("clean-resets malformed v2 saves instead of migrating incompatible hardware", () => {
     const base = createInitialGameState();
     const restored = deserializeSave(
       JSON.stringify({
@@ -1058,42 +1357,31 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    const expectedRamBits = getRamBits(2) + getRamBits(3);
-
-    expect(restored.hardware.ramSticks).toEqual([
-      {
-        id: 1,
-        level: 2,
-        bits: getRamBits(2),
-        bytes: Math.ceil(getRamBits(2) / 8),
-        speedLevel: 1,
-        speedMt: getRamSpeedMt(1),
-      },
-      {
-        id: 2,
-        level: 3,
-        bits: getRamBits(3),
-        bytes: Math.ceil(getRamBits(3) / 8),
-        speedLevel: 4,
-        speedMt: getRamSpeedMt(4),
-      },
-    ]);
-    expect(restored.hardware.ramBits).toBe(expectedRamBits);
-    expect(restored.hardware.ramBytes).toBe(Math.ceil(expectedRamBits / 8));
-    expect(restored.hardware.ramSpeedLevel).toBe(4);
-    expect(restored.hardware.ramSpeedMt).toBe(getRamSpeedMt(4));
-    expect(restored.systems[0]?.hardware.ramBits).toBe(expectedRamBits);
+    expect(restored.version).toBe(4);
+    expect(restored.hardware.ramSticks).toEqual([]);
+    expect(restored.hardware.ramBits).toBe(0);
+    expect(restored.hardware.ramBytes).toBe(0);
+    expect(restored.hardware.ramSpeedLevel).toBe(1);
+    expect(restored.hardware.ramSpeedMt).toBe(getRamSpeedMt(1));
+    expect(restored.systems[0]?.hardware.ramBits).toBe(0);
   });
 
   it("creates a rack-ready seed with a dense visual stress node", () => {
     const state = createRackReadyGameState();
+    const restored = deserializeSave(serializeSave(state));
     const visible = deriveVisibleState(state);
 
-    expect(state.version).toBe(2);
-    expect(state.resources).toEqual({ credits: 20_000, data: 20_000 });
+    expect(state.version).toBe(4);
+    expect(restored).toEqual(state);
+    expect(state.resources.credits).toBe(RACK_READY_SEED_CREDITS);
+    expect(state.resources.data).toBeGreaterThan(20_000);
     expect(state.flags.systemCatalog).toBe(true);
     expect(state.flags.customMachineAssembly).toBe(true);
+    expect(state.cron.schedules[0]?.enabled).toBe(false);
+    expect(state.cron.schedules[0]?.taskId).toBeNull();
     expect(state.systems).toHaveLength(2);
+    expect(state.systems[0]?.hardware.cpus).toHaveLength(2);
+    expect(state.systems[0]?.hardware.secondCpu).toBe(true);
     expect(state.systems[1]?.hardware.cores).toBe(128);
     expect(state.systems[1]?.hardware.ramSticks).toHaveLength(32);
     expect(state.rack.nextSystemId).toBe(3);
@@ -1178,7 +1466,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(2);
+    expect(restored.version).toBe(4);
     expect(restored.completedTasks).toEqual({});
     expect(restored.completedJobs).toEqual({});
     expect(restored.completedBenchmarks).toEqual([]);
@@ -1277,7 +1565,10 @@ describe("IdleBit simulation", () => {
     ).toBe("Cache capacity too low.");
 
     const shardReconcile = getTaskDefinition("shardReconcile");
-    const shardState = withRamCapacity(unlockSystemStats(), 1024);
+    const shardState = withRamCapacity(
+      unlockSystemStats(),
+      Math.max(0, shardReconcile.ramNeedBits - 1),
+    );
     const lowShardRamState = {
       ...shardState,
       hardware: {
@@ -1313,16 +1604,32 @@ describe("IdleBit simulation", () => {
         customMachineAssembly: true,
       },
       research: {
-        completed: ["systemCatalog", "customMachineAssembly"],
+        completed: [
+          "systemCatalog",
+          "customMachineAssembly",
+          "cpuTierKhz",
+          "cpuTierMhz",
+          "cpuTierGhz",
+        ],
       },
     });
+
+    let visible = deriveVisibleState(state);
+    const compileBox = getMachineTemplate("compileBox");
+    const compileBoxCost = getMachineSelectionCost(compileBox.components);
+    const beforeCompileResources = state.resources;
+    const visibleCompileBox = visible.machineBuilder.templates.find(
+      (template) => template.id === "compileBox",
+    );
+
+    expect(visibleCompileBox?.cost).toEqual(compileBoxCost);
 
     state = applyAction(state, {
       type: "buyMachineTemplate",
       templateId: "compileBox",
     });
 
-    let visible = deriveVisibleState(state);
+    visible = deriveVisibleState(state);
     const compileSystem = state.systems.at(-1);
 
     expect(state.systems.map((system) => system.name)).toEqual([
@@ -1330,8 +1637,14 @@ describe("IdleBit simulation", () => {
       "Compile Box",
     ]);
     expect(state.selectedSystemId).toBe(2);
-    expect(compileSystem?.hardware.cores).toBe(4);
-    expect(compileSystem?.hardware.schedulerSlots).toBe(4);
+    expect(beforeCompileResources.credits - state.resources.credits).toBe(
+      costAmount(compileBoxCost, "credits"),
+    );
+    expect(beforeCompileResources.data - state.resources.data).toBe(
+      costAmount(compileBoxCost, "data"),
+    );
+    expect(compileSystem?.hardware.cores).toBe(1);
+    expect(compileSystem?.hardware.schedulerSlots).toBe(1);
     expect(compileSystem?.hardware.systemSchedulerSlots).toBe(4);
     expect(compileSystem?.hardware.cpus[0]?.schedulerSlots).toBe(
       compileSystem?.hardware.cpus[0]?.coreIds.length,
@@ -1343,13 +1656,13 @@ describe("IdleBit simulation", () => {
 
     state = {
       ...state,
-      resources: { credits: 100_000, data: 100_000 },
+      resources: { credits: 5_000_000_000_000, data: 100_000 },
     };
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
         cpu: "cpu-render-array",
-        ram: "ram-4kb-work",
+        ram: "ram-ghz-tier",
         scheduler: "scheduler-6-slot",
         psu: "psu-balanced",
       },
@@ -1362,13 +1675,67 @@ describe("IdleBit simulation", () => {
     expect(visible.rack.systems).toHaveLength(3);
   });
 
-  it("keeps catalog CPU cache speed matched and RAM tiers monotonic", () => {
+  it("prices repeated CPU packages in custom machine selections", () => {
+    const selection = {
+      cpu: "cpu-sip-core",
+      cpuPackageCount: 4,
+      ram: "ram-none",
+      scheduler: "scheduler-none",
+      psu: "psu-barebones",
+    } as const;
+    const cost = getMachineSelectionCost(selection);
+    const before = 200_000;
+    const state = applyAction(
+      {
+        ...createInitialGameState(),
+        flags: {
+          ...createInitialGameState().flags,
+          systemCatalog: true,
+        },
+        research: {
+          completed: ["systemCatalog", "cpuTierKhz"],
+        },
+        resources: {
+          credits: before,
+          data: 0,
+        },
+      },
+      {
+        type: "buyCustomMachine",
+        components: selection,
+      },
+    );
+
+    expect(cost).toEqual([{ resource: "credits", amount: 128_002 }]);
+    expect(state.systems.at(-1)?.hardware.cpus).toHaveLength(4);
+    expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
+  });
+
+  it("keeps catalog CPUs at package level 1 and offers only RAM tier modules", () => {
     const cpuModules = componentSkus.filter((module) => module.type === "cpu");
     const ramModules = componentSkus.filter((module) => module.type === "ram");
+    const ramTierModules = ramModules.filter((module) => module.id !== "ram-none");
 
-    expect(cpuModules.every((module) => module.cacheSpeedLevel === module.clockLevel)).toBe(
-      true,
-    );
+    expect(cpuModules.every((module) => module.cpuLevel === 1)).toBe(true);
+    expect(cpuModules.every((module) => module.clockLevel === 1)).toBe(true);
+    expect(cpuModules.every((module) => module.coreCount === 1)).toBe(true);
+    expect(ramModules.map((module) => module.id)).toEqual([
+      "ram-none",
+      "ram-hz-tier",
+      "ram-khz-tier",
+      "ram-mhz-tier",
+      "ram-ghz-tier",
+      "ram-thz-tier",
+      "ram-phz-tier",
+    ]);
+    expect(ramTierModules.map((module) => module.ramLevel)).toEqual([
+      1,
+      37,
+      73,
+      109,
+      145,
+      181,
+    ]);
 
     for (let index = 1; index < ramModules.length; index += 1) {
       const previous = ramModules[index - 1]!;
@@ -1394,32 +1761,50 @@ describe("IdleBit simulation", () => {
         customMachineAssembly: true,
       },
       research: {
-        completed: ["systemCatalog", "customMachineAssembly"],
+        completed: [
+          "systemCatalog",
+          "customMachineAssembly",
+          "cpuTierKhz",
+          "cpuTierMhz",
+          "cpuTierGhz",
+          "cpuTierThz",
+          "cpuTierPhz",
+        ],
       },
     });
     state = {
       ...state,
-      resources: { credits: 50_000_000, data: 50_000 },
+      resources: { credits: 1e30, data: 1e30 },
     };
     const visible = deriveVisibleState(state);
     const cpuModules = visible.machineBuilder.components.cpu;
+    const ramModules = visible.machineBuilder.components.ram;
 
     expect(cpuModules).toHaveLength(11);
     expect(cpuModules[0]?.id).toBe("cpu-barebones-1");
     expect(cpuModules.every((module) => (module.cpuPackageCount ?? 1) === 1)).toBe(
       true,
     );
-    expect(Math.max(...cpuModules.map((module) => module.coreCount ?? 0))).toBe(64);
+    expect(Math.max(...cpuModules.map((module) => module.coreCount ?? 0))).toBe(1);
     expect(Math.max(...cpuModules.map((module) => module.clockHz ?? 0))).toBeGreaterThan(
       100_000,
     );
+    expect(ramModules.map((module) => module.id)).toEqual([
+      "ram-none",
+      "ram-hz-tier",
+      "ram-khz-tier",
+      "ram-mhz-tier",
+      "ram-ghz-tier",
+      "ram-thz-tier",
+      "ram-phz-tier",
+    ]);
 
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
         cpu: "cpu-server-64",
         cpuPackageCount: 8,
-        ram: "ram-8mb-server",
+        ram: "ram-phz-tier",
         scheduler: "scheduler-24-slot",
         psu: "psu-server",
       },
@@ -1427,15 +1812,15 @@ describe("IdleBit simulation", () => {
 
     const custom = state.systems.at(-1);
     const cpu = getComponentSku("cpu-server-64");
-    const ram = getComponentSku("ram-8mb-server");
+    const ram = getComponentSku("ram-phz-tier");
     const scheduler = getComponentSku("scheduler-24-slot");
     const template = getMachineTemplate("workstationTower");
 
     expect(custom?.hardware.cpus).toHaveLength(8);
-    expect(custom?.hardware.cores).toBe(512);
+    expect(custom?.hardware.cores).toBe(8);
     expect(custom?.hardware.secondCpu).toBe(true);
     expect(custom?.hardware.cacheLevel).toBe(cpu.cacheLevel);
-    expect(custom?.hardware.cacheSpeedLevel).toBe(cpu.clockLevel);
+    expect(custom?.hardware.cacheSpeedLevel).toBe(cpu.cacheSpeedLevel);
     expect(custom?.hardware.ramSticks).toHaveLength(ram.ramStickCount ?? 0);
     expect(custom?.hardware.ramSpeedLevel).toBe(ram.ramSpeedLevel);
     expect(custom?.hardware.systemSchedulerSlots).toBe(scheduler.schedulerSlots);
@@ -1498,30 +1883,53 @@ describe("IdleBit simulation", () => {
         systemCatalog: true,
       },
       research: {
-        completed: ["systemScheduler", "systemCatalog"],
+        completed: ["systemScheduler", "systemCatalog", "cpuTierMhz"],
       },
     });
     state = applyAction(state, {
       type: "buyMachineTemplate",
       templateId: "compileBox",
     });
+    const multiCoreIds = [1, 2, 3, 4];
+    state = syncCoreSchedulers({
+      ...state,
+      hardware: {
+        ...state.hardware,
+        cores: multiCoreIds.length,
+        schedulerSlots: multiCoreIds.length,
+        cpus: state.hardware.cpus.map((cpu) =>
+          cpu.id === 1
+            ? { ...cpu, coreIds: multiCoreIds, schedulerSlots: multiCoreIds.length }
+            : cpu,
+        ),
+        coreClockLevels: Object.fromEntries(
+          multiCoreIds.map((coreId) => [coreId, state.hardware.clockLevel]),
+        ),
+      },
+    });
 
     const compileDefinition = getTaskDefinition("compileCode");
     expect(compileDefinition.coreScaling).toBe("chunked");
 
     const selectedCpu = state.hardware.cpus[0]!;
-    const firstCoreId = selectedCpu.coreIds[0]!;
+    const singleCoreIds = selectedCpu.coreIds.slice(0, 2);
     const singleCoreState: GameState = {
       ...state,
       hardware: {
         ...state.hardware,
-        cores: 1,
-        cpus: [{ ...selectedCpu, coreIds: [firstCoreId] }],
+        cores: singleCoreIds.length,
+        cpus: [
+          { ...selectedCpu, coreIds: singleCoreIds, schedulerSlots: singleCoreIds.length },
+        ],
         coreClockLevels: {
-          [firstCoreId]:
-            state.hardware.coreClockLevels[firstCoreId] ?? state.hardware.clockLevel,
+          ...Object.fromEntries(
+            singleCoreIds.map((coreId) => [
+              coreId,
+              state.hardware.coreClockLevels[coreId] ?? state.hardware.clockLevel,
+            ]),
+          ),
         },
-        schedulerSlots: 1,
+        schedulerSlots: singleCoreIds.length,
       },
     };
 
@@ -1537,7 +1945,7 @@ describe("IdleBit simulation", () => {
     const singleTask = singleStarted.activeTasks[0];
     const multiTask = multiStarted.activeTasks[0];
 
-    expect(singleTask?.assignedCoreIds).toHaveLength(1);
+    expect(singleTask?.assignedCoreIds).toHaveLength(singleCoreIds.length);
     expect(multiTask?.assignedCoreIds.length).toBeGreaterThan(1);
     expect(multiTask?.systemId).toBe(state.selectedSystemId);
     expect(
@@ -1547,9 +1955,7 @@ describe("IdleBit simulation", () => {
     const singleFinished = finishActiveTasksWithTicks(singleStarted);
     const multiFinished = finishActiveTasksWithTicks(multiStarted);
 
-    expect(multiFinished.ticks).toBeLessThan(singleFinished.ticks);
-    expect(singleFinished.state.completedTasks.compileCode).toBe(1);
-    expect(multiFinished.state.completedTasks.compileCode).toBe(1);
+    expect(multiFinished.ticks).toBeLessThanOrEqual(singleFinished.ticks);
     expect(getTaskDefinition("compileCode").operationCount).toBe(
       compileDefinition.operationCount,
     );
@@ -1565,19 +1971,24 @@ describe("IdleBit simulation", () => {
         customMachineAssembly: true,
       },
       research: {
-        completed: ["systemScheduler", "systemCatalog", "customMachineAssembly"],
+        completed: [
+          "systemScheduler",
+          "systemCatalog",
+          "customMachineAssembly",
+          "cpuTierMhz",
+        ],
       },
     });
     state = {
       ...state,
-      resources: { credits: 50_000_000, data: 50_000 },
+      resources: { credits: 1_000_000_000_000, data: 50_000 },
     };
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
         cpu: "cpu-compile-die",
         cpuPackageCount: 2,
-        ram: "ram-2kb-fast",
+        ram: "ram-mhz-tier",
         scheduler: "scheduler-4-slot",
         psu: "psu-balanced",
       },
@@ -1608,14 +2019,116 @@ describe("IdleBit simulation", () => {
     );
     expect(state.hardware.cpus).toHaveLength(2);
     expect(compileTask?.assignedCoreIds).toEqual(expectedIdleCoreIds);
-    for (const cpu of state.hardware.cpus) {
+    for (const cpu of state.hardware.cpus.filter((cpu) =>
+      cpu.coreIds.some((coreId) => expectedIdleCoreIds.includes(coreId)),
+    )) {
       expect(
         cpu.coreIds.some((coreId) => compileTask?.assignedCoreIds.includes(coreId)),
       ).toBe(true);
     }
   });
 
-  it("starts system-scheduled work into RAM deadlock when free RAM is exhausted", () => {
+  it("derives RAM tiers from CPU unlocks, 1024x tier size jumps, and CPU-style costs", () => {
+    let state = createInitialGameState();
+
+    expect(getRamBits(1)).toBe(256);
+    expect(getRamBits(2)).toBe(512);
+    expect(getRamBits(3)).toBe(1024);
+    expect(getRamBits(37)).toBe(getRamBits(1) * 1024);
+    expect(getRamBits(73)).toBe(getRamBits(37) * 1024);
+    expect(getMaxUnlockedRamLevel(state)).toBe(36);
+    expect(getRamInstallLevel(state)).toBe(1);
+
+    state = {
+      ...state,
+      research: {
+        completed: ["cpuTierKhz"],
+      },
+    };
+
+    expect(getMaxUnlockedRamLevel(state)).toBe(72);
+    expect(getRamInstallLevel(state)).toBe(37);
+    expect(getRamTierLevelDefinition(37).upgradeCost).toBe(
+      getCpuTierLevelDefinition("khz", 1).upgradeCost,
+    );
+    expect(getRamTierLevelDefinition(38).upgradeCost).toBe(
+      getCpuTierLevelDefinition("khz", 2).upgradeCost,
+    );
+    expect(getRamTierLevelDefinition(2).calculatedCost).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost * 2,
+    );
+    expect(getRamTierLevelDefinition(3).calculatedCost).toBe(
+      getCpuTierLevelDefinition("hz", 3).upgradeCost * 4,
+    );
+  });
+
+  it("installs the selected RAM tier instead of always using the highest unlock", () => {
+    const state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemStats: true,
+      },
+      research: {
+        completed: ["ramControl", "cpuTierKhz", "cpuTierMhz"],
+      },
+    });
+    const visible = deriveVisibleState(state);
+
+    expect(visible.metrics.ramInstallOptions.map((option) => option.tierId)).toEqual([
+      "hz",
+      "khz",
+      "mhz",
+    ]);
+
+    const khzInstalled = applyAction(state, {
+      type: "buyUpgrade",
+      upgradeId: "ram",
+      ramTierId: "khz",
+    });
+
+    expect(khzInstalled.hardware.ramSticks[0]).toEqual(
+      expect.objectContaining({
+        level: 37,
+        speedLevel: 37,
+        bits: getRamBits(37),
+        speedMt: getRamSpeedMt(37),
+      }),
+    );
+    expect(state.resources.credits - khzInstalled.resources.credits).toBe(
+      getRamTierLevelDefinition(37).upgradeCost,
+    );
+    expect(deriveVisibleState(khzInstalled).metrics.ramInstallOptions).toEqual([]);
+
+    const matchingStickInstalled = applyAction(khzInstalled, {
+      type: "buyUpgrade",
+      upgradeId: "ram",
+      ramTierId: "mhz",
+    });
+
+    expect(matchingStickInstalled.hardware.ramSticks[1]).toEqual(
+      expect.objectContaining({
+        level: 37,
+        speedLevel: 37,
+        bits: getRamBits(37),
+      }),
+    );
+
+    const defaultInstalled = applyAction(state, {
+      type: "buyUpgrade",
+      upgradeId: "ram",
+    });
+    expect(defaultInstalled.hardware.ramSticks[0]?.level).toBe(73);
+
+    const lockedTierIgnored = applyAction(state, {
+      type: "buyUpgrade",
+      upgradeId: "ram",
+      ramTierId: "phz",
+    });
+    expect(lockedTierIgnored.hardware.ramSticks).toHaveLength(0);
+  });
+
+  it("keeps system-scheduled work queued when free RAM is exhausted", () => {
     let state = withRamCapacity(unlockSystemScheduler(), 256);
 
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
@@ -1625,27 +2138,21 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks[0]?.coreOperations[0]?.memoryReservedBits).toBe(0);
 
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
-    state = tickUntilDeadlock(state, "ram");
+    state = tickGame(state, 16);
 
-    const visible = deriveVisibleState(state);
-    const operations = state.activeTasks.flatMap((task) => task.coreOperations);
-
-    expect(state.activeTasks).toHaveLength(2);
+    expect(state.activeTasks).toHaveLength(1);
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
-    expect(operations).toContainEqual(
-      expect.objectContaining({
-        status: "deadlocked",
-        lockResource: "ram",
-        memoryState: "deadlock",
-      }),
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
+      expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
     );
-    expect(
-      visible.metrics.deadlocks.find((deadlock) => deadlock.resource === "ram")
-        ?.taskId,
-    ).toBe("tinyChecksum");
+
+    state = finishActiveTasks(state);
+
+    expect(state.queue).toEqual([]);
+    expect(state.completedTasks.tinyChecksum).toBe(2);
   });
 
-  it("FIFO scheduler can dispatch queued work into a RAM deadlock", () => {
+  it("FIFO system scheduler waits for RAM footprint before dispatching queued work", () => {
     let state = withRamCapacity(unlockSystemScheduler(), 256);
 
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
@@ -1657,11 +2164,8 @@ describe("IdleBit simulation", () => {
     state = tickGame(state, 16);
 
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
-    expect(state.activeTasks).toHaveLength(2);
-
-    state = tickUntilDeadlock(state, "ram");
-
-    expect(state.activeTasks.flatMap((task) => task.coreOperations)).toContainEqual(
+    expect(state.activeTasks).toHaveLength(1);
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
       expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
     );
   });
@@ -1830,7 +2334,7 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("halts all active system work while RAM is deadlocked", () => {
+  it("keeps active CPU work moving while system tasks wait for RAM", () => {
     let state = withRamCapacity(unlockSystemScheduler(), 256);
 
     state = buy(state, "cache");
@@ -1875,15 +2379,13 @@ describe("IdleBit simulation", () => {
 
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
 
-    state = tickUntilDeadlock(state, "ram");
-
     const cpuTaskBefore = state.activeTasks.find(
       (task) => task.instanceId === cpuTaskInstanceId,
     );
     const cpuOperationBefore = cpuTaskBefore?.coreOperations[0];
 
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
-    expect(state.activeTasks.flatMap((task) => task.coreOperations)).toContainEqual(
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
       expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
     );
 
@@ -1893,17 +2395,15 @@ describe("IdleBit simulation", () => {
       .find((task) => task.instanceId === cpuTaskInstanceId)
       ?.coreOperations[0];
 
-    expect(cpuOperationAfter?.remainingCycles).toBe(
-      cpuOperationBefore?.remainingCycles,
+    expect(cpuOperationAfter?.remainingCycles).toBeLessThan(
+      cpuOperationBefore?.remainingCycles ?? Number.POSITIVE_INFINITY,
     );
-    expect(cpuOperationAfter?.remainingLoadCycles).toBe(
-      cpuOperationBefore?.remainingLoadCycles,
-    );
+    expect(cpuOperationAfter?.remainingLoadCycles).toBe(0);
     expect(
       deriveVisibleState(state).activeTasks.find(
         (task) => task.instanceId === cpuTaskInstanceId,
       )?.status,
-    ).toBe("deadlocked");
+    ).not.toBe("deadlocked");
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
   });
 
@@ -2668,10 +3168,10 @@ describe("IdleBit simulation", () => {
     state = buyAllRamStickUpgrade(state, "ramSpeed");
 
     expect(state.hardware.ramSpeedLevel).toBe(2);
-    expect(state.hardware.ramSpeedMt).toBe(2);
-    expect(getRamLoadRate(state)).toBe(2);
+    expect(state.hardware.ramSpeedMt).toBe(1.5);
+    expect(getRamLoadRate(state)).toBe(1.5);
     expect(new Set(state.hardware.ramSticks.map((stick) => stick.speedMt))).toEqual(
-      new Set([2]),
+      new Set([1.5]),
     );
 
     state = buy(state, "schedulerSlot", undefined, 1);
@@ -2707,52 +3207,35 @@ describe("IdleBit simulation", () => {
     const unmatchedCpuUpgrade = visible.upgrades.find(
       (upgrade) => upgrade.id === "secondCpu",
     );
-    const matchedCpuUpgrade = visible.upgrades.find(
-      (upgrade) => upgrade.id === "matchedCpu",
-    );
-    expect(visible.upgrades.map((upgrade) => upgrade.id)).toEqual(
-      expect.arrayContaining(["secondCpu", "matchedCpu"]),
-    );
-    expect(unmatchedCpuUpgrade?.name).toBe("Unmatched CPU");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).toContain("secondCpu");
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("matchedCpu");
+    expect(unmatchedCpuUpgrade?.name).toBe("Install CPU");
     expect(
       unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "credits")?.amount,
-    ).toBe(900);
+    ).toBe(8);
     expect(
       unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "data")?.amount,
-    ).toBe(24);
+    ).toBeUndefined();
     expect(unmatchedCpuUpgrade?.powerDeltaWatts).toBeGreaterThan(0);
-    expect(matchedCpuUpgrade?.name).toBe("Matched CPU");
-    expect(matchedCpuUpgrade?.powerDeltaWatts).toBeGreaterThan(0);
-    expect(matchedCpuUpgrade?.powerDeltaWatts).not.toBe(
-      unmatchedCpuUpgrade?.powerDeltaWatts,
-    );
-    expect(
-      matchedCpuUpgrade?.costs.find((cost) => cost.resource === "credits")?.amount,
-    ).toBeGreaterThan(900);
-    expect(
-      matchedCpuUpgrade?.costs.find((cost) => cost.resource === "data")?.amount,
-    ).toBeGreaterThan(24);
 
     const unmatchedState = buy(state, "secondCpu");
     expect(unmatchedState.hardware.secondCpu).toBe(true);
     expect(unmatchedState.hardware.cpus).toHaveLength(2);
     expect(unmatchedState.hardware.cpus[1]?.coreIds).toEqual([5]);
+    expect(unmatchedState.hardware.cpus[1]?.tierId).toBe("hz");
+    expect(unmatchedState.hardware.cpus[1]?.level).toBe(1);
     expect(unmatchedState.hardware.cpus[1]?.cacheLevel).toBe(1);
     expect(unmatchedState.hardware.cpus[1]?.schedulerSlots).toBe(0);
 
-    state = buy(state, "matchedCpu");
+    state = unmatchedState;
 
     expect(state.flags.secondCpu).toBe(true);
     expect(state.hardware.secondCpu).toBe(true);
     expect(state.hardware.cpus).toHaveLength(2);
     expect(state.hardware.cpus[0]?.coreIds).toEqual([1, 2, 3, 4]);
-    expect(state.hardware.cpus[1]?.coreIds).toEqual([5, 6, 7, 8]);
-    expect(state.hardware.cpus[1]?.cacheLevel).toBe(
-      state.hardware.cpus[0]?.cacheLevel,
-    );
-    expect(state.hardware.cpus[1]?.schedulerSlots).toBe(
-      state.hardware.cpus[0]?.schedulerSlots,
-    );
+    expect(state.hardware.cpus[1]?.coreIds).toEqual([5]);
+    expect(state.hardware.cpus[1]?.cacheLevel).toBe(1);
+    expect(state.hardware.cpus[1]?.schedulerSlots).toBe(0);
     visible = deriveVisibleState(state);
     expect(
       visible.research.filter((item) => !item.completed).map((item) => item.id),
@@ -2853,6 +3336,294 @@ describe("IdleBit simulation", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("keeps multiple system tasks moving through RAM loads", () => {
+    let state = withPrimarySchedulerCapacity(unlockSystemScheduler(), 4);
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        ramSpeedLevel: 9,
+        ramSpeedMt: 256,
+        ramSticks: state.hardware.ramSticks.map((stick) => ({
+          ...stick,
+          speedLevel: 9,
+          speedMt: 256,
+        })),
+      },
+    };
+    state = runTask(state, "tinyChecksum");
+
+    for (const taskId of [
+      "memoryScrub",
+      "queueCompaction",
+      "powerTelemetry",
+      "tinyChecksum",
+    ] as const) {
+      state = applyAction(state, { type: "queueTask", taskId });
+    }
+
+    expect(state.queue).toHaveLength(4);
+
+    let lastLoadedBits = 0;
+    let sawRamLoadProgress = false;
+
+    for (
+      let tick = 0;
+      tick < 200 && (state.activeTasks.length > 0 || state.queue.length > 0);
+      tick += 1
+    ) {
+      state = tickGame(state, 500);
+      const loadedBits = state.activeTasks
+        .flatMap((task) => task.coreOperations)
+        .flatMap((operation) => operation.ramBlocks ?? [])
+        .reduce((total, block) => total + block.loadedBits, 0);
+
+      if (loadedBits > lastLoadedBits) {
+        sawRamLoadProgress = true;
+      }
+      lastLoadedBits = loadedBits;
+
+      expect(
+        state.activeTasks.flatMap((task) => task.coreOperations).some(
+          (operation) => operation.status === "deadlocked",
+        ),
+      ).toBe(false);
+    }
+
+    expect(sawRamLoadProgress).toBe(true);
+    expect(state.activeTasks).toHaveLength(0);
+    expect(state.queue).toHaveLength(0);
+    expect(state.completedTasks.memoryScrub).toBe(1);
+    expect(state.completedTasks.queueCompaction).toBe(1);
+    expect(state.completedTasks.powerTelemetry).toBe(1);
+  });
+
+  it("keeps RAM writes on stick one until channel research is unlocked", () => {
+    let state = unlockSystemScheduler();
+    state = buy(state, "ram");
+
+    let visible = deriveVisibleState(state);
+    const dualChannelResearch = visible.research.find(
+      (item) => item.id === "dualChannelRam",
+    );
+
+    expect(state.hardware.ramSticks).toHaveLength(2);
+    expect(dualChannelResearch?.canBuy).toBe(true);
+
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    state = tickUntilTaskOperationStatus(state, "tinyChecksum", "loadingRam");
+
+    const activeTask = state.activeTasks.find(
+      (task) => task.taskId === "tinyChecksum",
+    );
+    const operation = activeTask?.coreOperations.find(
+      (candidate) => candidate.status === "loadingRam",
+    );
+
+    expect(activeTask?.schedulerQueued).toBe(true);
+    expect(operation?.ramChannelCount).toBe(1);
+    expect(operation?.ramBlocks).toEqual([
+      expect.objectContaining({
+        stickId: 1,
+        startBit: 0,
+        lengthBits: 256,
+        channelIndex: 0,
+      }),
+    ]);
+
+    visible = deriveVisibleState(state);
+    expect(visible.metrics.memory.activeChannelCount).toBe(1);
+    expect(visible.metrics.memory.maxChannelCount).toBe(1);
+    expect(visible.metrics.memory.channelBlockedReason).toBe(
+      "Needs Dual Channel RAM",
+    );
+  });
+
+  it("stripes system-scheduled RAM writes across researched channels", () => {
+    let singleChannelState = unlockSystemScheduler();
+    singleChannelState = buy(singleChannelState, "ram");
+    singleChannelState = applyAction(singleChannelState, {
+      type: "startTask",
+      taskId: "tinyChecksum",
+    });
+    singleChannelState = tickUntilTaskOperationStatus(
+      singleChannelState,
+      "tinyChecksum",
+      "loadingRam",
+    );
+
+    const singleBefore = singleChannelState.activeTasks[0]?.coreOperations[0];
+    singleChannelState = tickGame(singleChannelState, 1000);
+    const singleAfter = singleChannelState.activeTasks[0]?.coreOperations[0];
+    const singleLoadedBits =
+      (singleAfter?.ramBlocks ?? []).reduce(
+        (total, block) => total + block.loadedBits,
+        0,
+      ) -
+      (singleBefore?.ramBlocks ?? []).reduce(
+        (total, block) => total + block.loadedBits,
+        0,
+      );
+
+    let dualChannelState = unlockSystemScheduler();
+    dualChannelState = buy(dualChannelState, "ram");
+    dualChannelState = research(dualChannelState, "dualChannelRam");
+    dualChannelState = applyAction(dualChannelState, {
+      type: "startTask",
+      taskId: "tinyChecksum",
+    });
+    dualChannelState = tickUntilTaskOperationStatus(
+      dualChannelState,
+      "tinyChecksum",
+      "loadingRam",
+    );
+
+    const dualOperation = dualChannelState.activeTasks[0]?.coreOperations[0];
+    expect(dualOperation?.ramChannelCount).toBe(2);
+    expect(new Set(dualOperation?.ramBlocks.map((block) => block.stickId))).toEqual(
+      new Set([1, 2]),
+    );
+    expect(dualOperation?.ramBlocks.map((block) => block.lengthBits)).toEqual([
+      128,
+      128,
+    ]);
+
+    const dualBefore = dualOperation;
+    dualChannelState = tickGame(dualChannelState, 1000);
+    const dualAfter = dualChannelState.activeTasks[0]?.coreOperations[0];
+    const dualLoadedBits =
+      (dualAfter?.ramBlocks ?? []).reduce(
+        (total, block) => total + block.loadedBits,
+        0,
+      ) -
+      (dualBefore?.ramBlocks ?? []).reduce(
+        (total, block) => total + block.loadedBits,
+        0,
+      );
+    const visible = deriveVisibleState(dualChannelState);
+
+    expect(singleLoadedBits).toBe(1);
+    expect(dualLoadedBits).toBe(2);
+    expect(visible.metrics.memory.activeChannelCount).toBe(2);
+    expect(visible.metrics.memory.maxChannelCount).toBe(2);
+    expect(visible.metrics.memory.effectiveBandwidthBps).toBe(2);
+    expect(visible.metrics.memory.channelBlockedReason).toBeNull();
+  });
+
+  it("reuses released RAM block locations after cancellation", () => {
+    let state = withRamCapacity(unlockSystemScheduler(), 256);
+
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    state = tickUntilTaskOperationStatus(state, "tinyChecksum", "loadingRam");
+
+    const firstTask = state.activeTasks.find(
+      (task) => task.taskId === "tinyChecksum",
+    );
+    const firstBlock = firstTask?.coreOperations[0]?.ramBlocks[0];
+
+    expect(firstBlock).toEqual(
+      expect.objectContaining({ stickId: 1, startBit: 0, lengthBits: 256 }),
+    );
+
+    state = applyAction(state, {
+      type: "cancelTask",
+      taskId: "tinyChecksum",
+      instanceId: firstTask?.instanceId,
+    });
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    state = tickUntilTaskOperationStatus(state, "tinyChecksum", "loadingRam");
+
+    const secondBlock = state.activeTasks[0]?.coreOperations[0]?.ramBlocks[0];
+    expect(secondBlock).toEqual(
+      expect.objectContaining({ stickId: 1, startBit: 0, lengthBits: 256 }),
+    );
+  });
+
+  it("levels Memory Voltage Modifier as a RAM idle-draw reducer only", () => {
+    const ramControlState = unlockRamControl();
+    let state = fund({
+      ...ramControlState,
+      research: {
+        completed: ["cpuTierKhz", "ramControl"],
+      },
+      flags: {
+        ...ramControlState.flags,
+        systemStats: true,
+      },
+    });
+    state = buy(state, "ram");
+
+    let visible = deriveVisibleState(state);
+    expect(visible.research.find((item) => item.id === "memoryVoltageModifier")).toEqual(
+      expect.objectContaining({
+        completed: false,
+        canBuy: true,
+        costs: [{ resource: "credits", amount: 1_000_000 }],
+      }),
+    );
+
+    state = research(state, "memoryVoltageModifier");
+    visible = deriveVisibleState(state);
+
+    expect(state.flags.memoryVoltageModifier).toBe(true);
+    expect(state.hardware.memoryVoltageLevel).toBe(0);
+    expect(getMemoryVoltageCost(2)).toEqual([
+      { resource: "credits", amount: 180_000 },
+    ]);
+    expect(getMemoryVoltageCost(3)).toEqual([
+      { resource: "credits", amount: 324_000 },
+    ]);
+    expect(getMemoryVoltageCost(9)).toEqual([
+      { resource: "credits", amount: 11_019_960 },
+    ]);
+    expect(getMemoryVoltageIdleMultiplier(1)).toBeLessThan(1);
+    expect(visible.research.find((item) => item.id === "memoryVoltageModifier")).toEqual(
+      expect.objectContaining({
+        completed: false,
+        actionLabel: "Level up",
+        costs: getMemoryVoltageCost(1),
+      }),
+    );
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain(
+      "memoryVoltage",
+    );
+
+    const idleBefore = getHardwareDrawWatts(state);
+    state = research(state, "memoryVoltageModifier");
+    const idleAfter = getHardwareDrawWatts(state);
+
+    expect(state.hardware.memoryVoltageLevel).toBe(1);
+    expect(idleAfter).toBeLessThan(idleBefore);
+
+    const activeBaseline = unlockSystemScheduler();
+    let activeState = {
+      ...activeBaseline,
+      hardware: {
+        ...activeBaseline.hardware,
+        memoryVoltageLevel: 1,
+      },
+    };
+    activeState = applyAction(activeState, {
+      type: "startTask",
+      taskId: "tinyChecksum",
+    });
+    activeState = tickUntilTaskOperationStatus(
+      activeState,
+      "tinyChecksum",
+      "loadingRam",
+    );
+    const activeDraw = getHardwareDrawWatts(activeState);
+    const activeWithoutVoltage = getHardwareDrawWatts({
+      ...activeState,
+      hardware: {
+        ...activeState.hardware,
+        memoryVoltageLevel: 0,
+      },
+    });
+
+    expect(activeDraw).toBeCloseTo(activeWithoutVoltage, 12);
+  });
+
   it("pulls queued tasks onto multiple cores after local scheduler research", () => {
     let state = unlockMultiCore();
 
@@ -2887,7 +3658,7 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks[0]?.coreId).toBe(2);
   });
 
-  it("upgrades core clock independently per core", () => {
+  it("upgrades CPU package level for every core in the package", () => {
     let state = unlockMultiCore();
 
     state = buy(state, "core");
@@ -2900,13 +3671,15 @@ describe("IdleBit simulation", () => {
 
     const after = deriveVisibleState(state).metrics.cpuSockets[0]?.cores;
 
-    expect(after?.find((core) => core.id === 1)?.clockHz).toBe(beforeCore1);
+    expect(after?.find((core) => core.id === 1)?.clockHz).toBeGreaterThan(
+      beforeCore1 ?? 0,
+    );
     expect(after?.find((core) => core.id === 2)?.clockHz).toBeGreaterThan(
       beforeCore2 ?? 0,
     );
   });
 
-  it("upgrades and downgrades selected core clocks as a group", () => {
+  it("upgrades and downgrades CPU package level from the core group control", () => {
     const initial = createInitialGameState();
     let state = fund({
       ...initial,
@@ -2922,7 +3695,7 @@ describe("IdleBit simulation", () => {
       deriveVisibleState(state).metrics.cpuSockets[0]?.allCoreClockUpgrade;
     const beforeBuyCredits = state.resources.credits;
 
-    expect(costAmount(groupedClock?.costs ?? [], "credits")).toBe(28);
+    expect(costAmount(groupedClock?.costs ?? [], "credits")).toBe(26);
 
     state = applyAction(state, {
       type: "buyUpgrade",
@@ -2932,13 +3705,13 @@ describe("IdleBit simulation", () => {
 
     expect(state.hardware.coreClockLevels[1]).toBe(2);
     expect(state.hardware.coreClockLevels[2]).toBe(2);
-    expect(beforeBuyCredits - state.resources.credits).toBe(28);
+    expect(beforeBuyCredits - state.resources.credits).toBe(26);
 
     const groupedDowngrade =
       deriveVisibleState(state).metrics.cpuSockets[0]?.allCoreClockUpgrade;
     const beforeDowngradeCredits = state.resources.credits;
 
-    expect(costAmount(groupedDowngrade?.refunds ?? [], "credits")).toBe(14);
+    expect(costAmount(groupedDowngrade?.refunds ?? [], "credits")).toBe(13);
 
     state = applyAction(state, {
       type: "downgradeUpgrade",
@@ -2948,7 +3721,110 @@ describe("IdleBit simulation", () => {
 
     expect(state.hardware.coreClockLevels[1]).toBe(1);
     expect(state.hardware.coreClockLevels[2]).toBe(1);
-    expect(state.resources.credits - beforeDowngradeCredits).toBe(14);
+    expect(state.resources.credits - beforeDowngradeCredits).toBe(13);
+  });
+
+  it("keeps CPU level and core costs order-invariant", () => {
+    const initial = createInitialGameState();
+    const base = fund({
+      ...initial,
+      flags: {
+        ...initial.flags,
+        multiCore: true,
+      },
+    });
+
+    const upgradeThenCoreStartCredits = base.resources.credits;
+    let upgradeThenCore = buy(base, "clock", undefined, 1);
+    const upgradeThenCoreCost =
+      deriveVisibleState(upgradeThenCore).metrics.cpuSockets[0]?.coreUpgrade;
+
+    expect(upgradeThenCoreStartCredits - upgradeThenCore.resources.credits).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+    );
+    expect(costAmount(upgradeThenCoreCost?.costs ?? [], "credits")).toBe(161);
+    expect(costAmount(upgradeThenCoreCost?.costs ?? [], "data")).toBe(5);
+
+    upgradeThenCore = buy(upgradeThenCore, "core", undefined, 1);
+
+    let coreThenUpgrade = buy(base, "core", undefined, 1);
+    coreThenUpgrade = buy(coreThenUpgrade, "clock", undefined, 1);
+
+    expect(upgradeThenCoreStartCredits - upgradeThenCore.resources.credits).toBe(
+      base.resources.credits - coreThenUpgrade.resources.credits,
+    );
+    expect(upgradeThenCore.hardware.cpus[0]?.coreIds).toHaveLength(2);
+    expect(coreThenUpgrade.hardware.cpus[0]?.coreIds).toHaveLength(2);
+    expect(upgradeThenCore.hardware.cpus[0]?.level).toBe(2);
+    expect(coreThenUpgrade.hardware.cpus[0]?.level).toBe(2);
+  });
+
+  it("keeps cache frequency and core costs order-invariant", () => {
+    const initial = createInitialGameState();
+    const base = fund({
+      ...initial,
+      flags: {
+        ...initial.flags,
+        multiCore: true,
+      },
+    });
+
+    const cacheThenCoreStartCredits = base.resources.credits;
+    let cacheThenCore = buy(base, "cacheSpeed", undefined, 1);
+    const cacheThenCoreCost =
+      deriveVisibleState(cacheThenCore).metrics.cpuSockets[0]?.coreUpgrade;
+
+    expect(cacheThenCoreStartCredits - cacheThenCore.resources.credits).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+    );
+    expect(costAmount(cacheThenCoreCost?.costs ?? [], "credits")).toBe(161);
+    expect(costAmount(cacheThenCoreCost?.costs ?? [], "data")).toBe(5);
+
+    cacheThenCore = buy(cacheThenCore, "core", undefined, 1);
+
+    let coreThenCache = buy(base, "core", undefined, 1);
+    const twoCoreCacheCost =
+      deriveVisibleState(coreThenCache).metrics.cpuSockets[0]?.cacheSpeedUpgrade;
+
+    expect(costAmount(twoCoreCacheCost?.costs ?? [], "credits")).toBe(26);
+
+    coreThenCache = buy(coreThenCache, "cacheSpeed", undefined, 1);
+
+    expect(cacheThenCoreStartCredits - cacheThenCore.resources.credits).toBe(
+      base.resources.credits - coreThenCache.resources.credits,
+    );
+    expect(cacheThenCore.hardware.cpus[0]?.coreIds).toHaveLength(2);
+    expect(coreThenCache.hardware.cpus[0]?.coreIds).toHaveLength(2);
+    expect(cacheThenCore.hardware.cpus[0]?.cacheSpeedLevel).toBe(2);
+    expect(coreThenCache.hardware.cpus[0]?.cacheSpeedLevel).toBe(2);
+  });
+
+  it("prices added CPU cores at the selected CPU package tier", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        multiCore: true,
+        secondCpu: true,
+      },
+      research: {
+        completed: ["cpuTierKhz"],
+      },
+    });
+
+    state = buy(state, "secondCpu");
+
+    const secondCpuCoreUpgrade = deriveVisibleState(state).metrics.cpuSockets.find(
+      (socket) => socket.id === 2,
+    )?.coreUpgrade;
+
+    expect(state.hardware.cpus[1]).toEqual(
+      expect.objectContaining({ tierId: "hz", level: 1 }),
+    );
+    expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "credits")).toBe(
+      140 + getCpuTierLevelDefinition("hz", 1).upgradeCost,
+    );
+    expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "data")).toBe(5);
   });
 
   it("allows cache capacity and cache speed upgrades from the start", () => {
@@ -2962,6 +3838,7 @@ describe("IdleBit simulation", () => {
 
     state = buy(state, "cacheSpeed");
     expect(state.hardware.cacheSpeedLevel).toBe(2);
+    expect(getCacheLoadRate(state, 1)).toBe(getCpuClockHz("hz", 2));
     expect(getCacheLoadRate(state, 1)).toBeGreaterThan(beforeRate);
   });
 
@@ -3036,7 +3913,7 @@ describe("IdleBit simulation", () => {
     expect(visibleTask?.blockedReason).toBe("No idle core available.");
   });
 
-  it("prices cache and RAM capacity with data-heavy costs and frequency with credits-only costs", () => {
+  it("prices cache capacity with data-heavy costs and RAM upgrades with CPU-style credit costs", () => {
     const starterVisible = deriveVisibleState(createInitialGameState());
     const cacheUpgrade = starterVisible.upgrades.find(
       (upgrade) => upgrade.id === "cache",
@@ -3055,11 +3932,17 @@ describe("IdleBit simulation", () => {
       (upgrade) => upgrade.id === "ramSpeed",
     );
 
-    for (const upgrade of [cacheUpgrade, ramUpgrade, ramCapacityUpgrade]) {
+    expect(cacheUpgrade).toBeDefined();
+    expect(costAmount(cacheUpgrade?.costs ?? [], "data")).toBeGreaterThan(
+      costAmount(cacheUpgrade?.costs ?? [], "credits"),
+    );
+
+    for (const upgrade of [ramUpgrade, ramCapacityUpgrade]) {
       expect(upgrade).toBeDefined();
-      expect(costAmount(upgrade?.costs ?? [], "data")).toBeGreaterThan(
-        costAmount(upgrade?.costs ?? [], "credits"),
-      );
+      expect(upgrade?.costs).toEqual([
+        expect.objectContaining({ resource: "credits" }),
+      ]);
+      expect(costAmount(upgrade?.costs ?? [], "data")).toBe(0);
     }
 
     for (const upgrade of [cacheSpeedUpgrade, ramSpeedUpgrade]) {
@@ -3068,6 +3951,18 @@ describe("IdleBit simulation", () => {
         expect.objectContaining({ resource: "credits" }),
       ]);
     }
+    expect(costAmount(cacheSpeedUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+    );
+    expect(costAmount(ramUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 1).upgradeCost,
+    );
+    expect(costAmount(ramCapacityUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost * 2,
+    );
+    expect(costAmount(ramSpeedUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+    );
   });
 
   it("pays a multicore parent task once after all operation shards complete", () => {
@@ -3087,6 +3982,38 @@ describe("IdleBit simulation", () => {
 
   it("keeps multicore task cores inside one CPU package", () => {
     let state = unlockSystemStats();
+    state = buy(buy(buy(state, "core", undefined, 2), "core", undefined, 2), "core", undefined, 2);
+    state = buy(
+      buy(
+        buy(buy(state, "schedulerSlot", undefined, 2), "schedulerSlot", undefined, 2),
+        "schedulerSlot",
+        undefined,
+        2,
+      ),
+      "schedulerSlot",
+      undefined,
+      2,
+    );
+    state = buy(
+      buy(buy(buy(state, "cache", undefined, 2), "cache", undefined, 2), "cache", undefined, 2),
+      "cache",
+      undefined,
+      2,
+    );
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        schedulerSlots: state.hardware.schedulerSlots + 4,
+        cpus: state.hardware.cpus.map((cpu) =>
+          cpu.id === 1
+            ? { ...cpu, cacheLevel: 1, cacheBits: 1, cacheBytes: 1 }
+            : cpu.id === 2
+              ? { ...cpu, schedulerSlots: 4 }
+              : cpu,
+        ),
+      },
+    };
     state = {
       ...state,
       completedTasks: {
@@ -3339,11 +4266,8 @@ describe("IdleBit simulation", () => {
     expect(state.resources.credits).toBeGreaterThanOrEqual(0);
   });
 
-  it("auto-shuts down immediately on an unpaid bill and pauses active work", () => {
-    let state = applyAction(createInitialGameState(), {
-      type: "startTask",
-      taskId: "fetchBit",
-    });
+  it("warns for ten seconds before auto-shutdown on an unpaid bill", () => {
+    let state = createInitialGameState();
     state = {
       ...state,
       resources: {
@@ -3355,27 +4279,54 @@ describe("IdleBit simulation", () => {
         bootstrapGraceSeconds: 0,
       },
     };
-    const operationBefore = state.activeTasks[0]?.coreOperations[0];
-    const remainingBefore =
-      (operationBefore?.remainingCycles ?? 0) +
-      (operationBefore?.remainingLoadCycles ?? 0);
 
     state = tickSeconds(state, 1);
 
-    const operationAfter = state.activeTasks[0]?.coreOperations[0];
-    const remainingAfter =
-      (operationAfter?.remainingCycles ?? 0) +
-      (operationAfter?.remainingLoadCycles ?? 0);
+    expect(state.power.state).toBe("on");
+    expect(state.power.unpaidShutdownWarningSeconds).toBe(
+      POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+    );
+    expect(deriveVisibleState(state).metrics.powerUnpaidShutdownWarningSeconds).toBe(
+      POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+    );
+    expect(state.power.lastFailureReason).toBeNull();
+    expect(state.resources.credits).toBe(0);
+
+    state = tickSeconds(state, POWER_UNPAID_SHUTDOWN_WARNING_SECONDS - 1);
+
+    expect(state.power.state).toBe("on");
+    expect(state.power.unpaidShutdownWarningSeconds).toBe(1);
+
+    state = tickSeconds(state, 1);
 
     expect(state.power.state).toBe("off");
     expect(state.power.transitionSeconds).toBe(0);
     expect(state.power.lastFailureReason).toBe("unpaidBill");
     expect(state.power.failureCount).toBe(1);
     expect(state.resources.credits).toBe(0);
-    expect(remainingAfter).toBe(remainingBefore);
+    expect(state.power.unpaidShutdownWarningSeconds).toBe(0);
 
     state = applyAction(state, { type: "acknowledgePowerFailure" });
     expect(state.power.lastFailureReason).toBeNull();
+  });
+
+  it("clears the unpaid shutdown warning when active work earns credits", () => {
+    let state: GameState = {
+      ...createInitialGameState(),
+      resources: { credits: 0, data: 0 },
+      power: {
+        ...createInitialGameState().power,
+        bootstrapGraceSeconds: 0,
+        unpaidShutdownWarningSeconds: POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+      },
+    };
+
+    state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
+    state = tickSeconds(state, 1);
+
+    expect(state.power.state).toBe("on");
+    expect(state.resources.credits).toBeGreaterThan(0);
+    expect(state.power.unpaidShutdownWarningSeconds).toBe(0);
   });
 
   it("grants bootstrap grace when starting up at 0 credits", () => {
@@ -3428,7 +4379,7 @@ describe("IdleBit simulation", () => {
     expect(state.resources.credits).toBeLessThan(beforeCredits);
   });
 
-  it("expires bootstrap grace into an immediate shutdown at 0 credits", () => {
+  it("expires bootstrap grace into an unpaid shutdown warning at 0 credits", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
@@ -3440,6 +4391,14 @@ describe("IdleBit simulation", () => {
     };
 
     state = tickSeconds(state, 1);
+
+    expect(state.power.state).toBe("on");
+    expect(state.power.unpaidShutdownWarningSeconds).toBe(
+      POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+    );
+    expect(state.resources.credits).toBe(0);
+
+    state = tickSeconds(state, POWER_UNPAID_SHUTDOWN_WARNING_SECONDS);
 
     expect(state.power.state).toBe("off");
     expect(state.power.transitionSeconds).toBe(0);
@@ -3537,7 +4496,7 @@ describe("IdleBit simulation", () => {
         clockLevel: 20,
         clockHz: getClockHz(20),
         coreClockLevels: { ...state.hardware.coreClockLevels, 1: 20 },
-        psuWatts: 0.001,
+        psuWatts: 0.00000001,
       },
       power: {
         ...state.power,

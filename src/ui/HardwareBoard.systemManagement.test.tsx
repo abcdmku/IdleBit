@@ -239,7 +239,7 @@ describe("HardwareBoard second CPU system management", () => {
         ?.querySelector<HTMLButtonElement>(".install-hardware-button")
         ?.click();
       findInstall("Install first RAM stick")
-        ?.querySelector<HTMLButtonElement>(".install-hardware-button")
+        ?.querySelector<HTMLButtonElement>(".ram-install-tier-button")
         ?.click();
       findInstall("Install first CRON job slot")
         ?.querySelector<HTMLButtonElement>(".install-hardware-button")
@@ -258,6 +258,7 @@ describe("HardwareBoard second CPU system management", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "buyUpgrade",
       upgradeId: "ram",
+      ramTierId: "hz",
     });
     expect(dispatch).toHaveBeenCalledWith({
       type: "buyUpgrade",
@@ -329,12 +330,16 @@ describe("HardwareBoard second CPU system management", () => {
     });
 
     const cpuPackage = container.querySelector(".cpu-package");
+    const headerInstall = cpuPackage?.querySelector(
+      ".cpu-package-header-install",
+    );
     const buttons = cpuPackage?.querySelectorAll<HTMLButtonElement>(
       ".cpu-install-option",
     );
 
     expect(container.querySelector(".empty-socket")).toBeNull();
-    expect(cpuPackage?.textContent).toContain("Add CPU");
+    expect(cpuPackage?.querySelector(".cpu-package-install")).toBeNull();
+    expect(headerInstall?.textContent).toContain("Buy CPU");
     expect(cpuPackage?.textContent).toContain("Unmatched CPU");
     expect(cpuPackage?.textContent).toContain("Matched CPU");
     expect(cpuPackage?.textContent).toContain("+1.2 mW");

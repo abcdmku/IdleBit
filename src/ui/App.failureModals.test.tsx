@@ -4,8 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createInitialGameState,
   deserializeSave,
+  RACK_READY_SEED_CREDITS,
   serializeSave,
-  type GameState
+  type GameState,
 } from "../game";
 import { idleBitPersistence } from "../platform";
 import { App } from "./App";
@@ -137,30 +138,34 @@ describe("App failure modals", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("creates a rack-ready session from the seed URL", async () => {
-    window.history.pushState(null, "", "/?seed=rack-ready");
+  it.each(["rack-ready", "trillion"])(
+    "creates a rack-ready session from the %s seed URL",
+    async (seed) => {
+      window.history.pushState(null, "", `/?seed=${seed}`);
 
-    await act(async () => {
-      root.render(<App />);
-    });
-    await flushEffects();
+      await act(async () => {
+        root.render(<App />);
+      });
+      await flushEffects();
 
-    const rawSave = await idleBitPersistence.get<string>("save-v3");
-    const restored = deserializeSave(rawSave);
+      const rawSave = await idleBitPersistence.get<string>("save-v4");
+      const restored = deserializeSave(rawSave);
 
-    expect(window.location.search).toBe("");
-    expect(restored.resources).toEqual({ credits: 20_000, data: 20_000 });
-    expect(restored.flags.systemCatalog).toBe(true);
-    expect(restored.flags.customMachineAssembly).toBe(true);
-    expect(restored.systems).toHaveLength(2);
-    expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
-    expect(restored.systems[1]?.hardware.cores).toBe(128);
-    expect(restored.systems[1]?.hardware.ramSticks).toHaveLength(32);
-    const rackPanel = container.querySelector(".system-rack");
-    expect(rackPanel?.textContent).toContain("Rack");
-    expect(rackPanel?.textContent).not.toContain("Rack-Ready Workstation");
-    expect(rackPanel?.textContent).not.toContain("Dense Compute Node");
-  });
+      expect(window.location.search).toBe("");
+      expect(restored.resources.credits).toBe(RACK_READY_SEED_CREDITS);
+      expect(restored.resources.data).toBeGreaterThan(20_000);
+      expect(restored.flags.systemCatalog).toBe(true);
+      expect(restored.flags.customMachineAssembly).toBe(true);
+      expect(restored.systems).toHaveLength(2);
+      expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
+      expect(restored.systems[1]?.hardware.cores).toBe(128);
+      expect(restored.systems[1]?.hardware.ramSticks).toHaveLength(32);
+      const rackPanel = container.querySelector(".system-rack");
+      expect(rackPanel?.textContent).toContain("Rack");
+      expect(rackPanel?.textContent).not.toContain("Rack-Ready Workstation");
+      expect(rackPanel?.textContent).not.toContain("Dense Compute Node");
+    },
+  );
 
   it("restores a valid save when optional UI preferences are corrupt", async () => {
     const savedState = {
@@ -171,7 +176,7 @@ describe("App failure modals", () => {
       },
     };
 
-    await idleBitPersistence.set("save-v3", serializeSave(savedState));
+    await idleBitPersistence.set("save-v4", serializeSave(savedState));
     window.localStorage.setItem("idlebit:ui.pinned-tasks-v1", "{bad-json");
 
     await act(async () => {
@@ -189,7 +194,7 @@ describe("App failure modals", () => {
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v3",
+      "save-v4",
       serializeSave(makePsuFailureSaveState()),
     );
 
@@ -219,7 +224,7 @@ describe("App failure modals", () => {
 
   it("uses a topbar badge instead of the popup after the first PSU failure", async () => {
     await idleBitPersistence.set(
-      "save-v3",
+      "save-v4",
       serializeSave(makePsuFailureSaveState()),
     );
     await idleBitPersistence.set("ui.psu-failure-modal-seen-v1", true);
@@ -245,7 +250,7 @@ describe("App failure modals", () => {
 
   it("explains the first out-of-credits power cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v3",
+      "save-v4",
       serializeSave(makeCreditFailureSaveState()),
     );
 
@@ -276,7 +281,7 @@ describe("App failure modals", () => {
 
   it("uses a quick popup for later out-of-credits cutoffs", async () => {
     await idleBitPersistence.set(
-      "save-v3",
+      "save-v4",
       serializeSave(makeCreditFailureSaveState()),
     );
     await idleBitPersistence.set("ui.credit-failure-modal-seen-v1", true);
@@ -316,7 +321,7 @@ describe("App failure modals", () => {
       })),
     });
     await idleBitPersistence.set(
-      "save-v3",
+      "save-v4",
       serializeSave(makeUnlockNoticeSaveState()),
     );
     await idleBitPersistence.set("ui.seen-tasks-v1", ["fetchBit", "decodeBit"]);
@@ -334,11 +339,11 @@ describe("App failure modals", () => {
     let researchTab = tabs[2];
 
     expect(tasksTab?.className).toContain("has-notification");
-    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks, 2 new");
-    expect(tasksTab?.title).toBe("2 new tasks");
+    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks, 4 new");
+    expect(tasksTab?.title).toBe("4 new tasks");
     expect(researchTab?.className).toContain("has-notification");
-    expect(researchTab?.getAttribute("aria-label")).toBe("Research, 1 new");
-    expect(researchTab?.title).toBe("1 new research");
+    expect(researchTab?.getAttribute("aria-label")).toBe("Research, 3 new");
+    expect(researchTab?.title).toBe("3 new research");
 
     await act(async () => {
       tasksTab?.click();
@@ -354,7 +359,9 @@ describe("App failure modals", () => {
     expect(researchTab?.className).toContain("has-notification");
     await expect(
       idleBitPersistence.get<string[]>("ui.seen-tasks-v1", []),
-    ).resolves.toEqual(expect.arrayContaining(["bitFlip", "bitShift"]));
+    ).resolves.toEqual(
+      expect.arrayContaining(["bitFlip", "bitShift", "byteCopy", "packetCheck"]),
+    );
 
     await act(async () => {
       researchTab?.click();
@@ -369,7 +376,13 @@ describe("App failure modals", () => {
     expect(researchTab?.getAttribute("aria-label")).toBe("Research");
     await expect(
       idleBitPersistence.get<string[]>("ui.seen-research-v1", []),
-    ).resolves.toEqual(expect.arrayContaining(["byteOperations"]));
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        "byteOperations",
+        "cacheMapping",
+        "benchmarkHarness",
+      ]),
+    );
   });
 });
 

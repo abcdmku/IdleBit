@@ -2,6 +2,7 @@ import { getResearchDefinition, researchDefinitions } from "./content/research";
 import {
   getComponentSku,
   getMachineComponentSkus,
+  getMachineSelectionCost,
   getMachineTemplate,
 } from "./content/machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
@@ -15,6 +16,7 @@ import { addRewards, canAfford, spend } from "./economy";
 import {
   DEADLOCK_FAILURE_SECONDS,
   POWER_OVERLOAD_FAILURE_SECONDS,
+  allocateRamBlocksForOperation,
   estimateActiveRemainingSeconds,
   estimateTaskSeconds,
   getAvailableMemoryBits,
@@ -30,6 +32,7 @@ import {
   getPowerOverloadRate,
   getPsuStress,
   getRamLoadCycles,
+  getRamBlockLoadDeltasForOperationTick,
   getRamLoadCyclesForOperationTick,
   getReservedCacheBits,
 } from "./math";
@@ -43,7 +46,7 @@ import {
   getCacheBits,
   getCacheBytes,
   getAllCoreIds,
-  getClockHz,
+  getCpuClockHz,
   getCpuHardware,
   getCpuIdForCore,
   getCoreClockHz,
@@ -51,6 +54,7 @@ import {
   getRamSpeedMt,
   getOperationProgress,
   POWER_BOOTSTRAP_GRACE_SECONDS,
+  POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
   syncCoreSchedulers,
   updateProgressionFlags,
 } from "./progression";
@@ -65,6 +69,7 @@ import type {
   ActiveCoreOperation,
   ActiveTask,
   Cost,
+  CpuTierId,
   DeadlockResource,
   GameAction,
   GameState,
@@ -90,20 +95,6 @@ const CRON_MIN_MINUTES_INTERVAL = 1;
 const CRON_MAX_MINUTES_INTERVAL = 60;
 const CRON_QUEUE_SPIKE_SECONDS = 5;
 
-const combineCosts = (costs: Cost[]) =>
-  costs.reduce<Cost[]>((combined, cost) => {
-    const existing = combined.find((item) => item.resource === cost.resource);
-    if (existing) {
-      existing.amount += cost.amount;
-      return combined;
-    }
-    combined.push({ ...cost });
-    return combined;
-  }, []);
-
-const getMachineSelectionCost = (selection: MachineComponentSelection) =>
-  combineCosts(getMachineComponentSkus(selection).flatMap((sku) => sku.cost));
-
 const getSku = (
   selection: MachineComponentSelection,
   key: Exclude<keyof MachineComponentSelection, "cpuPackageCount">,
@@ -127,13 +118,14 @@ const createHardwareFromMachineSelection = (
   );
   const coresPerPackage = Math.max(1, Math.floor(coreCount / cpuPackageCount));
   const extraCores = coreCount % cpuPackageCount;
-  const clockLevel = Math.max(1, cpu.clockLevel ?? 1);
   const cacheLevel = Math.max(1, cpu.cacheLevel ?? 1);
   const cacheSpeedLevel = Math.max(1, cpu.cacheSpeedLevel ?? 1);
   const schedulerSlots = Math.max(0, scheduler.schedulerSlots ?? 0);
+  const cpuTierId = cpu.cpuTierId ?? "hz";
   const coreIds = Array.from({ length: coreCount }, (_, index) => index + 1);
+  const cpuLevel = Math.max(1, cpu.cpuLevel ?? cpu.clockLevel ?? 1);
   const coreClockLevels = Object.fromEntries(
-    coreIds.map((coreId) => [coreId, clockLevel]),
+    coreIds.map((coreId) => [coreId, cpuLevel]),
   ) as Record<number, number>;
   const ramStickCount = Math.max(0, ram.ramStickCount ?? 0);
   const ramLevel = Math.max(1, ram.ramLevel ?? 1);
@@ -157,6 +149,8 @@ const createHardwareFromMachineSelection = (
       cacheBits: getCacheBits(cacheLevel),
       cacheBytes: getCacheBytes(cacheLevel),
       schedulerSlots: Math.max(0, cpu.schedulerSlots ?? count),
+      tierId: cpuTierId,
+      level: cpuLevel,
     });
   });
   const cpuSchedulerSlots = cpus.reduce(
@@ -165,8 +159,8 @@ const createHardwareFromMachineSelection = (
   );
 
   return {
-    clockLevel,
-    clockHz: getClockHz(clockLevel),
+    clockLevel: cpuLevel,
+    clockHz: getCpuClockHz(cpuTierId, cpuLevel),
     coreClockLevels,
     cpus,
     cacheLevel,
@@ -185,8 +179,10 @@ const createHardwareFromMachineSelection = (
     ramSpeedLevel,
     ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
     ramSticks,
+    memoryVoltageLevel: 0,
     cronScheduleSlots: 0,
     cronIntervalLevel: 0,
+    cStateLevel: 0,
     psuLevel,
     psuWatts: getPsuWatts(psuLevel),
     coolingLevel: 0,
@@ -780,10 +776,85 @@ const idleCoreOperation = (
   totalLoadCycles: 0,
   memoryReservedBits: 0,
   memoryReservedBytes: 0,
+  ramBlocks: [],
+  ramChannelCount: 1,
   lockResource: null,
   lockReason: null,
   deadlockSeconds: 0,
 });
+
+const getTotalRamBlockBits = (operation: ActiveCoreOperation) =>
+  (operation.ramBlocks ?? []).reduce(
+    (total, block) => total + Math.max(0, block.lengthBits),
+    0,
+  );
+
+const beginRamLoadOperation = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+  operationDefinition: TaskOperationDefinition,
+  remainingCycles: number,
+  ramLoadCycles: number,
+  totalLoadCycles: number,
+): ActiveCoreOperation => {
+  const allocated = allocateRamBlocksForOperation(
+    state,
+    task,
+    operation,
+    operationDefinition.ramBits,
+  );
+
+  if (!allocated) {
+    return deadlockLoadOperation(operation, "ram", {
+      status: "loadingRam",
+      memoryState: "ramLoad",
+      remainingCycles,
+      totalCycles: operationDefinition.cycles,
+      remainingLoadCycles: ramLoadCycles,
+      totalLoadCycles,
+      memoryReservedBits: getTotalRamBlockBits(operation),
+      memoryReservedBytes: bitsToBytes(getTotalRamBlockBits(operation)),
+    });
+  }
+
+  const loadedBits = allocated.blocks.reduce(
+    (total, block) => total + block.loadedBits,
+    0,
+  );
+
+  return {
+    ...operation,
+    operationId: operationDefinition.id,
+    operationName: operationDefinition.name,
+    status: "loadingRam",
+    memoryState: "ramLoad",
+    remainingCycles,
+    totalCycles: operationDefinition.cycles,
+    remainingLoadCycles: Math.max(0, operationDefinition.ramBits - loadedBits),
+    totalLoadCycles,
+    memoryReservedBits: operationDefinition.ramBits,
+    memoryReservedBytes: operationDefinition.ramBytes,
+    ramBlocks: allocated.blocks,
+    ramChannelCount: allocated.channelCount,
+    lockResource: null,
+    lockReason: null,
+    deadlockSeconds: 0,
+  };
+};
+
+const applyRamBlockLoadDeltas = (
+  operation: ActiveCoreOperation,
+  deltas: number[],
+  scale = 1,
+) =>
+  (operation.ramBlocks ?? []).map((block, index) => ({
+    ...block,
+    loadedBits: Math.min(
+      block.lengthBits,
+      block.loadedBits + Math.max(0, deltas[index] ?? 0) * scale,
+    ),
+  }));
 
 const enterOperation = (
   state: GameState,
@@ -807,6 +878,8 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      ramBlocks: [],
+      ramChannelCount: 1,
       lockResource: null,
       lockReason: null,
       deadlockSeconds: 0,
@@ -831,6 +904,8 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      ramBlocks: [],
+      ramChannelCount: 1,
       lockResource: null,
       lockReason: null,
       deadlockSeconds: 0,
@@ -851,6 +926,8 @@ const enterOperation = (
       totalLoadCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      ramBlocks: [],
+      ramChannelCount: 1,
       lockResource: null,
       lockReason: null,
       deadlockSeconds: 0,
@@ -865,6 +942,10 @@ const enterOperation = (
     coreOperation.memoryReservedBits >= operationRamBits
       ? operationRamBits
       : 0;
+  const retainedRamBlocks =
+    retainedRamBits > 0 ? coreOperation.ramBlocks ?? [] : [];
+  const retainedRamChannelCount =
+    retainedRamBits > 0 ? Math.max(1, coreOperation.ramChannelCount) : 1;
 
   const cacheLoadCycles = getCacheLoadCycles(state, operation);
   const ramLoadCycles =
@@ -888,6 +969,8 @@ const enterOperation = (
       totalLoadCycles,
       memoryReservedBits: retainedRamBits,
       memoryReservedBytes: bitsToBytes(retainedRamBits),
+      ramBlocks: retainedRamBlocks,
+      ramChannelCount: retainedRamChannelCount,
       lockResource: null,
       lockReason: null,
       deadlockSeconds: 0,
@@ -895,23 +978,24 @@ const enterOperation = (
   }
 
   if (ramLoadCycles > 0) {
-    return {
-      ...coreOperation,
-      operationIndex,
-      operationId: operation.id,
-      operationName: operation.name,
-      status: "loadingRam",
-      memoryState: "ramLoad",
-      remainingCycles: operation.cycles,
-      totalCycles: operation.cycles,
-      remainingLoadCycles: ramLoadCycles,
+    return beginRamLoadOperation(
+      state,
+      task,
+      {
+        ...coreOperation,
+        operationIndex,
+        operationId: operation.id,
+        operationName: operation.name,
+        memoryReservedBits: 0,
+        memoryReservedBytes: 0,
+        ramBlocks: [],
+        ramChannelCount: 1,
+      },
+      operation,
+      operation.cycles,
+      ramLoadCycles,
       totalLoadCycles,
-      memoryReservedBits: retainedRamBits,
-      memoryReservedBytes: bitsToBytes(retainedRamBits),
-      lockResource: null,
-      lockReason: null,
-      deadlockSeconds: 0,
-    };
+    );
   }
 
   return {
@@ -927,6 +1011,8 @@ const enterOperation = (
     totalLoadCycles,
     memoryReservedBits: operationRamBits,
     memoryReservedBytes: operationRamBytes,
+    ramBlocks: retainedRamBlocks,
+    ramChannelCount: retainedRamChannelCount,
     lockResource: null,
     lockReason: null,
     deadlockSeconds: 0,
@@ -1358,8 +1444,8 @@ const canPolicyDispatchTask = (
   cpuId: number | undefined,
   policy: SchedulerPolicy,
 ) => {
-  if (policy !== "deadlockSafe") return true;
   if (isSystemScheduledTask(task)) return taskFitsFreeMemoryStaging(state, task);
+  if (policy !== "deadlockSafe") return true;
   return taskFitsFreeStaging(state, task, cpuId);
 };
 
@@ -1563,22 +1649,24 @@ const advanceCoreOperation = (
   nextOperationIndex: number,
 ) => enterOperation(state, task, operation, nextOperationIndex);
 
-const deadlockLoadOperation = (
+function deadlockLoadOperation(
   operation: ActiveCoreOperation,
   resource: DeadlockResource,
   update: Partial<ActiveCoreOperation> = {},
-): ActiveCoreOperation => ({
-  ...operation,
-  ...update,
-  status: "deadlocked",
-  memoryState: "deadlock",
-  lockResource: resource,
-  lockReason: getDeadlockReason(resource),
-  deadlockSeconds:
-    operation.status === "deadlocked" && operation.lockResource === resource
-      ? operation.deadlockSeconds
-      : 0,
-});
+): ActiveCoreOperation {
+  return {
+    ...operation,
+    ...update,
+    status: "deadlocked",
+    memoryState: "deadlock",
+    lockResource: resource,
+    lockReason: getDeadlockReason(resource),
+    deadlockSeconds:
+      operation.status === "deadlocked" && operation.lockResource === resource
+        ? operation.deadlockSeconds
+        : 0,
+  };
+}
 
 const getCacheUsedWithOperation = (
   state: GameState,
@@ -1686,11 +1774,46 @@ const tickLoad = (
   const operationDefinition = getOperation(task, operation.operationIndex);
   if (!operationDefinition) return operation;
 
+  if (
+    operation.status === "loadingRam" &&
+    operationDefinition.ramBits > 0 &&
+    (operation.ramBlocks ?? []).length === 0
+  ) {
+    const allocatedOperation = beginRamLoadOperation(
+      state,
+      task,
+      operation,
+      operationDefinition,
+      operation.remainingCycles,
+      operation.remainingLoadCycles,
+      operation.totalLoadCycles,
+    );
+
+    if (allocatedOperation.status === "deadlocked") {
+      return {
+        ...allocatedOperation,
+        deadlockSeconds: operation.deadlockSeconds,
+      };
+    }
+
+    return tickLoad(state, task, allocatedOperation, deltaSeconds);
+  }
+
+  const ramLoadDeltas =
+    operation.status === "loadingRam"
+      ? getRamBlockLoadDeltasForOperationTick(state, operation, deltaSeconds)
+      : [];
+  const requestedRamLoadCycles = ramLoadDeltas.reduce(
+    (total, bits) => total + bits,
+    0,
+  );
   const requestedLoadCycles = Math.min(
     operation.remainingLoadCycles,
     operation.status === "loadingCache"
       ? getCacheLoadRate(state, operation.coreId) * deltaSeconds
-      : getRamLoadCyclesForOperationTick(state, task, operation, deltaSeconds),
+      : (operation.ramBlocks ?? []).length > 0
+        ? requestedRamLoadCycles
+        : getRamLoadCyclesForOperationTick(state, task, operation, deltaSeconds),
   );
   const requestedCpuCycles =
     operation.status === "loadingCache" && operationDefinition.memoryAction
@@ -1710,10 +1833,21 @@ const tickLoad = (
         )
       : null;
   const availableLoadCycles =
-    operation.status === "loadingCache" ? 0 : getAvailableMemoryBits(state);
+    operation.status === "loadingCache" ||
+    (operation.status === "loadingRam" && (operation.ramBlocks ?? []).length > 0)
+      ? requestedLoadCycles
+      : getAvailableMemoryBits(state);
   const appliedLoadCycles =
     cacheProgress?.loadCycles ??
     Math.max(0, Math.min(requestedLoadCycles, availableLoadCycles));
+  const appliedRamBlockScale =
+    requestedRamLoadCycles > 0
+      ? Math.min(1, appliedLoadCycles / requestedRamLoadCycles)
+      : 0;
+  const nextRamBlocks =
+    operation.status === "loadingRam" && (operation.ramBlocks ?? []).length > 0
+      ? applyRamBlockLoadDeltas(operation, ramLoadDeltas, appliedRamBlockScale)
+      : operation.ramBlocks ?? [];
   const remainingLoadCycles = Math.max(
     0,
     operation.remainingLoadCycles - appliedLoadCycles,
@@ -1722,10 +1856,12 @@ const tickLoad = (
   const remainingCycles = Math.max(0, operation.remainingCycles - cpuCyclesDone);
   const memoryReservedBits =
     operation.status === "loadingRam"
-      ? Math.min(
-          operationDefinition.ramBits,
-          operation.memoryReservedBits + appliedLoadCycles,
-        )
+      ? (operation.ramBlocks ?? []).length > 0
+        ? operationDefinition.ramBits
+        : Math.min(
+            operationDefinition.ramBits,
+            operation.memoryReservedBits + appliedLoadCycles,
+          )
       : operation.memoryReservedBits;
   const memoryReservedBytes = bitsToBytes(memoryReservedBits);
 
@@ -1747,6 +1883,7 @@ const tickLoad = (
         remainingCycles,
         memoryReservedBits,
         memoryReservedBytes,
+        ramBlocks: nextRamBlocks,
       },
     );
   }
@@ -1758,6 +1895,7 @@ const tickLoad = (
       remainingCycles,
       memoryReservedBits,
       memoryReservedBytes,
+      ramBlocks: nextRamBlocks,
     };
   }
 
@@ -1770,13 +1908,23 @@ const tickLoad = (
       ? 0
       : getRamLoadCycles(state, operationDefinition);
     if (ramLoadCycles > 0) {
-      return {
-        ...operation,
-        status: "loadingRam",
-        memoryState: "ramLoad",
+      return beginRamLoadOperation(
+        state,
+        task,
+        {
+          ...operation,
+          remainingCycles,
+          remainingLoadCycles: ramLoadCycles,
+          memoryReservedBits: 0,
+          memoryReservedBytes: 0,
+          ramBlocks: [],
+          ramChannelCount: 1,
+        },
+        operationDefinition,
         remainingCycles,
-        remainingLoadCycles: ramLoadCycles,
-      };
+        ramLoadCycles,
+        operation.totalLoadCycles,
+      );
     }
 
     if (operationDefinition.memoryAction) {
@@ -1789,6 +1937,8 @@ const tickLoad = (
           remainingLoadCycles: 0,
           memoryReservedBits: 0,
           memoryReservedBytes: 0,
+          ramBlocks: [],
+          ramChannelCount: 1,
         },
         operation.operationIndex + 1,
       );
@@ -1806,6 +1956,8 @@ const tickLoad = (
         remainingLoadCycles: 0,
         memoryReservedBits: operationDefinition.ramBits,
         memoryReservedBytes: operationDefinition.ramBytes,
+        ramBlocks: nextRamBlocks,
+        ramChannelCount: Math.max(1, operation.ramChannelCount),
       },
       operation.operationIndex + 1,
     );
@@ -1825,6 +1977,8 @@ const tickLoad = (
       operation.status === "loadingRam"
         ? operationDefinition.ramBytes
         : memoryReservedBytes,
+    ramBlocks:
+      operation.status === "loadingRam" ? nextRamBlocks : operation.ramBlocks ?? [],
   };
 };
 
@@ -1857,6 +2011,8 @@ const tickRunning = (
       remainingCycles: 0,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
+      ramBlocks: [],
+      ramChannelCount: 1,
     },
     operation.operationIndex + 1,
   );
@@ -2542,6 +2698,7 @@ const forceHardPowerOff = (
       state: "off",
       transitionSeconds: 0,
       bootstrapGraceSeconds: 0,
+      unpaidShutdownWarningSeconds: 0,
       overloadFailureSeconds: 0,
       lastFailureReason: failureReason,
       failureCount,
@@ -2620,14 +2777,35 @@ const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
     state: "off",
     transitionSeconds: 0,
     bootstrapGraceSeconds: 0,
+    unpaidShutdownWarningSeconds: 0,
     overloadFailureSeconds: 0,
     lastFailureReason: "unpaidBill",
     failureCount: Math.max(0, state.power.failureCount ?? 0) + 1,
   },
 });
 
-const exitPowerGraceIfFunded = (state: GameState): GameState => {
-  if (state.resources.credits <= 0 || state.power.bootstrapGraceSeconds <= 0) {
+const beginUnpaidShutdownWarning = (state: GameState): GameState => ({
+  ...state,
+  resources: {
+    ...state.resources,
+    credits: 0,
+  },
+  power: {
+    ...state.power,
+    bootstrapGraceSeconds: 0,
+    unpaidShutdownWarningSeconds:
+      state.power.unpaidShutdownWarningSeconds > 0
+        ? state.power.unpaidShutdownWarningSeconds
+        : POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+  },
+});
+
+const clearBillingGraceIfFunded = (state: GameState): GameState => {
+  if (
+    state.resources.credits <= 0 ||
+    (state.power.bootstrapGraceSeconds <= 0 &&
+      state.power.unpaidShutdownWarningSeconds <= 0)
+  ) {
     return state;
   }
 
@@ -2636,43 +2814,96 @@ const exitPowerGraceIfFunded = (state: GameState): GameState => {
     power: {
       ...state.power,
       bootstrapGraceSeconds: 0,
+      unpaidShutdownWarningSeconds: 0,
     },
   };
 };
 
 const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
-  const graceSeconds = Math.max(0, state.power.bootstrapGraceSeconds ?? 0);
-  if (state.resources.credits <= 0 && graceSeconds > 0) {
-    const bootstrapGraceSeconds = Math.max(0, graceSeconds - deltaSeconds);
+  const fundedState = clearBillingGraceIfFunded(state);
+  const warningSeconds = Math.max(
+    0,
+    fundedState.power.unpaidShutdownWarningSeconds ?? 0,
+  );
+  const costPerSecond = getPowerCostPerSecond(fundedState);
 
-    if (bootstrapGraceSeconds <= 0 && getPowerCostPerSecond(state) > 0) {
-      return forcePowerOffForUnpaidBill(state);
+  if (warningSeconds > 0) {
+    if (costPerSecond <= 0) {
+      return {
+        ...fundedState,
+        power: {
+          ...fundedState.power,
+          unpaidShutdownWarningSeconds: 0,
+        },
+      };
+    }
+
+    const unpaidShutdownWarningSeconds = Math.max(
+      0,
+      warningSeconds - deltaSeconds,
+    );
+
+    if (unpaidShutdownWarningSeconds <= 0) {
+      return forcePowerOffForUnpaidBill(fundedState);
     }
 
     return {
-      ...state,
+      ...fundedState,
+      resources: {
+        ...fundedState.resources,
+        credits: 0,
+      },
       power: {
-        ...state.power,
+        ...fundedState.power,
+        bootstrapGraceSeconds: 0,
+        unpaidShutdownWarningSeconds,
+      },
+    };
+  }
+
+  const graceSeconds = Math.max(0, fundedState.power.bootstrapGraceSeconds ?? 0);
+  if (fundedState.resources.credits <= 0 && graceSeconds > 0) {
+    const bootstrapGraceSeconds = Math.max(0, graceSeconds - deltaSeconds);
+
+    if (bootstrapGraceSeconds <= 0 && costPerSecond > 0) {
+      return beginUnpaidShutdownWarning({
+        ...fundedState,
+        power: {
+          ...fundedState.power,
+          bootstrapGraceSeconds: 0,
+        },
+      });
+    }
+
+    return {
+      ...fundedState,
+      power: {
+        ...fundedState.power,
         bootstrapGraceSeconds,
       },
     };
   }
 
-  const billableState = exitPowerGraceIfFunded(state);
-  const cost = getPowerCostPerSecond(billableState) * deltaSeconds;
+  const cost = costPerSecond * deltaSeconds;
+  const billableState = fundedState;
   if (cost <= 0) return billableState;
 
   if (billableState.resources.credits + POWER_BILLING_EPSILON < cost) {
-    return forcePowerOffForUnpaidBill(billableState);
+    return beginUnpaidShutdownWarning(billableState);
   }
 
-  return {
+  const credits = Math.max(0, billableState.resources.credits - cost);
+  const paidState = {
     ...billableState,
     resources: {
       ...billableState.resources,
-      credits: Math.max(0, billableState.resources.credits - cost),
+      credits,
     },
   };
+
+  return credits <= POWER_BILLING_EPSILON
+    ? beginUnpaidShutdownWarning(paidState)
+    : paidState;
 };
 
 const decayCronPowerSpike = (state: GameState, deltaSeconds: number): GameState => ({
@@ -2836,7 +3067,7 @@ const tickSingleSystem = (state: GameState, deltaMs: number): GameState => {
     ? tickCron(powered, deltaSeconds)
     : powered;
   const advanced = tickActiveTasks(cronTicked, deltaSeconds);
-  const settled = exitPowerGraceIfFunded(settleActiveTasks(advanced));
+  const settled = clearBillingGraceIfFunded(settleActiveTasks(advanced));
   const watched = applySchedulerWatchdogs(settled);
   const overloadChecked = updatePowerOverloadFailure(watched, deltaSeconds);
   const pressured = updateDeadlockPressure(overloadChecked, deltaSeconds);
@@ -2973,9 +3204,37 @@ export const cancelQueuedTaskById = (state: GameState, taskId: TaskId) =>
 export const buyResearch = (state: GameState, researchId: ResearchId) => {
   const research = getResearchDefinition(researchId);
   const costs = research.cost(state);
+  const completed = state.research.completed.includes(researchId);
+
+  if (researchId === "cStateControl" && completed) {
+    const cStateUpgrade = getUpgradeDefinition("cState");
+    const upgradeCosts = cStateUpgrade.cost(state);
+
+    if (!cStateUpgrade.requirement(state) || !canAfford(state, upgradeCosts)) {
+      return state;
+    }
+
+    const bought = cStateUpgrade.buy(spend(state, upgradeCosts));
+    return pullQueue(updateProgressionFlags(bought));
+  }
+
+  if (researchId === "memoryVoltageModifier" && completed) {
+    const memoryVoltageUpgrade = getUpgradeDefinition("memoryVoltage");
+    const upgradeCosts = memoryVoltageUpgrade.cost(state);
+
+    if (
+      !memoryVoltageUpgrade.requirement(state) ||
+      !canAfford(state, upgradeCosts)
+    ) {
+      return state;
+    }
+
+    const bought = memoryVoltageUpgrade.buy(spend(state, upgradeCosts));
+    return pullQueue(updateProgressionFlags(bought));
+  }
 
   if (
-    state.research.completed.includes(researchId) ||
+    completed ||
     !research.requirement(state) ||
     !canAfford(state, costs)
   ) {
@@ -3000,9 +3259,18 @@ export const buyUpgrade = (
   coreIds?: number[],
   ramStickId?: number,
   ramStickIds?: number[],
+  ramTierId?: CpuTierId,
 ) => {
   const upgrade = getUpgradeDefinition(upgradeId);
-  const context = { coreId, coreIds, cpuId, sourceCpuId, ramStickId, ramStickIds };
+  const context = {
+    coreId,
+    coreIds,
+    cpuId,
+    sourceCpuId,
+    ramStickId,
+    ramStickIds,
+    ramTierId,
+  };
   const costs = upgrade.cost(state, context);
 
   if (!upgrade.requirement(state) || !canAfford(state, costs)) {
@@ -3033,9 +3301,18 @@ export const downgradeUpgrade = (
   coreIds?: number[],
   ramStickId?: number,
   ramStickIds?: number[],
+  ramTierId?: CpuTierId,
 ) => {
   const upgrade = getUpgradeDefinition(upgradeId);
-  const context = { coreId, coreIds, cpuId, sourceCpuId, ramStickId, ramStickIds };
+  const context = {
+    coreId,
+    coreIds,
+    cpuId,
+    sourceCpuId,
+    ramStickId,
+    ramStickIds,
+    ramTierId,
+  };
   const refunds = getUpgradeRefund(state, upgradeId, context);
 
   if (
@@ -3117,6 +3394,7 @@ export const requestPowerOff = (state: GameState): GameState => {
       state: "shuttingDown",
       transitionSeconds: POWER_SHUTDOWN_SECONDS,
       bootstrapGraceSeconds: 0,
+      unpaidShutdownWarningSeconds: 0,
     },
   };
 };
@@ -3131,6 +3409,7 @@ export const requestPowerOn = (state: GameState): GameState => {
       transitionSeconds: POWER_BOOT_SECONDS,
       bootstrapGraceSeconds:
         state.resources.credits <= 0 ? POWER_BOOTSTRAP_GRACE_SECONDS : 0,
+      unpaidShutdownWarningSeconds: 0,
     },
   };
 };
@@ -3272,6 +3551,7 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
       action.coreIds,
       action.ramStickId,
       action.ramStickIds,
+      action.ramTierId,
     );
   }
   if (action.type === "downgradeUpgrade") {
@@ -3284,6 +3564,7 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
       action.coreIds,
       action.ramStickId,
       action.ramStickIds,
+      action.ramTierId,
     );
   }
   if (action.type === "startJob") return startTask(state, action.jobId);
@@ -3347,13 +3628,48 @@ const buyMachineFromSelection = (
 
   const systemId = ensured.rack.nextSystemId;
   const hardware = createHardwareFromMachineSelection(selection);
-  const system = createSystemState(systemId, name, templateId, hardware);
+  const system = createSystemState(systemId, name, templateId, hardware, costs);
 
   return replaceSystems(
     spend(ensured, costs),
     [...ensured.systems, system],
     systemId,
   );
+};
+
+const getSellRefund = (costs: Cost[]): Cost[] =>
+  costs
+    .map((cost) => ({
+      resource: cost.resource,
+      amount: Math.floor(cost.amount * 0.5),
+    }))
+    .filter((cost) => cost.amount > 0);
+
+const sellSystem = (state: GameState, systemId: number): GameState => {
+  const ensured = ensureSystems(state);
+  if (ensured.systems.length <= 1) return ensured;
+
+  const target = ensured.systems.find((system) => system.id === systemId);
+  if (!target) return ensured;
+
+  const remaining = ensured.systems.filter((system) => system.id !== systemId);
+  const refund = getSellRefund(target.purchaseCosts ?? []);
+  const refunded: GameState = {
+    ...ensured,
+    resources: refund.reduce(
+      (resources, cost) => ({
+        ...resources,
+        [cost.resource]: resources[cost.resource] + cost.amount,
+      }),
+      ensured.resources,
+    ),
+  };
+  const nextSelectedId =
+    ensured.selectedSystemId === systemId
+      ? (remaining[0]?.id ?? 1)
+      : ensured.selectedSystemId;
+
+  return replaceSystems(refunded, remaining, nextSelectedId);
 };
 
 const buyMachineTemplate = (state: GameState, templateId: string) => {
@@ -3408,6 +3724,10 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
     return buyCustomMachine(ensured, action.components);
   }
 
+  if (action.type === "sellSystem") {
+    return sellSystem(ensured, action.systemId);
+  }
+
   const targetSystemId = getActionSystemId(ensured, action);
   const materialized = materializeSystem(ensured, targetSystemId);
   const updated = applySingleSystemAction(materialized, action);
@@ -3439,7 +3759,12 @@ export const getAvailableResearch = (state: GameState) =>
   );
 
 export const getAvailableUpgrades = (state: GameState) =>
-  upgradeDefinitions.filter((upgrade) => upgrade.requirement(state));
+  upgradeDefinitions.filter(
+    (upgrade) =>
+      upgrade.id !== "cState" &&
+      upgrade.id !== "memoryVoltage" &&
+      upgrade.requirement(state),
+  );
 
 export const getVisibleRemainingSeconds = (
   state: GameState,

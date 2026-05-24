@@ -44,6 +44,18 @@
   text-align: right;
 }
 
+.cache-stat-row .cache-frequency-stat {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.cache-stat-row .cache-frequency-stat strong {
+  display: inline-block;
+  inline-size: 8ch;
+  text-align: right;
+}
+
 .cache-stat-row .upgrade-chips {
   margin-left: auto;
   display: inline-flex;

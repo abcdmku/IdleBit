@@ -1,7 +1,16 @@
 import { hasResearch, researchDefinitions } from "./content/research";
+import { getGlobalCStateLevel } from "./cState";
+import {
+  CPU_TIER_MAX_LEVEL,
+  getCStateIdleMultiplier,
+  getCpuTierDefinition,
+  getCpuTierLevelDefinition,
+} from "./content/cpuTiers";
+import { MEMORY_VOLTAGE_MAX_LEVEL } from "./content/ramTuning";
+import { getRamTierLevelDefinition } from "./content/ramTiers";
 import {
   componentSkus,
-  getMachineComponentSkus,
+  getMachineSelectionCost,
   machineTemplates,
 } from "./content/machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
@@ -31,6 +40,8 @@ import {
   getPowerOverloadRate,
   getPsuCapacityWatts,
   getPsuStress,
+  getRamChannelBlockedReason,
+  getRamChannelCount,
   getRamLoadCycles,
   getRamMatchEfficiency,
   getReservedMemoryBits,
@@ -54,6 +65,9 @@ import {
   getStage,
   getStageLabel,
   syncCoreSchedulers,
+  getUnlockedCpuTierDefinitions,
+  getUnlockedRamTierDefinitions,
+  getMaxUnlockedRamLevel,
 } from "./progression";
 import { ensureSystems, materializeSystem, syncSelectedSystemRuntime } from "./systems";
 import {
@@ -79,6 +93,7 @@ import type {
   VisibleCpuSocket,
   VisibleJob,
   VisibleOperation,
+  VisibleRamInstallOption,
   VisibleRamSlot,
   VisibleResearchComputeTask,
   VisibleState,
@@ -766,6 +781,37 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
 
       const operation = definition.operations[runtime.operationIndex];
       const ramLoadCycles = operation ? getRamLoadCycles(state, operation) : 0;
+      if ((runtime.ramBlocks ?? []).length > 0) {
+        const loading =
+          runtime.status === "loadingRam" ||
+          runtime.memoryState === "ramLoad" ||
+          (runtime.status === "deadlocked" && runtime.lockResource === "ram");
+
+        return runtime.ramBlocks.map((block) => {
+          const progress = clampProgress(
+            block.loadedBits / Math.max(block.lengthBits, 1),
+          );
+
+          return {
+            coreId: runtime.coreId,
+            taskId: activeTask.taskId,
+            operationId: runtime.operationId,
+            stickId: block.stickId,
+            startBit: block.startBit,
+            bits: block.lengthBits,
+            loadedBits: block.loadedBits,
+            channelIndex: block.channelIndex,
+            state:
+              progress >= 1
+                ? "loaded"
+                : loading
+                  ? "loading"
+                  : "reserved",
+            progress,
+          };
+        });
+      }
+
       const hasPendingRamLoad =
         runtime.status === "loadingCache" &&
         runtime.memoryState !== "ready" &&
@@ -785,7 +831,11 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
           coreId: runtime.coreId,
           taskId: activeTask.taskId,
           operationId: runtime.operationId,
+          stickId: 1,
+          startBit: 0,
           bits: runtime.memoryReservedBits,
+          loadedBits: loading ? runtime.memoryReservedBits * progress : runtime.memoryReservedBits,
+          channelIndex: 0,
           state: loading ? "loading" : hasPendingRamLoad ? "reserved" : "loaded",
           progress,
         },
@@ -983,11 +1033,40 @@ const asVisibleActiveJob = (
   remainingSeconds: getVisibleRemainingSeconds(state, activeTask),
 });
 
+const getRamWriteBandwidthBps = (
+  state: GameState,
+  operation: ActiveCoreOperation | undefined,
+) => {
+  if (!operation || (operation.ramBlocks ?? []).length === 0) return 0;
+  const sticksById = new Map(
+    state.hardware.ramSticks.map((stick) => [stick.id, stick.speedMt]),
+  );
+  const activeStickIds = new Set(
+    operation.ramBlocks
+      .filter((block) => block.loadedBits < block.lengthBits)
+      .map((block) => block.stickId),
+  );
+
+  return Array.from(activeStickIds).reduce(
+    (total, stickId) =>
+      total + Math.max(1, sticksById.get(stickId) ?? state.hardware.ramSpeedMt),
+    0,
+  );
+};
+
 const getMemoryPipeline = (state: GameState) => {
   const operations = state.activeTasks.flatMap((task) => task.coreOperations);
   const count = (status: OperationRuntimeStatus) =>
     operations.filter((operation) => operation.status === status).length;
   const memoryStates = operations.map((operation) => operation.memoryState);
+  const activeRamOperation = operations.find(
+    (operation) => operation.status === "loadingRam",
+  );
+  const activeChannelCount = activeRamOperation
+    ? Math.max(1, activeRamOperation.ramChannelCount)
+    : 1;
+  const installedStickCount = Math.max(1, state.hardware.ramSticks.length);
+  const maxChannelCount = Math.min(getRamChannelCount(state), installedStickCount);
 
   return {
     status: combineMemoryState(operations),
@@ -995,6 +1074,10 @@ const getMemoryPipeline = (state: GameState) => {
     ramLoads: count("loadingRam"),
     waits: count("waitingMemory"),
     deadlocks: memoryStates.filter((state) => state === "deadlock").length,
+    activeChannelCount,
+    maxChannelCount,
+    effectiveBandwidthBps: getRamWriteBandwidthBps(state, activeRamOperation),
+    channelBlockedReason: getRamChannelBlockedReason(state),
   };
 };
 
@@ -1027,6 +1110,29 @@ const getVisibleUpgrade = (
   };
 };
 
+const getVisibleRamInstallOptions = (
+  state: GameState,
+): VisibleRamInstallOption[] => {
+  const ramUpgrade = getUpgradeDefinition("ram");
+  if (!ramUpgrade.requirement(state)) return [];
+  if (state.hardware.ramSticks.length > 0 || state.hardware.ramBits > 0) return [];
+
+  return getUnlockedRamTierDefinitions(state).map((tier) => {
+    const level = tier.firstGlobalLevel;
+    const tierLevel = getRamTierLevelDefinition(level);
+
+    return {
+      tierId: tier.id,
+      tierName: tier.name,
+      level,
+      sizeBits: tierLevel.capacityBits,
+      sizeBytes: bitsToBytes(tierLevel.capacityBits),
+      speedMt: tierLevel.clockHz,
+      upgrade: getVisibleUpgrade(state, ramUpgrade, { ramTierId: tier.id }),
+    };
+  });
+};
+
 const powerDeltaUpgradeIds = new Set(["secondCpu", "matchedCpu"]);
 
 const getUpgradePowerDeltaWatts = (
@@ -1049,7 +1155,11 @@ const getUpgradePowerDeltaWatts = (
   const beforeWatts = getHardwareDrawWatts(comparisonState);
   const afterWatts = getHardwareDrawWatts(upgrade.buy(comparisonState, context));
 
-  return Math.max(0, Math.round((afterWatts - beforeWatts) * 1_000_000) / 1_000_000);
+  return Math.max(
+    0,
+    Math.round((afterWatts - beforeWatts) * 1_000_000_000_000) /
+      1_000_000_000_000,
+  );
 };
 
 const getCpuSockets = (
@@ -1065,9 +1175,20 @@ const getCpuSockets = (
   const schedulerSlotUpgrade = getUpgradeDefinition("schedulerSlot");
   const deadlockRecoveryUpgrade = getUpgradeDefinition("deadlockRecovery");
   const primaryCpuId = state.hardware.cpus[0]?.id ?? 1;
+  const cStateLevel = getGlobalCStateLevel(state);
+  const idleMultiplier =
+    state.flags.cStateControl || cStateLevel > 0
+      ? getCStateIdleMultiplier(cStateLevel)
+      : 1;
 
   return state.hardware.cpus.map((cpu) => {
     const socketId = cpu.id;
+    const tierLevel = getCpuTierLevelDefinition(cpu.tierId, cpu.level);
+    const cacheSpeedTierLevel = getCpuTierLevelDefinition(
+      cpu.tierId,
+      cpu.cacheSpeedLevel,
+    );
+    const activeDrawWatts = tierLevel.clockHz / tierLevel.efficiency / 1_000_000;
     const socketCacheResidency = cacheResidency.filter((segment) =>
       cpu.coreIds.includes(segment.coreId),
     );
@@ -1077,8 +1198,16 @@ const getCpuSockets = (
     return {
       id: socketId,
       label: `CPU ${String.fromCharCode(64 + socketId)}`,
+      tierId: cpu.tierId,
+      tierName: getCpuTierDefinition(cpu.tierId).name,
+      level: cpu.level,
+      clockHz: tierLevel.clockHz,
+      efficiency: tierLevel.efficiency,
+      activeDrawWatts,
+      idleDrawWatts: activeDrawWatts * idleMultiplier,
       cacheLevel: cpu.cacheLevel,
       cacheSpeedLevel: cpu.cacheSpeedLevel,
+      cacheSpeedHz: cacheSpeedTierLevel.clockHz,
       cacheBits: cpu.cacheBits,
       cacheBytes: cpu.cacheBytes,
       cacheUsedBits: getCacheUsedBits(socketCacheResidency),
@@ -1095,8 +1224,9 @@ const getCpuSockets = (
           ? getVisibleUpgrade(state, deadlockRecoveryUpgrade)
           : null,
       allCoreClockUpgrade: getVisibleUpgrade(state, clockUpgrade, {
-        coreIds: cpu.coreIds,
+        cpuId: cpu.id,
       }),
+      cStateUpgrade: null,
       coreUpgrade: state.flags.multiCore
         ? getVisibleUpgrade(state, coreUpgrade, { cpuId: cpu.id })
         : null,
@@ -1122,7 +1252,7 @@ const getCpuSockets = (
             socketId,
             clockLevel: getCoreClockLevel(state, coreId),
             clockHz: getCoreClockHz(state, coreId),
-            clockUpgrade: getVisibleUpgrade(state, clockUpgrade, { coreId }),
+            clockUpgrade: null,
             scheduler: state.coreSchedulers[coreId],
             activeTask,
             activeJob,
@@ -1134,7 +1264,10 @@ const getCpuSockets = (
   });
 };
 
-const getRamSlots = (state: GameState, ramUsedBits: number): VisibleRamSlot[] => {
+const getRamSlots = (
+  state: GameState,
+  ramResidency: RamResidencySegment[],
+): VisibleRamSlot[] => {
   const ramBits = state.hardware.ramBits ?? state.hardware.ramBytes * 8;
   if (!state.flags.systemStats || ramBits <= 0) return [];
   const capacityUpgrade = getUpgradeDefinition("ramCapacity");
@@ -1153,11 +1286,22 @@ const getRamSlots = (state: GameState, ramUsedBits: number): VisibleRamSlot[] =>
             speedMt: state.hardware.ramSpeedMt,
           },
         ];
-  let remainingUsedBits = Math.min(ramUsedBits, ramBits);
+  const usedBitsByStick = new Map<number, number>();
+  const activeStickIds = new Set<number>();
+
+  ramResidency.forEach((segment) => {
+    const stickId = segment.stickId ?? slots[0]?.id ?? 1;
+    usedBitsByStick.set(
+      stickId,
+      (usedBitsByStick.get(stickId) ?? 0) + segment.bits,
+    );
+    if (segment.state === "loading") {
+      activeStickIds.add(stickId);
+    }
+  });
 
   return slots.map((slot) => {
-    const usedBits = Math.min(slot.bits, remainingUsedBits);
-    remainingUsedBits = Math.max(0, remainingUsedBits - usedBits);
+    const usedBits = Math.min(slot.bits, usedBitsByStick.get(slot.id) ?? 0);
 
     return {
       id: slot.id,
@@ -1168,6 +1312,7 @@ const getRamSlots = (state: GameState, ramUsedBits: number): VisibleRamSlot[] =>
       usedBytes: bitsToBytes(usedBits),
       speedLevel: slot.speedLevel,
       speedMt: slot.speedMt,
+      active: activeStickIds.has(slot.id),
       capacityUpgrade: getVisibleUpgrade(state, capacityUpgrade, {
         ramStickId: slot.id,
       }),
@@ -1214,6 +1359,24 @@ const isBuilderResearchHidden = (state: GameState, researchId: string) =>
   (researchId === "systemCatalog" && state.flags.systemCatalog) ||
   (researchId === "customMachineAssembly" && state.flags.customMachineAssembly);
 
+const isCStateLevelUpResearch = (
+  state: GameState,
+  researchId: string,
+  completed: boolean,
+) =>
+  researchId === "cStateControl" &&
+  completed &&
+  getGlobalCStateLevel(state) < CPU_TIER_MAX_LEVEL;
+
+const isMemoryVoltageLevelUpResearch = (
+  state: GameState,
+  researchId: string,
+  completed: boolean,
+) =>
+  researchId === "memoryVoltageModifier" &&
+  completed &&
+  (state.hardware.memoryVoltageLevel ?? 0) < MEMORY_VOLTAGE_MAX_LEVEL;
+
 const getVisibleResearch = (state: GameState) =>
   researchDefinitions
     .filter(
@@ -1224,14 +1387,28 @@ const getVisibleResearch = (state: GameState) =>
     )
     .map((research) => {
       const costs = research.cost(state);
-      const completed = state.research.completed.includes(research.id);
+      const savedCompleted = state.research.completed.includes(research.id);
+      const cStateLevelUp = isCStateLevelUpResearch(
+        state,
+        research.id,
+        savedCompleted,
+      );
+      const memoryVoltageLevelUp = isMemoryVoltageLevelUpResearch(
+        state,
+        research.id,
+        savedCompleted,
+      );
+      const repeatableLevelUp = cStateLevelUp || memoryVoltageLevelUp;
+      const completed = savedCompleted && !repeatableLevelUp;
       const canAffordResearch = canAfford(state, costs);
-      const requirements = research.requirements(state).map((item) => ({
-        id: item.id,
-        label: item.label,
-        kind: item.kind,
-        met: item.met(state),
-      }));
+      const requirements = repeatableLevelUp
+        ? []
+        : research.requirements(state).map((item) => ({
+            id: item.id,
+            label: item.label,
+            kind: item.kind,
+            met: item.met(state),
+          }));
       const firstUnmetRequirement = requirements.find((item) => !item.met);
       const canBuy = !completed && research.requirement(state);
       const computeTasks = (research.computeTaskIds ?? []).map((taskId) =>
@@ -1247,6 +1424,7 @@ const getVisibleResearch = (state: GameState) =>
         canAfford: canAffordResearch,
         canBuy,
         completed,
+        ...(repeatableLevelUp ? { actionLabel: "Level up" } : {}),
         blockedReason: completed
           ? null
           : firstUnmetRequirement
@@ -1362,48 +1540,59 @@ const getVisibleCron = (state: GameState) => {
   };
 };
 
-const combineCosts = (costs: Array<{ resource: "credits" | "data"; amount: number }>) =>
-  costs.reduce<Array<{ resource: "credits" | "data"; amount: number }>>(
-    (combined, cost) => {
-      const existing = combined.find((item) => item.resource === cost.resource);
-      if (existing) {
-        existing.amount += cost.amount;
-        return combined;
-      }
-      combined.push({ ...cost });
-      return combined;
-    },
-    [],
-  );
+const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[number]) => {
+  const cpuTierLevel = sku.cpuTierId
+    ? getCpuTierLevelDefinition(sku.cpuTierId, sku.cpuLevel ?? 1)
+    : null;
+  const cacheSpeedTierLevel =
+    sku.cpuTierId && sku.cacheSpeedLevel
+      ? getCpuTierLevelDefinition(sku.cpuTierId, sku.cacheSpeedLevel)
+      : null;
 
-const getTemplateCost = (template: (typeof machineTemplates)[number]) =>
-  combineCosts(getMachineComponentSkus(template.components).flatMap((sku) => sku.cost));
+  return {
+    ...sku,
+    canAfford: canAfford(state, sku.cost),
+    tierName: sku.cpuTierId ? getCpuTierDefinition(sku.cpuTierId).name : undefined,
+    clockHz: cpuTierLevel?.clockHz ?? (sku.clockLevel ? getClockHz(sku.clockLevel) : undefined),
+    cpuEfficiency: cpuTierLevel?.efficiency,
+    cacheSpeedHz:
+      cacheSpeedTierLevel?.clockHz ??
+      (sku.cacheSpeedLevel ? getClockHz(sku.cacheSpeedLevel) : undefined),
+    cacheBits: sku.cacheLevel ? getCacheBits(sku.cacheLevel) : undefined,
+    cacheBytes: sku.cacheLevel ? bitsToBytes(getCacheBits(sku.cacheLevel)) : undefined,
+    ramBits:
+      sku.ramLevel && sku.ramStickCount
+        ? getRamBits(sku.ramLevel) * sku.ramStickCount
+        : undefined,
+    ramBytes:
+      sku.ramLevel && sku.ramStickCount
+        ? bitsToBytes(getRamBits(sku.ramLevel) * sku.ramStickCount)
+        : undefined,
+    ramSpeedMt: sku.ramSpeedLevel ? getRamSpeedMt(sku.ramSpeedLevel) : undefined,
+    psuWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
+    powerDeltaWatts: sku.psuLevel
+      ? getPsuWatts(sku.psuLevel)
+      : cpuTierLevel
+        ? cpuTierLevel.clockHz / cpuTierLevel.efficiency / 1_000_000
+        : undefined,
+  };
+};
 
-const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[number]) => ({
-  ...sku,
-  canAfford: canAfford(state, sku.cost),
-  clockHz: sku.clockLevel ? getClockHz(sku.clockLevel) : undefined,
-  cacheSpeedHz: sku.cacheSpeedLevel ? getClockHz(sku.cacheSpeedLevel) : undefined,
-  cacheBits: sku.cacheLevel ? getCacheBits(sku.cacheLevel) : undefined,
-  cacheBytes: sku.cacheLevel ? bitsToBytes(getCacheBits(sku.cacheLevel)) : undefined,
-  ramBits:
-    sku.ramLevel && sku.ramStickCount
-      ? getRamBits(sku.ramLevel) * sku.ramStickCount
-      : undefined,
-  ramBytes:
-    sku.ramLevel && sku.ramStickCount
-      ? bitsToBytes(getRamBits(sku.ramLevel) * sku.ramStickCount)
-      : undefined,
-  ramSpeedMt: sku.ramSpeedLevel ? getRamSpeedMt(sku.ramSpeedLevel) : undefined,
-  psuWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
-  powerDeltaWatts: sku.psuLevel ? getPsuWatts(sku.psuLevel) : undefined,
-});
+const cpuSkuUnlocked = (state: GameState, sku: (typeof componentSkus)[number]) => {
+  if (sku.type !== "cpu" || !sku.cpuTierId) return true;
+  return getUnlockedCpuTierDefinitions(state).some((tier) => tier.id === sku.cpuTierId);
+};
+
+const ramSkuUnlocked = (state: GameState, sku: (typeof componentSkus)[number]) => {
+  if (sku.type !== "ram" || !sku.ramLevel) return true;
+  return sku.ramLevel <= getMaxUnlockedRamLevel(state);
+};
 
 const getVisibleMachineBuilder = (state: GameState) => ({
   unlocked: state.flags.systemCatalog,
   templates: state.flags.systemCatalog
     ? machineTemplates.map((template) => {
-        const cost = getTemplateCost(template);
+        const cost = getMachineSelectionCost(template.components);
         return {
           ...template,
           cost,
@@ -1414,12 +1603,12 @@ const getVisibleMachineBuilder = (state: GameState) => ({
   components: {
     cpu: state.flags.systemCatalog
       ? componentSkus
-          .filter((sku) => sku.type === "cpu")
+          .filter((sku) => sku.type === "cpu" && cpuSkuUnlocked(state, sku))
           .map((sku) => getVisibleComponentSku(state, sku))
       : [],
     ram: state.flags.systemCatalog
       ? componentSkus
-          .filter((sku) => sku.type === "ram")
+          .filter((sku) => sku.type === "ram" && ramSkuUnlocked(state, sku))
           .map((sku) => getVisibleComponentSku(state, sku))
       : [],
     scheduler: state.flags.systemCatalog
@@ -1452,11 +1641,19 @@ const getVisibleSystemSummary = (
   const ramUsedBits = getRamUsedBits(systemState);
   const cacheResidency = getCacheResidencySegments(systemState);
   const ramResidency = getRamResidencySegments(systemState);
-  const ramSlots = getRamSlots(systemState, ramUsedBits);
+  const ramSlots = getRamSlots(systemState, ramResidency);
   const ramSlotIds = ramSlots.map((slot) => slot.id);
   const powerUsedWatts = getHardwareDrawWatts(systemState);
   const psuCapacityWatts = getPsuCapacityWatts(systemState);
   const system = ensureSystems(state).systems.find((item) => item.id === systemId);
+
+  const purchaseCosts = system?.purchaseCosts ?? [];
+  const sellRefund = purchaseCosts
+    .map((cost) => ({
+      resource: cost.resource,
+      amount: Math.floor(cost.amount * 0.5),
+    }))
+    .filter((cost) => cost.amount > 0);
 
   return {
     id: systemId,
@@ -1471,6 +1668,8 @@ const getVisibleSystemSummary = (
     drawWatts: powerUsedWatts,
     ramBits: systemState.hardware.ramBits,
     ramUsedBits,
+    purchaseCosts,
+    sellRefund,
     visible: {
       hardware: systemState.hardware,
       metrics: {
@@ -1482,6 +1681,7 @@ const getVisibleSystemSummary = (
         ramUsedBits,
         ramUsedBytes: bitsToBytes(ramUsedBits),
         ramSlots,
+        ramInstallOptions: getVisibleRamInstallOptions(systemState),
         allRamCapacityUpgrade:
           ramSlotIds.length > 0
             ? getVisibleUpgrade(systemState, getUpgradeDefinition("ramCapacity"), {
@@ -1513,6 +1713,8 @@ const getVisibleSystemSummary = (
         powerState: systemState.power.state,
         powerTransitionSeconds: systemState.power.transitionSeconds,
         powerBootstrapGraceSeconds: systemState.power.bootstrapGraceSeconds,
+        powerUnpaidShutdownWarningSeconds:
+          systemState.power.unpaidShutdownWarningSeconds,
         powerOverloadFailure: getVisiblePowerOverloadFailure(systemState),
         cacheResidency,
       },
@@ -1576,7 +1778,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     Math.round((psuCapacityWatts - powerUsedWatts) * 1000) / 1000;
   const cacheResidency = getCacheResidencySegments(syncedState);
   const ramResidency = getRamResidencySegments(syncedState);
-  const ramSlots = getRamSlots(syncedState, ramUsedBits);
+  const ramSlots = getRamSlots(syncedState, ramResidency);
   const ramSlotIds = ramSlots.map((slot) => slot.id);
   const machineBuilder = getVisibleMachineBuilder(syncedState);
   const customBuilder = {
@@ -1618,6 +1820,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       ramUsedBits,
       ramUsedBytes,
       ramSlots,
+      ramInstallOptions: getVisibleRamInstallOptions(syncedState),
       allRamCapacityUpgrade:
         ramSlotIds.length > 0
           ? getVisibleUpgrade(syncedState, getUpgradeDefinition("ramCapacity"), {
@@ -1649,6 +1852,8 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       powerState: syncedState.power.state,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
       powerBootstrapGraceSeconds: syncedState.power.bootstrapGraceSeconds,
+      powerUnpaidShutdownWarningSeconds:
+        syncedState.power.unpaidShutdownWarningSeconds,
       powerOverloadFailure: getVisiblePowerOverloadFailure(syncedState),
       cacheResidency,
     },

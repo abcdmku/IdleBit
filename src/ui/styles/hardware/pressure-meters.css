@@ -78,12 +78,16 @@
 }
 
 .module-meter.ram-pressure-meter {
-  display: flex;
+  position: relative;
+  display: block;
   height: var(--progress-bar-thickness);
 }
 
 .module-meter.ram-pressure-meter > span {
-  flex: 0 0 auto;
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
 }
 
 .module-meter.ram-pressure-meter .ram-pressure-segment {

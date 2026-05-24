@@ -40,18 +40,7 @@ export function CoreArraySection({
   const gridStyle = {
     "--core-grid-columns": grid.columns,
   } as CSSProperties;
-  const selectedCore =
-    socket.cores.find((core) => core.id === selectedCoreId) ?? socket.cores[0] ?? null;
-  const selectedClockUpgrade = selectedAllCores
-    ? socket.allCoreClockUpgrade
-    : selectedCore?.clockUpgrade ?? null;
-  const selectedClockCoreIds = selectedAllCores
-    ? socket.cores.map((core) => core.id)
-    : undefined;
-  const selectedClockCoreId = selectedAllCores ? undefined : selectedCore?.id;
-  const selectedClockCoreLabel = selectedCore
-    ? getSocketCoreLabel(socket, selectedCore.id)
-    : "C1";
+  const selectedClockUpgrade = socket.allCoreClockUpgrade;
   const cooldownActive = deadlockPressure
     ? shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
       deadlockPressure.lockout
@@ -75,8 +64,8 @@ export function CoreArraySection({
             className={`core-select-all-button ${selectedAllCores ? "active" : ""}`}
             onClick={onSelectAllCores}
             aria-pressed={selectedAllCores}
-            aria-label="Tune all core frequencies"
-            title="Tune all core frequencies"
+            aria-label="Select all cores"
+            title="Select all cores"
           >
             All
           </button>
@@ -110,9 +99,8 @@ export function CoreArraySection({
             <UpgradeStepper
               upgrade={selectedClockUpgrade}
               dispatch={dispatch}
-              coreId={selectedClockCoreId}
-              coreIds={selectedClockCoreIds}
-              label={selectedAllCores ? "All Freq" : `${selectedClockCoreLabel} Freq`}
+              cpuId={socket.id}
+              label="CPU Level"
               resources={resources}
             />
           )}

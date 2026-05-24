@@ -386,6 +386,38 @@ describe("TaskBay task and research behavior", () => {
     expect(computeMeta?.querySelector(".resource-token.data")).not.toBeNull();
   });
 
+  it("uses level-up labels for repeatable research", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const visible: VisibleState = {
+      ...base,
+      research: [
+        {
+          id: "cStateControl",
+          name: "C-State Control",
+          description: "Reduce idle CPU draw.",
+          grants: ["cStateControl"],
+          costs: [{ resource: "credits", amount: 8 }],
+          canAfford: true,
+          canBuy: true,
+          actionLabel: "Level up",
+          completed: false,
+          blockedReason: null,
+          requirements: [],
+          computeTasks: [],
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<ResearchPanel visible={visible} dispatch={() => undefined} />);
+    });
+
+    const buyButton = container.querySelector<HTMLButtonElement>(".research-buy-button");
+
+    expect(buyButton?.disabled).toBe(false);
+    expect(buyButton?.textContent).toContain("Level up");
+  });
+
   it("shows the system scheduler surface and routes system tasks through it", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();
@@ -469,10 +501,11 @@ describe("TaskBay task and research behavior", () => {
       "System Queue Slot",
     );
     expect(
-      container
-        .querySelector<HTMLElement>(".system-scheduler-section .queue-preview-list")
-        ?.dataset.grid,
-    ).toBe("2x2");
+      container.querySelector(".system-scheduler-section .queue-preview-list"),
+    ).toBeNull();
+    expect(
+      container.querySelector(".system-scheduler-section .queue-empty")?.textContent,
+    ).toBe("4 slots open");
     expect(container.querySelector(".memory-section")).not.toBeNull();
     expect(
       container

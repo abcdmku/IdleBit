@@ -1,68 +1,115 @@
 import {
+  bitsToBytes,
   createCpuHardwareState,
   createInitialGameState,
   createRamStickState,
   createSystemState,
   getCacheBits,
   getCacheBytes,
-  getClockHz,
+  getCpuClockHz,
   getPsuWatts,
   getRamSpeedMt,
   syncCronSchedules,
+  syncHardwarePackages,
+  updateProgressionFlags,
 } from "./progression";
 import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
-import type { GameState } from "./types";
+import type { CpuHardwareState, GameState, RamStickState, ResearchId } from "./types";
+
+export const RACK_READY_SEED_CREDITS = 100_000_000_000_000_000_000;
+
+const getCoreClockLevels = (cpus: CpuHardwareState[]) =>
+  Object.fromEntries(
+    cpus.flatMap((cpu) => cpu.coreIds.map((coreId) => [coreId, cpu.level])),
+  ) as Record<number, number>;
+
+const getRamStickBits = (ramSticks: RamStickState[]) =>
+  ramSticks.reduce((total, stick) => total + stick.bits, 0);
+
+const createSeedHardware = (
+  baseHardware: GameState["hardware"],
+  cpus: CpuHardwareState[],
+  ramSticks: RamStickState[],
+  template: Partial<GameState["hardware"]>,
+): GameState["hardware"] => {
+  const coreIds = cpus.flatMap((cpu) => cpu.coreIds);
+  const maxCacheCpu = cpus.reduce((best, cpu) =>
+    cpu.cacheBits > best.cacheBits ? cpu : best,
+  );
+  const maxSpeedCpu = cpus.reduce((best, cpu) =>
+    cpu.cacheSpeedLevel > best.cacheSpeedLevel ? cpu : best,
+  );
+  const ramBits = getRamStickBits(ramSticks);
+  const ramSpeedLevel =
+    ramSticks.length > 0
+      ? Math.max(...ramSticks.map((stick) => stick.speedLevel))
+      : (template.ramSpeedLevel ?? baseHardware.ramSpeedLevel);
+  const hardware: GameState["hardware"] = {
+    ...baseHardware,
+    ...template,
+    cpus,
+    cores: coreIds.length,
+    clockLevel: Math.max(1, ...cpus.map((cpu) => cpu.level)),
+    clockHz: Math.max(
+      1,
+      ...cpus.map((cpu) => getCpuClockHz(cpu.tierId, cpu.level)),
+    ),
+    coreClockLevels: getCoreClockLevels(cpus),
+    cacheLevel: maxCacheCpu.cacheLevel,
+    cacheBits: maxCacheCpu.cacheBits,
+    cacheBytes: maxCacheCpu.cacheBytes,
+    cacheSpeedLevel: maxSpeedCpu.cacheSpeedLevel,
+    schedulerSlots: cpus.reduce((total, cpu) => total + cpu.schedulerSlots, 0),
+    secondCpu: cpus.length > 1,
+    ramLevel: ramSticks.length,
+    ramBits,
+    ramBytes: bitsToBytes(ramBits),
+    ramSpeedLevel,
+    ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
+    ramSticks,
+  };
+
+  return syncHardwarePackages({
+    ...createInitialGameState(),
+    hardware,
+  }).hardware;
+};
 
 export const createRackReadyGameState = (): GameState => {
   const base = createInitialGameState();
-  const hardware: GameState["hardware"] = {
-    ...base.hardware,
-    clockLevel: 4,
-    clockHz: getClockHz(4),
-    coreClockLevels: {
-      1: 4,
-      2: 4,
-      3: 4,
-      4: 4,
+  const workstationCpuLevel = 4;
+  const workstationCpus = [
+    createCpuHardwareState(1, [1, 2], {
+      tierId: "hz",
+      level: workstationCpuLevel,
+      cacheLevel: 7,
+      cacheSpeedLevel: 3,
+      schedulerSlots: 2,
+    }),
+    createCpuHardwareState(2, [3, 4], {
+      tierId: "hz",
+      level: workstationCpuLevel,
+      cacheLevel: 7,
+      cacheSpeedLevel: 3,
+      schedulerSlots: 2,
+    }),
+  ];
+  const workstationRamSticks = [1, 2, 3, 4].map((id) =>
+    createRamStickState(id, 1, 2),
+  );
+  const hardware = createSeedHardware(
+    base.hardware,
+    workstationCpus,
+    workstationRamSticks,
+    {
+      systemSchedulerSlots: 2,
+      cronScheduleSlots: 1,
+      psuLevel: 23,
+      psuWatts: getPsuWatts(23),
     },
-    cpus: [
-      {
-        ...base.hardware.cpus[0]!,
-        coreIds: [1, 2, 3, 4],
-        cacheLevel: 7,
-        cacheBits: 64,
-        cacheBytes: getCacheBytes(7),
-        cacheSpeedLevel: 3,
-        schedulerSlots: 4,
-      },
-    ],
-    cacheLevel: 7,
-    cacheBits: 64,
-    cacheBytes: getCacheBytes(7),
-    cacheSpeedLevel: 3,
-    cores: 4,
-    schedulerSlots: 4,
-    systemSchedulerSlots: 2,
-    secondCpu: true,
-    ramLevel: 4,
-    ramBits: 1024,
-    ramBytes: 128,
-    ramSpeedLevel: 2,
-    ramSpeedMt: 2,
-    ramSticks: [1, 2, 3, 4].map((id) => ({
-      id,
-      level: 1,
-      bits: 256,
-      bytes: 32,
-      speedLevel: 2,
-      speedMt: 2,
-    })),
-    cronScheduleSlots: 1,
-    psuLevel: 9,
-    psuWatts: 0.86,
-  };
+  );
   const denseCoreCount = 128;
-  const denseClockLevel = 8;
+  const denseCpuLevel = 8;
   const denseRamSpeedLevel = 6;
   const denseCoreIds = Array.from(
     { length: denseCoreCount },
@@ -71,41 +118,23 @@ export const createRackReadyGameState = (): GameState => {
   const denseRamSticks = Array.from({ length: 32 }, (_, index) =>
     createRamStickState(index + 1, 8, denseRamSpeedLevel),
   );
-  const denseRamBits = denseRamSticks.reduce((total, stick) => total + stick.bits, 0);
-  const denseHardware: GameState["hardware"] = {
-    ...hardware,
-    clockLevel: denseClockLevel,
-    clockHz: getClockHz(denseClockLevel),
-    coreClockLevels: Object.fromEntries(
-      denseCoreIds.map((coreId) => [coreId, denseClockLevel]),
-    ),
-    cpus: Array.from({ length: 4 }, (_, index) => {
-      const cpuCoreIds = denseCoreIds.slice(index * 32, index * 32 + 32);
-      return createCpuHardwareState(index + 1, cpuCoreIds, {
-        cacheLevel: 18,
-        cacheBits: getCacheBits(18),
-        cacheBytes: getCacheBytes(18),
-        cacheSpeedLevel: denseClockLevel,
-        schedulerSlots: 32,
-      });
-    }),
-    cacheLevel: 18,
-    cacheBits: getCacheBits(18),
-    cacheBytes: getCacheBytes(18),
-    cacheSpeedLevel: denseClockLevel,
-    cores: denseCoreCount,
-    schedulerSlots: 128,
+  const denseCpus = Array.from({ length: 4 }, (_, index) => {
+    const cpuCoreIds = denseCoreIds.slice(index * 32, index * 32 + 32);
+    return createCpuHardwareState(index + 1, cpuCoreIds, {
+      tierId: "hz",
+      level: denseCpuLevel,
+      cacheLevel: 18,
+      cacheBits: getCacheBits(18),
+      cacheBytes: getCacheBytes(18),
+      cacheSpeedLevel: denseCpuLevel,
+      schedulerSlots: 32,
+    });
+  });
+  const denseHardware = createSeedHardware(hardware, denseCpus, denseRamSticks, {
     systemSchedulerSlots: 24,
-    secondCpu: true,
-    ramLevel: denseRamSticks.length,
-    ramBits: denseRamBits,
-    ramBytes: denseRamSticks.reduce((total, stick) => total + stick.bytes, 0),
-    ramSpeedLevel: denseRamSpeedLevel,
-    ramSpeedMt: getRamSpeedMt(denseRamSpeedLevel),
-    ramSticks: denseRamSticks,
     psuLevel: 23,
     psuWatts: getPsuWatts(23),
-  };
+  });
   const firstSystem = createSystemState(
     1,
     "Rack-Ready Workstation",
@@ -121,8 +150,8 @@ export const createRackReadyGameState = (): GameState => {
   const state: GameState = {
     ...base,
     resources: {
-      credits: 20_000,
-      data: 20_000,
+      credits: RACK_READY_SEED_CREDITS,
+      data: 1_000_000,
     },
     selectedSystemId: 1,
     rack: {
@@ -158,7 +187,12 @@ export const createRackReadyGameState = (): GameState => {
         "systemBus",
         "cronScheduler",
         "systemCatalog",
-      ],
+        "cpuTierKhz",
+        "cpuTierMhz",
+        "cpuTierGhz",
+        "cpuTierThz",
+        "cpuTierPhz",
+      ] satisfies ResearchId[],
     },
     completedTasks: {
       fetchBit: 3,
@@ -197,5 +231,8 @@ export const createRackReadyGameState = (): GameState => {
     queue: [],
   };
 
-  return materializeSystem(syncSelectedSystemRuntime(syncCronSchedules(state)), 1);
+  return materializeSystem(
+    syncSelectedSystemRuntime(updateProgressionFlags(syncCronSchedules(state))),
+    1,
+  );
 };

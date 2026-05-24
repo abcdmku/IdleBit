@@ -1,5 +1,5 @@
 import type { TouchEvent } from "react";
-import { Eye, Power, SlidersHorizontal } from "lucide-react";
+import { Eye, Power } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { formatBits } from "../format";
 import { getVisibleSystemSchedulerSlots } from "../tasks/taskData";
@@ -19,9 +19,7 @@ interface RackSystemCardProps {
   system: UiRackSystem;
   index: number;
   selected: boolean;
-  builderUnlocked: boolean;
   onTogglePower: () => void;
-  onConfigure: () => void;
   onOpenDetail: () => void;
   onSelectScheduler: () => void;
   onTouchEnd: (event: TouchEvent<HTMLButtonElement>) => void;
@@ -61,9 +59,7 @@ export function RackSystemCard({
   system,
   index,
   selected,
-  builderUnlocked,
   onTogglePower,
-  onConfigure,
   onOpenDetail,
   onSelectScheduler,
   onTouchEnd,
@@ -111,17 +107,6 @@ export function RackSystemCard({
           <Power size={11} strokeWidth={2.6} />
         </button>
         <span className="rack-slot-index">{index + 1}</span>
-        {builderUnlocked && (
-          <button
-            type="button"
-            className="rack-slot-config"
-            aria-label={`Configure system ${index + 1}`}
-            title={`Configure system ${index + 1}`}
-            onClick={onConfigure}
-          >
-            <SlidersHorizontal size={12} />
-          </button>
-        )}
         <button
           type="button"
           className="rack-slot-config rack-slot-detail"

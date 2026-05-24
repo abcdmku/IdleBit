@@ -29,8 +29,6 @@ function getSchedulerGridMetrics(
   options: { startSmall?: boolean } = {},
 ): SchedulerGridMetrics {
   const count = Math.max(0, slotCount);
-  let columns = 2;
-  let rows = 2;
 
   if (count === 0) {
     return {
@@ -41,6 +39,26 @@ function getSchedulerGridMetrics(
       density: "spacious",
     };
   }
+
+  const columns =
+    count <= 1
+      ? 1
+      : count <= 4
+        ? 2
+        : count <= 6
+          ? 3
+          : count <= 8
+            ? 4
+            : count <= 9
+              ? 3
+              : count <= 16
+                ? 4
+                : count <= 25
+                  ? 5
+                  : count <= 36
+                    ? 6
+                    : Math.max(7, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / columns));
 
   if (options.startSmall && count <= 4) {
     const smallColumns = count === 1 ? 1 : 2;
@@ -56,29 +74,14 @@ function getSchedulerGridMetrics(
     };
   }
 
-  if (count > 36) {
-    const side = Math.max(8, Math.ceil(Math.sqrt(count)));
-    const evenSide = side % 2 === 0 ? side : side + 1;
-    columns = evenSide;
-    rows = evenSide;
-  } else if (count > 24) {
-    columns = 6;
-    rows = 6;
-  } else if (count > 16) {
-    columns = 6;
-    rows = 4;
-  } else if (count > 8) {
-    columns = 4;
-    rows = 4;
-  } else if (count > 6) {
-    columns = 4;
-    rows = 2;
-  } else if (count > 4) {
-    columns = 3;
-    rows = 2;
-  }
-
-  const targetSlotHeight = rows >= 8 ? 16 : rows >= 6 ? 20 : rows >= 4 ? 24 : 30;
+  const targetSlotHeight =
+    rows >= 8 || columns >= 8
+      ? 16
+      : rows >= 6 || columns >= 6
+        ? 20
+        : rows >= 4 || columns >= 5
+          ? 24
+          : 30;
   const gridHeight = Math.min(
     schedulerGridMaxHeightPx,
     rows * targetSlotHeight + (rows - 1) * schedulerGridGapPx,
@@ -90,7 +93,13 @@ function getSchedulerGridMetrics(
     ),
   );
   const density =
-    rows >= 8 ? "micro" : rows >= 6 ? "dense" : rows >= 4 ? "compact" : "spacious";
+    rows >= 8 || columns >= 8
+      ? "micro"
+      : rows >= 6 || columns >= 6
+        ? "dense"
+        : rows >= 4 || columns >= 5
+          ? "compact"
+          : "spacious";
 
   return { columns, rows, gridHeight, slotHeight, density };
 }
@@ -111,85 +120,114 @@ export function QueuePreview({
   startSmall?: boolean;
 }) {
   const visibleSlotCount = Math.max(Math.max(0, slotCapacity), items.length);
-  const grid = getSchedulerGridMetrics(visibleSlotCount, { startSmall });
+  const openSlotCount = Math.max(0, visibleSlotCount - items.length);
+  const renderedSlotCount = items.length + (openSlotCount > 0 ? 1 : 0);
+  const gridSlotCount = items.length > 0 ? renderedSlotCount : visibleSlotCount;
+  const grid = getSchedulerGridMetrics(gridSlotCount, {
+    startSmall: startSmall || (items.length > 0 && openSlotCount > 0),
+  });
   const gridStyle = {
     "--scheduler-grid-columns": grid.columns,
     "--scheduler-grid-height": `${grid.gridHeight}px`,
+    "--scheduler-preview-height": `${
+      visibleSlotCount > 0 && items.length === 0 ? 30 : grid.gridHeight
+    }px`,
     "--scheduler-slot-height": `${grid.slotHeight}px`,
   } as CSSProperties;
 
+  if (visibleSlotCount > 0 && items.length === 0) {
+    const label =
+      emptyLabel ??
+      `${visibleSlotCount} slot${visibleSlotCount === 1 ? "" : "s"} open`;
+
+    return (
+      <div className="queue-preview" style={gridStyle} aria-label={ariaLabel}>
+        <small
+          className="queue-empty queue-open-empty"
+          title={`${visibleSlotCount} open slot${
+            visibleSlotCount === 1 ? "" : "s"
+          }`}
+        >
+          <span>{label}</span>
+        </small>
+      </div>
+    );
+  }
+
   return (
-    <div className="queue-preview" aria-label={ariaLabel}>
+    <div className="queue-preview" style={gridStyle} aria-label={ariaLabel}>
       <div
         className={`queue-preview-list ${grid.density}`}
         style={gridStyle}
         data-grid={`${grid.columns}x${grid.rows}`}
       >
         {visibleSlotCount > 0 ? (
-          Array.from({ length: visibleSlotCount }, (_, index) => {
-            const item = items[index];
+          <>
+            {items.map((item, index) => {
+              const progress = clampMeter(item.progress);
+              const progressPercent = Math.round(progress * 1000) / 10;
 
-            if (!item) {
               return (
                 <small
-                  className="queue-slot-cell empty"
-                  key={`empty-${index}`}
-                  title={`Slot ${index + 1}: open`}
+                  className={`queue-slot-cell ${item.active ? "active" : "pending"} ${
+                    item.deadlocked ? "deadlocked" : ""
+                  }`}
+                  key={`${item.id}-${index}`}
+                  title={`${item.name}: ${item.waitingReason}`}
                 >
                   <span className="queue-slot-index">{index + 1}</span>
-                  <span className="queue-slot-name">Open</span>
+                  <span className="queue-slot-name">{item.name}</span>
+                  <span className="queue-slot-state">{item.waitingReason}</span>
+                  <span
+                    className="queue-slot-progress"
+                    role="progressbar"
+                    aria-label={`${item.name} total progress ${progressPercent}%`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={progressPercent}
+                  >
+                    <span
+                      className="progress-fill"
+                      style={getProgressStyle(item.active ? progress : 0)}
+                    />
+                  </span>
+                  <button
+                    type="button"
+                    className="queue-cancel-button"
+                    onClick={() =>
+                      dispatch(
+                        item.instanceId
+                          ? {
+                              type: "cancelTask",
+                              taskId: item.id,
+                              instanceId: item.instanceId,
+                            }
+                          : { type: "cancelQueuedTask", taskId: item.id },
+                      )
+                    }
+                    title={`Cancel ${item.name}`}
+                    aria-label={`Cancel ${item.name}`}
+                  >
+                    <X size={11} />
+                  </button>
                 </small>
               );
-            }
-            const progress = clampMeter(item.progress);
-            const progressPercent = Math.round(progress * 1000) / 10;
-
-            return (
+            })}
+            {openSlotCount > 0 && (
               <small
-                className={`queue-slot-cell ${item.active ? "active" : "pending"} ${
-                  item.deadlocked ? "deadlocked" : ""
+                className="queue-slot-cell empty queue-open-summary"
+                key="open-summary"
+                title={`${openSlotCount} open slot${openSlotCount === 1 ? "" : "s"}`}
+                aria-label={`${openSlotCount} open slot${
+                  openSlotCount === 1 ? "" : "s"
                 }`}
-                key={`${item.id}-${index}`}
-                title={`${item.name}: ${item.waitingReason}`}
               >
-                <span className="queue-slot-index">{index + 1}</span>
-                <span className="queue-slot-name">{item.name}</span>
-                <span className="queue-slot-state">{item.waitingReason}</span>
-                <span
-                  className="queue-slot-progress"
-                  role="progressbar"
-                  aria-label={`${item.name} total progress ${progressPercent}%`}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progressPercent}
-                >
-                  <span
-                    className="progress-fill"
-                    style={getProgressStyle(item.active ? progress : 0)}
-                  />
+                <span className="queue-slot-name">
+                  {openSlotCount} open
                 </span>
-                <button
-                  type="button"
-                  className="queue-cancel-button"
-                  onClick={() =>
-                    dispatch(
-                      item.instanceId
-                        ? {
-                            type: "cancelTask",
-                            taskId: item.id,
-                            instanceId: item.instanceId,
-                          }
-                        : { type: "cancelQueuedTask", taskId: item.id },
-                    )
-                  }
-                  title={`Cancel ${item.name}`}
-                  aria-label={`Cancel ${item.name}`}
-                >
-                  <X size={11} />
-                </button>
               </small>
-            );
-          })
+            )}
+          </>
         ) : (
           <small className="queue-empty">
             <span>{emptyLabel ?? "No slots"}</span>

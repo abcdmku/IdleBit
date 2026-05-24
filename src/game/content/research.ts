@@ -1,11 +1,24 @@
 import type {
   Cost,
+  CpuTierId,
   GameState,
   ResearchDefinition,
   ResearchId,
   ResearchRequirementDefinition,
   TaskId,
 } from "../types";
+import { getGlobalCStateLevel } from "../cState";
+import {
+  CPU_TIER_MAX_LEVEL,
+  cpuTierDefinitions,
+  getCStateUpgradeCost,
+  getCpuTierDefinition,
+  getCpuTierIndex,
+} from "./cpuTiers";
+import {
+  MEMORY_VOLTAGE_MAX_LEVEL,
+  getMemoryVoltageCost,
+} from "./ramTuning";
 
 const credits = (amount: number): Cost => ({
   resource: "credits",
@@ -32,10 +45,81 @@ const compileCodeTaskId: TaskId = "compileCode";
 const hasAnyStarterTask = (state: GameState) =>
   hasCompleted(state, "fetchBit") || hasCompleted(state, "decodeBit");
 
-const hasDecodeLogic = (state: GameState) =>
+export const hasDecodeLogic = (state: GameState) =>
   hasResearch(state, "decodeLogic") ||
   hasResearch(state, "bitMutation") ||
   hasResearch(state, "shiftOperations");
+
+const hasCpuTierUnlocked = (state: GameState, tierId: CpuTierId) => {
+  const researchId = getCpuTierDefinition(tierId).unlockResearchId;
+  return researchId === null || hasResearch(state, researchId);
+};
+
+const hasSystemAutomation = (state: GameState) =>
+  hasResearch(state, "cronScheduler") || state.flags.cron;
+
+const getPreviousCpuTier = (tierId: CpuTierId) => {
+  const index = getCpuTierIndex(tierId);
+  return index > 0 ? cpuTierDefinitions[index - 1] : null;
+};
+
+const getCpuTierResearchCost = (tierId: CpuTierId) => {
+  const previousTier = getPreviousCpuTier(tierId);
+  return previousTier?.nextTierResearchCost ?? 0;
+};
+
+const hasPreviousCpuTierResearch = (state: GameState, tierId: CpuTierId) => {
+  const previousResearchId = getPreviousCpuTier(tierId)?.unlockResearchId;
+  return previousResearchId !== undefined &&
+    previousResearchId !== null &&
+    hasResearch(state, previousResearchId);
+};
+
+const cpuTierResearchRequirement = (tierId: CpuTierId) => {
+  if (tierId === "khz") {
+    return [
+      requirement(
+        "research:system-automation",
+        "Unlock System Automation",
+        "research",
+        hasSystemAutomation,
+      ),
+    ];
+  }
+
+  const previousTier = getPreviousCpuTier(tierId);
+  return previousTier?.unlockResearchId
+    ? [
+        researchRequirement(
+          previousTier.unlockResearchId,
+          `Complete ${previousTier.name} research`,
+        ),
+      ]
+    : [];
+};
+
+const cpuTierResearchMet = (state: GameState, tierId: CpuTierId) =>
+  requirementsMet(state, cpuTierResearchRequirement(tierId));
+
+const getCStateResearchCost = (state: GameState) =>
+  hasResearch(state, "cStateControl")
+    ? getCStateUpgradeCost(
+        Math.min(
+          CPU_TIER_MAX_LEVEL + 1,
+          getGlobalCStateLevel(state) + 1,
+        ),
+      )
+    : [credits(10_000_000)];
+
+const getMemoryVoltageResearchCost = (state: GameState) =>
+  hasResearch(state, "memoryVoltageModifier")
+    ? getMemoryVoltageCost(
+        Math.min(
+          MEMORY_VOLTAGE_MAX_LEVEL + 1,
+          (state.hardware.memoryVoltageLevel ?? 0) + 1,
+        ),
+      )
+    : [credits(1_000_000)];
 
 const requirement = (
   id: string,
@@ -115,8 +199,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Cache Mapping",
     description: "Unlock cache-backed packet work.",
     grants: ["cache"],
-    reveal: (state) =>
-      hasResearch(state, "byteOperations") && hasCompleted(state, "byteCopy"),
+    reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getCacheMappingRequirements()),
     requirements: () => getCacheMappingRequirements(),
     cost: () => [credits(6), data(4)],
@@ -126,7 +209,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Benchmark Harness",
     description: "Unlock research benchmarks that expose later hardware research.",
     grants: ["benchmarks"],
-    reveal: (state) => hasResearch(state, "cacheMapping"),
+    reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getBenchmarkHarnessRequirements()),
     requirements: () => getBenchmarkHarnessRequirements(),
     cost: () => [credits(42), data(4)],
@@ -204,6 +287,39 @@ export const researchDefinitions: ResearchDefinition[] = [
     cost: () => [credits(520), data(24)],
   },
   {
+    id: "dualChannelRam",
+    name: "Dual Channel RAM",
+    description: "Allow the System Scheduler to stripe RAM writes across 2 sticks.",
+    grants: ["dualChannelRam"],
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") || hasResearch(state, "dualChannelRam"),
+    requirement: (state) => requirementsMet(state, getDualChannelRamRequirements()),
+    requirements: () => getDualChannelRamRequirements(),
+    cost: () => [credits(820), data(42)],
+  },
+  {
+    id: "quadChannelRam",
+    name: "Quad Channel RAM",
+    description: "Allow the System Scheduler to stripe RAM writes across 4 sticks.",
+    grants: ["quadChannelRam"],
+    reveal: (state) =>
+      hasResearch(state, "dualChannelRam") || hasResearch(state, "quadChannelRam"),
+    requirement: (state) => requirementsMet(state, getQuadChannelRamRequirements()),
+    requirements: () => getQuadChannelRamRequirements(),
+    cost: () => [credits(2_400), data(120)],
+  },
+  {
+    id: "octChannelRam",
+    name: "Oct Channel RAM",
+    description: "Allow the System Scheduler to stripe RAM writes across 8 sticks.",
+    grants: ["octChannelRam"],
+    reveal: (state) =>
+      hasResearch(state, "quadChannelRam") || hasResearch(state, "octChannelRam"),
+    requirement: (state) => requirementsMet(state, getOctChannelRamRequirements()),
+    requirements: () => getOctChannelRamRequirements(),
+    cost: () => [credits(7_200), data(320)],
+  },
+  {
     id: "cronScheduler",
     name: "CRON Scheduler",
     description: "Unlock timed automation for repeatable system tasks.",
@@ -233,6 +349,85 @@ export const researchDefinitions: ResearchDefinition[] = [
       requirementsMet(state, getCustomMachineAssemblyRequirements()),
     requirements: () => getCustomMachineAssemblyRequirements(),
     cost: () => [credits(980), data(54)],
+  },
+  {
+    id: "cpuTierKhz",
+    name: "kHz CPU Research",
+    description: "Unlock level-1 kHz CPU packages.",
+    grants: [],
+    reveal: (state) =>
+      hasCpuTierUnlocked(state, "khz") || hasSystemAutomation(state),
+    requirement: (state) => cpuTierResearchMet(state, "khz"),
+    requirements: () => cpuTierResearchRequirement("khz"),
+    cost: () => [credits(getCpuTierResearchCost("khz"))],
+  },
+  {
+    id: "cpuTierMhz",
+    name: "MHz CPU Research",
+    description: "Unlock level-1 MHz CPU packages.",
+    grants: [],
+    reveal: (state) =>
+      hasCpuTierUnlocked(state, "mhz") || hasPreviousCpuTierResearch(state, "mhz"),
+    requirement: (state) => cpuTierResearchMet(state, "mhz"),
+    requirements: () => cpuTierResearchRequirement("mhz"),
+    cost: () => [credits(getCpuTierResearchCost("mhz"))],
+  },
+  {
+    id: "cpuTierGhz",
+    name: "GHz CPU Research",
+    description: "Unlock level-1 GHz CPU packages.",
+    grants: [],
+    reveal: (state) =>
+      hasCpuTierUnlocked(state, "ghz") || hasPreviousCpuTierResearch(state, "ghz"),
+    requirement: (state) => cpuTierResearchMet(state, "ghz"),
+    requirements: () => cpuTierResearchRequirement("ghz"),
+    cost: () => [credits(getCpuTierResearchCost("ghz"))],
+  },
+  {
+    id: "cpuTierThz",
+    name: "THz CPU Research",
+    description: "Unlock level-1 THz CPU packages.",
+    grants: [],
+    reveal: (state) =>
+      hasCpuTierUnlocked(state, "thz") || hasPreviousCpuTierResearch(state, "thz"),
+    requirement: (state) => cpuTierResearchMet(state, "thz"),
+    requirements: () => cpuTierResearchRequirement("thz"),
+    cost: () => [credits(getCpuTierResearchCost("thz"))],
+  },
+  {
+    id: "cpuTierPhz",
+    name: "PHz CPU Research",
+    description: "Unlock level-1 PHz CPU packages.",
+    grants: [],
+    reveal: (state) =>
+      hasCpuTierUnlocked(state, "phz") || hasPreviousCpuTierResearch(state, "phz"),
+    requirement: (state) => cpuTierResearchMet(state, "phz"),
+    requirements: () => cpuTierResearchRequirement("phz"),
+    cost: () => [credits(getCpuTierResearchCost("phz"))],
+  },
+  {
+    id: "cStateControl",
+    name: "C-State Control",
+    description: "Unlock idle-core power reduction upgrades.",
+    grants: ["cStateControl"],
+    reveal: (state) =>
+      hasResearch(state, "cpuTierKhz") || hasResearch(state, "cStateControl"),
+    requirement: (state) => requirementsMet(state, getCStateControlRequirements()),
+    requirements: () => getCStateControlRequirements(),
+    cost: getCStateResearchCost,
+  },
+  {
+    id: "memoryVoltageModifier",
+    name: "Memory Voltage Modifier",
+    description: "Reduce idle RAM draw without changing active write bandwidth.",
+    grants: ["memoryVoltageModifier"],
+    reveal: (state) =>
+      hasResearch(state, "ramControl") &&
+      (hasResearch(state, "cpuTierKhz") ||
+        hasResearch(state, "memoryVoltageModifier")),
+    requirement: (state) => requirementsMet(state, getMemoryVoltageRequirements()),
+    requirements: () => getMemoryVoltageRequirements(),
+    cost: getMemoryVoltageResearchCost,
   },
 ];
 
@@ -348,6 +543,41 @@ function getSystemBusRequirements() {
   ];
 }
 
+function getDualChannelRamRequirements() {
+  return [
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
+    hardwareRequirement(
+      "two-ram-sticks",
+      "Install 2 RAM sticks",
+      (state) => state.hardware.ramSticks.length >= 2,
+    ),
+  ];
+}
+
+function getQuadChannelRamRequirements() {
+  return [
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
+    researchRequirement("dualChannelRam", "Complete Dual Channel RAM research"),
+    hardwareRequirement(
+      "four-ram-sticks",
+      "Install 4 RAM sticks",
+      (state) => state.hardware.ramSticks.length >= 4,
+    ),
+  ];
+}
+
+function getOctChannelRamRequirements() {
+  return [
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
+    researchRequirement("quadChannelRam", "Complete Quad Channel RAM research"),
+    hardwareRequirement(
+      "eight-ram-sticks",
+      "Install 8 RAM sticks",
+      (state) => state.hardware.ramSticks.length >= 8,
+    ),
+  ];
+}
+
 function getSecondCpuInstalledRequirements() {
   return [
     hardwareRequirement(
@@ -378,6 +608,19 @@ function getCustomMachineAssemblyRequirements() {
       "hardware",
       (state) => (state.systems?.length ?? 1) >= 2 || hasCompleted(state, compileCodeTaskId),
     ),
+  ];
+}
+
+function getCStateControlRequirements() {
+  return [
+    researchRequirement("cpuTierKhz", "Complete kHz CPU Research"),
+  ];
+}
+
+function getMemoryVoltageRequirements() {
+  return [
+    researchRequirement("ramControl", "Complete RAM Control research"),
+    researchRequirement("cpuTierKhz", "Complete kHz CPU Research"),
   ];
 }
 

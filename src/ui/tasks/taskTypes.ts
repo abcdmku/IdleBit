@@ -176,6 +176,7 @@ export interface UiResearch {
   cost?: DisplayCost[];
   canAfford?: boolean;
   canBuy?: boolean;
+  actionLabel?: string;
   lockedReason?: string | null;
   lockReason?: string | null;
   unlockReason?: string | null;

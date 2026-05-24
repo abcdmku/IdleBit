@@ -6,7 +6,7 @@
    ==================================================================== */
 
 .cron-section {
-  gap: var(--s-1);
+  gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
 }
 
@@ -34,21 +34,35 @@
 }
 
 .cron-header-row .hw-section-header {
-  width: auto;
+  width: 100%;
   flex: 1 1 auto;
 }
 
+.cron-floor-row {
+  display: flex;
+  gap: var(--s-2);
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
 .cron-floor-inline {
-  margin-left: var(--s-1);
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 22px;
   color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: var(--tracking-tight);
 }
 
 .cron-min-stepper {
-  flex: 0 0 auto;
+  flex: 1 1 150px;
   width: auto;
-  max-width: 200px;
+  min-width: 0;
+  max-width: none;
   min-height: 22px;
   align-self: center;
   font-size: var(--fs-2xs);
@@ -284,4 +298,3 @@
 }
 
 .cron-schedule-row.paused .cron-next strong { color: var(--muted); }
-

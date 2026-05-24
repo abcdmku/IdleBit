@@ -85,7 +85,6 @@ export function SystemSchedulerSection({
         slotCapacity={slotCapacity}
         ariaLabel="System scheduler queue"
         dispatch={dispatch}
-        emptyLabel="Ready"
         startSmall
       />
 

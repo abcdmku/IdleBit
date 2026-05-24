@@ -29,6 +29,14 @@
   min-width: 0;
 }
 
+.cpu-install-options.header {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
 .cpu-install-option {
   --install-color: var(--amber);
   display: grid;
@@ -49,6 +57,14 @@
 
 .cpu-install-option.cyan { --install-color: var(--cyan); }
 .cpu-install-option.amber { --install-color: var(--amber); }
+
+.cpu-install-options.header .cpu-install-option {
+  grid-template-columns: minmax(0, auto) auto auto 14px;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
 
 .cpu-install-option:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--install-color) 58%, transparent);
@@ -92,6 +108,11 @@
   white-space: nowrap;
 }
 
+.cpu-install-options.header .cpu-install-copy small,
+.cpu-install-options.header .cpu-install-power small {
+  display: none;
+}
+
 .cpu-install-power {
   text-align: right;
 }
@@ -106,4 +127,13 @@
 .cpu-install-option .resource-cost {
   justify-content: flex-end;
   min-width: 0;
+}
+
+.cpu-install-options.header .cpu-install-copy strong,
+.cpu-install-options.header .cpu-install-power strong {
+  font-size: var(--fs-2xs);
+}
+
+.cpu-install-options.header .resource-cost {
+  flex-wrap: nowrap;
 }

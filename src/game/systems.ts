@@ -4,8 +4,16 @@ import {
   createSystemState,
   getRamSpeedMt,
   syncCoreSchedulers,
+  syncHardwarePackages,
 } from "./progression";
-import type { GameState, HardwareState, RamStickState, SystemState } from "./types";
+import { withGlobalCStateLevel } from "./cState";
+import type {
+  Cost,
+  GameState,
+  HardwareState,
+  RamStickState,
+  SystemState,
+} from "./types";
 
 const getRamStickBits = (ramSticks: RamStickState[]) =>
   ramSticks.reduce((total, stick) => total + stick.bits, 0);
@@ -41,14 +49,64 @@ const preserveRuntimeRamOverride = (hardware: HardwareState): HardwareState => {
   };
 };
 
+type PartialPowerRuntimeState = Partial<SystemState["power"]> & {
+  creditShutdownWarningSeconds?: number;
+};
+
+const normalizeSystemPower = (system: SystemState): SystemState["power"] => {
+  const fallback = createSystemState(system.id).power;
+  const power = system.power as PartialPowerRuntimeState | undefined;
+  const powerState =
+    power?.state === "shuttingDown" ||
+    power?.state === "off" ||
+    power?.state === "booting"
+      ? power.state
+      : fallback.state;
+
+  return {
+    ...fallback,
+    ...power,
+    state: powerState,
+    transitionSeconds: Math.max(
+      0,
+      power?.transitionSeconds ?? fallback.transitionSeconds,
+    ),
+    bootstrapGraceSeconds: Math.max(
+      0,
+      power?.bootstrapGraceSeconds ?? fallback.bootstrapGraceSeconds,
+    ),
+    unpaidShutdownWarningSeconds: Math.max(
+      0,
+      power?.unpaidShutdownWarningSeconds ??
+        power?.creditShutdownWarningSeconds ??
+        fallback.unpaidShutdownWarningSeconds,
+    ),
+    overloadFailureSeconds: Math.max(
+      0,
+      power?.overloadFailureSeconds ?? fallback.overloadFailureSeconds,
+    ),
+    lastFailureReason:
+      power?.lastFailureReason === "psuOverload" ||
+      power?.lastFailureReason === "unpaidBill"
+        ? power.lastFailureReason
+        : null,
+    failureCount: Math.max(0, power?.failureCount ?? fallback.failureCount),
+  };
+};
+
 const getSystemRuntime = (_state: GameState, system: SystemState): SystemState => ({
   ...system,
-  hardware: system.hardware,
+  hardware: syncHardwarePackages({
+    ..._state,
+    hardware: withGlobalCStateLevel(_state, system.hardware),
+  }).hardware,
+  power: normalizeSystemPower(system),
   activeJobs: system.activeTasks,
   coreSchedulers:
     Object.keys(system.coreSchedulers).length > 0
       ? system.coreSchedulers
       : createCoreSchedulers(system.hardware.cores),
+  purchaseCosts: Array.isArray(system.purchaseCosts) ? system.purchaseCosts : [],
 });
 
 export const createSystemFromRuntime = (
@@ -56,11 +114,18 @@ export const createSystemFromRuntime = (
   id = state.selectedSystemId,
   name = `System ${id}`,
   templateId: string | null = null,
+  purchaseCosts: Cost[] = [],
 ): SystemState => ({
   id,
   name,
   templateId,
-  hardware: preserveRuntimeRamOverride(state.hardware),
+  hardware: syncHardwarePackages({
+    ...state,
+    hardware: withGlobalCStateLevel(
+      state,
+      preserveRuntimeRamOverride(state.hardware),
+    ),
+  }).hardware,
   power: state.power,
   cron: state.cron,
   activeTasks: state.activeTasks,
@@ -72,6 +137,7 @@ export const createSystemFromRuntime = (
   deadlockPressureResource: state.deadlockPressureResource,
   deadlockPressureCpuId: state.deadlockPressureCpuId,
   deadlockProcessLockout: state.deadlockProcessLockout,
+  purchaseCosts,
 });
 
 export const ensureSystems = (state: GameState): GameState => {
@@ -118,6 +184,7 @@ export const syncSelectedSystemRuntime = (state: GameState): GameState => {
       selectedSystemId,
       selectedSystem.name,
       selectedSystem.templateId,
+      selectedSystem.purchaseCosts ?? [],
     ),
   );
   const systems = existingSystems.map((system) =>
@@ -177,7 +244,13 @@ export const materializeSystem = (
     ...materialized,
     systems: ensured.systems.map((system) =>
       system.id === selectedSystem.id
-        ? createSystemFromRuntime(materialized, system.id, system.name, system.templateId)
+        ? createSystemFromRuntime(
+            materialized,
+            system.id,
+            system.name,
+            system.templateId,
+            system.purchaseCosts ?? [],
+          )
         : system,
     ),
   };
@@ -195,6 +268,7 @@ export const updateMaterializedSystem = (
     systemId,
     previousSystem.name,
     previousSystem.templateId,
+    previousSystem.purchaseCosts ?? [],
   );
   const systems = ensured.systems.map((system) =>
     system.id === systemId ? updatedSystem : system,

@@ -1,18 +1,17 @@
-import { Plus, Server, SlidersHorizontal } from "lucide-react";
+import { Server, Store } from "lucide-react";
 import { getSelectedSystemComponent, scopeSelectionToSystem, type SelectedComponent } from "../workbenchData";
 import type { Dispatch } from "../uiActions";
 import { getSystemStatusTone } from "./rackMetrics";
-import type { BuilderTab, RackView, UiRackData } from "./types";
+import type { RackView, UiRackData } from "./types";
 
 interface RackStripProps {
   rack: UiRackData;
   activeSystemId: string;
   builderUnlocked: boolean;
   view: RackView;
-  builderTab: BuilderTab;
   onHome: () => void;
   onSelectSystem: (systemId: string) => void;
-  onOpenBuilder: (tab: BuilderTab, systemId?: string) => void;
+  onOpenBuilder: () => void;
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
   dispatch: Dispatch;
@@ -23,7 +22,6 @@ export function RackStrip({
   activeSystemId,
   builderUnlocked,
   view,
-  builderTab,
   onHome,
   onSelectSystem,
   onOpenBuilder,
@@ -32,14 +30,10 @@ export function RackStrip({
   dispatch,
 }: RackStripProps) {
   const activeComponent = getSelectedSystemComponent(selection) ?? "core:1";
-  const stayInBuilderConfigure =
-    view === "builder" && builderTab === "configure";
 
   return (
     <div
-      className={`rack-strip mode-${view}${
-        view === "builder" ? ` builder-tab-${builderTab}` : ""
-      }`}
+      className={`rack-strip mode-${view}`}
       aria-label="Rack quick switch"
     >
       <button
@@ -55,8 +49,7 @@ export function RackStrip({
       <div className="rack-strip-chips" role="tablist">
         {rack.systems.map((system, index) => {
           const isActiveSystem = system.id === activeSystemId;
-          const selected =
-            isActiveSystem && (view === "detail" || stayInBuilderConfigure);
+          const selected = isActiveSystem && view === "detail";
           const statusTone = getSystemStatusTone(system.status);
           return (
             <button
@@ -73,49 +66,27 @@ export function RackStrip({
                 onSelectComponent(
                   scopeSelectionToSystem(system.id, activeComponent),
                 );
-                if (view === "builder") {
-                  onOpenBuilder("configure", system.id);
-                } else {
-                  onSelectSystem(system.id);
-                }
+                onSelectSystem(system.id);
               }}
-              title={
-                view === "builder"
-                  ? `Configure system ${index + 1}`
-                  : `Open system ${index + 1}`
-              }
+              title={`Open system ${index + 1}`}
             >
               <span className="rack-slot-index">{index + 1}</span>
             </button>
           );
         })}
       </div>
-      {builderUnlocked && view === "detail" && (
-        <button
-          type="button"
-          className="rack-strip-configure"
-          onClick={() => onOpenBuilder("configure", activeSystemId)}
-          title="Configure parts on the selected system"
-          aria-label="Configure parts on the selected system"
-        >
-          <SlidersHorizontal size={13} />
-          <span className="rack-strip-build-label">Configure</span>
-        </button>
-      )}
       {builderUnlocked && (
         <button
           type="button"
           role="tab"
-          aria-selected={view === "builder" && builderTab === "new"}
-          className={`rack-strip-build ${
-            view === "builder" && builderTab === "new" ? "selected" : ""
-          }`}
-          onClick={() => onOpenBuilder("new")}
-          title="Build a new system"
-          aria-label="Build a new system"
+          aria-selected={view === "builder"}
+          className={`rack-strip-build ${view === "builder" ? "selected" : ""}`}
+          onClick={onOpenBuilder}
+          title="Open the system store"
+          aria-label="Open the system store"
         >
-          <Plus size={13} />
-          <span className="rack-strip-build-label">Build</span>
+          <Store size={13} />
+          <span className="rack-strip-build-label">Store</span>
         </button>
       )}
     </div>

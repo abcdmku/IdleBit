@@ -105,17 +105,20 @@ function ResearchAction({
   const requirements = research.requirements ?? [];
   const computeTasks = research.computeTasks ?? [];
   const purchased = isResearchPurchased(research);
+  const canAffordResearch = research.canAfford ?? costs.length === 0;
+  const allowedByResearch = research.canBuy ?? canAffordResearch;
   const canBuy =
     !purchased &&
     !lockedReason &&
-    (research.canAfford ?? research.canBuy ?? costs.length === 0);
+    canAffordResearch &&
+    allowedByResearch;
   const buyLabel = purchased
     ? "Built"
     : !canBuy && lockedReason
       ? lockedReason
       : !canBuy
         ? "Locked"
-        : "Buy";
+        : research.actionLabel ?? "Buy";
 
   return (
     <article

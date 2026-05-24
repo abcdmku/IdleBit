@@ -85,9 +85,9 @@ export function CacheSection({
             {formatBits(cacheReservation.reservedBits)} / {formatBits(capacity)}
           </strong>
         </span>
-        <span className="stat">
+        <span className="stat cache-frequency-stat">
           <small>Frequency</small>
-          <strong>{formatClock(Math.round(1 * 1.45 ** (socket.cacheSpeedLevel - 1) * 10) / 10)}</strong>
+          <strong>{formatClock(socket.cacheSpeedHz)}</strong>
         </span>
       </div>
 

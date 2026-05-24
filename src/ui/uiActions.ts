@@ -1,5 +1,6 @@
 import type {
   CronIntervalMode,
+  CpuTierId,
   GameAction,
   SchedulerKillPolicy,
   SchedulerPolicy,
@@ -43,6 +44,7 @@ export type UiGameAction =
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
+      ramTierId?: CpuTierId;
     }>
   | WithSystem<{
       type: "downgradeUpgrade";
@@ -53,6 +55,7 @@ export type UiGameAction =
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
+      ramTierId?: CpuTierId;
     }>
   | WithSystem<{
       type: "setCronScheduleTask";
@@ -84,6 +87,7 @@ export type UiGameAction =
       type: "buyCustomSystem";
       tierIds: Record<string, string>;
     }>
+  | { type: "sellSystem"; systemId: string | number }
   | { type: "selectSystem"; systemId: string | number };
 
 export type Dispatch = (action: UiGameAction) => void;
@@ -188,6 +192,13 @@ export const toGameAction = (action: UiGameAction): GameAction => {
         scheduler: action.tierIds.scheduler ?? action.tierIds.schedulerBackplane ?? "",
         psu: action.tierIds.psu ?? action.tierIds.powerSupply ?? "",
       },
+    };
+  }
+
+  if (action.type === "sellSystem") {
+    return {
+      type: "sellSystem",
+      systemId: toSystemId(action.systemId) ?? 1,
     };
   }
 

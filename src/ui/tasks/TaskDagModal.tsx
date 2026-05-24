@@ -148,7 +148,6 @@ function getStageRuntime(
     const overall = clampMeter(activeTask.progress);
     const progressShare =
       task.subtasks && task.subtasks.length > 0 ? 1 / task.subtasks.length : 1;
-    const startAt = (stage.index - 1) * progressShare;
     const endAt = stage.index * progressShare;
     const completed = overall >= endAt - 1e-3;
     return {

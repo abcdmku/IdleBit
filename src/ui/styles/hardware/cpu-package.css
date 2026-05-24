@@ -49,11 +49,22 @@
   opacity: 0.66;
 }
 
+.cpu-package-header-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  width: 100%;
+}
+
 .cpu-package-header {
   display: flex;
   gap: 8px;
   align-items: center;
-  width: 100%;
+  flex: 1 1 220px;
+  min-width: 0;
+  width: auto;
   padding: 0;
   border: 0;
   background: transparent;
@@ -66,6 +77,27 @@
 }
 
 .cpu-package-header:hover { background: transparent; border: 0; }
+
+.cpu-package-header-install {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.cpu-package-header-install-label {
+  flex: 0 0 auto;
+  color: var(--amber);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
 
 .cpu-package-meta {
   margin-left: auto;

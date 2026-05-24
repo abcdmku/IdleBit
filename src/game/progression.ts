@@ -1,8 +1,21 @@
 import { hasResearch } from "./content/research";
+import {
+  cpuTierDefinitions,
+  getCpuTierDefinition,
+  getCpuTierLevelDefinition,
+} from "./content/cpuTiers";
+import {
+  RAM_MAX_LEVEL,
+  ramTierDefinitions,
+  getRamTierDefinition,
+  getRamTierFirstGlobalLevel,
+  getRamTierLevelDefinition,
+} from "./content/ramTiers";
 import type {
   CronIntervalMode,
   CronScheduleState,
   CpuHardwareState,
+  CpuTierId,
   CoreSchedulerState,
   GameState,
   OperationRuntimeStatus,
@@ -15,11 +28,48 @@ import type {
 export const getClockHz = (level: number) =>
   Math.round(1 * 1.45 ** (level - 1) * 10) / 10;
 
+export const getCpuClockHz = (tierId: CpuTierId, level: number) =>
+  getCpuTierLevelDefinition(tierId, level).clockHz;
+
+export const getCpuEfficiency = (tierId: CpuTierId, level: number) =>
+  getCpuTierLevelDefinition(tierId, level).efficiency;
+
+export const getUnlockedCpuTierDefinitions = (state: GameState) =>
+  cpuTierDefinitions.filter(
+    (tier) => tier.unlockResearchId === null || hasResearch(state, tier.unlockResearchId),
+  );
+
+export const getUnlockedRamTierDefinitions = (state: GameState) =>
+  ramTierDefinitions.filter(
+    (tier) => tier.unlockResearchId === null || hasResearch(state, tier.unlockResearchId),
+  );
+
+export const getHighestUnlockedCpuTierDefinition = (state: GameState) => {
+  const tiers = getUnlockedCpuTierDefinitions(state);
+  return tiers.at(-1) ?? getCpuTierDefinition("hz");
+};
+
+export const getHighestUnlockedRamTierDefinition = (state: GameState) => {
+  const tiers = getUnlockedRamTierDefinitions(state);
+  return tiers.at(-1) ?? getRamTierDefinition("hz");
+};
+
+export const getMaxUnlockedRamLevel = (state: GameState) => {
+  const tier = getHighestUnlockedRamTierDefinition(state);
+  return tier.firstGlobalLevel + tier.levels.length - 1;
+};
+
+export const getRamInstallLevel = (state: GameState) =>
+  getRamTierFirstGlobalLevel(getHighestUnlockedRamTierDefinition(state).id);
+
 export const getCoreClockLevel = (state: GameState, coreId: number) =>
-  state.hardware.coreClockLevels[coreId] ?? state.hardware.clockLevel;
+  getCpuForCore(state, coreId).level;
 
 export const getCoreClockHz = (state: GameState, coreId: number) =>
-  getClockHz(getCoreClockLevel(state, coreId));
+  getCpuClockHz(
+    getCpuForCore(state, coreId).tierId,
+    getCoreClockLevel(state, coreId),
+  );
 
 export const getCacheBits = (level: number) => 2 ** (level - 1);
 
@@ -31,27 +81,36 @@ export const bitsToBytes = (bits: number) => Math.ceil(bits / 8);
 export const getCacheBytes = (level: number) => bitsToBytes(getCacheBits(level));
 
 export const getRamBits = (level: number) =>
-  level <= 0 ? 0 : 256 * 2 ** (level - 1);
+  level <= 0 ? 0 : getRamTierLevelDefinition(level).capacityBits;
 
 export const getRamBytes = (level: number) => bitsToBytes(getRamBits(level));
 
 export const getRamSpeedMt = (level: number) =>
-  level <= 0 ? 1 : 2 ** (level - 1);
+  level <= 0 ? 1 : getRamTierLevelDefinition(level).clockHz;
 
 export const POWER_BOOTSTRAP_GRACE_SECONDS = 20;
+export const POWER_UNPAID_SHUTDOWN_WARNING_SECONDS = 10;
 
 export const createRamStickState = (
   id: number,
   level: number,
   speedLevel = 1,
-): RamStickState => ({
-  id,
-  level,
-  bits: getRamBits(level),
-  bytes: getRamBytes(level),
-  speedLevel,
-  speedMt: getRamSpeedMt(speedLevel),
-});
+): RamStickState => {
+  const boundedLevel = Math.max(1, Math.min(RAM_MAX_LEVEL, Math.trunc(level)));
+  const boundedSpeedLevel = Math.max(
+    1,
+    Math.min(RAM_MAX_LEVEL, Math.trunc(speedLevel)),
+  );
+
+  return {
+    id,
+    level: boundedLevel,
+    bits: getRamBits(boundedLevel),
+    bytes: getRamBytes(boundedLevel),
+    speedLevel: boundedSpeedLevel,
+    speedMt: getRamSpeedMt(boundedSpeedLevel),
+  };
+};
 
 export const createRamSticksForLevel = (
   ramLevel: number,
@@ -85,8 +144,10 @@ const normalizeRamSticks = (state: GameState) => {
   });
 };
 
+export const STARTER_PSU_WATTS = 0.00001;
+
 export const getPsuWatts = (level: number) =>
-  level <= 0 ? 0 : Math.round(0.012 * 1.7 ** (level - 1) * 1000) / 1000;
+  level <= 0 ? 0 : Math.round(STARTER_PSU_WATTS * 1.7 ** (level - 1) * 1e12) / 1e12;
 
 export const getCoolingRating = (level: number) =>
   level <= 0 ? 0 : Math.round((1 + (level - 1) * 0.28) * 100) / 100;
@@ -114,6 +175,7 @@ export const createCronScheduleState = (
   state: GameState,
   template?: Partial<CronScheduleState>,
 ): CronScheduleState => {
+  const taskId = template?.taskId ?? null;
   const intervalMode = template?.intervalMode ?? "seconds";
   const intervalValue =
     template?.intervalValue ?? getCronMinIntervalSeconds(state);
@@ -125,8 +187,8 @@ export const createCronScheduleState = (
 
   return {
     id,
-    taskId: template?.taskId ?? null,
-    enabled: template?.enabled ?? true,
+    taskId,
+    enabled: (template?.enabled ?? taskId !== null) && taskId !== null,
     intervalMode,
     intervalValue:
       intervalMode === "minutes"
@@ -188,11 +250,15 @@ export const createCpuHardwareState = (
   coreIds: number[],
   template?: Partial<Omit<CpuHardwareState, "id" | "coreIds">>,
 ): CpuHardwareState => {
+  const tierId = template?.tierId ?? "hz";
+  const level = Math.max(1, template?.level ?? 1);
   const cacheLevel = template?.cacheLevel ?? 1;
   const cacheSpeedLevel = template?.cacheSpeedLevel ?? 1;
 
   return {
     id,
+    tierId,
+    level,
     coreIds,
     cacheLevel,
     cacheSpeedLevel,
@@ -243,10 +309,26 @@ const normalizeCpuHardware = (
   state: GameState,
   cpu: CpuHardwareState,
 ): CpuHardwareState => {
-  if (state.hardware.cpus.length !== 1) return createCpuHardwareState(cpu.id, cpu.coreIds, cpu);
+  const legacyCoreLevels = cpu.coreIds
+    .map((coreId) => state.hardware.coreClockLevels?.[coreId])
+    .filter((level): level is number => typeof level === "number" && Number.isFinite(level));
+  const legacyGlobalLevel =
+    legacyCoreLevels.length === 0 && state.hardware.cpus.length === 1
+      ? (state.hardware.clockLevel ?? 1)
+      : 1;
+  const legacyLevel = Math.max(
+    cpu.level ?? 1,
+    ...legacyCoreLevels,
+    legacyGlobalLevel,
+  );
+  const normalizedCpu = { ...cpu, level: legacyLevel };
 
-  return createCpuHardwareState(cpu.id, getSingleCpuCoreIds(state, cpu), {
-    ...cpu,
+  if (state.hardware.cpus.length !== 1) {
+    return createCpuHardwareState(cpu.id, cpu.coreIds, normalizedCpu);
+  }
+
+  return createCpuHardwareState(cpu.id, getSingleCpuCoreIds(state, normalizedCpu), {
+    ...normalizedCpu,
     cacheLevel: state.hardware.cacheLevel,
     cacheSpeedLevel: state.hardware.cacheSpeedLevel,
     cacheBits: state.hardware.cacheBits,
@@ -295,6 +377,14 @@ export const syncHardwarePackages = (state: GameState): GameState => {
     ramSticks.length > 0
       ? Math.max(...ramSticks.map((stick) => stick.speedMt))
       : getRamSpeedMt(ramSpeedLevel);
+  const clockHz = Math.max(
+    1,
+    ...cpus.map((cpu) => getCpuClockHz(cpu.tierId, cpu.level)),
+  );
+  const clockLevel = Math.max(1, ...cpus.map((cpu) => cpu.level));
+  const coreClockLevels = Object.fromEntries(
+    cpus.flatMap((cpu) => cpu.coreIds.map((coreId) => [coreId, cpu.level])),
+  ) as Record<number, number>;
 
   return {
     ...state,
@@ -302,6 +392,9 @@ export const syncHardwarePackages = (state: GameState): GameState => {
       ...state.hardware,
       cpus,
       cores,
+      clockLevel,
+      clockHz,
+      coreClockLevels,
       secondCpu: state.hardware.secondCpu || cpus.length > 1,
       cacheLevel: maxCacheCpu.cacheLevel,
       cacheBits: maxCacheCpu.cacheBits,
@@ -340,7 +433,7 @@ export const createCoreSchedulers = (cores: number) =>
 
 const createInitialHardwareState = (): GameState["hardware"] => ({
   clockLevel: 1,
-  clockHz: getClockHz(1),
+  clockHz: getCpuClockHz("hz", 1),
   coreClockLevels: {
     1: 1,
   },
@@ -361,8 +454,10 @@ const createInitialHardwareState = (): GameState["hardware"] => ({
   ramSpeedLevel: 1,
   ramSpeedMt: getRamSpeedMt(1),
   ramSticks: [],
+  memoryVoltageLevel: 0,
   cronScheduleSlots: 0,
   cronIntervalLevel: 0,
+  cStateLevel: 0,
   psuLevel: 1,
   psuWatts: getPsuWatts(1),
   coolingLevel: 0,
@@ -373,6 +468,7 @@ const createInitialPowerState = (): GameState["power"] => ({
   state: "on",
   transitionSeconds: 0,
   bootstrapGraceSeconds: 0,
+  unpaidShutdownWarningSeconds: 0,
   overloadFailureSeconds: 0,
   lastFailureReason: null,
   failureCount: 0,
@@ -389,6 +485,7 @@ export const createSystemState = (
   name = `System ${id}`,
   templateId: string | null = null,
   hardware = createInitialHardwareState(),
+  purchaseCosts: SystemState["purchaseCosts"] = [],
 ): SystemState => ({
   id,
   name,
@@ -405,6 +502,7 @@ export const createSystemState = (
   deadlockPressureResource: null,
   deadlockPressureCpuId: null,
   deadlockProcessLockout: false,
+  purchaseCosts,
 });
 
 export const getOperationProgress = (
@@ -432,7 +530,7 @@ export const createInitialGameState = (): GameState => {
   const firstSystem = createSystemState(1, "Barebones PC", "barebonesPc");
 
   return {
-    version: 2,
+    version: 4,
     tick: 0,
     nextInstanceId: 1,
     selectedSystemId: firstSystem.id,
@@ -463,6 +561,11 @@ export const createInitialGameState = (): GameState => {
       customMachineAssembly: false,
       psuManagement: false,
       cooling: false,
+      cStateControl: false,
+      dualChannelRam: false,
+      quadChannelRam: false,
+      octChannelRam: false,
+      memoryVoltageModifier: false,
       schedulerWatchdog: false,
       schedulerPolicies: false,
     },
@@ -610,6 +713,17 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         researched.includes("customMachineAssembly"),
       psuManagement: false,
       cooling: false,
+      cStateControl:
+        state.flags.cStateControl || researched.includes("cStateControl"),
+      dualChannelRam:
+        state.flags.dualChannelRam || researched.includes("dualChannelRam"),
+      quadChannelRam:
+        state.flags.quadChannelRam || researched.includes("quadChannelRam"),
+      octChannelRam:
+        state.flags.octChannelRam || researched.includes("octChannelRam"),
+      memoryVoltageModifier:
+        state.flags.memoryVoltageModifier ||
+        researched.includes("memoryVoltageModifier"),
     },
   };
 

@@ -52,10 +52,14 @@ export function ResourceHud({
   visible,
   onReset,
   animateResourceGains,
+  onSelectResource,
+  graphOpen = false,
 }: {
   visible: VisibleState;
   onReset: () => void;
   animateResourceGains: boolean;
+  onSelectResource?: (resource: ResourceKind) => void;
+  graphOpen?: boolean;
 }) {
   const dataReadoutRef = useRef<HTMLDivElement>(null);
   const creditsReadoutRef = useRef<HTMLDivElement>(null);
@@ -159,12 +163,50 @@ export function ResourceHud({
           ))}
         </div>
       )}
-      <div className="resource-readout credits" ref={creditsReadoutRef}>
+      <div
+        className={`resource-readout credits ${
+          onSelectResource ? "clickable" : ""
+        } ${graphOpen ? "active" : ""}`}
+        ref={creditsReadoutRef}
+        role={onSelectResource ? "button" : undefined}
+        tabIndex={onSelectResource ? 0 : undefined}
+        onClick={onSelectResource ? () => onSelectResource("credits") : undefined}
+        onKeyDown={
+          onSelectResource
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectResource("credits");
+                }
+              }
+            : undefined
+        }
+        title={onSelectResource ? "Toggle credits/data graph" : undefined}
+      >
         <Zap size={13} />
         <strong>{formatNumber(Math.floor(visible.resources.credits))}</strong>
         <span>cr</span>
       </div>
-      <div className="resource-readout data" ref={dataReadoutRef}>
+      <div
+        className={`resource-readout data ${
+          onSelectResource ? "clickable" : ""
+        } ${graphOpen ? "active" : ""}`}
+        ref={dataReadoutRef}
+        role={onSelectResource ? "button" : undefined}
+        tabIndex={onSelectResource ? 0 : undefined}
+        onClick={onSelectResource ? () => onSelectResource("data") : undefined}
+        onKeyDown={
+          onSelectResource
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectResource("data");
+                }
+              }
+            : undefined
+        }
+        title={onSelectResource ? "Toggle credits/data graph" : undefined}
+      >
         <Database size={13} />
         <strong>{formatNumber(Math.floor(visible.resources.data))}</strong>
         <span>data</span>

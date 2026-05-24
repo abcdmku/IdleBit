@@ -1,11 +1,15 @@
 import type { CSSProperties } from "react";
-import { MemoryStick } from "lucide-react";
-import type { VisibleRamSlot, VisibleState, VisibleUpgrade } from "../../game";
-import { formatBits, formatClock, formatNumber } from "../format";
-import { getVisibleRamBits } from "../tasks/taskData";
+import { MemoryStick, Plus } from "lucide-react";
+import type {
+  VisibleRamInstallOption,
+  VisibleRamSlot,
+  VisibleState,
+  VisibleUpgrade,
+} from "../../game";
+import { formatBits, formatClock, formatCost } from "../format";
+import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, DeadlockHelpCaption, shouldShowRamDeadlockPressure } from "./DeadlockHelp";
-import { HardwareInstallSection } from "./HardwareInstallSection";
 import {
   ModuleMeter,
   RamPressureMeter,
@@ -34,23 +38,6 @@ const getRamPrimaryState = (segments: RamSegment[]) => {
   return "Idle";
 };
 
-const getRamModuleFrequencyLabel = (
-  slots: VisibleRamSlot[],
-  fallbackSpeedMt: number,
-) => {
-  const speeds = Array.from(
-    new Set(
-      (slots.length > 0 ? slots.map((slot) => slot.speedMt) : [fallbackSpeedMt])
-        .filter((speed) => speed > 0),
-    ),
-  ).sort((a, b) => a - b);
-
-  if (speeds.length <= 0) return formatClock(1);
-  if (speeds.length === 1) return formatClock(speeds[0] ?? 1);
-
-  return `${formatClock(speeds[0] ?? 1)}-${formatClock(speeds.at(-1) ?? 1)}`;
-};
-
 const getRamSegmentsBySlot = (
   slots: VisibleRamSlot[],
   segments: RamSegment[],
@@ -58,28 +45,15 @@ const getRamSegmentsBySlot = (
   const segmentsBySlot = new Map<number, RamSegment[]>(
     slots.map((slot) => [slot.id, []]),
   );
-  let slotIndex = 0;
-  let remainingSlotBits = slots[0]?.sizeBits ?? 0;
+  const fallbackSlotId = slots[0]?.id ?? 1;
 
-  for (const segment of segments) {
-    let remainingSegmentBits = segment.bits;
-
-    while (remainingSegmentBits > 0 && slotIndex < slots.length) {
-      const slot = slots[slotIndex];
-      if (!slot) break;
-
-      if (remainingSlotBits <= 0) {
-        slotIndex += 1;
-        remainingSlotBits = slots[slotIndex]?.sizeBits ?? 0;
-        continue;
-      }
-
-      const bits = Math.min(remainingSegmentBits, remainingSlotBits);
-      segmentsBySlot.get(slot.id)?.push({ ...segment, bits });
-      remainingSegmentBits -= bits;
-      remainingSlotBits -= bits;
-    }
-  }
+  segments.forEach((segment) => {
+    const slotId =
+      segment.stickId !== undefined && segmentsBySlot.has(segment.stickId)
+        ? segment.stickId
+        : fallbackSlotId;
+    segmentsBySlot.get(slotId)?.push(segment);
+  });
 
   return segmentsBySlot;
 };
@@ -131,32 +105,24 @@ export function RamSection({
   onDismissDeadlockHelp?: () => void;
   onDismissDeadlockCooldownHelp?: () => void;
 }) {
-  const ramUpgrade = upgrades.find((upgrade) => upgrade.id === "ram");
   const ramSlots = visible.metrics.ramSlots;
+  const ramInstallOptions = visible.metrics.ramInstallOptions ?? [];
+  const ramUpgrade = upgrades.find((upgrade) => upgrade.id === "ram");
 
   if (ramSlots.length === 0) {
     return (
-      <HardwareInstallSection
-        className="memory-section"
-        Icon={MemoryStick}
-        title="RAM"
-        note="Install first RAM stick"
-        upgrade={ramUpgrade}
+      <RamInstallSection
         selected={selected}
         onSelect={onSelect}
+        options={ramInstallOptions}
         dispatch={dispatch}
         resources={visible.resources}
       />
     );
   }
 
-  const capacity = Math.max(getVisibleRamBits(visible), 1);
   const tone = getStressTone(status.memoryPressure);
   const ramSegmentsBySlot = getRamSegmentsBySlot(ramSlots, ramReservation.segments);
-  const moduleFrequencyLabel = getRamModuleFrequencyLabel(
-    ramSlots,
-    visible.hardware.ramSpeedMt,
-  );
   const stickCount = ramSlots.length;
   const selectedSlot =
     ramSlots.find((slot) => slot.id === selectedRamStickId) ?? ramSlots[0] ?? null;
@@ -186,23 +152,37 @@ export function RamSection({
   const ramGridStyle = {
     "--ram-stick-grid-columns": ramGrid.columns,
   } as CSSProperties;
-
   return (
     <section
       className={`hw-section memory-section ${tone} ${selected ? "selected" : ""} ${
         ramDeadlocked ? "deadlocked" : ""
       } ${cooldownActive ? "cooling-down" : ""}`}
     >
-      <button type="button" className="hw-section-header" onClick={onSelect}>
-        <MemoryStick size={14} />
-        <span>RAM</span>
-        {shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) && (
-          <DeadlockCountdown pressure={visible.metrics.deadlockPressure} compact />
+      <div className="ram-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <MemoryStick size={14} />
+          <span>RAM</span>
+          {shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) && (
+            <DeadlockCountdown pressure={visible.metrics.deadlockPressure} compact />
+          )}
+          <span className="hw-section-meta">
+            <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
+          </span>
+        </button>
+        {stickCount > 1 && (
+          <button
+            type="button"
+            className={`core-select-all-button ram-select-all-button ram-header-all-button ${
+              selectedAllRamSticks ? "active" : ""
+            }`}
+            onClick={onSelectAllSticks}
+            aria-pressed={selectedAllRamSticks}
+            title="Select all RAM sticks"
+          >
+            All
+          </button>
         )}
-        <span className="hw-section-meta">
-          <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
-        </span>
-      </button>
+      </div>
       {showDeadlockHelp && (
         <DeadlockHelpCaption onDismiss={onDismissDeadlockHelp} />
       )}
@@ -212,32 +192,6 @@ export function RamSection({
           onDismiss={onDismissDeadlockCooldownHelp}
         />
       )}
-
-      <div className="cache-stat-row ram-stat-row">
-        <span className="stat">
-          <small>Capacity</small>
-          <strong>{formatBits(capacity)}</strong>
-        </span>
-        <span className="stat">
-          <small>Module Freq</small>
-          <strong>{moduleFrequencyLabel}</strong>
-        </span>
-        <span className="stat">
-          <small>Modules</small>
-          <strong>{formatNumber(stickCount)}</strong>
-        </span>
-        <button
-          type="button"
-          className={`core-select-all-button ram-select-all-button ${
-            selectedAllRamSticks ? "active" : ""
-          }`}
-          onClick={onSelectAllSticks}
-          aria-pressed={selectedAllRamSticks}
-          title="Select all RAM sticks"
-        >
-          All
-        </button>
-      </div>
 
       <div
         className="ram-stick-grid"
@@ -268,7 +222,7 @@ export function RamSection({
           {ramUpgrade && (
             <UpgradeChip
               upgrade={ramUpgrade}
-              label="Module"
+              label="New stick"
               control
               resources={visible.resources}
               dispatch={dispatch}
@@ -299,6 +253,108 @@ export function RamSection({
         </div>
       )}
     </section>
+  );
+}
+
+function RamInstallSection({
+  selected,
+  onSelect,
+  options,
+  dispatch,
+  resources,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  options: VisibleRamInstallOption[];
+  dispatch: Dispatch;
+  resources: VisibleState["resources"];
+}) {
+  return (
+    <section
+      className={`hw-section install-hardware-section memory-section ${
+        selected ? "selected" : ""
+      }`}
+    >
+      <button type="button" className="hw-section-header" onClick={onSelect}>
+        <MemoryStick size={14} />
+        <span>RAM</span>
+        <span className="hw-section-meta">
+          <strong>Open bay</strong>
+        </span>
+      </button>
+      <div className="install-hardware-body ram-install-hardware-body">
+        <span className="install-hardware-copy">
+          <strong>Install first RAM stick</strong>
+          <span>Choose tier</span>
+        </span>
+        <RamInstallTierControls
+          options={options}
+          dispatch={dispatch}
+          resources={resources}
+        />
+      </div>
+    </section>
+  );
+}
+
+const getRamTierLabel = (tierName: string) => tierName.replace(/\s+RAM$/u, "");
+
+function RamInstallTierControls({
+  options,
+  dispatch,
+  resources,
+  compact = false,
+}: {
+  options: VisibleRamInstallOption[];
+  dispatch: Dispatch;
+  resources: VisibleState["resources"];
+  compact?: boolean;
+}) {
+  if (options.length === 0) return null;
+
+  return (
+    <div className={`ram-install-tier-controls ${compact ? "compact" : ""}`}>
+      <span className="ram-install-tier-title">
+        {compact ? "New stick" : "Choose tier"}
+      </span>
+      <div className="ram-install-tier-list">
+        {options.map((option) => {
+          const upgrade = option.upgrade;
+          const tierLabel = getRamTierLabel(option.tierName);
+          const title = `Install ${option.tierName}: ${formatCost(upgrade.costs)}`;
+
+          return (
+            <button
+              key={option.tierId}
+              type="button"
+              className="ram-install-tier-button"
+              disabled={!upgrade.canAfford}
+              title={title}
+              onClick={() =>
+                dispatch({
+                  type: "buyUpgrade",
+                  upgradeId: "ram",
+                  ramTierId: option.tierId,
+                })
+              }
+            >
+              <Plus size={11} />
+              <span className="ram-install-tier-spec">
+                <strong>{tierLabel}</strong>
+                <small>
+                  {formatBits(option.sizeBits)} @ {formatClock(option.speedMt)}
+                </small>
+              </span>
+              <ResourceCost
+                costs={upgrade.costs}
+                compact
+                resources={resources}
+              />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

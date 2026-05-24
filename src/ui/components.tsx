@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Cpu, ListTodo, TriangleAlert } from "lucide-react";
 import type { DeadlockResource, VisibleState } from "../game";
 import {
@@ -8,6 +8,9 @@ import {
   TaskBay,
 } from "./HardwareBoard";
 import { ResourceHud } from "./ResourceHud";
+import { ResourceGraph } from "./graph/ResourceGraph";
+import { useResourceHistory } from "./graph/useResourceHistory";
+import type { ResourceKind } from "./ResourceTokens";
 import type { Dispatch } from "./uiActions";
 import { getVisibleSelection, type SelectedComponent } from "./workbenchData";
 
@@ -107,6 +110,23 @@ export function SystemWorkbench({
   const hardwarePanelRef = useRef<HTMLElement | null>(null);
   const [activeSection, setActiveSection] = useState<SectionKey>("hardware");
   const [hardwareUpgradesHidden, setHardwareUpgradesHidden] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
+  const history = useResourceHistory(
+    visible.resources.credits,
+    visible.resources.data,
+  );
+
+  const handleSelectResource = useCallback(
+    (_resource: ResourceKind) => {
+      setGraphOpen((prev) => !prev);
+      if (isMobile) setActiveSection("research");
+    },
+    [isMobile],
+  );
+
+  const handleCloseGraph = useCallback(() => {
+    setGraphOpen(false);
+  }, []);
 
   const taskCount = getTaskCount(visible);
   const researchCount = getResearchCount(visible);
@@ -183,6 +203,8 @@ export function SystemWorkbench({
           visible={visible}
           onReset={onReset}
           animateResourceGains={animateResourceGains}
+          onSelectResource={handleSelectResource}
+          graphOpen={graphOpen}
         />
       </div>
 
@@ -301,12 +323,19 @@ export function SystemWorkbench({
           </div>
         </section>
 
-        <aside
-          className={`panel research-panel ${activeSection === "research" ? "active" : ""}`}
-          aria-label="Research"
+        <div
+          className={`right-column ${activeSection === "research" ? "active" : ""}`}
         >
-          <ResearchPanel visible={visible} dispatch={dispatch} />
-        </aside>
+          {graphOpen && (
+            <ResourceGraph history={history} onClose={handleCloseGraph} />
+          )}
+          <aside
+            className={`panel research-panel ${activeSection === "research" ? "active" : ""}`}
+            aria-label="Research"
+          >
+            <ResearchPanel visible={visible} dispatch={dispatch} />
+          </aside>
+        </div>
       </section>
       {isMobile && (
         <PinnedTaskBar

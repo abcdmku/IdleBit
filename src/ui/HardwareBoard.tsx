@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { DeadlockResource, VisibleState } from "../game";
 import { HardwareSystemBoard } from "./hardware/HardwareSystemBoard";
 import { getSystemQueueDisplayItems } from "./hardware/SystemBoardSections";
-import { UpgradeStepper } from "./hardware/UpgradeControls";
 import { getSystemScopedAction } from "./panels/systemScopedAction";
 import {
   BuilderScreen,
@@ -12,7 +11,6 @@ import {
   getFallbackRackSystem,
   getRackComponentWarnings,
   getRackData,
-  type BuilderTab,
   type RackView,
 } from "./rack";
 import type { Dispatch } from "./uiActions";
@@ -69,7 +67,6 @@ export function HardwareBoard({
     : getFallbackRackSystem(visible);
 
   const [rackView, setRackView] = useState<RackView>("list");
-  const [builderTab, setBuilderTab] = useState<BuilderTab>("new");
 
   const builderUnlocked =
     rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
@@ -89,9 +86,8 @@ export function HardwareBoard({
     setRackView("detail");
   };
 
-  const openBuilder = (tab: BuilderTab, _systemId?: string) => {
+  const openBuilder = () => {
     if (!rack.showRack && !builderUnlocked) return;
-    setBuilderTab(tab);
     setRackView("builder");
   };
 
@@ -157,7 +153,6 @@ export function HardwareBoard({
       activeSystemId={activeSystem.id}
       builderUnlocked={builderUnlocked}
       view={effectiveRackView}
-      builderTab={builderTab}
       onHome={backToRack}
       onSelectSystem={openSystemDetail}
       onOpenBuilder={openBuilder}
@@ -173,23 +168,8 @@ export function HardwareBoard({
         {strip}
         <BuilderScreen
           rack={rack}
-          activeSystem={activeSystem}
-          tab={builderTab}
-          onChangeTab={setBuilderTab}
-          onClose={backToRack}
           resources={visible.resources}
           systemDispatch={systemDispatch}
-          systemUpgrades={boardVisible.upgrades}
-          renderUpgradeStepper={(upgrade, className) => (
-            <UpgradeStepper
-              key={upgrade.id}
-              upgrade={upgrade}
-              dispatch={systemDispatch}
-              label={upgrade.name}
-              className={className}
-              resources={visible.resources}
-            />
-          )}
         />
       </div>
     );

@@ -1,5 +1,7 @@
 export type ResourceId = "credits" | "data";
 
+export type CpuTierId = "hz" | "khz" | "mhz" | "ghz" | "thz" | "phz";
+
 export type StageId =
   | "primitiveCpu"
   | "singleCpu"
@@ -49,7 +51,17 @@ export type ResearchId =
   | "systemCatalog"
   | "customMachineAssembly"
   | "psuManagement"
-  | "thermalControl";
+  | "thermalControl"
+  | "cpuTierKhz"
+  | "cpuTierMhz"
+  | "cpuTierGhz"
+  | "cpuTierThz"
+  | "cpuTierPhz"
+  | "cStateControl"
+  | "dualChannelRam"
+  | "quadChannelRam"
+  | "octChannelRam"
+  | "memoryVoltageModifier";
 
 export type UpgradeId =
   | "clock"
@@ -67,10 +79,12 @@ export type UpgradeId =
   | "ram"
   | "ramCapacity"
   | "ramSpeed"
+  | "memoryVoltage"
   | "cronSchedule"
   | "cronInterval"
   | "psu"
-  | "cooling";
+  | "cooling"
+  | "cState";
 
 export type HardwareComponentId =
   | "cpu"
@@ -97,7 +111,12 @@ export type UnlockId =
   | "systemCatalog"
   | "customMachineAssembly"
   | "psuManagement"
-  | "cooling";
+  | "cooling"
+  | "cStateControl"
+  | "dualChannelRam"
+  | "quadChannelRam"
+  | "octChannelRam"
+  | "memoryVoltageModifier";
 
 export type TaskKind = "task" | "job" | "benchmark";
 
@@ -301,6 +320,7 @@ export interface UpgradeContext {
   sourceCpuId?: number;
   ramStickId?: number;
   ramStickIds?: number[];
+  ramTierId?: CpuTierId;
 }
 
 export interface ActiveCoreOperation {
@@ -317,6 +337,8 @@ export interface ActiveCoreOperation {
   totalLoadCycles: number;
   memoryReservedBits: number;
   memoryReservedBytes: number;
+  ramBlocks: RamBlockAllocation[];
+  ramChannelCount: number;
   lockResource: DeadlockResource | null;
   lockReason: string | null;
   deadlockSeconds: number;
@@ -354,6 +376,7 @@ export interface PowerRuntimeState {
   state: PowerStateId;
   transitionSeconds: number;
   bootstrapGraceSeconds: number;
+  unpaidShutdownWarningSeconds: number;
   overloadFailureSeconds: number;
   lastFailureReason: PowerFailureReason | null;
   failureCount: number;
@@ -391,6 +414,8 @@ export interface ComponentSkuDefinition {
   description: string;
   cost: Cost[];
   cpuPackageCount?: number;
+  cpuTierId?: CpuTierId;
+  cpuLevel?: number;
   coreCount?: number;
   clockLevel?: number;
   cacheLevel?: number;
@@ -433,6 +458,7 @@ export interface SystemState {
   deadlockPressureResource: DeadlockResource | null;
   deadlockPressureCpuId: number | null;
   deadlockProcessLockout: boolean;
+  purchaseCosts: Cost[];
 }
 
 export interface RackState {
@@ -453,6 +479,11 @@ export interface GameFlags {
   customMachineAssembly: boolean;
   psuManagement: boolean;
   cooling: boolean;
+  cStateControl: boolean;
+  dualChannelRam: boolean;
+  quadChannelRam: boolean;
+  octChannelRam: boolean;
+  memoryVoltageModifier: boolean;
   schedulerWatchdog: boolean;
   schedulerPolicies: boolean;
 }
@@ -478,8 +509,10 @@ export interface HardwareState {
   ramSpeedLevel: number;
   ramSpeedMt: number;
   ramSticks: RamStickState[];
+  memoryVoltageLevel: number;
   cronScheduleSlots: number;
   cronIntervalLevel: number;
+  cStateLevel: number;
   psuLevel: number;
   psuWatts: number;
   coolingLevel: number;
@@ -495,8 +528,18 @@ export interface RamStickState {
   speedMt: number;
 }
 
+export interface RamBlockAllocation {
+  stickId: number;
+  startBit: number;
+  lengthBits: number;
+  loadedBits: number;
+  channelIndex: number;
+}
+
 export interface CpuHardwareState {
   id: number;
+  tierId: CpuTierId;
+  level: number;
   coreIds: number[];
   cacheLevel: number;
   cacheSpeedLevel: number;
@@ -531,13 +574,17 @@ export interface RamResidencySegment {
   coreId: number;
   taskId: TaskId;
   operationId?: string | null;
+  stickId?: number;
+  startBit?: number;
   bits: number;
+  loadedBits?: number;
+  channelIndex?: number;
   state: "reserved" | "loading" | "loaded";
   progress: number;
 }
 
 export interface GameState {
-  version: 2;
+  version: 4;
   tick: number;
   nextInstanceId: number;
   selectedSystemId: number;
@@ -580,6 +627,7 @@ export type GameAction =
   | { type: "selectSystem"; systemId: number }
   | { type: "buyMachineTemplate"; templateId: string }
   | { type: "buyCustomMachine"; components: MachineComponentSelection }
+  | { type: "sellSystem"; systemId: number }
   | { type: "setCronTask"; scheduleId: number; taskId: TaskId | null; systemId?: number }
   | {
       type: "setCronInterval";
@@ -621,6 +669,7 @@ export type GameAction =
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
+      ramTierId?: CpuTierId;
     }
   | {
       type: "downgradeUpgrade";
@@ -632,6 +681,7 @@ export type GameAction =
       sourceCpuId?: number;
       ramStickId?: number;
       ramStickIds?: number[];
+      ramTierId?: CpuTierId;
     }
   | { type: "startJob"; jobId: JobId; systemId?: number }
   | { type: "startJobOnCore"; jobId: JobId; coreId: number; systemId?: number }
@@ -712,6 +762,16 @@ export interface VisibleUpgrade {
   purchaseCount: number;
 }
 
+export interface VisibleRamInstallOption {
+  tierId: CpuTierId;
+  tierName: string;
+  level: number;
+  sizeBits: number;
+  sizeBytes: number;
+  speedMt: number;
+  upgrade: VisibleUpgrade;
+}
+
 export interface VisibleResearch {
   id: ResearchId;
   name: string;
@@ -721,6 +781,7 @@ export interface VisibleResearch {
   canAfford: boolean;
   canBuy: boolean;
   completed: boolean;
+  actionLabel?: string;
   blockedReason: string | null;
   requirements: VisibleResearchRequirement[];
   computeTasks: VisibleResearchComputeTask[];
@@ -810,9 +871,17 @@ export interface VisibleCore {
 export interface VisibleCpuSocket {
   id: number;
   label: string;
+  tierId: CpuTierId;
+  tierName: string;
+  level: number;
+  clockHz: number;
+  efficiency: number;
+  activeDrawWatts: number;
+  idleDrawWatts: number;
   cores: VisibleCore[];
   cacheLevel: number;
   cacheSpeedLevel: number;
+  cacheSpeedHz: number;
   cacheBits: number;
   cacheBytes: number;
   cacheUsedBits: number;
@@ -826,6 +895,7 @@ export interface VisibleCpuSocket {
   deadlockResource: DeadlockResource | null;
   deadlockRecoveryUpgrade: VisibleUpgrade | null;
   allCoreClockUpgrade: VisibleUpgrade | null;
+  cStateUpgrade: VisibleUpgrade | null;
   coreUpgrade: VisibleUpgrade | null;
   cacheUpgrade: VisibleUpgrade | null;
   cacheSpeedUpgrade: VisibleUpgrade | null;
@@ -841,6 +911,7 @@ export interface VisibleRamSlot {
   usedBytes: number;
   speedLevel: number;
   speedMt: number;
+  active?: boolean;
   capacityUpgrade: VisibleUpgrade | null;
   speedUpgrade: VisibleUpgrade | null;
 }
@@ -851,6 +922,10 @@ export interface VisibleMemoryPipeline {
   ramLoads: number;
   waits: number;
   deadlocks: number;
+  activeChannelCount: number;
+  maxChannelCount: number;
+  effectiveBandwidthBps: number;
+  channelBlockedReason: string | null;
 }
 
 export interface VisibleDeadlockSummary {
@@ -923,6 +998,8 @@ export interface VisibleSystemSummary {
   drawWatts: number;
   ramBits: number;
   ramUsedBits: number;
+  purchaseCosts: Cost[];
+  sellRefund: Cost[];
 }
 
 export interface VisibleRackState {
@@ -936,7 +1013,9 @@ export interface VisibleRackState {
 
 export interface VisibleComponentSku extends ComponentSkuDefinition {
   canAfford: boolean;
+  tierName?: string;
   clockHz?: number;
+  cpuEfficiency?: number;
   cacheSpeedHz?: number;
   cacheBits?: number;
   cacheBytes?: number;
@@ -972,6 +1051,7 @@ export interface VisibleHardwareMetrics {
   ramUsedBits: number;
   ramUsedBytes: number;
   ramSlots: VisibleRamSlot[];
+  ramInstallOptions: VisibleRamInstallOption[];
   allRamCapacityUpgrade: VisibleUpgrade | null;
   allRamSpeedUpgrade: VisibleUpgrade | null;
   ramResidency: RamResidencySegment[];
@@ -992,6 +1072,7 @@ export interface VisibleHardwareMetrics {
   powerState: PowerStateId;
   powerTransitionSeconds: number;
   powerBootstrapGraceSeconds: number;
+  powerUnpaidShutdownWarningSeconds: number;
   powerOverloadFailure: VisiblePowerOverloadFailure;
   cacheResidency: CacheResidencySegment[];
 }

@@ -192,6 +192,17 @@
   color: var(--cyan);
 }
 
+.psu-meta-cell.psu-meta-credit-warning {
+  border-color: rgba(255, 111, 145, 0.45);
+  background: rgba(255, 111, 145, 0.12);
+  animation: psu-pulse 1.2s ease-in-out infinite;
+}
+
+.psu-meta-cell.psu-meta-credit-warning small,
+.psu-meta-cell.psu-meta-credit-warning strong {
+  color: var(--rose);
+}
+
 @keyframes psu-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
@@ -211,7 +222,8 @@
   .psu-header-warning.flashing,
   .psu-section.critical .psu-load-meter,
   .psu-overload-row.tripped,
-  .psu-meta-cell.psu-meta-grace {
+  .psu-meta-cell.psu-meta-grace,
+  .psu-meta-cell.psu-meta-credit-warning {
     animation: none;
   }
 }

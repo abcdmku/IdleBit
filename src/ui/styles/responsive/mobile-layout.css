@@ -9,7 +9,7 @@
 
 @media (max-width: 1080px) {
   .board-stage {
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     grid-template-rows: 1fr 1fr;
   }
 

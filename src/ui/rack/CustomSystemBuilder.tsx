@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 import type { VisibleState } from "../../game";
-import { formatBits, formatCost, formatNumber, formatWatts } from "../format";
+import {
+  formatBits,
+  formatCost,
+  formatNumber,
+  formatWatts,
+  type DisplayCost,
+} from "../format";
 import { firstBits, firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
@@ -15,12 +21,11 @@ import {
   formatModuleStats,
   getModuleStats,
   getRecordCosts,
-  getSelectedBuilderTiers,
   getTierId,
   sumCosts,
   summarizeTier,
 } from "./builderHelpers";
-import type { UiCustomMachineBuilder } from "./types";
+import type { UiCustomMachineBuilder, UiCustomMachineTier } from "./types";
 
 interface CustomSystemBuilderProps {
   builder: UiCustomMachineBuilder | null;
@@ -30,6 +35,28 @@ interface CustomSystemBuilderProps {
 
 const formatModuleOptionTitle = (summary: string, costs: ReturnType<typeof getRecordCosts>) =>
   costs.length > 0 ? `${summary}: ${formatCost(costs)}` : summary;
+
+const scaleCosts = (costs: DisplayCost[], multiplier: number) =>
+  costs.map((cost) => ({
+    ...cost,
+    amount: cost.amount * multiplier,
+  }));
+
+const isPsuGroup = (groupId: string) =>
+  groupId === "psu" || groupId === "powerSupply";
+const POWER_MATCH_EPSILON = 0.000000000001;
+
+const getBuildCosts = (
+  entries: Array<{ groupId: string; tier: UiCustomMachineTier }>,
+  cpuPackageCount: number,
+) =>
+  sumCosts(
+    entries.map(({ groupId, tier }) =>
+      groupId === "cpu"
+        ? scaleCosts(getRecordCosts(tier), cpuPackageCount)
+        : getRecordCosts(tier),
+    ),
+  );
 
 export function CustomSystemBuilder({
   builder,
@@ -75,7 +102,23 @@ export function CustomSystemBuilder({
 
   if (!builder || groups.length === 0) return null;
 
-  const selectedTiers = getSelectedBuilderTiers(groups, selections);
+  const selectedEntries = groups
+    .map((group, groupIndex) => {
+      const groupId = getBuilderGroupId(group, groupIndex);
+      const options = group.tiers ?? group.options ?? [];
+      const tier =
+        options.find(
+          (option, optionIndex) =>
+            getTierId(option, optionIndex) === selections[groupId],
+        ) ?? null;
+
+      return tier ? { groupId, tier } : null;
+    })
+    .filter(
+      (entry): entry is { groupId: string; tier: UiCustomMachineTier } =>
+        entry !== null,
+    );
+  const selectedTiers = selectedEntries.map((entry) => entry.tier);
   const cpuPackageCount =
     selections.cpuPackages === "8"
       ? 8
@@ -88,7 +131,7 @@ export function CustomSystemBuilder({
   const costs =
     getRecordCosts(builder).length > 0
       ? getRecordCosts(builder)
-      : sumCosts(selectedTiers.map(getRecordCosts));
+      : getBuildCosts(selectedEntries, cpuPackageCount);
   const canAffordBuild = costs.every((cost) =>
     cost.resource === "credits" || cost.resource === "data"
       ? resources[cost.resource] >= cost.amount
@@ -117,10 +160,25 @@ export function CustomSystemBuilder({
     (total, tier) => total + firstBits([tier.ramBits], [tier.ramBytes]),
     0,
   );
-  const totalPower = selectedTiers.reduce(
-    (total, tier) => total + (tier.powerDeltaWatts ?? 0),
-    0,
-  );
+  const requiredPowerWatts = selectedEntries.reduce((total, { groupId, tier }) => {
+    if (isPsuGroup(groupId)) return total;
+    const multiplier = groupId === "cpu" ? cpuPackageCount : 1;
+    return total + (tier.powerDeltaWatts ?? 0) * multiplier;
+  }, 0);
+  const psuCapacityWatts =
+    firstNumber(
+      ...selectedEntries
+        .filter(({ groupId }) => isPsuGroup(groupId))
+        .flatMap(({ tier }) => [tier.psuWatts, tier.powerDeltaWatts]),
+    ) ?? 0;
+  const powerRatio =
+    psuCapacityWatts > 0
+      ? requiredPowerWatts / psuCapacityWatts
+      : requiredPowerWatts > 0
+        ? 1
+        : 0;
+  const powerMet = requiredPowerWatts <= psuCapacityWatts + POWER_MATCH_EPSILON;
+  const powerLabel = powerMet ? "Met" : "Short";
 
   const activeGroup = groups.find(
     (group, index) => getBuilderGroupId(group, index) === activeSlotId,
@@ -278,12 +336,38 @@ export function CustomSystemBuilder({
               <span>{formatBits(totalRamBits)}</span>
             </span>
           )}
-          {totalPower !== 0 && (
-            <span className="custom-system-total">
-              <span className="custom-system-total-label">PWR</span>
-              <span>{totalPower > 0 ? "+" : ""}{formatWatts(totalPower)}</span>
+          <span
+            className={`custom-power-check ${powerMet ? "met" : "short"}`}
+            style={{
+              "--custom-power-fill": `${Math.round(
+                Math.min(1, Math.max(0, powerRatio)) * 100,
+              )}%`,
+            } as CSSProperties}
+            title={`Power ${powerLabel.toLowerCase()}: ${formatWatts(
+              requiredPowerWatts,
+            )} needed / ${formatWatts(psuCapacityWatts)} PSU`}
+            aria-label={`Power ${powerLabel.toLowerCase()}: ${formatWatts(
+              requiredPowerWatts,
+            )} needed of ${formatWatts(psuCapacityWatts)} PSU`}
+          >
+            <span className="custom-power-state">
+              {powerMet ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+              <span>{powerLabel}</span>
             </span>
-          )}
+            <span className="custom-power-values">
+              <span>
+                <small>Need</small>
+                <strong>{formatWatts(requiredPowerWatts)}</strong>
+              </span>
+              <span>
+                <small>PSU</small>
+                <strong>{formatWatts(psuCapacityWatts)}</strong>
+              </span>
+            </span>
+            <span className="custom-power-meter" aria-hidden="true">
+              <span />
+            </span>
+          </span>
         </div>
         <div className="custom-system-buy">
           <ResourceCost costs={costs} compact resources={resources} />

@@ -1,7 +1,7 @@
 import { serializeSave, type GameState } from "../../game";
 import { idleBitPersistence, type PersistedValue } from "../../platform";
 
-export const SAVE_KEY = "save-v3";
+export const SAVE_KEY = "save-v4";
 export const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
 export const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 export const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";
@@ -13,6 +13,7 @@ export const SEEN_RESEARCH_KEY = "ui.seen-research-v1";
 
 const SEED_PARAM = "seed";
 const RACK_READY_SEED = "rack-ready";
+const RACK_READY_SEED_ALIASES = new Set([RACK_READY_SEED, "trillion"]);
 
 export interface NoticePreferenceSnapshot {
   deadlockHelpSeen: boolean;
@@ -34,7 +35,11 @@ export const toStoredIds = (value: unknown) =>
     : [];
 
 export const isRackReadySeed = () =>
-  new URLSearchParams(window.location.search).get(SEED_PARAM) === RACK_READY_SEED;
+  RACK_READY_SEED_ALIASES.has(
+    new URLSearchParams(window.location.search)
+      .get(SEED_PARAM)
+      ?.toLowerCase() ?? "",
+  );
 
 export const clearRackReadySeed = () => {
   window.history.replaceState(

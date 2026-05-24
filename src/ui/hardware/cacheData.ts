@@ -76,7 +76,11 @@ export const getRamReservation = (visible: VisibleState) => {
     (segment): RamSegment => ({
       state: segment.state ?? "loaded",
       coreId: segment.coreId,
+      stickId: segment.stickId,
+      startBit: segment.startBit,
       bits: segment.bits,
+      loadedBits: segment.loadedBits,
+      channelIndex: segment.channelIndex,
       progress: clampMeter(segment.progress ?? 1),
     }),
   );

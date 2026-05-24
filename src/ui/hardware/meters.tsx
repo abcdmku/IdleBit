@@ -20,7 +20,11 @@ export interface CacheSegment {
 export interface RamSegment {
   state: RamSegmentState;
   coreId: number;
+  stickId?: number;
+  startBit?: number;
   bits: number;
+  loadedBits?: number;
+  channelIndex?: number;
   progress: number;
 }
 
@@ -142,14 +146,24 @@ export function RamPressureMeter({
   capacityBits: number;
 }) {
   const capacity = Math.max(1, capacityBits);
+  const positioned = segments.some((segment) => segment.startBit !== undefined);
   let remaining = capacity;
-  const visibleSegments = segments.flatMap((segment) => {
-    if (remaining <= 0 || segment.bits <= 0) return [];
+  const visibleSegments = positioned
+    ? segments
+        .filter((segment) => segment.bits > 0)
+        .map((segment) => ({
+          ...segment,
+          bits: Math.min(segment.bits, Math.max(0, capacity - (segment.startBit ?? 0))),
+        }))
+        .filter((segment) => segment.bits > 0)
+    : segments.flatMap((segment) => {
+        if (remaining <= 0 || segment.bits <= 0) return [];
 
-    const bits = Math.min(remaining, segment.bits);
-    remaining -= bits;
-    return [{ ...segment, bits }];
-  });
+        const startBit = capacity - remaining;
+        const bits = Math.min(remaining, segment.bits);
+        remaining -= bits;
+        return [{ ...segment, startBit, bits }];
+      });
 
   if (visibleSegments.length === 0) {
     return <ModuleMeter value={0} />;
@@ -164,6 +178,7 @@ export function RamPressureMeter({
           style={
             {
               width: `${(segment.bits / capacity) * 100}%`,
+              left: `${((segment.startBit ?? 0) / capacity) * 100}%`,
               "--ram-core-color": getCoreSegmentColor(
                 segment.coreId,
                 segment.state === "loaded" ? 0.9 : 0.58,

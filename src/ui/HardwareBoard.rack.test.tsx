@@ -158,7 +158,7 @@ describe("HardwareBoard multi-system rack", () => {
         systemSchedulerSlots: 1,
       },
       resources: {
-        credits: 1_000,
+        credits: 2_000,
         data: 1_000,
       },
       tasks: [systemTask],
@@ -618,6 +618,10 @@ describe("HardwareBoard multi-system rack", () => {
     expect(presetButton?.textContent).not.toContain("Wide");
     expect(presetButton?.textContent).not.toContain("Queue");
     expect(presetButton?.textContent).not.toContain("Supply");
+    expect(
+      presetButton?.querySelector(".premade-card-footer .resource-token.credits strong")
+        ?.textContent,
+    ).toBe("500");
 
     act(() => {
       presetButton?.click();
@@ -647,6 +651,13 @@ describe("HardwareBoard multi-system rack", () => {
 
     act(() => {
       proButton?.click();
+    });
+
+    const cpuCountButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".custom-cpu-package-options button"),
+    );
+    act(() => {
+      cpuCountButtons.find((button) => button.textContent === "4")?.click();
     });
 
     const bayButtons = Array.from(
@@ -680,6 +691,22 @@ describe("HardwareBoard multi-system rack", () => {
       wideButton?.click();
     });
 
+    const customPower = container.querySelector<HTMLElement>(".custom-power-check");
+    expect(customPower?.className).toContain("short");
+    expect(customPower?.getAttribute("title")).toContain("48 W needed / 24 W PSU");
+    expect(
+      customPower
+        ?.style.getPropertyValue("--custom-power-fill"),
+    ).toBe("100%");
+    expect(
+      container.querySelector(".custom-system-buy .resource-token.credits strong")
+        ?.textContent,
+    ).toBe("1,040");
+    expect(
+      container.querySelector(".custom-system-buy .resource-token.data strong")
+        ?.textContent,
+    ).toBe("32");
+
     act(() => {
       container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();
     });
@@ -697,7 +724,7 @@ describe("HardwareBoard multi-system rack", () => {
         memory: "wide",
         scheduler: "queue",
         psu: "supply",
-        cpuPackages: "1",
+        cpuPackages: "4",
       },
       systemId: "beta",
     });

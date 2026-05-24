@@ -8,4 +8,5 @@
 @import "./styles/overlays.css";
 @import "./styles/responsive.css";
 @import "./styles/rack.css";
+@import "./styles/graph/resource-graph.css";
 @import "./styles/late-surfaces.css";

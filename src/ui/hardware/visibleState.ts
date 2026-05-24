@@ -50,6 +50,9 @@ export interface UiSystemStatus {
   powerState?: string;
   powerHeadroomWatts?: number;
   powerBootstrapGraceSeconds?: number;
+  powerUnpaidShutdownWarningSeconds?: number;
+  creditShutdownWarningSeconds?: number;
+  powerCreditShutdownWarningSeconds?: number;
   powerTransitionSeconds?: number;
   powerOverloadFailure?: UiPowerOverloadFailure;
   powerOverloadFailureSeconds?: number;
@@ -92,6 +95,10 @@ export interface UiSystemStatus {
     powerTransitionSeconds?: number;
     bootstrapGraceSeconds?: number;
     powerBootstrapGraceSeconds?: number;
+    unpaidShutdownWarningSeconds?: number;
+    powerUnpaidShutdownWarningSeconds?: number;
+    creditShutdownWarningSeconds?: number;
+    powerCreditShutdownWarningSeconds?: number;
     overloadFailure?: UiPowerOverloadFailure;
     powerOverloadFailure?: UiPowerOverloadFailure;
     overloadFailureSeconds?: number;
@@ -162,6 +169,10 @@ export interface UiPowerState {
   powerTransitionSeconds?: number;
   bootstrapGraceSeconds?: number;
   powerBootstrapGraceSeconds?: number;
+  unpaidShutdownWarningSeconds?: number;
+  powerUnpaidShutdownWarningSeconds?: number;
+  creditShutdownWarningSeconds?: number;
+  powerCreditShutdownWarningSeconds?: number;
   overloadFailure?: UiPowerOverloadFailure;
   powerOverloadFailure?: UiPowerOverloadFailure;
   overloadFailureSeconds?: number;

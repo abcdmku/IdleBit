@@ -1,10 +1,8 @@
-import type { VisibleState, VisibleUpgrade } from "../../game";
+import type { VisibleState } from "../../game";
 import type { DisplayCost } from "../format";
-import type { ReactNode } from "react";
 
 export type RackView = "list" | "detail" | "builder";
-export type BuilderTab = "new" | "configure";
-export type BuilderNewMode = "premade" | "custom";
+export type BuilderNewMode = "premade" | "custom" | "owned";
 
 export type UiRecord = Record<string, unknown>;
 
@@ -23,6 +21,8 @@ export interface UiRackSystemSource extends UiRecord {
   ramBits?: number;
   ramBytes?: number;
   powerUsedWatts?: number;
+  purchaseCosts?: DisplayCost[];
+  sellRefund?: DisplayCost[];
   visible?: UiRecord;
   visibleState?: UiRecord;
   state?: UiRecord;
@@ -53,6 +53,8 @@ export interface UiRackSystem {
   powerCostPerSecond: number;
   activeTaskCount: number;
   queueCount: number;
+  purchaseCosts: DisplayCost[];
+  sellRefund: DisplayCost[];
   source: UiRackSystemSource | null;
 }
 
@@ -106,6 +108,9 @@ export interface UiCustomMachineTier {
   ramBytes?: number;
   cacheBits?: number;
   cacheBytes?: number;
+  tierName?: string;
+  cpuLevel?: number;
+  cpuEfficiency?: number;
   clockLevel?: number;
   cacheLevel?: number;
   cacheSpeedLevel?: number;
@@ -174,7 +179,3 @@ export interface RackComponentWarnings {
   psu: boolean;
 }
 
-export type RenderBuilderUpgradeStepper = (
-  upgrade: VisibleUpgrade,
-  className: string,
-) => ReactNode;

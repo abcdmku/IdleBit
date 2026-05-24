@@ -1,5 +1,8 @@
-export { createInitialGameState } from "./progression";
-export { createRackReadyGameState } from "./devSeeds";
+export {
+  createInitialGameState,
+  POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+} from "./progression";
+export { createRackReadyGameState, RACK_READY_SEED_CREDITS } from "./devSeeds";
 export {
   acknowledgePowerFailure,
   applyAction,
@@ -27,6 +30,7 @@ export type {
   ActiveTask,
   ComponentSkuDefinition,
   CronIntervalMode,
+  CpuTierId,
   DeadlockResource,
   GameAction,
   GameState,
@@ -57,6 +61,7 @@ export type {
   VisibleJob,
   VisibleMachineBuilder,
   VisibleMachineTemplate,
+  VisibleRamInstallOption,
   VisibleRamSlot,
   VisibleRackState,
   VisibleResearch,

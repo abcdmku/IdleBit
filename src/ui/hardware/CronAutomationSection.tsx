@@ -84,23 +84,8 @@ export function CronAutomationSection({
           <span>System Automation</span>
           <span className="hw-section-meta">
             <strong>{activeCount}</strong>/{schedules.length} active
-            <span
-              className="cron-floor-inline"
-              title="Smallest interval CRON can schedule"
-            >
-              · Min {formatCronInterval(baseMinimumSeconds)}
-            </span>
           </span>
         </button>
-        {minUpgrade && (
-          <UpgradeStepper
-            upgrade={minUpgrade}
-            dispatch={dispatch}
-            label="Min interval"
-            className="cron-min-stepper"
-            resources={visible.resources}
-          />
-        )}
       </div>
 
       <div className="cron-schedule-list" aria-label="CRON schedules">
@@ -114,6 +99,24 @@ export function CronAutomationSection({
             dispatch={dispatch}
           />
         ))}
+      </div>
+
+      <div className="cron-floor-row">
+        <span
+          className="cron-floor-inline"
+          title="Smallest interval CRON can schedule"
+        >
+          Min {formatCronInterval(baseMinimumSeconds)}
+        </span>
+        {minUpgrade && (
+          <UpgradeStepper
+            upgrade={minUpgrade}
+            dispatch={dispatch}
+            label="Min interval"
+            className="cron-min-stepper"
+            resources={visible.resources}
+          />
+        )}
       </div>
     </section>
   );
@@ -281,4 +284,3 @@ function CronScheduleRow({
     </div>
   );
 }
-

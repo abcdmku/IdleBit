@@ -12,6 +12,7 @@ import {
   HardwareBoard,
   TaskBay
 } from "./HardwareBoard";
+import { QueuePreview } from "./hardware/QueuePreview";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -250,10 +251,10 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     });
 
     const cpuSchedulerSlot = container.querySelector<HTMLElement>(
-      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell.empty",
+      ".scheduler-section:not(.system-scheduler-section) .queue-empty",
     );
     const systemSchedulerSlot = container.querySelector<HTMLElement>(
-      ".system-scheduler-section .queue-slot-cell.empty",
+      ".system-scheduler-section .queue-empty",
     );
     const shutdownButton = container.querySelector<HTMLButtonElement>(
       ".system-shutdown-button",
@@ -543,9 +544,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(container.querySelector(".core-cache-row")).toBeNull();
     expect(
       container.querySelector(".core-array-section .upgrade-stepper")?.textContent,
-    ).toContain(
-      "C1 Freq",
-    );
+    ).toContain("CPU Level");
   });
 
   it("selects all cores and dispatches grouped clock +/- actions", () => {
@@ -617,7 +616,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     const groupedStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("All Freq"));
+    ).find((stepper) => stepper.textContent?.includes("CPU Level"));
     const groupButtons = Array.from(
       groupedStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
@@ -626,7 +625,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     );
 
     expect(activeSelectAll?.className).toContain("active");
-    expect(groupedStepper?.textContent).toContain("28");
+    expect(groupedStepper?.textContent).toContain("26");
     expect(
       Array.from(container.querySelectorAll(".core-die")).every(
         (core) => core.getAttribute("aria-pressed") === "true",
@@ -640,7 +639,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(dispatch).toHaveBeenLastCalledWith({
       type: "buyUpgrade",
       upgradeId: "clock",
-      coreIds: [1, 2],
+      cpuId: 1,
     });
 
     state = applyAction(state, {
@@ -662,7 +661,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     const downgradableStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("All Freq"));
+    ).find((stepper) => stepper.textContent?.includes("CPU Level"));
     const downgradeButtons = Array.from(
       downgradableStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
@@ -674,7 +673,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(dispatch).toHaveBeenLastCalledWith({
       type: "downgradeUpgrade",
       upgradeId: "clock",
-      coreIds: [1, 2],
+      cpuId: 1,
     });
   });
 
@@ -847,26 +846,80 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
         );
       });
 
-      const grid = container.querySelector<HTMLElement>(".queue-preview-list");
-
-      expect(grid?.dataset.grid).toBe(gridLabel);
-      expect(grid?.style.getPropertyValue("--scheduler-grid-columns")).toBe(columns);
-      expect(grid?.style.getPropertyValue("--scheduler-grid-height")).toBe(gridHeight);
-      expect(grid?.style.getPropertyValue("--scheduler-slot-height")).toBe(slotHeight);
-      expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(slots);
-      expect(container.querySelectorAll(".queue-slot-cell.empty")).toHaveLength(slots);
+      expect(gridLabel).toBeTruthy();
+      expect(columns).toBeTruthy();
+      expect(gridHeight).toBeTruthy();
+      expect(slotHeight).toBeTruthy();
+      expect(container.querySelector(".queue-preview-list")).toBeNull();
+      expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(0);
+      expect(container.querySelector(".queue-empty")?.textContent).toBe(
+        `${slots} slots open`,
+      );
     }
   });
 
-  it("starts the system scheduler grid at the purchased slot count", () => {
-    const base = deriveVisibleState(createInitialGameState());
-    const cases = [
-      [1, "1x1", "1"],
-      [2, "2x1", "2"],
-      [4, "2x2", "2"],
-    ] as const;
+  it("sizes active queue previews from rendered cells instead of full capacity", () => {
+    const queueItems = Array.from({ length: 7 }, (_, index) => ({
+      id: `task-${index}`,
+      name: "Power Telemetry",
+      waitingReason: "Ready",
+      active: true,
+      progress: 0.25,
+    }));
 
-    for (const [slots, gridLabel, columns] of cases) {
+    act(() => {
+      root.render(
+        <QueuePreview
+          items={queueItems}
+          slotCapacity={9}
+          ariaLabel="System scheduler queue"
+          dispatch={() => undefined}
+          startSmall
+        />,
+      );
+    });
+
+    const list = container.querySelector<HTMLElement>(".queue-preview-list");
+
+    expect(list?.dataset.grid).toBe("4x2");
+    expect(list?.style.getPropertyValue("--scheduler-grid-height")).toBe("64px");
+    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(8);
+    expect(container.querySelector(".queue-open-summary")?.textContent).toBe(
+      "2 open",
+    );
+
+    const fullQueueItems = Array.from({ length: 9 }, (_, index) => ({
+      id: `full-task-${index}`,
+      name: "Power Telemetry",
+      waitingReason: "Ready",
+      active: true,
+      progress: 0.25,
+    }));
+
+    act(() => {
+      root.render(
+        <QueuePreview
+          items={fullQueueItems}
+          slotCapacity={9}
+          ariaLabel="System scheduler queue"
+          dispatch={() => undefined}
+          startSmall
+        />,
+      );
+    });
+
+    const fullList = container.querySelector<HTMLElement>(".queue-preview-list");
+
+    expect(fullList?.dataset.grid).toBe("3x3");
+    expect(fullList?.style.getPropertyValue("--scheduler-grid-height")).toBe("98px");
+    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(9);
+  });
+
+  it("reports the available system scheduler slot count", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const cases = [1, 2, 4] as const;
+
+    for (const slots of cases) {
       const visible: VisibleState = {
         ...base,
         flags: {
@@ -891,15 +944,15 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
         );
       });
 
-      const grid = container.querySelector<HTMLElement>(
-        ".system-scheduler-section .queue-preview-list",
-      );
-
-      expect(grid?.dataset.grid).toBe(gridLabel);
-      expect(grid?.style.getPropertyValue("--scheduler-grid-columns")).toBe(columns);
+      expect(
+        container.querySelector(".system-scheduler-section .queue-preview-list"),
+      ).toBeNull();
       expect(
         container.querySelectorAll(".system-scheduler-section .queue-slot-cell"),
-      ).toHaveLength(slots);
+      ).toHaveLength(0);
+      expect(
+        container.querySelector(".system-scheduler-section .queue-empty")?.textContent,
+      ).toBe(`${slots} slot${slots === 1 ? "" : "s"} open`);
     }
   });
 

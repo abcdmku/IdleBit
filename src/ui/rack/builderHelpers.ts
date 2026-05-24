@@ -233,15 +233,27 @@ export const getModuleStats = (
     const cacheBits = firstBits([module.cacheBits], [module.cacheBytes]);
     const cacheSpeed = formatOptionalClock(module.cacheSpeedHz);
     const cacheCapacity = cacheBits > 0 ? `cache ${formatBits(cacheBits)}` : null;
+    const tierLabel = [module.tierName, module.cpuLevel ? `L${module.cpuLevel}` : null]
+      .filter(Boolean)
+      .join(" ");
+    const efficiency =
+      module.cpuEfficiency !== undefined
+        ? `eff ${formatNumber(module.cpuEfficiency)}`
+        : null;
+    const power =
+      module.powerDeltaWatts !== undefined
+        ? `draw ${formatWatts(module.powerDeltaWatts)}`
+        : null;
 
     return [
       coreCount !== undefined
-        ? [formatCoreCount(coreCount), clock].filter(Boolean).join(" @ ")
+        ? [formatCoreCount(coreCount), tierLabel || null, clock].filter(Boolean).join(" @ ")
         : null,
+      [efficiency, power].filter(Boolean).join(" / "),
       cacheCapacity || cacheSpeed
         ? [cacheCapacity ?? "cache", cacheSpeed].filter(Boolean).join(" @ ")
         : null,
-    ].filter((item): item is string => item !== null);
+    ].filter((item): item is string => Boolean(item));
   }
 
   if (groupId === "ram" || groupId === "memory") {

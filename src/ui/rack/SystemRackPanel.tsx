@@ -1,9 +1,8 @@
 import { useRef, type TouchEvent } from "react";
-import { Plus, Server } from "lucide-react";
+import { Server, Store } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { SystemRack } from "../MotherboardLayout";
 import {
-  getSelectedSystemComponent,
   scopeSelectionToSystem,
   type SelectedComponent,
 } from "../workbenchData";
@@ -12,7 +11,6 @@ import { getBuilderGroups } from "./builderHelpers";
 import { normalizePowerState } from "./rackPower";
 import { RackSystemCard } from "./RackSystemCard";
 import type {
-  BuilderTab,
   RackComponentWarnings,
   RackQueueDisplayItem,
   UiRackData,
@@ -24,7 +22,7 @@ interface SystemRackPanelProps {
   rack: UiRackData;
   activeSystemId: string;
   onOpenSystem: (systemId: string) => void;
-  onOpenBuilder: (tab: BuilderTab, systemId?: string) => void;
+  onOpenBuilder: () => void;
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
   dispatch: Dispatch;
@@ -40,13 +38,12 @@ export function SystemRackPanel({
   activeSystemId,
   onOpenSystem,
   onOpenBuilder,
-  selection,
+  selection: _selection,
   onSelectComponent,
   dispatch,
   getComponentWarnings,
   getSystemQueueDisplayItems,
 }: SystemRackPanelProps) {
-  const activeComponent = getSelectedSystemComponent(selection) ?? "core:1";
   const lastTapRef = useRef<{ systemId: string; time: number } | null>(null);
   const builderUnlocked =
     rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
@@ -54,12 +51,6 @@ export function SystemRackPanel({
   const selectSystemScheduler = (systemId: string) => {
     dispatch({ type: "selectSystem", systemId });
     onSelectComponent(scopeSelectionToSystem(systemId, "scheduler"));
-  };
-
-  const configureSystem = (systemId: string) => {
-    dispatch({ type: "selectSystem", systemId });
-    onSelectComponent(scopeSelectionToSystem(systemId, activeComponent));
-    onOpenBuilder("configure", systemId);
   };
 
   const toggleRackPower = (systemId: string, status: string) => {
@@ -108,11 +99,11 @@ export function SystemRackPanel({
           <button
             type="button"
             className="rack-build-new"
-            onClick={() => onOpenBuilder("new")}
-            title="Open builder to buy a new system"
+            onClick={onOpenBuilder}
+            title="Open the system store"
           >
-            <Plus size={13} />
-            <span>Build New</span>
+            <Store size={13} />
+            <span>Store</span>
           </button>
         )}
       </div>
@@ -124,9 +115,7 @@ export function SystemRackPanel({
             system={system}
             index={index}
             selected={system.id === activeSystemId}
-            builderUnlocked={builderUnlocked}
             onTogglePower={() => toggleRackPower(system.id, system.status)}
-            onConfigure={() => configureSystem(system.id)}
             onOpenDetail={() => onOpenSystem(system.id)}
             onSelectScheduler={() => selectSystemScheduler(system.id)}
             onTouchEnd={(event) => handleRackTouchEnd(event, system.id)}

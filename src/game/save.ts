@@ -7,7 +7,7 @@ import {
   createSchedulerConfig,
   getCacheBits,
   getCacheBytes,
-  getClockHz,
+  getCpuClockHz,
   getCoolingRating,
   POWER_BOOTSTRAP_GRACE_SECONDS,
   getPsuWatts,
@@ -34,13 +34,13 @@ import type {
 } from "./types";
 
 export interface SaveEnvelope {
-  version: 2;
+  version: 4;
   savedAt: string;
   state: GameState;
 }
 
 export const createSaveEnvelope = (state: GameState): SaveEnvelope => ({
-  version: 2,
+  version: 4,
   savedAt: new Date().toISOString(),
   state,
 });
@@ -52,7 +52,8 @@ type LegacyHardwareState = Partial<GameState["hardware"]> & {
   ramGb?: number;
 };
 
-type LegacyState = Partial<GameState> & {
+type LegacyState = Omit<Partial<GameState>, "version"> & {
+  version?: number;
   flags?: Partial<GameFlags>;
   hardware?: LegacyHardwareState;
   activeJobs?: unknown[];
@@ -92,6 +93,16 @@ const validResearchIds = [
   "customMachineAssembly",
   "psuManagement",
   "thermalControl",
+  "cpuTierKhz",
+  "cpuTierMhz",
+  "cpuTierGhz",
+  "cpuTierThz",
+  "cpuTierPhz",
+  "cStateControl",
+  "dualChannelRam",
+  "quadChannelRam",
+  "octChannelRam",
+  "memoryVoltageModifier",
 ] satisfies ResearchId[];
 
 const validTaskIds = new Set<TaskId>(taskDefinitions.map((task) => task.id));
@@ -189,6 +200,25 @@ const normalizeMemoryState = (
   return status === "complete" ? "idle" : "ready";
 };
 
+const normalizeRamBlocks = (blocks: unknown) =>
+  Array.isArray(blocks)
+    ? blocks
+        .filter((block): block is Record<string, unknown> =>
+          Boolean(block && typeof block === "object" && !Array.isArray(block)),
+        )
+        .map((block, index) => {
+          const lengthBits = toNonNegativeNumber(block.lengthBits);
+          return {
+            stickId: Math.max(1, toInteger(block.stickId, 1)),
+            startBit: toNonNegativeNumber(block.startBit),
+            lengthBits,
+            loadedBits: Math.min(lengthBits, toNonNegativeNumber(block.loadedBits)),
+            channelIndex: Math.max(0, toInteger(block.channelIndex, index)),
+          };
+        })
+        .filter((block) => block.lengthBits > 0)
+    : [];
+
 const normalizeActiveOperation = (
   operation: ActiveCoreOperation,
 ): ActiveCoreOperation => {
@@ -217,6 +247,8 @@ const normalizeActiveOperation = (
     totalLoadCycles,
     memoryReservedBits,
     memoryReservedBytes: toNonNegativeNumber(operation.memoryReservedBytes),
+    ramBlocks: normalizeRamBlocks(operation.ramBlocks),
+    ramChannelCount: Math.max(1, toInteger(operation.ramChannelCount, 1)),
     lockResource: operation.lockResource ?? null,
     lockReason: operation.lockReason ?? null,
     deadlockSeconds: toNonNegativeNumber(operation.deadlockSeconds),
@@ -402,14 +434,11 @@ const normalizeState = (state: LegacyState): GameState => {
   const coreClockLevels: Record<number, number> =
     hardware.coreClockLevels ??
     (Object.fromEntries(
-      Array.from({ length: hardware.cores ?? fresh.hardware.cores }, (_, index) => [
-        index + 1,
-        hardware.clockLevel ?? fresh.hardware.clockLevel,
-      ]),
+      cpus.flatMap((cpu) => cpu.coreIds.map((coreId) => [coreId, cpu.level])),
     ) as Record<number, number>);
   const clockLevel = Math.max(
-    hardware.clockLevel ?? fresh.hardware.clockLevel,
-    ...Object.values(coreClockLevels),
+    1,
+    ...cpus.map((cpu) => cpu.level),
   );
   const availableCoreIds = cpus.flatMap((cpu) => cpu.coreIds);
   const completedTasks = normalizeTaskCounts(
@@ -444,7 +473,10 @@ const normalizeState = (state: LegacyState): GameState => {
       ? POWER_BOOTSTRAP_GRACE_SECONDS
       : 0);
   const savedPower = state.power as
-    | (Partial<GameState["power"]> & { overloadWarningSeconds?: number })
+    | (Partial<GameState["power"]> & {
+        overloadWarningSeconds?: number;
+        creditShutdownWarningSeconds?: number;
+      })
     | undefined;
   const overloadFailureSeconds = Math.max(
     0,
@@ -452,14 +484,24 @@ const normalizeState = (state: LegacyState): GameState => {
       savedPower?.overloadWarningSeconds ??
       0,
   );
+  const unpaidShutdownWarningSeconds = Math.max(
+    0,
+    savedPower?.unpaidShutdownWarningSeconds ??
+      savedPower?.creditShutdownWarningSeconds ??
+      0,
+  );
   const normalized: GameState = {
     ...fresh,
     ...state,
+    version: 4,
     hardware: {
       ...fresh.hardware,
       ...hardware,
       clockLevel,
-      clockHz: getClockHz(clockLevel),
+      clockHz: Math.max(
+        1,
+        ...cpus.map((cpu) => getCpuClockHz(cpu.tierId, cpu.level)),
+      ),
       coreClockLevels,
       cacheSpeedLevel,
       cacheBits,
@@ -479,14 +521,25 @@ const normalizeState = (state: LegacyState): GameState => {
           ? hardware.ramSpeedMt
           : getRamSpeedMt(ramSpeedLevel),
       ramSticks,
+      memoryVoltageLevel: Math.max(
+        0,
+        toInteger(
+          hardware.memoryVoltageLevel,
+          fresh.hardware.memoryVoltageLevel,
+        ),
+      ),
       cronScheduleSlots,
       cronIntervalLevel:
         hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
+      cStateLevel: Math.max(
+        0,
+        toInteger(hardware.cStateLevel, fresh.hardware.cStateLevel),
+      ),
       psuLevel,
-      psuWatts:
-        hardware.psuWatts && hardware.psuWatts > 0
-          ? hardware.psuWatts
-          : getPsuWatts(psuLevel),
+      psuWatts: Math.max(
+        hardware.psuWatts && hardware.psuWatts > 0 ? hardware.psuWatts : 0,
+        getPsuWatts(psuLevel),
+      ),
       coolingLevel,
       coolingRating:
         hardware.coolingRating ??
@@ -501,6 +554,7 @@ const normalizeState = (state: LegacyState): GameState => {
       state: powerState,
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
       bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
+      unpaidShutdownWarningSeconds,
       overloadFailureSeconds,
       lastFailureReason:
         savedPower?.lastFailureReason === "psuOverload" ||
@@ -556,9 +610,16 @@ export const deserializeSave = (raw: string | null): GameState => {
   if (!raw) return createInitialGameState();
 
   try {
-    const parsed = JSON.parse(raw) as Partial<SaveEnvelope>;
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      state?: LegacyState;
+    };
 
-    if (parsed.version === 2 && parsed.state?.version === 2) {
+    if (parsed.version === 3 && parsed.state?.version === 3) {
+      return createInitialGameState();
+    }
+
+    if (parsed.version === 4 && parsed.state?.version === 4) {
       return normalizeState(parsed.state);
     }
   } catch {

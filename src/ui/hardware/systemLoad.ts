@@ -132,6 +132,18 @@ export const getPowerStats = (visible: VisibleState) => {
       ui.metrics.powerBillingGraceSeconds,
     ) ?? 0,
   );
+  const unpaidShutdownWarningSeconds = Math.max(
+    0,
+    firstNumber(
+      power?.unpaidShutdownWarningSeconds,
+      power?.powerUnpaidShutdownWarningSeconds,
+      power?.creditShutdownWarningSeconds,
+      power?.powerCreditShutdownWarningSeconds,
+      ui.systemStatus?.powerUnpaidShutdownWarningSeconds,
+      ui.systemStatus?.creditShutdownWarningSeconds,
+      ui.metrics.powerUnpaidShutdownWarningSeconds,
+    ) ?? 0,
+  );
   const transitionSeconds = Math.max(
     0,
     firstNumber(
@@ -209,6 +221,7 @@ export const getPowerStats = (visible: VisibleState) => {
     stress,
     costPerSecond,
     billingGraceSeconds,
+    unpaidShutdownWarningSeconds,
     transitionSeconds,
     overloadFailure: {
       seconds: overloadSeconds,

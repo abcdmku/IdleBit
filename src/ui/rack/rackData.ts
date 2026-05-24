@@ -1,4 +1,5 @@
 import type { VisibleState } from "../../game";
+import type { DisplayCost } from "../format";
 import {
   asUiVisible,
   firstString,
@@ -133,6 +134,20 @@ const getSystemClockHz = (visible: VisibleState) => {
   return Math.max(...cores.map((core) => core.clockHz ?? 0));
 };
 
+const normalizeCostList = (value: unknown): DisplayCost[] =>
+  Array.isArray(value)
+    ? value
+        .map((entry) => {
+          if (!isUiRecord(entry)) return null;
+          const resource = entry.resource;
+          const amount = entry.amount;
+          return typeof resource === "string" && typeof amount === "number"
+            ? { resource, amount }
+            : null;
+        })
+        .filter((entry): entry is DisplayCost => entry !== null)
+    : [];
+
 const toRackSystem = (
   visible: VisibleState,
   source: UiRackSystemSource,
@@ -162,6 +177,8 @@ const toRackSystem = (
     powerCostPerSecond: systemVisible.metrics.powerCostPerSecond ?? 0,
     activeTaskCount: getActiveTasks(systemVisible).length,
     queueCount: getQueueEntries(systemVisible).length,
+    purchaseCosts: normalizeCostList(source.purchaseCosts),
+    sellRefund: normalizeCostList(source.sellRefund),
     source,
   };
 };
@@ -182,6 +199,8 @@ export const getFallbackRackSystem = (visible: VisibleState): UiRackSystem => ({
   powerCostPerSecond: visible.metrics.powerCostPerSecond ?? 0,
   activeTaskCount: getActiveTasks(visible).length,
   queueCount: getQueueEntries(visible).length,
+  purchaseCosts: [],
+  sellRefund: [],
   source: null,
 });
 

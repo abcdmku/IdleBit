@@ -153,6 +153,41 @@ describe("HardwareBoard power telemetry", () => {
     expect(psuSection?.textContent).not.toContain("efficiency");
   });
 
+  it("shows unpaid credit shutdown warning countdown on the PSU", () => {
+    const initial = deriveVisibleState(createInitialGameState());
+    const visible = {
+      ...initial,
+      resources: {
+        ...initial.resources,
+        credits: 0,
+      },
+      metrics: {
+        ...initial.metrics,
+        powerUnpaidShutdownWarningSeconds: 7,
+      },
+    } as VisibleState;
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const psuSection = container.querySelector(".psu-section");
+    const headerWarning = psuSection?.querySelector(".psu-header-warning");
+
+    expect(psuSection?.textContent).toContain("7s to cutoff");
+    expect(psuSection?.textContent).toContain("credits");
+    expect(psuSection?.querySelector(".psu-meta-credit-warning")).not.toBeNull();
+    expect(headerWarning).not.toBeNull();
+    expect(headerWarning?.className).toContain("flashing");
+  });
+
   it("shows a pause caption for first PSU failure pressure", () => {
     const scroll = mockScrollIntoView();
     const dismiss = vi.fn();

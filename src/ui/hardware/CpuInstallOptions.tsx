@@ -28,7 +28,7 @@ export function EmptySocketSection({
       </button>
       <div className="empty-socket">
         <strong>Install CPU</strong>
-        <small>Pick base silicon or copy CPU A specs.</small>
+        <small>Install this system's CPU tier at level 1.</small>
       </div>
       <CpuInstallOptions
         upgrades={upgrades}
@@ -40,16 +40,18 @@ export function EmptySocketSection({
 }
 
 const getCpuInstallDescription = (upgrade: VisibleUpgrade) =>
-  upgrade.id === "matchedCpu" ? "Matched package" : "Base package";
+  upgrade.id === "matchedCpu" ? "Hidden legacy package" : "Matching tier L1 package";
 
 export function CpuInstallOptions({
   upgrades,
   resources,
   dispatch,
+  variant = "body",
 }: {
   upgrades: VisibleUpgrade[];
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  variant?: "body" | "header";
 }) {
   const socketUpgrades = upgrades
     .filter((upgrade) => upgrade.id === "secondCpu" || upgrade.id === "matchedCpu")
@@ -60,7 +62,10 @@ export function CpuInstallOptions({
   if (socketUpgrades.length === 0) return null;
 
   return (
-    <div className="cpu-install-options" aria-label="CPU install options">
+    <div
+      className={`cpu-install-options ${variant}`}
+      aria-label="CPU install options"
+    >
       {socketUpgrades.map((upgrade) => {
         const buyTitle = `${upgrade.name}: ${formatCost(upgrade.costs)}`;
         const powerDelta =

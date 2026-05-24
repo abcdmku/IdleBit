@@ -250,6 +250,8 @@ const makeRackSystem = (
   powerCostPerSecond: visible.metrics.powerCostPerSecond ?? 0,
   activeTaskCount,
   queueCount,
+  purchaseCosts: [],
+  sellRefund: [],
   source: null,
 });
 

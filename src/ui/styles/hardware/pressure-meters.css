@@ -97,6 +97,12 @@
   transition: none;
 }
 
+.module-meter.ram-pressure-meter > .ram-pressure-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+
 .module-meter.ram-pressure-meter .ram-pressure-segment.reserved {
   background: repeating-linear-gradient(
     45deg,

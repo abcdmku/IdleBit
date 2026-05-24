@@ -37,6 +37,29 @@
   content: "";
 }
 
+.ram-pipeline-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+
+.ram-pipeline-summary span {
+  min-width: 0;
+  padding: 1px var(--s-2);
+  border: 1px solid rgba(115, 240, 92, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(115, 240, 92, 0.05);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- Grid ---------- */
 
 .ram-stick-grid {

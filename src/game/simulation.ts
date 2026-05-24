@@ -865,21 +865,28 @@ const enterOperation = (
   const operation = getOperation(task, operationIndex);
 
   if (!operation) {
+    const retainedRamBlocks = coreOperation.ramBlocks ?? [];
+    const retainedRamBits =
+      retainedRamBlocks.length > 0
+        ? coreOperation.memoryReservedBits
+        : 0;
+
     return {
       ...coreOperation,
       operationIndex,
       operationId: null,
       operationName: null,
       status: "complete",
-      memoryState: "idle",
+      memoryState: retainedRamBits > 0 ? "ready" : "idle",
       remainingCycles: 0,
       totalCycles: 0,
       remainingLoadCycles: 0,
       totalLoadCycles: 0,
-      memoryReservedBits: 0,
-      memoryReservedBytes: 0,
-      ramBlocks: [],
-      ramChannelCount: 1,
+      memoryReservedBits: retainedRamBits,
+      memoryReservedBytes: bitsToBytes(retainedRamBits),
+      ramBlocks: retainedRamBlocks,
+      ramChannelCount:
+        retainedRamBits > 0 ? Math.max(1, coreOperation.ramChannelCount) : 1,
       lockResource: null,
       lockReason: null,
       deadlockSeconds: 0,
@@ -1848,9 +1855,16 @@ const tickLoad = (
     operation.status === "loadingRam" && (operation.ramBlocks ?? []).length > 0
       ? applyRamBlockLoadDeltas(operation, ramLoadDeltas, appliedRamBlockScale)
       : operation.ramBlocks ?? [];
+  const loadedRamBlockBits = nextRamBlocks.reduce(
+    (total, block) => total + Math.max(0, block.loadedBits),
+    0,
+  );
   const remainingLoadCycles = Math.max(
     0,
-    operation.remainingLoadCycles - appliedLoadCycles,
+    operation.status === "loadingRam" && nextRamBlocks.length > 0
+      ? operationDefinition.ramBits -
+          Math.min(operationDefinition.ramBits, loadedRamBlockBits)
+      : operation.remainingLoadCycles - appliedLoadCycles,
   );
   const cpuCyclesDone = cacheProgress?.cpuCycles ?? 0;
   const remainingCycles = Math.max(0, operation.remainingCycles - cpuCyclesDone);
@@ -2009,10 +2023,6 @@ const tickRunning = (
     {
       ...operation,
       remainingCycles: 0,
-      memoryReservedBits: 0,
-      memoryReservedBytes: 0,
-      ramBlocks: [],
-      ramChannelCount: 1,
     },
     operation.operationIndex + 1,
   );
@@ -2146,32 +2156,57 @@ const tickActiveTask = (
   const ramDeadlocked = Boolean(getRamDeadlockOperation(state));
   const cacheDeadlockedCpuIds = getCacheDeadlockedCpuIds(state);
   const recoveryActive = state.deadlockProcessLockout === true;
-  const coreOperations: ActiveCoreOperation[] = activeTask.coreOperations.map((operation) => {
+  const coreOperations: ActiveCoreOperation[] = [];
+
+  activeTask.coreOperations.forEach((operation, index) => {
+    const stagedTask = {
+      ...activeTask,
+      coreOperations: [
+        ...coreOperations,
+        ...activeTask.coreOperations.slice(index),
+      ],
+    };
+    const stagedActiveTasks = state.activeTasks.map((candidate) =>
+      candidate.instanceId === activeTask.instanceId ? stagedTask : candidate,
+    );
+    const stagedState = {
+      ...state,
+      activeTasks: stagedActiveTasks,
+      activeJobs: stagedActiveTasks,
+    };
+
     if (operation.status === "deadlocked") {
-      return tickDeadlocked(state, activeTask, operation, deltaSeconds);
+      coreOperations.push(
+        tickDeadlocked(stagedState, stagedTask, operation, deltaSeconds),
+      );
+      return;
     }
 
     if (
       recoveryActive ||
       ramDeadlocked ||
-      cacheDeadlockedCpuIds.has(getCpuIdForCore(state, operation.coreId))
+      cacheDeadlockedCpuIds.has(getCpuIdForCore(stagedState, operation.coreId))
     ) {
-      return operation;
+      coreOperations.push(operation);
+      return;
     }
 
     if (operation.status === "loadingCache" || operation.status === "loadingRam") {
-      return tickLoad(state, activeTask, operation, deltaSeconds);
+      coreOperations.push(tickLoad(stagedState, stagedTask, operation, deltaSeconds));
+      return;
     }
 
     if (operation.status === "running") {
-      return tickRunning(state, activeTask, operation, deltaSeconds);
+      coreOperations.push(tickRunning(stagedState, stagedTask, operation, deltaSeconds));
+      return;
     }
 
     if (operation.status === "waitingMemory") {
-      return tickWaitingMemory(state, activeTask, operation);
+      coreOperations.push(tickWaitingMemory(stagedState, stagedTask, operation));
+      return;
     }
 
-    return operation;
+    coreOperations.push(operation);
   });
 
   return assignNextChunkedWorkUnits(state, activeTask, coreOperations);

@@ -193,6 +193,16 @@ export function RamSection({
         />
       )}
 
+      <div className="ram-pipeline-summary">
+        <span title={visible.metrics.memory.channelBlockedReason ?? undefined}>
+          Ch {visible.metrics.memory.activeChannelCount}/
+          {visible.metrics.memory.maxChannelCount}
+        </span>
+        <span>
+          Write {formatClock(visible.metrics.memory.effectiveBandwidthBps)}
+        </span>
+      </div>
+
       <div
         className="ram-stick-grid"
         style={ramGridStyle}

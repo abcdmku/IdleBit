@@ -330,7 +330,7 @@ const getBlockTotalBits = (blocks: RamBlockAllocation[]) =>
   blocks.reduce((total, block) => total + Math.max(0, block.lengthBits), 0);
 
 const getOperationRamBlocks = (operation: ActiveCoreOperation) =>
-  operation.status === "complete" || operation.status === "waitingMemory"
+  operation.status === "waitingMemory"
     ? []
     : operation.ramBlocks ?? [];
 
@@ -426,6 +426,32 @@ const takeFromRanges = (
   return blocks;
 };
 
+interface RamStickPlan {
+  stick: RamStickState;
+  channelIndex: number;
+  ranges: FreeRamRange[];
+}
+
+const takeFromStickPlans = (plans: RamStickPlan[], bits: number) => {
+  let remainingBits = Math.max(0, bits);
+  const blocks: RamBlockAllocation[] = [];
+
+  for (const plan of plans) {
+    if (remainingBits <= 0) break;
+
+    const plannedBlocks = takeFromRanges(
+      plan.ranges,
+      remainingBits,
+      plan.stick.id,
+      plan.channelIndex,
+    );
+    blocks.push(...plannedBlocks);
+    remainingBits -= getBlockTotalBits(plannedBlocks);
+  }
+
+  return { blocks, remainingBits };
+};
+
 export const allocateRamBlocksForOperation = (
   state: GameState,
   task: ActiveTask,
@@ -445,11 +471,10 @@ export const allocateRamBlocksForOperation = (
   if (sticks.length === 0) return null;
 
   const channelCount = getTaskRamChannelCount(state, task);
-  const eligibleSticks = sticks.slice(0, channelCount);
   const activeBlocks = getActiveRamBlocks(state, task, operation);
-  const plans = eligibleSticks.map((stick, index) => ({
+  const plans = sticks.map((stick, index) => ({
     stick,
-    channelIndex: index,
+    channelIndex: index % channelCount,
     ranges: getFreeRamRanges(stick, activeBlocks),
   }));
   const totalFree = plans.reduce(
@@ -460,35 +485,46 @@ export const allocateRamBlocksForOperation = (
 
   if (totalFree < requiredBits) return null;
 
-  const baseBits = Math.floor(requiredBits / plans.length);
+  if (channelCount <= 1) {
+    const allocation = takeFromStickPlans(plans, requiredBits);
+    const usedChannelCount = Math.max(
+      1,
+      new Set(allocation.blocks.map((block) => block.channelIndex)).size,
+    );
+
+    return allocation.remainingBits <= 0
+      ? { blocks: allocation.blocks, channelCount: usedChannelCount }
+      : null;
+  }
+
+  const channelPlans = Array.from({ length: channelCount }, (_, channelIndex) =>
+    plans.filter((plan) => plan.channelIndex === channelIndex),
+  );
+  const baseBits = Math.floor(requiredBits / channelPlans.length);
   let remainingBits = requiredBits;
   const blocks: RamBlockAllocation[] = [];
 
-  plans.forEach((plan, index) => {
-    const desiredBits = baseBits + (index < requiredBits % plans.length ? 1 : 0);
-    const plannedBlocks = takeFromRanges(
-      plan.ranges,
-      desiredBits,
-      plan.stick.id,
-      plan.channelIndex,
-    );
-    blocks.push(...plannedBlocks);
-    remainingBits -= getBlockTotalBits(plannedBlocks);
+  channelPlans.forEach((plansForChannel, index) => {
+    const desiredBits =
+      baseBits + (index < requiredBits % channelPlans.length ? 1 : 0);
+    const allocation = takeFromStickPlans(plansForChannel, desiredBits);
+    blocks.push(...allocation.blocks);
+    remainingBits -= desiredBits - allocation.remainingBits;
   });
 
-  for (const plan of plans) {
+  for (const plansForChannel of channelPlans) {
     if (remainingBits <= 0) break;
-    const plannedBlocks = takeFromRanges(
-      plan.ranges,
-      remainingBits,
-      plan.stick.id,
-      plan.channelIndex,
-    );
-    blocks.push(...plannedBlocks);
-    remainingBits -= getBlockTotalBits(plannedBlocks);
+    const allocation = takeFromStickPlans(plansForChannel, remainingBits);
+    blocks.push(...allocation.blocks);
+    remainingBits = allocation.remainingBits;
   }
 
-  return remainingBits <= 0 ? { blocks, channelCount: plans.length } : null;
+  const usedChannelCount = Math.max(
+    1,
+    new Set(blocks.map((block) => block.channelIndex)).size,
+  );
+
+  return remainingBits <= 0 ? { blocks, channelCount: usedChannelCount } : null;
 };
 
 export const getRamBlockLoadDeltasForOperationTick = (
@@ -496,21 +532,174 @@ export const getRamBlockLoadDeltasForOperationTick = (
   operation: ActiveCoreOperation,
   deltaSeconds: number,
 ) => {
-  const sticksById = new Map(
-    getInstalledRamSticks(state).map((stick) => [stick.id, stick]),
-  );
-  const budgets = new Map<number, number>();
+  const operationRates =
+    getRamWriteRateAllocations(state).get(getRamWriteOperationKey(operation)) ??
+    new Map<string, number>();
 
   return (operation.ramBlocks ?? []).map((block) => {
-    const stick = sticksById.get(block.stickId);
-    const stickSpeed = Math.max(1, stick?.speedMt ?? getMemorySpeedMt(state));
-    const currentBudget = budgets.get(block.stickId) ?? stickSpeed * deltaSeconds;
+    const currentBudget =
+      (operationRates.get(getRamWriteBlockKey(operation, block)) ?? 0) *
+      deltaSeconds;
     const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
-    const loadedBits = Math.min(remainingBits, Math.max(0, currentBudget));
-    budgets.set(block.stickId, Math.max(0, currentBudget - loadedBits));
+    const loadedBits = Math.min(remainingBits, currentBudget);
     return loadedBits;
   });
 };
+
+const getRamWriteOperationKey = (operation: ActiveCoreOperation) =>
+  [
+    operation.coreId,
+    operation.workUnitIndex ?? "main",
+    operation.operationIndex,
+    operation.operationId ?? "pending",
+  ].join(":");
+
+export const getRamWriteBlockKey = (
+  operation: ActiveCoreOperation,
+  block: RamBlockAllocation,
+) =>
+  [
+    getRamWriteOperationKey(operation),
+    block.channelIndex ?? 0,
+    block.stickId,
+    block.startBit,
+    block.lengthBits,
+  ].join(":");
+
+const getActiveRamLoadBlocks = (operation: ActiveCoreOperation) =>
+  (operation.ramBlocks ?? []).filter(
+    (block) => block.loadedBits < block.lengthBits,
+  );
+
+const getCurrentRamWriteBlocks = (operation: ActiveCoreOperation) => {
+  const blocksByChannel = new Map<number, RamBlockAllocation>();
+
+  for (const block of operation.ramBlocks ?? []) {
+    if (block.loadedBits >= block.lengthBits) continue;
+
+    const channelIndex = block.channelIndex ?? 0;
+    if (!blocksByChannel.has(channelIndex)) {
+      blocksByChannel.set(channelIndex, block);
+    }
+  }
+
+  return Array.from(blocksByChannel.values());
+};
+
+const getActiveRamLoadOperations = (state: GameState) =>
+  state.activeTasks
+    .flatMap((task) => task.coreOperations)
+    .filter(
+      (operation) =>
+        operation.status === "loadingRam" &&
+        getActiveRamLoadBlocks(operation).length > 0,
+    );
+
+const getSelectedRamWriteSticksByChannel = (state: GameState) => {
+  const selectedSticks = new Map<number, number>();
+
+  for (const operation of getActiveRamLoadOperations(state)) {
+    for (const block of getCurrentRamWriteBlocks(operation)) {
+      const channelIndex = block.channelIndex ?? 0;
+      if (!selectedSticks.has(channelIndex)) {
+        selectedSticks.set(channelIndex, block.stickId);
+      }
+    }
+  }
+
+  return selectedSticks;
+};
+
+const getRamWriteRateAllocations = (state: GameState) => {
+  const sticksById = new Map(
+    getInstalledRamSticks(state).map((stick) => [stick.id, stick]),
+  );
+  const selectedSticksByChannel = getSelectedRamWriteSticksByChannel(state);
+  const requestedRates = new Map<string, Map<string, number>>();
+  const blockChannels = new Map<string, number>();
+  const channelRequestedRates = new Map<number, number>();
+  const channelCapacityRates = new Map<number, number>();
+
+  for (const operation of getActiveRamLoadOperations(state)) {
+    const blocks = getCurrentRamWriteBlocks(operation).filter(
+      (block) =>
+        selectedSticksByChannel.get(block.channelIndex ?? 0) === block.stickId,
+    );
+    const totalRemainingBits = blocks.reduce(
+      (total, block) =>
+        total + Math.max(0, block.lengthBits - block.loadedBits),
+      0,
+    );
+    if (totalRemainingBits <= 0) continue;
+
+    const operationKey = getRamWriteOperationKey(operation);
+    const operationRates = new Map<string, number>();
+    const coreWriteRate = Math.max(0, getCoreClockHz(state, operation.coreId));
+
+    for (const block of blocks) {
+      const channelIndex = block.channelIndex ?? 0;
+      const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
+      const requestedRate =
+        coreWriteRate * (remainingBits / totalRemainingBits);
+      const blockKey = getRamWriteBlockKey(operation, block);
+
+      operationRates.set(blockKey, requestedRate);
+      blockChannels.set(blockKey, channelIndex);
+      channelRequestedRates.set(
+        channelIndex,
+        (channelRequestedRates.get(channelIndex) ?? 0) + requestedRate,
+      );
+      channelCapacityRates.set(
+        channelIndex,
+        Math.max(
+          channelCapacityRates.get(channelIndex) ?? 0,
+          sticksById.get(block.stickId)?.speedMt ?? getMemorySpeedMt(state),
+        ),
+      );
+    }
+
+    requestedRates.set(operationKey, operationRates);
+  }
+
+  return new Map(
+    Array.from(requestedRates.entries()).map(([operationKey, operationRates]) => [
+      operationKey,
+      new Map(
+        Array.from(operationRates.entries()).map(([blockKey, requestedRate]) => {
+          const channelIndex = blockChannels.get(blockKey) ?? 0;
+          const totalRequestedRate = channelRequestedRates.get(channelIndex) ?? 0;
+          const capacityRate = channelCapacityRates.get(channelIndex) ?? 0;
+          const scale =
+            totalRequestedRate > 0 && capacityRate > 0
+              ? Math.min(1, capacityRate / totalRequestedRate)
+              : 0;
+          return [blockKey, requestedRate * scale];
+        }),
+      ),
+    ]),
+  );
+};
+
+export const getActiveRamWriteBandwidthBps = (state: GameState) =>
+  Array.from(getRamWriteRateAllocations(state).values()).reduce(
+    (total, operationRates) =>
+      total +
+      Array.from(operationRates.values()).reduce(
+        (operationTotal, rate) => operationTotal + rate,
+        0,
+      ),
+    0,
+  );
+
+export const getActiveRamWriteBlockKeys = (state: GameState) =>
+  new Set(
+    Array.from(getRamWriteRateAllocations(state).values()).flatMap(
+      (operationRates) =>
+        Array.from(operationRates.entries())
+          .filter(([, rate]) => rate > 0)
+          .map(([blockKey]) => blockKey),
+    ),
+  );
 
 const getCountedRamBits = (operation: ActiveCoreOperation) =>
   operation.status === "complete" || operation.status === "waitingMemory"

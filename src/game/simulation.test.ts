@@ -42,6 +42,7 @@ import {
 import {
   createRamStickState,
   createSchedulerConfig,
+  getCoreClockHz,
   getCpuClockHz,
   getMaxUnlockedRamLevel,
   getClockHz,
@@ -361,6 +362,34 @@ const withRamCapacity = (state: GameState, ramBits: number): GameState => ({
         : [],
   },
 });
+
+const withRamSticks = (
+  state: GameState,
+  ramSticks: GameState["hardware"]["ramSticks"],
+): GameState => {
+  const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
+  const ramSpeedMt =
+    ramSticks.length > 0
+      ? Math.max(...ramSticks.map((stick) => stick.speedMt))
+      : state.hardware.ramSpeedMt;
+  const ramSpeedLevel =
+    ramSticks.length > 0
+      ? Math.max(...ramSticks.map((stick) => stick.speedLevel))
+      : state.hardware.ramSpeedLevel;
+
+  return {
+    ...state,
+    hardware: {
+      ...state.hardware,
+      ramLevel: ramSticks.length,
+      ramBits,
+      ramBytes: Math.ceil(ramBits / 8),
+      ramSpeedLevel,
+      ramSpeedMt,
+      ramSticks,
+    },
+  };
+};
 
 const withPrimaryCpuCache = (state: GameState, cacheBits: number): GameState => ({
   ...state,
@@ -2170,6 +2199,335 @@ describe("IdleBit simulation", () => {
     );
   });
 
+  it("spills single-channel RAM allocations across installed sticks", () => {
+    let state = withRamSticks(unlockSystemScheduler(), [
+      createRamStickState(1, 1, 7),
+      createRamStickState(2, 1, 7),
+    ]);
+
+    state = {
+      ...state,
+      completedTasks: {
+        ...state.completedTasks,
+        tinyChecksum: 1,
+      },
+    };
+    expect(getTaskDefinition("memoryScrub").ramNeedBits).toBe(512);
+
+    state = applyAction(state, { type: "startTask", taskId: "memoryScrub" });
+    let sawRamLoad = false;
+
+    for (let tick = 0; tick < 40 && !sawRamLoad; tick += 1) {
+      state = tickGame(state, 1000);
+      const operations = state.activeTasks.flatMap((task) => task.coreOperations);
+
+      expect(operations).not.toContainEqual(
+        expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
+      );
+      sawRamLoad = operations.some((operation) => operation.status === "loadingRam");
+    }
+
+    expect(sawRamLoad).toBe(true);
+
+    const operation = state.activeTasks
+      .find((task) => task.taskId === "memoryScrub")
+      ?.coreOperations.find((candidate) => candidate.status === "loadingRam");
+    expect(operation?.ramChannelCount).toBe(1);
+    expect(operation?.ramBlocks).toEqual([
+      expect.objectContaining({
+        stickId: 1,
+        startBit: 0,
+        lengthBits: 256,
+        channelIndex: 0,
+      }),
+      expect.objectContaining({
+        stickId: 2,
+        startBit: 0,
+        lengthBits: 256,
+        channelIndex: 0,
+      }),
+    ]);
+    expect(operation?.ramBlocks[1]?.loadedBits).toBe(0);
+
+    const visibleBeforeTick = deriveVisibleState(state);
+    expect(
+      visibleBeforeTick.metrics.ramResidency.map((segment) => ({
+        stickId: segment.stickId,
+        state: segment.state,
+      })),
+    ).toEqual([
+      { stickId: 1, state: "loading" },
+      { stickId: 2, state: "reserved" },
+    ]);
+
+    const blockLoadsBefore = (operation?.ramBlocks ?? []).map(
+      (block) => block.loadedBits,
+    );
+    state = tickGame(state, 1000);
+    const blocksAfter = state.activeTasks
+      .find((task) => task.taskId === "memoryScrub")
+      ?.coreOperations.find((candidate) => candidate.status === "loadingRam")
+      ?.ramBlocks;
+    const expectedSingleChannelBandwidth = Math.min(
+      getCoreClockHz(state, operation?.coreId ?? 1),
+      state.hardware.ramSticks[0]?.speedMt ?? 1,
+    );
+
+    expect((blocksAfter?.[0]?.loadedBits ?? 0) - (blockLoadsBefore[0] ?? 0)).toBeCloseTo(
+      expectedSingleChannelBandwidth,
+    );
+    expect((blocksAfter?.[1]?.loadedBits ?? 0) - (blockLoadsBefore[1] ?? 0)).toBe(0);
+    expect(deriveVisibleState(state).metrics.memory.effectiveBandwidthBps).toBeCloseTo(
+      expectedSingleChannelBandwidth,
+    );
+  });
+
+  it("serves one RAM stick per channel while other single-channel sticks wait", () => {
+    let state = withRamSticks(unlockSystemScheduler(), [
+      { ...createRamStickState(1, 1, 7), speedMt: 60 },
+      { ...createRamStickState(2, 1, 7), speedMt: 60 },
+    ]);
+
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+
+    for (let tick = 0; tick < 20; tick += 1) {
+      state = tickGame(state, 1000);
+      if (
+        state.activeTasks.length === 2 &&
+        state.activeTasks.every((task) =>
+          task.coreOperations.some((operation) => operation.status === "loadingRam"),
+        )
+      ) {
+        break;
+      }
+    }
+
+    const operations = state.activeTasks.flatMap((task) => task.coreOperations);
+    const blocksBefore = operations.flatMap((operation) => operation.ramBlocks ?? []);
+
+    expect(blocksBefore).toEqual([
+      expect.objectContaining({ stickId: 1, channelIndex: 0 }),
+      expect.objectContaining({ stickId: 2, channelIndex: 0 }),
+    ]);
+    expect(deriveVisibleState(state).metrics.ramResidency).toEqual([
+      expect.objectContaining({ stickId: 1, state: "loading" }),
+      expect.objectContaining({ stickId: 2, state: "reserved" }),
+    ]);
+
+    state = tickGame(state, 1000);
+    const blocksAfter = state.activeTasks
+      .flatMap((task) => task.coreOperations)
+      .flatMap((operation) => operation.ramBlocks ?? []);
+    const firstStickDelta =
+      (blocksAfter.find((block) => block.stickId === 1)?.loadedBits ?? 0) -
+      (blocksBefore.find((block) => block.stickId === 1)?.loadedBits ?? 0);
+    const secondStickDelta =
+      (blocksAfter.find((block) => block.stickId === 2)?.loadedBits ?? 0) -
+      (blocksBefore.find((block) => block.stickId === 2)?.loadedBits ?? 0);
+    const firstStickOperation = operations.find(
+      (operation) => operation.ramBlocks?.[0]?.stickId === 1,
+    );
+    const expectedSingleStickBandwidth = Math.min(
+      60,
+      getCoreClockHz(state, firstStickOperation?.coreId ?? 1),
+    );
+
+    expect(firstStickDelta).toBeCloseTo(expectedSingleStickBandwidth);
+    expect(secondStickDelta).toBe(0);
+    expect(deriveVisibleState(state).metrics.memory.effectiveBandwidthBps).toBeCloseTo(
+      expectedSingleStickBandwidth,
+    );
+  });
+
+  it("keeps multi-core RAM work loading after the first spilled stick fills", () => {
+    let state = withRamSticks(unlockSystemStats(), [
+      { ...createRamStickState(1, 2, 9), speedMt: 512 },
+      { ...createRamStickState(2, 1, 9), speedMt: 512 },
+      { ...createRamStickState(3, 1, 9), speedMt: 512 },
+    ]);
+    state = withPrimarySchedulerCapacity(state, 2);
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        cpus: state.hardware.cpus.map((cpu) =>
+          cpu.id === 1
+            ? {
+                ...cpu,
+                level: 18,
+                coreIds: [1, 2],
+                schedulerSlots: 2,
+              }
+            : cpu,
+        ),
+      },
+    };
+
+    expect(getTaskDefinition("busMirror").ramNeedBits).toBe(1024);
+
+    state = applyAction(state, { type: "startTask", taskId: "busMirror" });
+    state = tickUntilTaskOperationStatus(state, "busMirror", "loadingRam");
+
+    let busMirror = state.activeTasks.find((task) => task.taskId === "busMirror");
+    expect(busMirror?.coreOperations).toHaveLength(2);
+    expect(
+      busMirror?.coreOperations.map((operation) =>
+        operation.ramBlocks.map((block) => block.stickId),
+      ),
+    ).toEqual([[1], [2, 3]]);
+
+    for (let tick = 0; tick < 200; tick += 1) {
+      const current = state.activeTasks.find((task) => task.taskId === "busMirror");
+      const firstOperation = current?.coreOperations[0];
+      const secondOperation = current?.coreOperations[1];
+      if (
+        firstOperation?.status === "complete" &&
+        secondOperation?.status === "loadingRam"
+      ) {
+        break;
+      }
+
+      state = tickGame(state, 250);
+    }
+
+    busMirror = state.activeTasks.find((task) => task.taskId === "busMirror");
+    const firstOperation = busMirror?.coreOperations[0];
+    const secondOperation = busMirror?.coreOperations[1];
+
+    expect(busMirror).toBeDefined();
+    expect(firstOperation?.status).toBe("complete");
+    expect(firstOperation?.memoryReservedBits).toBe(512);
+    expect(firstOperation?.ramBlocks).toEqual([
+      expect.objectContaining({
+        stickId: 1,
+        lengthBits: 512,
+        loadedBits: 512,
+      }),
+    ]);
+    expect(secondOperation?.status).toBe("loadingRam");
+    expect(secondOperation?.ramBlocks).toEqual([
+      expect.objectContaining({ stickId: 2, lengthBits: 256 }),
+      expect.objectContaining({ stickId: 3, lengthBits: 256 }),
+    ]);
+    expect(
+      (secondOperation?.ramBlocks ?? []).reduce(
+        (total, block) => total + block.loadedBits,
+        0,
+      ),
+    ).toBeLessThan(512);
+    expect(deriveVisibleState(state).metrics.ramResidency).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stickId: 1,
+          state: "loaded",
+          bits: 512,
+        }),
+        expect.objectContaining({
+          stickId: 2,
+          bits: 256,
+        }),
+        expect.objectContaining({
+          stickId: 3,
+          bits: 256,
+        }),
+      ]),
+    );
+    expect(deriveVisibleState(state).activeTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: "busMirror",
+        status: "loadingRam",
+      }),
+    );
+  });
+
+  it("keeps concurrent single-stick RAM allocations in distinct address ranges", () => {
+    let state = withRamSticks(unlockSystemScheduler(), [
+      { ...createRamStickState(1, 2, 7), speedMt: 60 },
+    ]);
+
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+    state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
+
+    for (let tick = 0; tick < 20; tick += 1) {
+      state = tickGame(state, 1000);
+      if (
+        state.activeTasks.length === 2 &&
+        state.activeTasks.every((task) =>
+          task.coreOperations.some((operation) => operation.status === "loadingRam"),
+        )
+      ) {
+        break;
+      }
+    }
+
+    const operations = state.activeTasks.flatMap((task) => task.coreOperations);
+    expect(operations).toHaveLength(2);
+    expect(operations).not.toContainEqual(
+      expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
+    );
+
+    const blocks = operations.flatMap((operation) => operation.ramBlocks ?? []);
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        stickId: 1,
+        startBit: 0,
+        lengthBits: 256,
+        channelIndex: 0,
+      }),
+      expect.objectContaining({
+        stickId: 1,
+        startBit: 256,
+        lengthBits: 256,
+        channelIndex: 0,
+      }),
+    ]);
+
+    const visibleSegments = deriveVisibleState(state).metrics.ramResidency;
+    expect(visibleSegments.map((segment) => segment.startBit)).toEqual([0, 256]);
+    expect(visibleSegments.map((segment) => segment.bits)).toEqual([256, 256]);
+    expect(visibleSegments.map((segment) => segment.state)).toEqual([
+      "loading",
+      "loading",
+    ]);
+
+    const loadedBefore = blocks.reduce(
+      (total, block) => total + block.loadedBits,
+      0,
+    );
+    state = tickGame(state, 1000);
+    const blocksAfter = state.activeTasks
+      .flatMap((task) => task.coreOperations)
+      .flatMap((operation) => operation.ramBlocks ?? []);
+    const loadedAfter = blocksAfter.reduce(
+      (total, block) => total + block.loadedBits,
+      0,
+    );
+    const blockDeltas = blocksAfter.map(
+      (block, index) => block.loadedBits - (blocks[index]?.loadedBits ?? 0),
+    );
+    const expectedWriterBandwidth = Math.min(
+      state.hardware.ramSticks[0]?.speedMt ?? 1,
+      state.activeTasks
+        .flatMap((task) => task.coreOperations)
+        .reduce(
+          (total, operation) => total + getCoreClockHz(state, operation.coreId),
+          0,
+        ),
+    );
+    const visible = deriveVisibleState(state);
+
+    expect(blockDeltas.every((delta) => delta > 0)).toBe(true);
+    expect(loadedAfter - loadedBefore).toBeCloseTo(expectedWriterBandwidth);
+    expect(visible.metrics.memory.activeChannelCount).toBe(1);
+    expect(visible.metrics.memory.effectiveBandwidthBps).toBeCloseTo(
+      expectedWriterBandwidth,
+    );
+
+    state = finishActiveTasks(state);
+    expect(state.completedTasks.tinyChecksum).toBeGreaterThanOrEqual(2);
+  });
+
   it("cancels active tasks without paying rewards", () => {
     const initial = createInitialGameState();
     let state = applyAction(initial, {
@@ -3314,7 +3672,7 @@ describe("IdleBit simulation", () => {
         state.activeTasks[0]?.coreOperations[0]?.operationName === "Checksum Step" &&
         state.activeTasks[0]?.coreOperations[0]?.status === "running"
       ) &&
-      guard < 80
+      guard < 300
     ) {
       state = tickGame(state, 500);
       guard += 1;
@@ -3369,7 +3727,7 @@ describe("IdleBit simulation", () => {
 
     for (
       let tick = 0;
-      tick < 200 && (state.activeTasks.length > 0 || state.queue.length > 0);
+      tick < 1000 && (state.activeTasks.length > 0 || state.queue.length > 0);
       tick += 1
     ) {
       state = tickGame(state, 500);

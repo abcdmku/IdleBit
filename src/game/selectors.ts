@@ -25,6 +25,8 @@ import {
   DEADLOCK_FAILURE_SECONDS,
   POWER_OVERLOAD_FAILURE_SECONDS,
   estimateJobSeconds,
+  getActiveRamWriteBandwidthBps,
+  getActiveRamWriteBlockKeys,
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
   getCacheLoadCycles,
@@ -44,6 +46,7 @@ import {
   getRamChannelCount,
   getRamLoadCycles,
   getRamMatchEfficiency,
+  getRamWriteBlockKey,
   getReservedMemoryBits,
   getPowerReliability,
   getSchedulerQueuedCount,
@@ -766,15 +769,16 @@ const getCacheUsedBits = (segments: CacheResidencySegment[]) =>
 const getCacheUsedBytes = (segments: CacheResidencySegment[]) =>
   bitsToBytes(getCacheUsedBits(segments));
 
-const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
-  state.activeTasks.flatMap((activeTask) => {
+const getRamResidencySegments = (state: GameState): RamResidencySegment[] => {
+  const activeWriteBlockKeys = getActiveRamWriteBlockKeys(state);
+
+  return state.activeTasks.flatMap((activeTask) => {
     const definition = getTaskDefinition(activeTask.taskId);
 
     return activeTask.coreOperations.flatMap((runtime) => {
       if (
-        runtime.status === "complete" ||
         runtime.status === "waitingMemory" ||
-        runtime.memoryReservedBits <= 0
+        (runtime.memoryReservedBits <= 0 && (runtime.ramBlocks ?? []).length === 0)
       ) {
         return [];
       }
@@ -791,6 +795,9 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
           const progress = clampProgress(
             block.loadedBits / Math.max(block.lengthBits, 1),
           );
+          const activelyWriting = activeWriteBlockKeys.has(
+            getRamWriteBlockKey(runtime, block),
+          );
 
           return {
             coreId: runtime.coreId,
@@ -804,7 +811,7 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
             state:
               progress >= 1
                 ? "loaded"
-                : loading
+                : loading && activelyWriting
                   ? "loading"
                   : "reserved",
             progress,
@@ -842,6 +849,7 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] =>
       ];
     });
   });
+};
 
 const getTaskOperationLoadCycles = (
   state: GameState,
@@ -1033,25 +1041,27 @@ const asVisibleActiveJob = (
   remainingSeconds: getVisibleRemainingSeconds(state, activeTask),
 });
 
-const getRamWriteBandwidthBps = (
-  state: GameState,
-  operation: ActiveCoreOperation | undefined,
-) => {
-  if (!operation || (operation.ramBlocks ?? []).length === 0) return 0;
-  const sticksById = new Map(
-    state.hardware.ramSticks.map((stick) => [stick.id, stick.speedMt]),
-  );
-  const activeStickIds = new Set(
-    operation.ramBlocks
-      .filter((block) => block.loadedBits < block.lengthBits)
-      .map((block) => block.stickId),
-  );
+const getActiveRamChannelStickIds = (
+  operations: ActiveCoreOperation[],
+  activeWriteBlockKeys: Set<string>,
+): Map<number, number> => {
+  const activeChannelSticks = new Map<number, number>();
 
-  return Array.from(activeStickIds).reduce(
-    (total, stickId) =>
-      total + Math.max(1, sticksById.get(stickId) ?? state.hardware.ramSpeedMt),
-    0,
-  );
+  for (const operation of operations) {
+    if (operation.status !== "loadingRam") continue;
+
+    for (const block of operation.ramBlocks ?? []) {
+      if (block.loadedBits >= block.lengthBits) continue;
+      if (!activeWriteBlockKeys.has(getRamWriteBlockKey(operation, block))) continue;
+
+      const channelIndex = block.channelIndex ?? 0;
+      if (!activeChannelSticks.has(channelIndex)) {
+        activeChannelSticks.set(channelIndex, block.stickId);
+      }
+    }
+  }
+
+  return activeChannelSticks;
 };
 
 const getMemoryPipeline = (state: GameState) => {
@@ -1059,12 +1069,12 @@ const getMemoryPipeline = (state: GameState) => {
   const count = (status: OperationRuntimeStatus) =>
     operations.filter((operation) => operation.status === status).length;
   const memoryStates = operations.map((operation) => operation.memoryState);
-  const activeRamOperation = operations.find(
-    (operation) => operation.status === "loadingRam",
+  const activeChannelSticks = getActiveRamChannelStickIds(
+    operations,
+    getActiveRamWriteBlockKeys(state),
   );
-  const activeChannelCount = activeRamOperation
-    ? Math.max(1, activeRamOperation.ramChannelCount)
-    : 1;
+  const activeChannelCount =
+    activeChannelSticks.size > 0 ? activeChannelSticks.size : 1;
   const installedStickCount = Math.max(1, state.hardware.ramSticks.length);
   const maxChannelCount = Math.min(getRamChannelCount(state), installedStickCount);
 
@@ -1076,7 +1086,7 @@ const getMemoryPipeline = (state: GameState) => {
     deadlocks: memoryStates.filter((state) => state === "deadlock").length,
     activeChannelCount,
     maxChannelCount,
-    effectiveBandwidthBps: getRamWriteBandwidthBps(state, activeRamOperation),
+    effectiveBandwidthBps: getActiveRamWriteBandwidthBps(state),
     channelBlockedReason: getRamChannelBlockedReason(state),
   };
 };

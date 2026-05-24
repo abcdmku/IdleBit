@@ -970,6 +970,129 @@ export const getCacheLoadRate = (state: GameState, coreId: number) => {
   return getCpuClockHz(cpu.tierId, cpu.cacheSpeedLevel ?? 1);
 };
 
+const getCacheWriteOperationKey = (operation: ActiveCoreOperation) =>
+  [
+    operation.coreId,
+    operation.workUnitIndex ?? "main",
+    operation.operationIndex,
+    operation.operationId ?? "pending",
+  ].join(":");
+
+interface ActiveCacheLoadOperation {
+  operation: ActiveCoreOperation;
+  definition: TaskOperationDefinition;
+}
+
+const isCacheLoadOperationActive = (
+  operation: ActiveCoreOperation,
+  definition: TaskOperationDefinition,
+) =>
+  operation.status === "loadingCache" &&
+  definition.cacheBits > 0 &&
+  operation.remainingLoadCycles > 0;
+
+const getActiveCacheLoadOperations = (
+  state: GameState,
+  targetOperation?: ActiveCoreOperation,
+  targetDefinition?: TaskOperationDefinition,
+): ActiveCacheLoadOperation[] => {
+  const targetKey =
+    targetOperation && targetDefinition
+      ? getCacheWriteOperationKey(targetOperation)
+      : null;
+  const activeOperations = state.activeTasks.flatMap((task) => {
+    const taskDefinition = getTaskDefinition(task.taskId);
+
+    return task.coreOperations.flatMap((operation) => {
+      if (targetKey === getCacheWriteOperationKey(operation)) return [];
+
+      const definition = taskDefinition.operations[operation.operationIndex];
+      if (!definition || !isCacheLoadOperationActive(operation, definition)) {
+        return [];
+      }
+
+      return [{ operation, definition }];
+    });
+  });
+
+  if (
+    targetOperation &&
+    targetDefinition &&
+    isCacheLoadOperationActive(targetOperation, targetDefinition)
+  ) {
+    return [
+      ...activeOperations,
+      { operation: targetOperation, definition: targetDefinition },
+    ];
+  }
+
+  return activeOperations;
+};
+
+const getCacheWriteRequestedRate = (
+  state: GameState,
+  operation: ActiveCoreOperation,
+  definition: TaskOperationDefinition,
+) =>
+  definition.memoryAction
+    ? Math.max(0, getCoreClockHz(state, operation.coreId))
+    : Math.max(0, getCacheLoadRate(state, operation.coreId));
+
+export const getCacheLoadRateForOperationTick = (
+  state: GameState,
+  operation: ActiveCoreOperation,
+  definition: TaskOperationDefinition,
+) => {
+  const activeOperations = getActiveCacheLoadOperations(
+    state,
+    operation,
+    definition,
+  );
+  const targetKey = getCacheWriteOperationKey(operation);
+  const requestedRates = new Map<string, number>();
+  const operationCpuIds = new Map<string, number>();
+  const cpuRequestedRates = new Map<number, number>();
+  const cpuCapacityRates = new Map<number, number>();
+
+  for (const activeOperation of activeOperations) {
+    const key = getCacheWriteOperationKey(activeOperation.operation);
+    const cpu = getCpuForCore(state, activeOperation.operation.coreId);
+    const requestedRate = getCacheWriteRequestedRate(
+      state,
+      activeOperation.operation,
+      activeOperation.definition,
+    );
+    const capacityRate = Math.max(
+      0,
+      getCacheLoadRate(state, activeOperation.operation.coreId),
+    );
+
+    requestedRates.set(key, requestedRate);
+    operationCpuIds.set(key, cpu.id);
+    cpuRequestedRates.set(
+      cpu.id,
+      (cpuRequestedRates.get(cpu.id) ?? 0) + requestedRate,
+    );
+    cpuCapacityRates.set(
+      cpu.id,
+      Math.max(cpuCapacityRates.get(cpu.id) ?? 0, capacityRate),
+    );
+  }
+
+  const requestedRate = requestedRates.get(targetKey) ?? 0;
+  const cpuId = operationCpuIds.get(targetKey);
+  if (requestedRate <= 0 || cpuId === undefined) return 0;
+
+  const totalRequestedRate = cpuRequestedRates.get(cpuId) ?? 0;
+  const capacityRate = cpuCapacityRates.get(cpuId) ?? 0;
+  const scale =
+    totalRequestedRate > 0 && capacityRate > 0
+      ? Math.min(1, capacityRate / totalRequestedRate)
+      : 0;
+
+  return requestedRate * scale;
+};
+
 export const getRamLoadRate = (state: GameState) =>
   Math.max(1, getMemorySpeedMt(state));
 

@@ -28,7 +28,10 @@ import {
   getMemoryVoltageCost,
   getMemoryVoltageIdleMultiplier,
 } from "./content/ramTuning";
-import { getRamTierLevelDefinition } from "./content/ramTiers";
+import {
+  getRamTierFirstGlobalLevel,
+  getRamTierLevelDefinition,
+} from "./content/ramTiers";
 import {
   allocateRamBlocksForOperation,
   getCacheLoadCycles,
@@ -1347,6 +1350,90 @@ describe("IdleBit simulation", () => {
     expect(state.activeTasks).toHaveLength(0);
   });
 
+  it("shares CPU cache write speed across active cores on the same package", () => {
+    const initial = createInitialGameState();
+    const coreIds = [1, 2, 3, 4];
+    let state = syncCoreSchedulers(
+      fund({
+        ...initial,
+        research: {
+          completed: ["byteOperations"],
+        },
+        hardware: {
+          ...initial.hardware,
+          cores: coreIds.length,
+          coreClockLevels: coreIds.reduce<Record<number, number>>(
+            (levels, coreId) => ({
+              ...levels,
+              [coreId]: 1,
+            }),
+            {},
+          ),
+          cacheLevel: 8,
+          cacheBits: 128,
+          cacheBytes: 16,
+          cacheSpeedLevel: 1,
+          cpus: initial.hardware.cpus.map((cpu) =>
+            cpu.id === 1
+              ? {
+                  ...cpu,
+                  coreIds,
+                  cacheLevel: 8,
+                  cacheBits: 128,
+                  cacheBytes: 16,
+                  cacheSpeedLevel: 1,
+                }
+              : cpu,
+          ),
+        },
+      }),
+    );
+
+    for (const coreId of coreIds) {
+      state = applyAction(state, {
+        type: "startTaskOnCore",
+        taskId: "byteCopy",
+        coreId,
+      });
+    }
+
+    const beforeOperations = state.activeTasks
+      .flatMap((task) => task.coreOperations)
+      .sort((left, right) => left.coreId - right.coreId);
+
+    expect(beforeOperations).toHaveLength(coreIds.length);
+    expect(
+      beforeOperations.every((operation) => operation.status === "loadingCache"),
+    ).toBe(true);
+
+    state = tickGame(state, 1000);
+
+    const afterOperations = state.activeTasks
+      .flatMap((task) => task.coreOperations)
+      .sort((left, right) => left.coreId - right.coreId);
+    const loadDeltas = afterOperations.map(
+      (operation, index) =>
+        (beforeOperations[index]?.remainingLoadCycles ?? 0) -
+        operation.remainingLoadCycles,
+    );
+    const cpuIssueDeltas = afterOperations.map(
+      (operation, index) =>
+        (beforeOperations[index]?.remainingCycles ?? 0) - operation.remainingCycles,
+    );
+    const expectedPerCoreCacheRate = getCacheLoadRate(state, 1) / coreIds.length;
+    const expectedCoreIssueRate = getCoreClockHz(state, 1);
+
+    for (const delta of loadDeltas) {
+      expect(delta).toBeCloseTo(expectedPerCoreCacheRate);
+    }
+    for (const delta of cpuIssueDeltas) {
+      expect(delta).toBeCloseTo(expectedCoreIssueRate);
+    }
+    expect(loadDeltas.reduce((total, delta) => total + delta, 0)).toBeCloseTo(
+      getCacheLoadRate(state, 1),
+    );
+  });
+
   it("does not reserve cache for queued tasks before they start", () => {
     const state: GameState = {
       ...createInitialGameState(),
@@ -2146,6 +2233,21 @@ describe("IdleBit simulation", () => {
     expect(getRamTierLevelDefinition(3).calculatedCost).toBe(
       getCpuTierLevelDefinition("hz", 3).upgradeCost * 4,
     );
+  });
+
+  it("matches RAM frequency increments to core and cache tier clocks", () => {
+    for (const tier of cpuTierDefinitions) {
+      const firstRamLevel = getRamTierFirstGlobalLevel(tier.id);
+
+      for (const cpuLevel of tier.levels) {
+        const ramLevel = getRamTierLevelDefinition(
+          firstRamLevel + cpuLevel.level - 1,
+        );
+
+        expect(ramLevel.clockHz).toBe(cpuLevel.clockHz);
+        expect(getRamSpeedMt(ramLevel.globalLevel)).toBe(cpuLevel.clockHz);
+      }
+    }
   });
 
   it("installs the selected RAM tier instead of always using the highest unlock", () => {

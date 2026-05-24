@@ -23,7 +23,7 @@ import {
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
   getCacheLoadCycles,
-  getCacheLoadRate,
+  getCacheLoadRateForOperationTick,
   getDeadlockCooldownRate,
   getHardwareCacheBits,
   getMemoryCapacityBits,
@@ -1817,7 +1817,11 @@ const tickLoad = (
   const requestedLoadCycles = Math.min(
     operation.remainingLoadCycles,
     operation.status === "loadingCache"
-      ? getCacheLoadRate(state, operation.coreId) * deltaSeconds
+      ? getCacheLoadRateForOperationTick(
+          state,
+          operation,
+          operationDefinition,
+        ) * deltaSeconds
       : (operation.ramBlocks ?? []).length > 0
         ? requestedRamLoadCycles
         : getRamLoadCyclesForOperationTick(state, task, operation, deltaSeconds),

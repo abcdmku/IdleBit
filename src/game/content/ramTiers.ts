@@ -43,13 +43,9 @@ const roundTo = (value: number, digits: number) => {
   return Math.round(value * factor) / factor;
 };
 
-const roundSheetClock = (clockHz: number) =>
-  clockHz < 1_000 ? roundTo(clockHz, 1) : Math.round(clockHz);
-
 const tierMetadata: Array<
   Omit<RamTierDefinition, "firstGlobalLevel" | "levels"> & {
     tierIndex: number;
-    baseClockHz: number;
     baseEfficiency: number;
     efficiencyDecay: number;
     minEfficiency: number;
@@ -62,7 +58,6 @@ const tierMetadata: Array<
     unlockResearchId: null,
     nextTierResearchCost: 2_000_000,
     tierIndex: 0,
-    baseClockHz: 1,
     baseEfficiency: 10,
     efficiencyDecay: 0.92,
     minEfficiency: 0.6,
@@ -74,7 +69,6 @@ const tierMetadata: Array<
     unlockResearchId: "cpuTierKhz",
     nextTierResearchCost: 20_000_000_000,
     tierIndex: 1,
-    baseClockHz: 1_000,
     baseEfficiency: 6,
     efficiencyDecay: 0.93,
     minEfficiency: 0.5,
@@ -86,7 +80,6 @@ const tierMetadata: Array<
     unlockResearchId: "cpuTierMhz",
     nextTierResearchCost: 200_000_000_000_000,
     tierIndex: 2,
-    baseClockHz: 1_000_000,
     baseEfficiency: 3,
     efficiencyDecay: 0.94,
     minEfficiency: 0.3,
@@ -98,7 +91,6 @@ const tierMetadata: Array<
     unlockResearchId: "cpuTierGhz",
     nextTierResearchCost: 200_000_000_000_000_000,
     tierIndex: 3,
-    baseClockHz: 1_000_000_000,
     baseEfficiency: 2,
     efficiencyDecay: 0.96,
     minEfficiency: 0.5,
@@ -110,7 +102,6 @@ const tierMetadata: Array<
     unlockResearchId: "cpuTierThz",
     nextTierResearchCost: 2_000_000_000_000_000_000,
     tierIndex: 4,
-    baseClockHz: 1_000_000_000_000,
     baseEfficiency: 1,
     efficiencyDecay: 0.98,
     minEfficiency: 0.5,
@@ -122,7 +113,6 @@ const tierMetadata: Array<
     unlockResearchId: "cpuTierPhz",
     nextTierResearchCost: null,
     tierIndex: 5,
-    baseClockHz: 1_000_000_000_000_000,
     baseEfficiency: 0.5,
     efficiencyDecay: 0.99,
     minEfficiency: 0.5,
@@ -157,9 +147,10 @@ export const ramTierDefinitions: RamTierDefinition[] = tierMetadata.map((tier) =
   const levels = Array.from({ length: RAM_TIER_MAX_LEVEL }, (_, index) => {
     const level = index + 1;
     const globalLevel = firstGlobalLevel + index;
-    const clockHz = roundSheetClock(tier.baseClockHz * 1.5 ** index);
     const capacityBits = 256 * 2 ** index * 1024 ** tier.tierIndex;
-    const cpuStyleCost = getCpuTierLevelDefinition(tier.id, level).upgradeCost;
+    const cpuTierLevel = getCpuTierLevelDefinition(tier.id, level);
+    const cpuStyleCost = cpuTierLevel.upgradeCost;
+    const clockHz = cpuTierLevel.clockHz;
     const efficiency = getEfficiency(
       level,
       tier.baseEfficiency,

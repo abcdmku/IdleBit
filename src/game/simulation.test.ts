@@ -30,12 +30,14 @@ import {
 } from "./content/ramTuning";
 import { getRamTierLevelDefinition } from "./content/ramTiers";
 import {
+  allocateRamBlocksForOperation,
   getCacheLoadCycles,
   getCacheLoadCyclesForBits,
   getCacheLoadRate,
   getHardwareDrawWatts,
   getPowerCostPerSecond,
   getPsuStress,
+  getRamBlockLoadDeltasForOperationTick,
   getRamLoadCycles,
   getRamLoadRate,
 } from "./math";
@@ -55,8 +57,11 @@ import {
   syncCoreSchedulers,
 } from "./progression";
 import type {
+  ActiveCoreOperation,
+  ActiveTask,
   GameState,
   OperationRuntimeStatus,
+  RamBlockAllocation,
   ResearchId,
   SchedulerPolicy,
   TaskDefinition,
@@ -451,6 +456,58 @@ const withPrimaryCpuSchedulerPolicy = (
         : cpu,
     ),
   },
+});
+
+const createLoadingRamOperation = (
+  coreId: number,
+  ramBlocks: RamBlockAllocation[],
+  ramChannelCount: number,
+  operationIndex = 0,
+): ActiveCoreOperation => {
+  const memoryReservedBits = ramBlocks.reduce(
+    (total, block) => total + Math.max(0, block.lengthBits),
+    0,
+  );
+
+  return {
+    coreId,
+    operationIndex,
+    operationId: "test:ram-load",
+    operationName: "Test RAM Load",
+    status: "loadingRam",
+    memoryState: "ramLoad",
+    remainingCycles: 0,
+    totalCycles: 0,
+    remainingLoadCycles: ramBlocks.reduce(
+      (total, block) =>
+        total + Math.max(0, block.lengthBits - block.loadedBits),
+      0,
+    ),
+    totalLoadCycles: memoryReservedBits,
+    memoryReservedBits,
+    memoryReservedBytes: Math.ceil(memoryReservedBits / 8),
+    ramBlocks,
+    ramChannelCount,
+    lockResource: null,
+    lockReason: null,
+    deadlockSeconds: 0,
+  };
+};
+
+const createActiveRamTask = (
+  instanceId: string,
+  coreId: number,
+  operation: ActiveCoreOperation,
+): ActiveTask => ({
+  instanceId,
+  taskId: "tinyChecksum",
+  jobId: "tinyChecksum",
+  schedulerQueued: true,
+  coreId,
+  assignedCoreIds: [coreId],
+  coreOperations: [operation],
+  remainingCycles: operation.remainingCycles,
+  totalCycles: operation.totalCycles,
 });
 
 const completeStarterLadder = () => {
@@ -3866,6 +3923,244 @@ describe("IdleBit simulation", () => {
     expect(visible.metrics.memory.maxChannelCount).toBe(2);
     expect(visible.metrics.memory.effectiveBandwidthBps).toBe(2);
     expect(visible.metrics.memory.channelBlockedReason).toBeNull();
+  });
+
+  it("allocates RAM across every single, dual, quad, and oct stick permutation", () => {
+    const variants: Array<{
+      label: string;
+      maxChannels: number;
+      research: ResearchId[];
+    }> = [
+      { label: "single", maxChannels: 1, research: [] },
+      { label: "dual", maxChannels: 2, research: ["dualChannelRam"] },
+      {
+        label: "quad",
+        maxChannels: 4,
+        research: ["dualChannelRam", "quadChannelRam"],
+      },
+      {
+        label: "oct",
+        maxChannels: 8,
+        research: ["dualChannelRam", "quadChannelRam", "octChannelRam"],
+      },
+    ];
+
+    for (const variant of variants) {
+      const baseState = unlockSystemScheduler();
+
+      for (let stickCount = 1; stickCount <= 8; stickCount += 1) {
+        const channelCount = Math.min(variant.maxChannels, stickCount);
+        const state = withRamSticks(
+          {
+            ...baseState,
+            research: {
+              completed: [...baseState.research.completed, ...variant.research],
+            },
+          },
+          Array.from({ length: stickCount }, (_, index) =>
+            createRamStickState(index + 1, 1, 7),
+          ),
+        );
+        const operation = createLoadingRamOperation(1, [], channelCount);
+        const task = createActiveRamTask("allocation-test", 1, operation);
+        const allocation = allocateRamBlocksForOperation(
+          state,
+          task,
+          operation,
+          256 * stickCount,
+        );
+        const bitsByStick = new Map<number, number>();
+        const channelsByStick = new Map<number, Set<number>>();
+
+        for (const block of allocation?.blocks ?? []) {
+          bitsByStick.set(
+            block.stickId,
+            (bitsByStick.get(block.stickId) ?? 0) + block.lengthBits,
+          );
+          channelsByStick.set(
+            block.stickId,
+            (channelsByStick.get(block.stickId) ?? new Set()).add(
+              block.channelIndex,
+            ),
+          );
+        }
+
+        expect(allocation?.channelCount, variant.label).toBe(channelCount);
+        expect(
+          (allocation?.blocks ?? []).reduce(
+            (total, block) => total + block.lengthBits,
+            0,
+          ),
+          variant.label,
+        ).toBe(256 * stickCount);
+
+        for (let stickIndex = 0; stickIndex < stickCount; stickIndex += 1) {
+          const stickId = stickIndex + 1;
+
+          expect(bitsByStick.get(stickId), variant.label).toBe(256);
+          expect(
+            Array.from(channelsByStick.get(stickId) ?? []),
+            variant.label,
+          ).toEqual([stickIndex % channelCount]);
+        }
+      }
+    }
+  });
+
+  it("uses unused dual-channel sticks before extra capacity on a larger first stick", () => {
+    const baseState = unlockSystemScheduler();
+    const state = withRamSticks(
+      {
+        ...baseState,
+        research: {
+          completed: [...baseState.research.completed, "dualChannelRam"],
+        },
+      },
+      [
+        createRamStickState(1, 2, 7),
+        createRamStickState(2, 1, 7),
+        createRamStickState(3, 1, 7),
+        createRamStickState(4, 1, 7),
+      ],
+    );
+    const firstOperation = createLoadingRamOperation(1, [], 2);
+    const firstTask = createActiveRamTask("mixed-first", 1, firstOperation);
+    const firstAllocation = allocateRamBlocksForOperation(
+      state,
+      firstTask,
+      firstOperation,
+      512,
+    );
+
+    expect(
+      firstAllocation?.blocks.map((block) => ({
+        stickId: block.stickId,
+        lengthBits: block.lengthBits,
+        channelIndex: block.channelIndex,
+      })),
+    ).toEqual([
+      { stickId: 1, lengthBits: 256, channelIndex: 0 },
+      { stickId: 2, lengthBits: 256, channelIndex: 1 },
+    ]);
+
+    const stateWithFirstLoad = {
+      ...state,
+      activeTasks: [
+        createActiveRamTask("mixed-first", 1, {
+          ...firstOperation,
+          ramBlocks: firstAllocation?.blocks ?? [],
+          ramChannelCount: firstAllocation?.channelCount ?? 1,
+        }),
+      ],
+    };
+    const secondOperation = createLoadingRamOperation(2, [], 2);
+    const secondTask = createActiveRamTask("mixed-second", 2, secondOperation);
+    const secondAllocation = allocateRamBlocksForOperation(
+      stateWithFirstLoad,
+      secondTask,
+      secondOperation,
+      512,
+    );
+
+    expect(
+      secondAllocation?.blocks.map((block) => ({
+        stickId: block.stickId,
+        lengthBits: block.lengthBits,
+        channelIndex: block.channelIndex,
+      })),
+    ).toEqual([
+      { stickId: 3, lengthBits: 256, channelIndex: 0 },
+      { stickId: 4, lengthBits: 256, channelIndex: 1 },
+    ]);
+  });
+
+  it("keeps RAM channel service groups from skipping lower-numbered sticks", () => {
+    const variants: Array<{
+      label: string;
+      channelCount: number;
+      research: ResearchId[];
+    }> = [
+      { label: "single", channelCount: 1, research: [] },
+      { label: "dual", channelCount: 2, research: ["dualChannelRam"] },
+      {
+        label: "quad",
+        channelCount: 4,
+        research: ["dualChannelRam", "quadChannelRam"],
+      },
+      {
+        label: "oct",
+        channelCount: 8,
+        research: ["dualChannelRam", "quadChannelRam", "octChannelRam"],
+      },
+    ];
+
+    for (const variant of variants) {
+      const baseState = unlockSystemScheduler();
+      let state = withPrimarySchedulerCapacity(
+        withRamSticks(
+          {
+            ...baseState,
+            research: {
+              completed: [...baseState.research.completed, ...variant.research],
+            },
+          },
+          Array.from({ length: variant.channelCount * 2 }, (_, index) => ({
+            ...createRamStickState(index + 1, 1, 7),
+            speedMt: 64,
+          })),
+        ),
+        2,
+      );
+      const firstGroupOperation = createLoadingRamOperation(
+        1,
+        Array.from({ length: variant.channelCount }, (_, index) => ({
+          stickId: index + 1,
+          startBit: 0,
+          lengthBits: 256,
+          loadedBits: index === 0 ? 0 : 256,
+          channelIndex: index,
+        })),
+        variant.channelCount,
+      );
+      const nextGroupOperation = createLoadingRamOperation(
+        2,
+        Array.from({ length: variant.channelCount }, (_, index) => ({
+          stickId: variant.channelCount + index + 1,
+          startBit: 0,
+          lengthBits: 256,
+          loadedBits: 0,
+          channelIndex: index,
+        })),
+        variant.channelCount,
+      );
+
+      state = {
+        ...state,
+        activeTasks: [
+          createActiveRamTask(`${variant.label}-first-group`, 1, firstGroupOperation),
+          createActiveRamTask(`${variant.label}-next-group`, 2, nextGroupOperation),
+        ],
+      };
+
+      const firstGroupDeltas = getRamBlockLoadDeltasForOperationTick(
+        state,
+        firstGroupOperation,
+        1,
+      );
+      const nextGroupDeltas = getRamBlockLoadDeltasForOperationTick(
+        state,
+        nextGroupOperation,
+        1,
+      );
+
+      expect(firstGroupDeltas[0], variant.label).toBeGreaterThan(0);
+      expect(firstGroupDeltas.slice(1), variant.label).toEqual(
+        Array.from({ length: variant.channelCount - 1 }, () => 0),
+      );
+      expect(nextGroupDeltas, variant.label).toEqual(
+        Array.from({ length: variant.channelCount }, () => 0),
+      );
+    }
   });
 
   it("reuses released RAM block locations after cancellation", () => {

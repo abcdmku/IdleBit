@@ -428,9 +428,13 @@ const takeFromRanges = (
 
 interface RamStickPlan {
   stick: RamStickState;
+  stickIndex: number;
   channelIndex: number;
   ranges: FreeRamRange[];
 }
+
+const getPlanFreeBits = (plan: RamStickPlan) =>
+  plan.ranges.reduce((sum, range) => sum + Math.max(0, range.lengthBits), 0);
 
 const takeFromStickPlans = (plans: RamStickPlan[], bits: number) => {
   let remainingBits = Math.max(0, bits);
@@ -447,6 +451,38 @@ const takeFromStickPlans = (plans: RamStickPlan[], bits: number) => {
     );
     blocks.push(...plannedBlocks);
     remainingBits -= getBlockTotalBits(plannedBlocks);
+  }
+
+  return { blocks, remainingBits };
+};
+
+const takeStripedFromStickPlans = (plans: RamStickPlan[], bits: number) => {
+  let remainingBits = Math.max(0, bits);
+  const blocks: RamBlockAllocation[] = [];
+
+  while (remainingBits > 0) {
+    const availablePlans = plans.filter((plan) => getPlanFreeBits(plan) > 0);
+    if (availablePlans.length === 0) break;
+
+    const stripeBits = Math.min(...availablePlans.map(getPlanFreeBits));
+    let wroteBits = 0;
+
+    for (const plan of availablePlans) {
+      if (remainingBits <= 0) break;
+
+      const plannedBlocks = takeFromRanges(
+        plan.ranges,
+        Math.min(remainingBits, stripeBits),
+        plan.stick.id,
+        plan.channelIndex,
+      );
+
+      blocks.push(...plannedBlocks);
+      wroteBits += getBlockTotalBits(plannedBlocks);
+      remainingBits -= getBlockTotalBits(plannedBlocks);
+    }
+
+    if (wroteBits <= 0) break;
   }
 
   return { blocks, remainingBits };
@@ -474,6 +510,7 @@ export const allocateRamBlocksForOperation = (
   const activeBlocks = getActiveRamBlocks(state, task, operation);
   const plans = sticks.map((stick, index) => ({
     stick,
+    stickIndex: index,
     channelIndex: index % channelCount,
     ranges: getFreeRamRanges(stick, activeBlocks),
   }));
@@ -497,8 +534,19 @@ export const allocateRamBlocksForOperation = (
       : null;
   }
 
+  const activeStickIds = new Set(activeBlocks.map((block) => block.stickId));
+  const orderMultiChannelPlans = (plansForChannel: RamStickPlan[]) =>
+    [...plansForChannel].sort((left, right) => {
+      const activeDelta =
+        Number(activeStickIds.has(left.stick.id)) -
+        Number(activeStickIds.has(right.stick.id));
+
+      return activeDelta !== 0 ? activeDelta : left.stickIndex - right.stickIndex;
+    });
   const channelPlans = Array.from({ length: channelCount }, (_, channelIndex) =>
-    plans.filter((plan) => plan.channelIndex === channelIndex),
+    orderMultiChannelPlans(
+      plans.filter((plan) => plan.channelIndex === channelIndex),
+    ),
   );
   const baseBits = Math.floor(requiredBits / channelPlans.length);
   let remainingBits = requiredBits;
@@ -507,14 +555,14 @@ export const allocateRamBlocksForOperation = (
   channelPlans.forEach((plansForChannel, index) => {
     const desiredBits =
       baseBits + (index < requiredBits % channelPlans.length ? 1 : 0);
-    const allocation = takeFromStickPlans(plansForChannel, desiredBits);
+    const allocation = takeStripedFromStickPlans(plansForChannel, desiredBits);
     blocks.push(...allocation.blocks);
     remainingBits -= desiredBits - allocation.remainingBits;
   });
 
   for (const plansForChannel of channelPlans) {
     if (remainingBits <= 0) break;
-    const allocation = takeFromStickPlans(plansForChannel, remainingBits);
+    const allocation = takeStripedFromStickPlans(plansForChannel, remainingBits);
     blocks.push(...allocation.blocks);
     remainingBits = allocation.remainingBits;
   }
@@ -595,15 +643,41 @@ const getActiveRamLoadOperations = (state: GameState) =>
         getActiveRamLoadBlocks(operation).length > 0,
     );
 
+const getRamStickPositions = (state: GameState) =>
+  new Map(getInstalledRamSticks(state).map((stick, index) => [stick.id, index]));
+
+const getRamBlockServiceRank = (
+  operation: ActiveCoreOperation,
+  block: RamBlockAllocation,
+  stickPositions: Map<number, number>,
+) => {
+  const channelCount = Math.max(1, operation.ramChannelCount);
+  const stickPosition = stickPositions.get(block.stickId);
+
+  return stickPosition === undefined
+    ? Number.MAX_SAFE_INTEGER
+    : Math.floor(stickPosition / channelCount);
+};
+
 const getSelectedRamWriteSticksByChannel = (state: GameState) => {
   const selectedSticks = new Map<number, number>();
+  const stickPositions = getRamStickPositions(state);
+  const candidates = getActiveRamLoadOperations(state).flatMap((operation) =>
+    getCurrentRamWriteBlocks(operation).map((block) => ({
+      channelIndex: block.channelIndex ?? 0,
+      serviceRank: getRamBlockServiceRank(operation, block, stickPositions),
+      stickId: block.stickId,
+    })),
+  );
+  const activeServiceRank = candidates.reduce(
+    (lowestRank, candidate) => Math.min(lowestRank, candidate.serviceRank),
+    Number.MAX_SAFE_INTEGER,
+  );
 
-  for (const operation of getActiveRamLoadOperations(state)) {
-    for (const block of getCurrentRamWriteBlocks(operation)) {
-      const channelIndex = block.channelIndex ?? 0;
-      if (!selectedSticks.has(channelIndex)) {
-        selectedSticks.set(channelIndex, block.stickId);
-      }
+  for (const candidate of candidates) {
+    if (candidate.serviceRank !== activeServiceRank) continue;
+    if (!selectedSticks.has(candidate.channelIndex)) {
+      selectedSticks.set(candidate.channelIndex, candidate.stickId);
     }
   }
 

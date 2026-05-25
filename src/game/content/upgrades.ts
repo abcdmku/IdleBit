@@ -8,6 +8,11 @@ import type {
 } from "../types";
 import { getGlobalCStateLevel } from "../cState";
 import {
+  BOOTLOADER_MAX_LEVEL,
+  getBootloaderUpgradeCost,
+  getGlobalBootloaderLevel,
+} from "../bootloader";
+import {
   bitsToBytes,
   createCpuHardwareState,
   createRamStickState,
@@ -474,6 +479,7 @@ const count = (
   if (id === "cronInterval") return state.hardware.cronIntervalLevel ?? 0;
   if (id === "cState") return getGlobalCStateLevel(state);
   if (id === "memoryVoltage") return state.hardware.memoryVoltageLevel ?? 0;
+  if (id === "bootloader") return getGlobalBootloaderLevel(state);
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
   if (id === "secondCpu" || id === "matchedCpu") {
@@ -1181,6 +1187,33 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
           0,
           (state.hardware.memoryVoltageLevel ?? 0) - 1,
         ),
+      }),
+  },
+  {
+    id: "bootloader",
+    name: "Bootloader",
+    component: "psu",
+    accent: "amber",
+    requirement: (state) =>
+      Boolean(state.flags.bootloader) &&
+      getGlobalBootloaderLevel(state) < BOOTLOADER_MAX_LEVEL,
+    cost: (state) =>
+      getBootloaderUpgradeCost(getGlobalBootloaderLevel(state) + 1),
+    buy: (state) => {
+      const bootloaderLevel = Math.min(
+        BOOTLOADER_MAX_LEVEL,
+        getGlobalBootloaderLevel(state) + 1,
+      );
+
+      return setHardware(state, { bootloaderLevel });
+    },
+    refund: (state) =>
+      getGlobalBootloaderLevel(state) > 0
+        ? halfRefund(getBootloaderUpgradeCost(getGlobalBootloaderLevel(state)))
+        : [],
+    downgrade: (state) =>
+      setHardware(state, {
+        bootloaderLevel: Math.max(0, getGlobalBootloaderLevel(state) - 1),
       }),
   },
   {

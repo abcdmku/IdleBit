@@ -1,4 +1,8 @@
 import {
+  BOOTLOADER_MAX_LEVEL,
+  getBootloaderLevelFromHardware,
+} from "./bootloader";
+import {
   bitsToBytes,
   createCoreSchedulers,
   createCpuHardwareState,
@@ -74,6 +78,7 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");
   if (flags.cron) completed.push("cronScheduler");
+  if (flags.bootloader) completed.push("bootloader");
   return completed;
 };
 
@@ -89,6 +94,7 @@ const validResearchIds = [
   "schedulerWatchdog",
   "schedulerPolicies",
   "systemScheduler",
+  "bootloader",
   "ramControl",
   "systemBus",
   "cronScheduler",
@@ -540,6 +546,15 @@ const normalizeState = (state: LegacyState): GameState => {
           fresh.hardware.memoryVoltageLevel,
         ),
       ),
+      bootloaderLevel: Math.min(
+        BOOTLOADER_MAX_LEVEL,
+        getBootloaderLevelFromHardware({
+          bootloaderLevel: toInteger(
+            hardware.bootloaderLevel,
+            fresh.hardware.bootloaderLevel ?? 0,
+          ),
+        }),
+      ),
       cronScheduleSlots,
       cronIntervalLevel:
         hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
@@ -565,6 +580,12 @@ const normalizeState = (state: LegacyState): GameState => {
     power: {
       state: powerState,
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
+      transitionTotalSeconds: Math.max(
+        0,
+        state.power?.transitionTotalSeconds ??
+          state.power?.transitionSeconds ??
+          0,
+      ),
       bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
       unpaidShutdownWarningSeconds,
       overloadFailureSeconds,

@@ -11,6 +11,7 @@ interface PowerControlState {
 
 interface PowerTransitionState extends PowerControlState {
   transitionSeconds: number;
+  transitionTotalSeconds?: number;
 }
 
 const POWER_BOOT_SECONDS = 10;
@@ -66,9 +67,10 @@ export function PowerTransitionBanner({
   if (power.state !== "booting" && power.state !== "shuttingDown") return null;
 
   const totalSeconds =
-    power.state === "booting" ? POWER_BOOT_SECONDS : POWER_SHUTDOWN_SECONDS;
+    power.transitionTotalSeconds ??
+    (power.state === "booting" ? POWER_BOOT_SECONDS : POWER_SHUTDOWN_SECONDS);
   const progress = clampMeter(
-    1 - power.transitionSeconds / Math.max(1, totalSeconds),
+    1 - power.transitionSeconds / Math.max(0.001, totalSeconds),
   );
   const label =
     power.state === "booting" ? "System booting" : "System shutting down";

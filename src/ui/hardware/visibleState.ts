@@ -55,6 +55,7 @@ export interface UiSystemStatus {
   creditShutdownWarningSeconds?: number;
   powerCreditShutdownWarningSeconds?: number;
   powerTransitionSeconds?: number;
+  powerTransitionTotalSeconds?: number;
   powerOverloadFailure?: UiPowerOverloadFailure;
   powerOverloadFailureSeconds?: number;
   powerOverloadFailureProgress?: number;
@@ -94,6 +95,8 @@ export interface UiSystemStatus {
     efficiency?: number;
     transitionSeconds?: number;
     powerTransitionSeconds?: number;
+    transitionTotalSeconds?: number;
+    powerTransitionTotalSeconds?: number;
     bootstrapGraceSeconds?: number;
     powerBootstrapGraceSeconds?: number;
     unpaidShutdownWarningSeconds?: number;
@@ -168,6 +171,8 @@ export interface UiPowerState {
   efficiency?: number;
   transitionSeconds?: number;
   powerTransitionSeconds?: number;
+  transitionTotalSeconds?: number;
+  powerTransitionTotalSeconds?: number;
   bootstrapGraceSeconds?: number;
   powerBootstrapGraceSeconds?: number;
   unpaidShutdownWarningSeconds?: number;
@@ -271,6 +276,7 @@ export type UiVisibleState = VisibleState & {
     coolingStatus?: string;
     thermalStatus?: string;
     powerState?: string;
+    powerTransitionTotalSeconds?: number;
   };
 };
 

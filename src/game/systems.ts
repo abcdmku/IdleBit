@@ -6,6 +6,7 @@ import {
   syncCoreSchedulers,
   syncHardwarePackages,
 } from "./progression";
+import { withGlobalBootloaderLevel } from "./bootloader";
 import { withGlobalCStateLevel } from "./cState";
 import type {
   Cost,
@@ -71,6 +72,13 @@ const normalizeSystemPower = (system: SystemState): SystemState["power"] => {
       0,
       power?.transitionSeconds ?? fallback.transitionSeconds,
     ),
+    transitionTotalSeconds: Math.max(
+      0,
+      power?.transitionTotalSeconds ??
+        fallback.transitionTotalSeconds ??
+        power?.transitionSeconds ??
+        0,
+    ),
     bootstrapGraceSeconds: Math.max(
       0,
       power?.bootstrapGraceSeconds ?? fallback.bootstrapGraceSeconds,
@@ -98,7 +106,10 @@ const getSystemRuntime = (_state: GameState, system: SystemState): SystemState =
   ...system,
   hardware: syncHardwarePackages({
     ..._state,
-    hardware: withGlobalCStateLevel(_state, system.hardware),
+    hardware: withGlobalBootloaderLevel(
+      _state,
+      withGlobalCStateLevel(_state, system.hardware),
+    ),
   }).hardware,
   power: normalizeSystemPower(system),
   activeJobs: system.activeTasks,
@@ -122,9 +133,12 @@ export const createSystemFromRuntime = (
   templateId,
   hardware: syncHardwarePackages({
     ...state,
-    hardware: withGlobalCStateLevel(
+    hardware: withGlobalBootloaderLevel(
       state,
-      preserveRuntimeRamOverride(state.hardware),
+      withGlobalCStateLevel(
+        state,
+        preserveRuntimeRamOverride(state.hardware),
+      ),
     ),
   }).hardware,
   power: state.power,

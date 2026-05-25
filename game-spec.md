@@ -228,6 +228,7 @@ At system scale:
 - A system has four power states: `on`, `shuttingDown`, `off`, and `booting`.
 - `off` systems grey out hardware except power/start controls, block work starts, scheduler dispatch, CRON runs, and power billing.
 - Startup and shutdown use short delays so power state changes are deliberate and visible; graceful shutdown blocks new work but lets in-progress work finish before power drops. The transition callout lives on the PSU before the system layer unlocks, then moves to the System Scheduler card.
+- Bootloader Research appears after System Scheduler research, unlocks for 100,000 credits, then stays open as repeatable research for bootloader levels 1-36. Level 1 costs 10,000 credits, each later level multiplies the previous level cost by 1.2, and level 36 costs about 5.9M credits. Boot time is 9.20s at level 1, drops by 0.26s per level, and reaches 0.10s at level 36.
 - RAM and CPU package efficiency should reward matching module sizes/frequencies and CPU package specs. Mismatches increase effective draw and reliability pressure.
 - Cooling is a tradeoff: stronger active cooling can reduce thermal waste and improve sustained throughput, but it adds its own draw and billing while the system is on.
 

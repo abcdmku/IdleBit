@@ -10,6 +10,12 @@ import {
   serializeSave,
   tickGame,
 } from "./index";
+import {
+  BOOTLOADER_MAX_LEVEL,
+  getBootSeconds,
+  getBootloaderUpgradeCost,
+  getGlobalBootloaderLevel,
+} from "./bootloader";
 import { getGlobalCStateLevel } from "./cState";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
@@ -782,6 +788,39 @@ describe("IdleBit simulation", () => {
 
     expect(restored.hardware.psuLevel).toBe(1);
     expect(restored.hardware.psuWatts).toBe(getPsuWatts(1));
+  });
+
+  it("restores bootloader research and levels from current saves", () => {
+    const state = createInitialGameState();
+    const savedState: GameState = {
+      ...state,
+      flags: {
+        ...state.flags,
+        scheduler: true,
+        bootloader: true,
+      },
+      research: {
+        completed: ["systemScheduler", "bootloader"],
+      },
+      hardware: {
+        ...state.hardware,
+        bootloaderLevel: 36,
+      },
+      systems: state.systems.map((system) => ({
+        ...system,
+        hardware: {
+          ...system.hardware,
+          bootloaderLevel: 36,
+        },
+      })),
+    };
+
+    const restored = deserializeSave(serializeSave(savedState));
+
+    expect(restored.research.completed).toContain("bootloader");
+    expect(restored.flags.bootloader).toBe(true);
+    expect(getGlobalBootloaderLevel(restored)).toBe(36);
+    expect(getBootSeconds(restored)).toBe(0.1);
   });
 
   it("unlocks kHz CPU research without changing existing system CPU install tier", () => {
@@ -3977,6 +4016,82 @@ describe("IdleBit simulation", () => {
     expect(upgrades).not.toContain("scheduler");
     expect(localScheduler?.canBuy).toBe(true);
     expect(localScheduler?.requirements.every((item) => item.met)).toBe(true);
+  });
+
+  it("levels Bootloader Research after System Scheduler to shorten startup", () => {
+    let state = fund(unlockRamControl());
+
+    expect(
+      deriveVisibleState(state).research.map((item) => item.id),
+    ).not.toContain("bootloader");
+
+    state = unlockSystemScheduler();
+    let visible = deriveVisibleState(state);
+    let bootloaderResearch = visible.research.find(
+      (item) => item.id === "bootloader",
+    );
+
+    expect(bootloaderResearch).toEqual(
+      expect.objectContaining({
+        completed: false,
+        canBuy: true,
+        costs: [{ resource: "credits", amount: 100_000 }],
+      }),
+    );
+
+    state = research(state, "bootloader");
+    visible = deriveVisibleState(state);
+    bootloaderResearch = visible.research.find((item) => item.id === "bootloader");
+
+    expect(state.flags.bootloader).toBe(true);
+    expect(getGlobalBootloaderLevel(state)).toBe(0);
+    expect(bootloaderResearch).toEqual(
+      expect.objectContaining({
+        completed: false,
+        actionLabel: "Level up",
+        costs: getBootloaderUpgradeCost(1),
+      }),
+    );
+    expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("bootloader");
+
+    state = research(state, "bootloader");
+    expect(getGlobalBootloaderLevel(state)).toBe(1);
+    expect(getBootSeconds(state)).toBe(9.2);
+
+    state = applyAction(state, { type: "requestPowerKill" });
+    state = applyAction(state, { type: "requestPowerOn" });
+
+    expect(state.power.state).toBe("booting");
+    expect(state.power.transitionSeconds).toBe(9.2);
+    expect(state.power.transitionTotalSeconds).toBe(9.2);
+
+    state = tickSeconds(state, 10);
+    expect(state.power.state).toBe("on");
+
+    while (getGlobalBootloaderLevel(state) < BOOTLOADER_MAX_LEVEL - 1) {
+      state = research(state, "bootloader");
+    }
+
+    visible = deriveVisibleState(state);
+    bootloaderResearch = visible.research.find((item) => item.id === "bootloader");
+    expect(getGlobalBootloaderLevel(state)).toBe(35);
+    expect(bootloaderResearch?.costs).toEqual(getBootloaderUpgradeCost(36));
+    expect(bootloaderResearch?.costs).toEqual([
+      { resource: "credits", amount: 5_906_682 },
+    ]);
+
+    state = research(state, "bootloader");
+
+    expect(getGlobalBootloaderLevel(state)).toBe(36);
+    expect(getBootSeconds(state)).toBe(0.1);
+    expect(
+      deriveVisibleState(state).research.find((item) => item.id === "bootloader"),
+    ).toEqual(
+      expect.objectContaining({
+        completed: true,
+        canBuy: false,
+      }),
+    );
   });
 
   it("requires purchased CPU scheduler slots before queueing CPU tasks", () => {

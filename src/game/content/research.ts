@@ -9,6 +9,12 @@ import type {
 } from "../types";
 import { getGlobalCStateLevel } from "../cState";
 import {
+  BOOTLOADER_MAX_LEVEL,
+  BOOTLOADER_UNLOCK_COST,
+  getBootloaderUpgradeCost,
+  getGlobalBootloaderLevel,
+} from "../bootloader";
+import {
   CPU_TIER_MAX_LEVEL,
   cpuTierDefinitions,
   getCStateUpgradeCost,
@@ -120,6 +126,15 @@ const getMemoryVoltageResearchCost = (state: GameState) =>
         ),
       )
     : [credits(1_000_000)];
+
+const getBootloaderResearchCost = (state: GameState) => {
+  if (!hasResearch(state, "bootloader")) return [credits(BOOTLOADER_UNLOCK_COST)];
+
+  const currentLevel = getGlobalBootloaderLevel(state);
+  if (currentLevel >= BOOTLOADER_MAX_LEVEL) return [];
+
+  return getBootloaderUpgradeCost(currentLevel + 1);
+};
 
 const requirement = (
   id: string,
@@ -264,6 +279,17 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: (state) => requirementsMet(state, getSystemSchedulerRequirements()),
     requirements: () => getSystemSchedulerRequirements(),
     cost: () => [credits(320), data(16)],
+  },
+  {
+    id: "bootloader",
+    name: "Bootloader Research",
+    description: "Reduce system boot time with firmware-level startup passes.",
+    grants: ["bootloader"],
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") || hasResearch(state, "bootloader"),
+    requirement: (state) => requirementsMet(state, getBootloaderRequirements()),
+    requirements: () => getBootloaderRequirements(),
+    cost: getBootloaderResearchCost,
   },
   {
     id: "ramControl",
@@ -540,6 +566,12 @@ function getSystemBusRequirements() {
   return [
     researchRequirement("systemScheduler", "Complete System Scheduler research"),
     computeRequirement("multiCoreBenchmark", "Run Multi-Core Benchmark"),
+  ];
+}
+
+function getBootloaderRequirements() {
+  return [
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
   ];
 }
 

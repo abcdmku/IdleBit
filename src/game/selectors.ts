@@ -1,4 +1,8 @@
 import { hasResearch, researchDefinitions } from "./content/research";
+import {
+  BOOTLOADER_MAX_LEVEL,
+  getGlobalBootloaderLevel,
+} from "./bootloader";
 import { getGlobalCStateLevel } from "./cState";
 import {
   CPU_TIER_MAX_LEVEL,
@@ -1417,6 +1421,15 @@ const isMemoryVoltageLevelUpResearch = (
   completed &&
   (state.hardware.memoryVoltageLevel ?? 0) < MEMORY_VOLTAGE_MAX_LEVEL;
 
+const isBootloaderLevelUpResearch = (
+  state: GameState,
+  researchId: string,
+  completed: boolean,
+) =>
+  researchId === "bootloader" &&
+  completed &&
+  getGlobalBootloaderLevel(state) < BOOTLOADER_MAX_LEVEL;
+
 const getVisibleResearch = (state: GameState) =>
   researchDefinitions
     .filter(
@@ -1438,7 +1451,13 @@ const getVisibleResearch = (state: GameState) =>
         research.id,
         savedCompleted,
       );
-      const repeatableLevelUp = cStateLevelUp || memoryVoltageLevelUp;
+      const bootloaderLevelUp = isBootloaderLevelUpResearch(
+        state,
+        research.id,
+        savedCompleted,
+      );
+      const repeatableLevelUp =
+        cStateLevelUp || memoryVoltageLevelUp || bootloaderLevelUp;
       const completed = savedCompleted && !repeatableLevelUp;
       const canAffordResearch = canAfford(state, costs);
       const requirements = repeatableLevelUp
@@ -1752,6 +1771,7 @@ const getVisibleSystemSummary = (
         powerCostPerSecond: getPowerCostPerSecond(systemState),
         powerState: systemState.power.state,
         powerTransitionSeconds: systemState.power.transitionSeconds,
+        powerTransitionTotalSeconds: systemState.power.transitionTotalSeconds,
         powerBootstrapGraceSeconds: systemState.power.bootstrapGraceSeconds,
         powerUnpaidShutdownWarningSeconds:
           systemState.power.unpaidShutdownWarningSeconds,
@@ -1896,6 +1916,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       powerCostPerSecond: getPowerCostPerSecond(syncedState),
       powerState: syncedState.power.state,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
+      powerTransitionTotalSeconds: syncedState.power.transitionTotalSeconds,
       powerBootstrapGraceSeconds: syncedState.power.bootstrapGraceSeconds,
       powerUnpaidShutdownWarningSeconds:
         syncedState.power.unpaidShutdownWarningSeconds,

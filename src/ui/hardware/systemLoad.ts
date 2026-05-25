@@ -153,6 +153,16 @@ export const getPowerStats = (visible: VisibleState) => {
       ui.metrics.powerTransitionSeconds,
     ) ?? 0,
   );
+  const transitionTotalSeconds = Math.max(
+    0,
+    firstPositiveNumber(
+      power?.transitionTotalSeconds,
+      power?.powerTransitionTotalSeconds,
+      ui.systemStatus?.powerTransitionTotalSeconds,
+      ui.metrics.powerTransitionTotalSeconds,
+      transitionSeconds,
+    ) ?? transitionSeconds,
+  );
   const overload =
     power?.overloadFailure ??
     power?.powerOverloadFailure ??
@@ -223,6 +233,7 @@ export const getPowerStats = (visible: VisibleState) => {
     billingGraceSeconds,
     unpaidShutdownWarningSeconds,
     transitionSeconds,
+    transitionTotalSeconds,
     overloadFailure: {
       seconds: overloadSeconds,
       limitSeconds: overloadLimitSeconds,

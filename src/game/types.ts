@@ -84,6 +84,7 @@ export type ResearchId =
   | "schedulerWatchdog"
   | "schedulerPolicies"
   | "systemScheduler"
+  | "bootloader"
   | "ramControl"
   | "systemBus"
   | "cronScheduler"
@@ -119,6 +120,7 @@ export type UpgradeId =
   | "ramCapacity"
   | "ramSpeed"
   | "memoryVoltage"
+  | "bootloader"
   | "cronSchedule"
   | "cronInterval"
   | "psu"
@@ -155,7 +157,8 @@ export type UnlockId =
   | "dualChannelRam"
   | "quadChannelRam"
   | "octChannelRam"
-  | "memoryVoltageModifier";
+  | "memoryVoltageModifier"
+  | "bootloader";
 
 export type TaskKind = "task" | "job" | "benchmark";
 
@@ -457,6 +460,7 @@ export interface TaskQueueEntry {
 export interface PowerRuntimeState {
   state: PowerStateId;
   transitionSeconds: number;
+  transitionTotalSeconds?: number;
   bootstrapGraceSeconds: number;
   unpaidShutdownWarningSeconds: number;
   overloadFailureSeconds: number;
@@ -567,6 +571,7 @@ export interface GameFlags {
   quadChannelRam: boolean;
   octChannelRam: boolean;
   memoryVoltageModifier: boolean;
+  bootloader?: boolean;
   schedulerWatchdog: boolean;
   schedulerPolicies: boolean;
 }
@@ -593,6 +598,7 @@ export interface HardwareState {
   ramSpeedMt: number;
   ramSticks: RamStickState[];
   memoryVoltageLevel: number;
+  bootloaderLevel?: number;
   cronScheduleSlots: number;
   cronIntervalLevel: number;
   cStateLevel: number;
@@ -1174,6 +1180,7 @@ export interface VisibleHardwareMetrics {
   powerCostPerSecond: number;
   powerState: PowerStateId;
   powerTransitionSeconds: number;
+  powerTransitionTotalSeconds?: number;
   powerBootstrapGraceSeconds: number;
   powerUnpaidShutdownWarningSeconds: number;
   powerOverloadFailure: VisiblePowerOverloadFailure;

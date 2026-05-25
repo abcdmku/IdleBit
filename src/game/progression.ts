@@ -476,6 +476,7 @@ const createInitialHardwareState = (): GameState["hardware"] => ({
   ramSpeedMt: getRamSpeedMt(1),
   ramSticks: [],
   memoryVoltageLevel: 0,
+  bootloaderLevel: 0,
   cronScheduleSlots: 0,
   cronIntervalLevel: 0,
   cStateLevel: 0,
@@ -488,6 +489,7 @@ const createInitialHardwareState = (): GameState["hardware"] => ({
 const createInitialPowerState = (): GameState["power"] => ({
   state: "on",
   transitionSeconds: 0,
+  transitionTotalSeconds: 0,
   bootstrapGraceSeconds: 0,
   unpaidShutdownWarningSeconds: 0,
   overloadFailureSeconds: 0,
@@ -588,6 +590,7 @@ export const createInitialGameState = (): GameState => {
       quadChannelRam: false,
       octChannelRam: false,
       memoryVoltageModifier: false,
+      bootloader: false,
       schedulerWatchdog: false,
       schedulerPolicies: false,
     },
@@ -747,6 +750,7 @@ export const updateProgressionFlags = (state: GameState): GameState => {
       memoryVoltageModifier:
         state.flags.memoryVoltageModifier ||
         researched.includes("memoryVoltageModifier"),
+      bootloader: state.flags.bootloader || researched.includes("bootloader"),
     },
   };
 

@@ -26,6 +26,7 @@ export interface HardwarePowerStats {
   costPerSecond: number;
   stress: number;
   transitionSeconds: number;
+  transitionTotalSeconds?: number;
   billingGraceSeconds: number;
   unpaidShutdownWarningSeconds: number;
   overloadFailure: {

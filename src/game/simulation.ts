@@ -1,3 +1,4 @@
+import { getBootSeconds } from "./bootloader";
 import { getResearchDefinition, researchDefinitions } from "./content/research";
 import {
   getComponentSku,
@@ -89,7 +90,6 @@ import type {
 } from "./types";
 
 const POWER_SHUTDOWN_SECONDS = 8;
-const POWER_BOOT_SECONDS = 10;
 const POWER_BILLING_EPSILON = 0.000000001;
 const CRON_DEFAULT_INTERVAL_SECONDS = 60;
 const CRON_MAX_SECONDS_INTERVAL = 120;
@@ -183,6 +183,7 @@ const createHardwareFromMachineSelection = (
     ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
     ramSticks,
     memoryVoltageLevel: 0,
+    bootloaderLevel: 0,
     cronScheduleSlots: 0,
     cronIntervalLevel: 0,
     cStateLevel: 0,
@@ -3680,6 +3681,7 @@ const forceHardPowerOff = (
       ...cleared.power,
       state: "off",
       transitionSeconds: 0,
+      transitionTotalSeconds: 0,
       bootstrapGraceSeconds: 0,
       unpaidShutdownWarningSeconds: 0,
       overloadFailureSeconds: 0,
@@ -3745,6 +3747,7 @@ const advancePowerTransition = (state: GameState, deltaSeconds: number): GameSta
       ...state.power,
       state: state.power.state === "shuttingDown" ? "off" : "on",
       transitionSeconds: 0,
+      transitionTotalSeconds: 0,
     },
   };
 };
@@ -3759,6 +3762,7 @@ const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
     ...state.power,
     state: "off",
     transitionSeconds: 0,
+    transitionTotalSeconds: 0,
     bootstrapGraceSeconds: 0,
     unpaidShutdownWarningSeconds: 0,
     overloadFailureSeconds: 0,
@@ -4218,6 +4222,18 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
     return pullQueue(updateProgressionFlags(bought));
   }
 
+  if (researchId === "bootloader" && completed) {
+    const bootloaderUpgrade = getUpgradeDefinition("bootloader");
+    const upgradeCosts = bootloaderUpgrade.cost(state);
+
+    if (!bootloaderUpgrade.requirement(state) || !canAfford(state, upgradeCosts)) {
+      return state;
+    }
+
+    const bought = bootloaderUpgrade.buy(spend(state, upgradeCosts));
+    return pullQueue(updateProgressionFlags(bought));
+  }
+
   if (
     completed ||
     !research.requirement(state) ||
@@ -4381,6 +4397,7 @@ export const requestPowerOff = (state: GameState): GameState => {
       ...state.power,
       state: "shuttingDown",
       transitionSeconds: POWER_SHUTDOWN_SECONDS,
+      transitionTotalSeconds: POWER_SHUTDOWN_SECONDS,
       bootstrapGraceSeconds: 0,
       unpaidShutdownWarningSeconds: 0,
     },
@@ -4389,12 +4406,15 @@ export const requestPowerOff = (state: GameState): GameState => {
 
 export const requestPowerOn = (state: GameState): GameState => {
   if (state.power.state !== "off") return state;
+  const bootSeconds = getBootSeconds(state);
+
   return {
     ...state,
     power: {
       ...state.power,
       state: "booting",
-      transitionSeconds: POWER_BOOT_SECONDS,
+      transitionSeconds: bootSeconds,
+      transitionTotalSeconds: bootSeconds,
       bootstrapGraceSeconds:
         state.resources.credits <= 0 ? POWER_BOOTSTRAP_GRACE_SECONDS : 0,
       unpaidShutdownWarningSeconds: 0,
@@ -4759,6 +4779,7 @@ export const getAvailableUpgrades = (state: GameState) =>
     (upgrade) =>
       upgrade.id !== "cState" &&
       upgrade.id !== "memoryVoltage" &&
+      upgrade.id !== "bootloader" &&
       upgrade.requirement(state),
   );
 

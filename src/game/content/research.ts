@@ -172,7 +172,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "decodeLogic",
     name: "Decode Logic",
-    description: "Unlock simple bit mutation and shift work.",
+    description: "Adds bit flip and shift work.",
     grants: [],
     reveal: (state) => hasCompleted(state, "fetchBit") || hasCompleted(state, "decodeBit"),
     requirement: (state) => requirementsMet(state, getDecodeLogicRequirements()),
@@ -182,7 +182,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "bitMutation",
     name: "Bit Mutation",
-    description: "Legacy research kept for older saves.",
+    description: "Legacy save marker.",
     grants: [],
     reveal: () => false,
     requirement: () => false,
@@ -192,7 +192,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "shiftOperations",
     name: "Shift Operations",
-    description: "Legacy research kept for older saves.",
+    description: "Legacy save marker.",
     grants: [],
     reveal: () => false,
     requirement: () => false,
@@ -202,7 +202,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "byteOperations",
     name: "Byte Operations",
-    description: "Unlock byte-sized copy work.",
+    description: "Adds byte copy work.",
     grants: [],
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getByteOperationsRequirements()),
@@ -212,7 +212,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cacheMapping",
     name: "Cache Mapping",
-    description: "Unlock cache-backed packet work.",
+    description: "Adds cache-backed packet work.",
     grants: ["cache"],
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getCacheMappingRequirements()),
@@ -222,7 +222,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "benchmarkHarness",
     name: "Benchmark Harness",
-    description: "Unlock research benchmarks that expose later hardware research.",
+    description: "Adds research-card benchmarks.",
     grants: ["benchmarks"],
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getBenchmarkHarnessRequirements()),
@@ -232,7 +232,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "multiCore",
     name: "Multi-Core Control",
-    description: "Unlock additional cores and parallel task routing.",
+    description: "Allows more CPU cores.",
     grants: ["multiCore"],
     reveal: (state) => hasResearch(state, "benchmarkHarness"),
     requirement: (state) => requirementsMet(state, getMultiCoreRequirements()),
@@ -243,7 +243,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "localScheduler",
     name: "Local Scheduler",
-    description: "Unlock the per-core task queue and automatic core intake.",
+    description: "Adds CPU queue slots and core intake.",
     grants: ["basicQueue"],
     reveal: (state) => hasResearch(state, "multiCore"),
     requirement: (state) => requirementsMet(state, getLocalSchedulerRequirements()),
@@ -253,7 +253,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "schedulerWatchdog",
     name: "Scheduler Watchdog",
-    description: "Unlock scheduler controls that can kill deadlocked queued work.",
+    description: "Adds deadlock auto-kill controls.",
     grants: ["schedulerWatchdog"],
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getSchedulerWatchdogRequirements()),
@@ -263,7 +263,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "schedulerPolicies",
     name: "Scheduling Policy",
-    description: "Unlock scheduler dispatch policies that can avoid risky starts.",
+    description: "Adds safer dispatch policies.",
     grants: ["schedulerPolicies"],
     reveal: (state) => hasResearch(state, "schedulerWatchdog"),
     requirement: (state) => requirementsMet(state, getSchedulerPolicyRequirements()),
@@ -273,7 +273,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "systemScheduler",
     name: "System Scheduler",
-    description: "Unlock barrier-aware system task scheduling.",
+    description: "Adds system task queueing.",
     grants: ["scheduler"],
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getSystemSchedulerRequirements()),
@@ -283,7 +283,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "bootloader",
     name: "Bootloader Research",
-    description: "Reduce system boot time with firmware-level startup passes.",
+    description: "Shortens system boot time.",
     grants: ["bootloader"],
     reveal: (state) =>
       hasResearch(state, "systemScheduler") || hasResearch(state, "bootloader"),
@@ -294,7 +294,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "ramControl",
     name: "RAM Control",
-    description: "Unlock system RAM modules and larger staged workloads.",
+    description: "Adds RAM modules and page work.",
     grants: ["systemStats"],
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getRamControlRequirements()),
@@ -304,7 +304,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "systemBus",
     name: "System Bus",
-    description: "Unlock matched CPU packages and system-level task routing.",
+    description: "Allows extra CPU packages.",
     grants: ["secondCpu"],
     reveal: (state) => hasResearch(state, "systemScheduler"),
     requirement: (state) => requirementsMet(state, getSystemBusRequirements()),
@@ -315,7 +315,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "dualChannelRam",
     name: "Dual Channel RAM",
-    description: "Allow the System Scheduler to stripe RAM writes across 2 sticks.",
+    description: "Allows 2 RAM write channels.",
     grants: ["dualChannelRam"],
     reveal: (state) =>
       hasResearch(state, "systemScheduler") || hasResearch(state, "dualChannelRam"),
@@ -326,7 +326,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "quadChannelRam",
     name: "Quad Channel RAM",
-    description: "Allow the System Scheduler to stripe RAM writes across 4 sticks.",
+    description: "Allows 4 RAM write channels.",
     grants: ["quadChannelRam"],
     reveal: (state) =>
       hasResearch(state, "dualChannelRam") || hasResearch(state, "quadChannelRam"),
@@ -337,7 +337,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "octChannelRam",
     name: "Oct Channel RAM",
-    description: "Allow the System Scheduler to stripe RAM writes across 8 sticks.",
+    description: "Allows 8 RAM write channels.",
     grants: ["octChannelRam"],
     reveal: (state) =>
       hasResearch(state, "quadChannelRam") || hasResearch(state, "octChannelRam"),
@@ -348,7 +348,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cronScheduler",
     name: "CRON Scheduler",
-    description: "Unlock timed automation for repeatable system tasks.",
+    description: "Adds timed system-task jobs.",
     grants: ["cron", "autoRepeat"],
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
@@ -358,7 +358,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: systemCatalogResearchId,
     name: "System Catalog",
-    description: "Unlock off-the-shelf system templates and larger local work.",
+    description: "Opens prebuilt systems and the builder.",
     grants: ["systemCatalog"],
     reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSystemCatalogRequirements()),
@@ -368,7 +368,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: customMachineAssemblyResearchId,
     name: "Custom Machine Assembly",
-    description: "Unlock configurable machine templates for heavier local work.",
+    description: "Legacy builder gate.",
     grants: ["customMachineAssembly"],
     reveal: (state) => hasResearch(state, systemCatalogResearchId),
     requirement: (state) =>
@@ -379,7 +379,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cpuTierKhz",
     name: "kHz CPU Research",
-    description: "Unlock level-1 kHz CPU packages.",
+    description: "Unlocks kHz CPU and RAM tiers.",
     grants: [],
     reveal: (state) =>
       hasCpuTierUnlocked(state, "khz") || hasSystemAutomation(state),
@@ -390,7 +390,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cpuTierMhz",
     name: "MHz CPU Research",
-    description: "Unlock level-1 MHz CPU packages.",
+    description: "Unlocks MHz CPU and RAM tiers.",
     grants: [],
     reveal: (state) =>
       hasCpuTierUnlocked(state, "mhz") || hasPreviousCpuTierResearch(state, "mhz"),
@@ -401,7 +401,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cpuTierGhz",
     name: "GHz CPU Research",
-    description: "Unlock level-1 GHz CPU packages.",
+    description: "Unlocks GHz CPU and RAM tiers.",
     grants: [],
     reveal: (state) =>
       hasCpuTierUnlocked(state, "ghz") || hasPreviousCpuTierResearch(state, "ghz"),
@@ -412,7 +412,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cpuTierThz",
     name: "THz CPU Research",
-    description: "Unlock level-1 THz CPU packages.",
+    description: "Unlocks THz CPU and RAM tiers.",
     grants: [],
     reveal: (state) =>
       hasCpuTierUnlocked(state, "thz") || hasPreviousCpuTierResearch(state, "thz"),
@@ -423,7 +423,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cpuTierPhz",
     name: "PHz CPU Research",
-    description: "Unlock level-1 PHz CPU packages.",
+    description: "Unlocks PHz CPU and RAM tiers.",
     grants: [],
     reveal: (state) =>
       hasCpuTierUnlocked(state, "phz") || hasPreviousCpuTierResearch(state, "phz"),
@@ -434,7 +434,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "cStateControl",
     name: "C-State Control",
-    description: "Unlock idle-core power reduction upgrades.",
+    description: "Reduces idle CPU draw.",
     grants: ["cStateControl"],
     reveal: (state) =>
       hasResearch(state, "cpuTierKhz") || hasResearch(state, "cStateControl"),
@@ -445,7 +445,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "memoryVoltageModifier",
     name: "Memory Voltage Modifier",
-    description: "Reduce idle RAM draw without changing active write bandwidth.",
+    description: "Reduces idle RAM draw.",
     grants: ["memoryVoltageModifier"],
     reveal: (state) =>
       hasResearch(state, "ramControl") &&

@@ -78,6 +78,13 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.research-description {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+}
+
 .research-buy-button {
   display: inline-flex;
   gap: var(--s-1);

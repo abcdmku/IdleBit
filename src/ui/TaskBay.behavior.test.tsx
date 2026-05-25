@@ -374,6 +374,9 @@ describe("TaskBay task and research behavior", () => {
       compute?.querySelector<HTMLButtonElement>(".research-compute-button");
     const computeMeta = compute?.querySelector(".task-meta-line");
 
+    expect(container.querySelector(".research-description")?.textContent).toBe(
+      "Coordinate more than one core.",
+    );
     expect(buyButton?.disabled).toBe(true);
     expect(buyButton?.textContent).toContain("Needs Parallelism Benchmark.");
     expect(container.querySelector(".research-cost-line .resource-token.data")).not.toBeNull();
@@ -416,6 +419,9 @@ describe("TaskBay task and research behavior", () => {
 
     expect(buyButton?.disabled).toBe(false);
     expect(buyButton?.textContent).toContain("Level up");
+    expect(container.querySelector(".research-description")?.textContent).toBe(
+      "Reduce idle CPU draw.",
+    );
   });
 
   it("shows the system scheduler surface and routes system tasks through it", () => {

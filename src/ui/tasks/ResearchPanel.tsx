@@ -104,6 +104,8 @@ function ResearchAction({
     null;
   const requirements = research.requirements ?? [];
   const computeTasks = research.computeTasks ?? [];
+  const description =
+    typeof research.description === "string" ? research.description.trim() : "";
   const purchased = isResearchPurchased(research);
   const canAffordResearch = research.canAfford ?? costs.length === 0;
   const allowedByResearch = research.canBuy ?? canAffordResearch;
@@ -129,6 +131,9 @@ function ResearchAction({
       <div className={`research-action-main ${!canBuy && !purchased ? "blocked" : ""}`}>
         <span className="research-copy">
           <strong>{research.name}</strong>
+          {description.length > 0 && (
+            <span className="research-description">{description}</span>
+          )}
           <em className="research-cost-line">
             {purchased ? (
               "Built"

@@ -2,6 +2,7 @@
 
 .topbar {
   position: relative;
+  z-index: 80;
   display: flex;
   flex-wrap: nowrap;
   gap: var(--s-3);

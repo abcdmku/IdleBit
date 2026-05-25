@@ -501,6 +501,7 @@ The opening hardware view should treat cores as the primary visible compute unit
 
 Component upgrade controls should stay compact and stable during high-frequency processing. Reversible specs use a single +/- stepper so buy and downgrade actions read as tuning the same hardware spec rather than separate unrelated buttons.
 On multi-CPU systems, CPU package add/remove belongs in the CPU bank header immediately before the Array/Tabs view toggle, and the view toggle remains the rightmost control. CPU tabs use the package letter only. Outside the rack slot visualization, each standalone core-array, CPU package, CPU card, and CPU detail view should show that package's current effective efficiency; CPU detail Cores headers show efficiency instead of an active/total core count.
+HUD resource readouts should expose the credits/data graph without fighting mobile navigation: desktop clicks toggle the graph, while mobile taps always open it and switch to the graph/R&D column. The topbar settings control should sit beside the data readout and include compact toggles for hardware purchase controls and keeping the screen awake when the browser supports wake locks.
 
 ### Tasks
 

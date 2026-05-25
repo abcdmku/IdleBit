@@ -63,6 +63,11 @@
   .resource-readout > span { display: none; }
   .resource-readout > strong { font-size: var(--fs-xs); }
 
+  .resource-settings-button {
+    width: 24px;
+    height: 24px;
+  }
+
   .dev-reset-button { display: none; }
 
   /* ----- Bottom-style section tabs ----- */

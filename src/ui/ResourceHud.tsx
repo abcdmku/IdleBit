@@ -6,7 +6,14 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { Database, RefreshCw, Zap } from "lucide-react";
+import {
+  Database,
+  Monitor,
+  RefreshCw,
+  Settings,
+  ShoppingCart,
+  Zap,
+} from "lucide-react";
 import type { VisibleState } from "../game";
 import { formatResourceAmount } from "./format";
 import {
@@ -62,6 +69,12 @@ export function ResourceHud({
   onSelectResource,
   onGrantDevResource,
   graphOpen = false,
+  resourceGraphTitle,
+  hardwarePurchasesVisible = true,
+  onHardwarePurchasesVisibleChange,
+  keepScreenAwake = false,
+  onKeepScreenAwakeChange,
+  keepScreenAwakeSupported = true,
 }: {
   visible: VisibleState;
   onReset: () => void;
@@ -69,15 +82,26 @@ export function ResourceHud({
   onSelectResource?: (resource: ResourceKind) => void;
   onGrantDevResource?: (resource: ResourceKind) => void;
   graphOpen?: boolean;
+  resourceGraphTitle?: string;
+  hardwarePurchasesVisible?: boolean;
+  onHardwarePurchasesVisibleChange?: (visible: boolean) => void;
+  keepScreenAwake?: boolean;
+  onKeepScreenAwakeChange?: (enabled: boolean) => void;
+  keepScreenAwakeSupported?: boolean;
 }) {
   const dataReadoutRef = useRef<HTMLDivElement>(null);
   const creditsReadoutRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
   const previousResourcesRef = useRef(visible.resources);
   const resourceEffectsArmedRef = useRef(false);
   const nextBurstIdRef = useRef(0);
   const gainTimeoutsRef = useRef<number[]>([]);
   const [gainBursts, setGainBursts] = useState<ResourceGainBurst[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const resourceInteractive = Boolean(onSelectResource);
+  const settingsAvailable = Boolean(
+    onHardwarePurchasesVisibleChange || onKeepScreenAwakeChange,
+  );
 
   const handleResourceClick =
     (resource: ResourceKind) => (event: MouseEvent<HTMLDivElement>) => {
@@ -99,7 +123,33 @@ export function ResourceHud({
       }
     };
 
-  const resourceTitle = onSelectResource ? "Toggle credits/data graph" : undefined;
+  const resourceTitle = onSelectResource
+    ? (resourceGraphTitle ?? "Toggle credits/data graph")
+    : undefined;
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        settingsRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setSettingsOpen(false);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setSettingsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [settingsOpen]);
 
   useEffect(
     () => () => {
@@ -227,6 +277,67 @@ export function ResourceHud({
         <strong>{formatResourceAmount(Math.floor(visible.resources.data))}</strong>
         <span>data</span>
       </div>
+      {settingsAvailable && (
+        <div className="resource-settings" ref={settingsRef}>
+          <button
+            type="button"
+            className={`resource-settings-button ${settingsOpen ? "active" : ""}`}
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-label="Open settings"
+            aria-expanded={settingsOpen}
+            aria-haspopup="true"
+            title="Settings"
+          >
+            <Settings size={13} />
+          </button>
+          {settingsOpen && (
+            <div className="resource-settings-menu" role="group" aria-label="Settings">
+              {onHardwarePurchasesVisibleChange && (
+                <label className="resource-settings-row">
+                  <span className="resource-settings-label">
+                    <ShoppingCart size={12} />
+                    <span>Hardware purchases</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    aria-label="Show hardware purchases"
+                    checked={hardwarePurchasesVisible}
+                    onChange={(event) =>
+                      onHardwarePurchasesVisibleChange(event.currentTarget.checked)
+                    }
+                  />
+                </label>
+              )}
+              {onKeepScreenAwakeChange && (
+                <label
+                  className={`resource-settings-row ${
+                    keepScreenAwakeSupported ? "" : "disabled"
+                  }`}
+                  title={
+                    keepScreenAwakeSupported
+                      ? undefined
+                      : "Screen wake lock unavailable"
+                  }
+                >
+                  <span className="resource-settings-label">
+                    <Monitor size={12} />
+                    <span>Keep screen awake</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    aria-label="Keep screen awake"
+                    checked={keepScreenAwake && keepScreenAwakeSupported}
+                    disabled={!keepScreenAwakeSupported}
+                    onChange={(event) =>
+                      onKeepScreenAwakeChange(event.currentTarget.checked)
+                    }
+                  />
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <button
         type="button"
         className="dev-reset-button"

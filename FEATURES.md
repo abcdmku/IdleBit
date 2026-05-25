@@ -20,9 +20,11 @@
 | Bit-scale startup | Tested | Opening tasks stay as a tiny bit-scale pair before byte/cache/research concepts are introduced, with Decode using a 2 b cache footprint and overwrite bit tasks reusing 1 b footprints |
 | Manual tasks | Tested | Player can start an available task/job and receive credits/data on completion |
 | Task cancellation | Tested | Active tasks and queued scheduler entries can be canceled, releasing reserved work without paying rewards or removing active scheduler reservations for other queued copies |
-| Resource gain flyouts | Tested | Positive credits/data gains show transient +amount labels that fly into the matching HUD total |
+| Resource gain flyouts | Tested | Positive credits/data gains show transient +amount labels above the mobile/desktop workbench that fly into the matching HUD total |
 | Resource amount tokens | Tested | Credits/data use one icon-number-color treatment in the HUD, flyouts, task payouts, upgrade/research costs, graph readouts, and inspect summaries, with RuneScape-style exact/K/M/B/T/Q/Qn/S/Sp stack count formatting and spaced suffixes |
 | Dev resource shortcut | Tested | Shift-clicking the HUD credits readout grants 100B credits, Shift-clicking the data readout grants 100B data, and neither shortcut toggles the resource graph |
+| HUD resource graph | Tested | Desktop clicks on the HUD credits/data readouts toggle the resource graph, while mobile taps always open the graph and route to the R&D/graph column without closing it on repeated taps |
+| HUD settings menu | Tested | The settings icon beside the HUD data readout opens compact toggles for showing hardware purchase controls and requesting a keep-screen-awake lock |
 | Storybook component documentation | Tested | Storybook is configured for reusable UI components, with stories for resource cost states, HUD zero/high/gain states, PSU/credit failure notices, motherboard layout board/rack states, SystemRackPanel rack states, and TaskBay route/pinned-task states using static review fixtures |
 | React UI module boundaries | Tested | App persistence, notice preferences, resource UI, failure notices, rack/builder UI, rack visual bays, task route/card UI, task/research panels, CPU/cache/scheduler, RAM, PSU, and shared hardware meters live in focused modules instead of one mixed hardware board file |
 | CSS architecture | Tested | CSS uses ordered domain manifests and focused partials for foundation, layout, hardware, scheduler, tasks, overlays, responsive, rack, and late surface rules without adding a utility framework dependency |

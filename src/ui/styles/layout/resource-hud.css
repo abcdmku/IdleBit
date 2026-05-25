@@ -1,6 +1,7 @@
 /* ============ RESOURCE HUD ============ */
 
 .resource-hud {
+  position: relative;
   display: inline-flex;
   gap: var(--s-2);
   align-items: center;
@@ -116,15 +117,25 @@
   text-transform: uppercase;
 }
 
-/* ---------- Dev reset ---------- */
+/* ---------- HUD actions ---------- */
 
-.dev-reset-button {
+.resource-settings {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dev-reset-button,
+.resource-settings-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
   padding: 0;
+}
+
+.dev-reset-button {
   border: 1px solid rgba(255, 111, 145, 0.32);
   border-radius: var(--radius-pill);
   color: var(--rose);
@@ -134,6 +145,93 @@
 .dev-reset-button:hover:not(:disabled) {
   border-color: var(--rose);
   background: rgba(255, 111, 145, 0.14);
+}
+
+.resource-settings-button {
+  border: 1px solid rgba(36, 231, 195, 0.28);
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.04);
+}
+
+.resource-settings-button:hover:not(:disabled),
+.resource-settings-button.active {
+  border-color: rgba(36, 231, 195, 0.62);
+  background: rgba(36, 231, 195, 0.14);
+}
+
+.resource-settings-menu {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  right: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 220px;
+  max-width: calc(100vw - 16px);
+  padding: var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(12, 24, 22, 0.98), rgba(5, 12, 11, 0.98));
+  box-shadow: var(--shadow-2);
+}
+
+.resource-settings-row {
+  display: flex;
+  gap: var(--s-4);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  padding: var(--s-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.resource-settings-row:hover {
+  background: rgba(36, 231, 195, 0.06);
+}
+
+.resource-settings-row.disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.resource-settings-row.disabled:hover {
+  background: transparent;
+}
+
+.resource-settings-label {
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+
+.resource-settings-label > svg {
+  flex: 0 0 auto;
+  color: var(--cyan);
+}
+
+.resource-settings-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-settings-row input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--cyan);
 }
 
 /* ---------- Floating gain bursts ---------- */

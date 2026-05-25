@@ -9,6 +9,7 @@ import {
 } from "./HardwareBoard";
 import { ResourceHud } from "./ResourceHud";
 import { ResourceGraph } from "./graph/ResourceGraph";
+import { useScreenWakeLock } from "./hooks/useScreenWakeLock";
 import { useResourceHistory } from "./graph/useResourceHistory";
 import type { ResourceKind } from "./ResourceTokens";
 import type { Dispatch } from "./uiActions";
@@ -111,6 +112,9 @@ export function SystemWorkbench({
   const [activeSection, setActiveSection] = useState<SectionKey>("hardware");
   const [hardwareUpgradesHidden, setHardwareUpgradesHidden] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [keepScreenAwake, setKeepScreenAwake] = useState(false);
+  const { supported: keepScreenAwakeSupported } =
+    useScreenWakeLock(keepScreenAwake);
   const history = useResourceHistory(
     visible.resources.credits,
     visible.resources.data,
@@ -118,8 +122,13 @@ export function SystemWorkbench({
 
   const handleSelectResource = useCallback(
     (_resource: ResourceKind) => {
+      if (isMobile) {
+        setGraphOpen(true);
+        setActiveSection("research");
+        return;
+      }
+
       setGraphOpen((prev) => !prev);
-      if (isMobile) setActiveSection("research");
     },
     [isMobile],
   );
@@ -210,6 +219,16 @@ export function SystemWorkbench({
           onSelectResource={handleSelectResource}
           onGrantDevResource={handleGrantDevResource}
           graphOpen={graphOpen}
+          resourceGraphTitle={
+            isMobile ? "Show credits/data graph" : "Toggle credits/data graph"
+          }
+          hardwarePurchasesVisible={!hardwareUpgradesHidden}
+          onHardwarePurchasesVisibleChange={(visible) =>
+            setHardwareUpgradesHidden(!visible)
+          }
+          keepScreenAwake={keepScreenAwake}
+          onKeepScreenAwakeChange={setKeepScreenAwake}
+          keepScreenAwakeSupported={keepScreenAwakeSupported}
         />
       </div>
 

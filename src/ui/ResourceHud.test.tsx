@@ -152,6 +152,48 @@ describe("ResourceHud", () => {
 
     expect(onSelectResource).toHaveBeenCalledWith("data");
   });
+
+  it("opens HUD settings for hardware purchases and screen wake toggles", () => {
+    const onHardwarePurchasesVisibleChange = vi.fn();
+    const onKeepScreenAwakeChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={makeVisibleState(12, 34)}
+          onReset={() => undefined}
+          animateResourceGains={false}
+          hardwarePurchasesVisible={true}
+          onHardwarePurchasesVisibleChange={onHardwarePurchasesVisibleChange}
+          keepScreenAwake={false}
+          onKeepScreenAwakeChange={onKeepScreenAwakeChange}
+          keepScreenAwakeSupported={true}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".resource-settings-button")?.click();
+    });
+
+    const purchasesToggle = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Show hardware purchases"]',
+    );
+    const keepAwakeToggle = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Keep screen awake"]',
+    );
+
+    expect(purchasesToggle?.checked).toBe(true);
+    expect(keepAwakeToggle?.checked).toBe(false);
+
+    act(() => {
+      purchasesToggle?.click();
+      keepAwakeToggle?.click();
+    });
+
+    expect(onHardwarePurchasesVisibleChange).toHaveBeenCalledWith(false);
+    expect(onKeepScreenAwakeChange).toHaveBeenCalledWith(true);
+  });
 });
 
 describe("power formatting", () => {

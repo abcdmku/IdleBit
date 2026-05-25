@@ -15,7 +15,7 @@ const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
 
 const systemSchedulerPolicyLabels: Record<SchedulerPolicy, string> = {
   none: "None",
-  fifo: "Spread",
+  fifo: "FIFO",
   shortestTask: "Least queued",
   smallestMemory: "Most headroom",
 };

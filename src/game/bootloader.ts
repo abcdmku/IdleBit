@@ -62,3 +62,24 @@ export const getBootSecondsForBootloaderLevel = (level: number) => {
 
 export const getBootSeconds = (state: GameState) =>
   getBootSecondsForBootloaderLevel(getGlobalBootloaderLevel(state));
+
+export const getBootloaderReducedSecondsForLevel = (
+  level: number,
+  baseSeconds: number,
+) => {
+  const savedSeconds =
+    DEFAULT_BOOT_SECONDS - getBootSecondsForBootloaderLevel(level);
+  return Math.max(
+    BOOTLOADER_MIN_SECONDS,
+    Math.round((baseSeconds - savedSeconds) * 100) / 100,
+  );
+};
+
+export const getBootloaderReducedSeconds = (
+  state: GameState,
+  baseSeconds: number,
+) =>
+  getBootloaderReducedSecondsForLevel(
+    getGlobalBootloaderLevel(state),
+    baseSeconds,
+  );

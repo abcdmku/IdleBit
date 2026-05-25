@@ -225,7 +225,6 @@ function AddCoreButton({
       dispatch={dispatch}
       cpuId={cpuId}
       label="Core"
-      className="add-core-stepper"
       resources={resources}
     />
   );

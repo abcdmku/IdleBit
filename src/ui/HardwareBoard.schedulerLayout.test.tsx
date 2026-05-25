@@ -612,7 +612,8 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     );
 
     expect(coreHeaderStepper?.textContent).toContain("Core");
-    expect(container.querySelector(".core-control-strip .add-core-stepper")).toBeNull();
+    expect(coreHeaderStepper?.className).not.toContain("add-core-stepper");
+    expect(container.querySelector(".add-core-stepper")).toBeNull();
 
     act(() => {
       selectAll?.click();

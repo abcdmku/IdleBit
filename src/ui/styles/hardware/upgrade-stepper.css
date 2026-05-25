@@ -32,8 +32,6 @@
 .upgrade-stepper.violet { --stepper-color: var(--violet); --stepper-bg: rgba(184, 158, 255, 0.05); --stepper-border: rgba(184, 158, 255, 0.32); }
 .upgrade-stepper.amber  { --stepper-color: var(--amber);  --stepper-bg: rgba(242, 194, 78, 0.05); --stepper-border: rgba(242, 194, 78, 0.34); }
 
-.upgrade-stepper.add-core-stepper { border-style: dashed; }
-
 .upgrade-stepper-button {
   display: inline-flex;
   align-items: center;

@@ -110,6 +110,15 @@ const getLocalQueueEntries = (state: GameState) =>
     (core) => core.localQueueEntries ?? [],
   );
 
+const getLocalQueueEntriesForCpu = (state: GameState, cpuId: number) => {
+  const cpu = state.hardware.cpus.find((candidate) => candidate.id === cpuId);
+  return (
+    cpu?.coreIds.flatMap(
+      (coreId) => state.coreSchedulers[coreId]?.localQueueEntries ?? [],
+    ) ?? []
+  );
+};
+
 const runTask = (state: GameState, taskId: TaskId) =>
   finishActiveTasks(applyAction(state, { type: "startTask", taskId }));
 
@@ -2335,7 +2344,7 @@ describe("IdleBit simulation", () => {
     }
   });
 
-  it("routes queued system child entries across every CPU scheduler on the selected system", () => {
+  it("least-queued system routing sends child entries across CPU schedulers on the selected system", () => {
     let state = createRackReadyGameState();
     const selectedSystemId = state.selectedSystemId;
     const selectedBefore = state.systems.find(
@@ -2345,6 +2354,16 @@ describe("IdleBit simulation", () => {
     expect(state.systems.length).toBeGreaterThan(1);
     expect(selectedBefore?.hardware.cpus.length).toBeGreaterThan(1);
 
+    state = {
+      ...state,
+      flags: { ...state.flags, schedulerPolicies: true },
+    };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "shortestTask",
+      systemId: selectedSystemId,
+    });
     state = applyAction(state, {
       type: "queueTask",
       taskId: "compileCode",
@@ -2380,6 +2399,194 @@ describe("IdleBit simulation", () => {
         ),
       ),
     ).toEqual([]);
+  });
+
+  it("FIFO system routing feeds open CPU schedulers instead of pinning work to CPU A", () => {
+    let state = createRackReadyGameState();
+    const [firstCpu, secondCpu] = state.hardware.cpus;
+
+    expect(firstCpu).toBeDefined();
+    expect(secondCpu).toBeDefined();
+
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = tickGame(state, 16);
+
+    const firstCpuChildren = getLocalQueueEntriesForCpu(state, firstCpu!.id).filter(
+      (entry) => entry.parentTaskId === "tinyChecksum",
+    );
+    const secondCpuChildren = getLocalQueueEntriesForCpu(
+      state,
+      secondCpu!.id,
+    ).filter((entry) => entry.parentTaskId === "tinyChecksum");
+
+    expect(firstCpuChildren).toHaveLength(1);
+    expect(secondCpuChildren).toHaveLength(1);
+  });
+
+  it("routes system children into CPU schedulers that must wait for hardware fit", () => {
+    let state = createRackReadyGameState();
+    const [firstCpu, secondCpu] = state.hardware.cpus;
+    const parentTask = getTaskDefinition("tinyChecksum");
+    const checksumStep = getTaskDefinition("checksumStep");
+
+    expect(firstCpu).toBeDefined();
+    expect(secondCpu).toBeDefined();
+    expect(checksumStep.cacheNeedBits).toBeGreaterThan(1);
+
+    const hardware = {
+      ...state.hardware,
+      cpus: state.hardware.cpus.map((cpu) =>
+        cpu.id === firstCpu!.id
+          ? { ...cpu, schedulerSlots: 0 }
+          : cpu.id === secondCpu!.id
+            ? {
+                ...cpu,
+                cacheBits: 1,
+                cacheBytes: 1,
+                schedulerSlots: 1,
+              }
+            : cpu,
+      ),
+      cacheBits: 1,
+      cacheBytes: 1,
+      schedulerSlots: 1,
+      systemSchedulerConfig: createSchedulerConfig({ policy: "fifo" }),
+    };
+    const parentQueueEntry: NonNullable<GameState["queueEntries"]>[number] = {
+      id: "system-queue-test",
+      reservationId: null,
+      taskId: parentTask.id,
+      name: parentTask.name,
+      category: parentTask.category,
+      cacheNeedBits: parentTask.cacheNeedBits,
+      ramNeedBits: parentTask.ramNeedBits,
+      requiredCores: parentTask.minCores,
+      parentTaskId: null,
+      parentTaskName: null,
+      parentQueueEntryId: null,
+      childTaskId: null,
+      childTaskName: null,
+      compositionIndex: null,
+      compositionRepeatIndex: null,
+      workUnitIndex: null,
+      childWorkKey: null,
+      completedChildKeys: ["single:0:0"],
+      totalChildCount: 2,
+      target: "system",
+    };
+
+    state = {
+      ...state,
+      hardware,
+      queue: ["tinyChecksum"],
+      queueEntries: [parentQueueEntry],
+      systems: state.systems.map((system) =>
+        system.id === state.selectedSystemId
+          ? {
+              ...system,
+              hardware,
+              queue: ["tinyChecksum"],
+              queueEntries: [parentQueueEntry],
+            }
+          : system,
+      ),
+    };
+
+    state = tickGame(state, 16);
+
+    const secondCpuChildren = getLocalQueueEntriesForCpu(
+      state,
+      secondCpu!.id,
+    ).filter((entry) => entry.parentTaskId === "tinyChecksum");
+
+    expect(secondCpuChildren).toHaveLength(1);
+    expect(secondCpuChildren[0]?.taskId).toBe("checksumStep");
+    expect(state.activeTasks.some((task) => task.taskId === "checksumStep")).toBe(
+      false,
+    );
+  });
+
+  it("least-queued system routing spreads child entries after the first CPU has reserved work", () => {
+    let state = createRackReadyGameState();
+    state = {
+      ...state,
+      flags: { ...state.flags, schedulerPolicies: true },
+    };
+    const [firstCpu, secondCpu] = state.hardware.cpus;
+
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "shortestTask",
+    });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = tickGame(state, 16);
+
+    expect(
+      getLocalQueueEntriesForCpu(state, firstCpu!.id).filter(
+        (entry) => entry.parentTaskId === "tinyChecksum",
+      ),
+    ).toHaveLength(1);
+    expect(
+      getLocalQueueEntriesForCpu(state, secondCpu!.id).filter(
+        (entry) => entry.parentTaskId === "tinyChecksum",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("most-headroom system routing chooses the CPU scheduler with more cache room", () => {
+    const childTask = getTaskDefinition("stageChecksumPage");
+    let state = createRackReadyGameState();
+    const [firstCpu, secondCpu] = state.hardware.cpus;
+    expect(firstCpu).toBeDefined();
+    expect(secondCpu).toBeDefined();
+    const hardware = {
+      ...state.hardware,
+      cpus: state.hardware.cpus.map((cpu) =>
+        cpu.id === firstCpu!.id
+          ? {
+              ...cpu,
+              cacheBits: childTask.cacheNeedBits,
+              cacheBytes: childTask.cacheNeedBytes,
+            }
+          : cpu.id === secondCpu!.id
+            ? {
+                ...cpu,
+                cacheBits: childTask.cacheNeedBits * 16,
+                cacheBytes: childTask.cacheNeedBytes * 16,
+              }
+            : cpu,
+      ),
+    };
+
+    state = {
+      ...state,
+      flags: { ...state.flags, schedulerPolicies: true },
+      hardware,
+      systems: state.systems.map((system) =>
+        system.id === state.selectedSystemId ? { ...system, hardware } : system,
+      ),
+    };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "smallestMemory",
+    });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = tickGame(state, 16);
+
+    expect(
+      getLocalQueueEntriesForCpu(state, firstCpu!.id).filter(
+        (entry) => entry.parentTaskId === "tinyChecksum",
+      ),
+    ).toHaveLength(0);
+    expect(
+      getLocalQueueEntriesForCpu(state, secondCpu!.id).filter(
+        (entry) => entry.parentTaskId === "tinyChecksum",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps system and distributed tasks composed from CPU-bound child tasks", () => {
@@ -4058,6 +4265,12 @@ describe("IdleBit simulation", () => {
     expect(getGlobalBootloaderLevel(state)).toBe(1);
     expect(getBootSeconds(state)).toBe(9.2);
 
+    state = applyAction(state, { type: "requestShutdown" });
+
+    expect(state.power.state).toBe("shuttingDown");
+    expect(state.power.transitionSeconds).toBe(7.2);
+    expect(state.power.transitionTotalSeconds).toBe(7.2);
+
     state = applyAction(state, { type: "requestPowerKill" });
     state = applyAction(state, { type: "requestPowerOn" });
 
@@ -4084,6 +4297,13 @@ describe("IdleBit simulation", () => {
 
     expect(getGlobalBootloaderLevel(state)).toBe(36);
     expect(getBootSeconds(state)).toBe(0.1);
+
+    state = applyAction(state, { type: "requestShutdown" });
+
+    expect(state.power.state).toBe("shuttingDown");
+    expect(state.power.transitionSeconds).toBe(0.1);
+    expect(state.power.transitionTotalSeconds).toBe(0.1);
+
     expect(
       deriveVisibleState(state).research.find((item) => item.id === "bootloader"),
     ).toEqual(
@@ -4579,6 +4799,67 @@ describe("IdleBit simulation", () => {
     expect(visible.metrics.memory.maxChannelCount).toBe(1);
     expect(visible.metrics.memory.channelBlockedReason).toBe(
       "Needs Dual Channel RAM",
+    );
+  });
+
+  it("allows RAM channel research before the matching stick count is installed", () => {
+    let state = unlockSystemScheduler();
+
+    expect(state.hardware.ramSticks).toHaveLength(1);
+
+    let visible = deriveVisibleState(state);
+    const dualChannelResearch = visible.research.find(
+      (item) => item.id === "dualChannelRam",
+    );
+
+    expect(dualChannelResearch?.canBuy).toBe(true);
+    expect(costAmount(dualChannelResearch?.costs ?? [], "credits")).toBe(200_000);
+    expect(costAmount(dualChannelResearch?.costs ?? [], "data")).toBe(20_000);
+    expect(dualChannelResearch?.requirements.map((item) => item.label)).not.toContain(
+      "Install 2 RAM sticks",
+    );
+
+    state = research(state, "dualChannelRam");
+    visible = deriveVisibleState(state);
+    const quadChannelResearch = visible.research.find(
+      (item) => item.id === "quadChannelRam",
+    );
+
+    expect(state.hardware.ramSticks).toHaveLength(1);
+    expect(state.research.completed).toContain("dualChannelRam");
+    expect(quadChannelResearch?.canBuy).toBe(true);
+    expect(costAmount(quadChannelResearch?.costs ?? [], "credits")).toBe(50_000_000);
+    expect(costAmount(quadChannelResearch?.costs ?? [], "data")).toBe(5_000_000);
+    expect(quadChannelResearch?.requirements.map((item) => item.label)).not.toContain(
+      "Install 4 RAM sticks",
+    );
+
+    state = research(state, "quadChannelRam");
+    visible = deriveVisibleState(state);
+    const octChannelResearch = visible.research.find(
+      (item) => item.id === "octChannelRam",
+    );
+
+    expect(state.hardware.ramSticks).toHaveLength(1);
+    expect(state.research.completed).toContain("quadChannelRam");
+    expect(octChannelResearch?.canBuy).toBe(true);
+    expect(costAmount(octChannelResearch?.costs ?? [], "credits")).toBe(
+      1_000_000_000,
+    );
+    expect(costAmount(octChannelResearch?.costs ?? [], "data")).toBe(100_000_000);
+    expect(octChannelResearch?.requirements.map((item) => item.label)).not.toContain(
+      "Install 8 RAM sticks",
+    );
+
+    state = research(state, "octChannelRam");
+
+    expect(state.hardware.ramSticks).toHaveLength(1);
+    expect(state.research.completed).toEqual(
+      expect.arrayContaining([
+        "dualChannelRam",
+        "quadChannelRam",
+        "octChannelRam",
+      ]),
     );
   });
 
@@ -5138,6 +5419,43 @@ describe("IdleBit simulation", () => {
     expect(coreThenUpgrade.hardware.cpus[0]?.level).toBe(2);
   });
 
+  it("removes a sold CPU core from a single-CPU package", () => {
+    const initial = createInitialGameState();
+    let state = fund({
+      ...initial,
+      flags: {
+        ...initial.flags,
+        multiCore: true,
+      },
+    });
+
+    state = buy(state, "core", undefined, 1);
+
+    const coreDowngrade =
+      deriveVisibleState(state).metrics.cpuSockets[0]?.coreUpgrade;
+    const beforeDowngradeCredits = state.resources.credits;
+
+    expect(state.hardware.cores).toBe(2);
+    expect(state.hardware.cpus[0]?.coreIds).toEqual([1, 2]);
+    expect(state.coreSchedulers[2]).toBeDefined();
+    expect(coreDowngrade?.canDowngrade).toBe(true);
+
+    state = applyAction(state, {
+      type: "downgradeUpgrade",
+      upgradeId: "core",
+      cpuId: 1,
+    });
+
+    expect(state.resources.credits - beforeDowngradeCredits).toBe(
+      costAmount(coreDowngrade?.refunds ?? [], "credits"),
+    );
+    expect(state.hardware.cores).toBe(1);
+    expect(state.hardware.cpus[0]?.coreIds).toEqual([1]);
+    expect(state.hardware.coreClockLevels[2]).toBeUndefined();
+    expect(state.coreSchedulers[2]).toBeUndefined();
+    expect(deriveVisibleState(state).metrics.cpuSockets[0]?.cores).toHaveLength(1);
+  });
+
   it("keeps cache frequency and core costs order-invariant", () => {
     const initial = createInitialGameState();
     const base = fund({
@@ -5253,8 +5571,24 @@ describe("IdleBit simulation", () => {
 
     expect(state.hardware.cpus).toHaveLength(1);
     expect(state.hardware.secondCpu).toBe(false);
+    expect(state.systems[0]?.hardware.cpus).toHaveLength(1);
+    expect(state.systems[0]?.hardware.secondCpu).toBe(false);
     expect(deriveVisibleState(state).metrics.cpuSockets[0]?.efficiency).toBe(10);
+    expect(deriveVisibleState(state).metrics.cpuSockets).toHaveLength(1);
     expect(state.resources.credits).toBeGreaterThan(afterInstallCredits);
+  });
+
+  it("derives installed CPU packages from the actual package list", () => {
+    const initial = createInitialGameState();
+    const visible = deriveVisibleState({
+      ...initial,
+      flags: { ...initial.flags, secondCpu: true },
+      hardware: { ...initial.hardware, secondCpu: true },
+    });
+
+    expect(visible.hardware.cpus).toHaveLength(1);
+    expect(visible.hardware.secondCpu).toBe(false);
+    expect(visible.metrics.cpuSockets).toHaveLength(1);
   });
 
   it("allows cache capacity and cache speed upgrades from the start", () => {
@@ -5354,7 +5688,14 @@ describe("IdleBit simulation", () => {
     const ramState = unlockRamControl();
     const ramVisible = deriveVisibleState(ramState);
     const installedRamVisible = deriveVisibleState(buy(ramState, "ram"));
+    const twoStickRamVisible = deriveVisibleState(buy(buy(ramState, "ram"), "ram"));
     const ramUpgrade = ramVisible.upgrades.find((upgrade) => upgrade.id === "ram");
+    const secondRamUpgrade = installedRamVisible.upgrades.find(
+      (upgrade) => upgrade.id === "ram",
+    );
+    const thirdRamUpgrade = twoStickRamVisible.upgrades.find(
+      (upgrade) => upgrade.id === "ram",
+    );
     const ramCapacityUpgrade = installedRamVisible.upgrades.find(
       (upgrade) => upgrade.id === "ramCapacity",
     );
@@ -5386,6 +5727,12 @@ describe("IdleBit simulation", () => {
     );
     expect(costAmount(ramUpgrade?.costs ?? [], "credits")).toBe(
       getCpuTierLevelDefinition("hz", 1).upgradeCost,
+    );
+    expect(costAmount(secondRamUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 1).upgradeCost * 2,
+    );
+    expect(costAmount(thirdRamUpgrade?.costs ?? [], "credits")).toBe(
+      getCpuTierLevelDefinition("hz", 1).upgradeCost * 4,
     );
     expect(costAmount(ramCapacityUpgrade?.costs ?? [], "credits")).toBe(
       getCpuTierLevelDefinition("hz", 2).upgradeCost * 2,

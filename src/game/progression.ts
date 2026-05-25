@@ -318,12 +318,8 @@ export const getAllCoreIds = (state: GameState) => {
   return Array.from({ length: state.hardware.cores }, (_, index) => index + 1);
 };
 
-const getSingleCpuCoreIds = (state: GameState, cpu: CpuHardwareState) => {
-  const desiredCoreCount = Math.max(1, state.hardware.cores, cpu.coreIds.length);
-  if (desiredCoreCount <= cpu.coreIds.length) return cpu.coreIds;
-
-  return Array.from({ length: desiredCoreCount }, (_, index) => index + 1);
-};
+const getSingleCpuCoreIds = (_state: GameState, cpu: CpuHardwareState) =>
+  cpu.coreIds.length > 0 ? cpu.coreIds : [1];
 
 const normalizeCpuHardware = (
   state: GameState,
@@ -415,7 +411,7 @@ export const syncHardwarePackages = (state: GameState): GameState => {
       clockLevel,
       clockHz,
       coreClockLevels,
-      secondCpu: state.hardware.secondCpu || cpus.length > 1,
+      secondCpu: cpus.length > 1,
       cacheLevel: maxCacheCpu.cacheLevel,
       cacheBits: maxCacheCpu.cacheBits,
       cacheBytes: maxCacheCpu.cacheBytes,

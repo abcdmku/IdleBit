@@ -321,7 +321,7 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "systemScheduler") || hasResearch(state, "dualChannelRam"),
     requirement: (state) => requirementsMet(state, getDualChannelRamRequirements()),
     requirements: () => getDualChannelRamRequirements(),
-    cost: () => [credits(820), data(42)],
+    cost: () => [credits(200_000), data(20_000)],
   },
   {
     id: "quadChannelRam",
@@ -332,7 +332,7 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "dualChannelRam") || hasResearch(state, "quadChannelRam"),
     requirement: (state) => requirementsMet(state, getQuadChannelRamRequirements()),
     requirements: () => getQuadChannelRamRequirements(),
-    cost: () => [credits(2_400), data(120)],
+    cost: () => [credits(50_000_000), data(5_000_000)],
   },
   {
     id: "octChannelRam",
@@ -343,7 +343,7 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "quadChannelRam") || hasResearch(state, "octChannelRam"),
     requirement: (state) => requirementsMet(state, getOctChannelRamRequirements()),
     requirements: () => getOctChannelRamRequirements(),
-    cost: () => [credits(7_200), data(320)],
+    cost: () => [credits(1_000_000_000), data(100_000_000)],
   },
   {
     id: "cronScheduler",
@@ -578,11 +578,6 @@ function getBootloaderRequirements() {
 function getDualChannelRamRequirements() {
   return [
     researchRequirement("systemScheduler", "Complete System Scheduler research"),
-    hardwareRequirement(
-      "two-ram-sticks",
-      "Install 2 RAM sticks",
-      (state) => state.hardware.ramSticks.length >= 2,
-    ),
   ];
 }
 
@@ -590,11 +585,6 @@ function getQuadChannelRamRequirements() {
   return [
     researchRequirement("systemScheduler", "Complete System Scheduler research"),
     researchRequirement("dualChannelRam", "Complete Dual Channel RAM research"),
-    hardwareRequirement(
-      "four-ram-sticks",
-      "Install 4 RAM sticks",
-      (state) => state.hardware.ramSticks.length >= 4,
-    ),
   ];
 }
 
@@ -602,11 +592,6 @@ function getOctChannelRamRequirements() {
   return [
     researchRequirement("systemScheduler", "Complete System Scheduler research"),
     researchRequirement("quadChannelRam", "Complete Quad Channel RAM research"),
-    hardwareRequirement(
-      "eight-ram-sticks",
-      "Install 8 RAM sticks",
-      (state) => state.hardware.ramSticks.length >= 8,
-    ),
   ];
 }
 

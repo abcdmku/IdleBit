@@ -1,4 +1,4 @@
-import { getBootSeconds } from "./bootloader";
+import { getBootSeconds, getBootloaderReducedSeconds } from "./bootloader";
 import { getResearchDefinition, researchDefinitions } from "./content/research";
 import {
   getComponentSku,
@@ -1955,6 +1955,7 @@ interface SystemChildCpuCandidate {
   queuedSlots: number;
   queuedSeconds: number;
   cacheHeadroomBits: number;
+  availableCoreCount: number;
   index: number;
 }
 
@@ -2001,17 +2002,6 @@ const getSystemChildCpuCandidates = (
   return state.hardware.cpus.flatMap((cpu, index): SystemChildCpuCandidate[] => {
     const normalizedCpu = getCpuHardware(state, cpu.id);
     if (getAvailableSchedulerSlots(state, normalizedCpu.id) < slotCount) return [];
-    if (
-      !cpuCanProvisionTask(
-        state,
-        task,
-        normalizedCpu.id,
-        normalizedCpu.coreIds.length,
-      )
-    ) {
-      return [];
-    }
-    if (!taskFitsCpuHardware(state, task, normalizedCpu.id)) return [];
 
     const queuedSlots = getCpuLocalQueueEntries(state, normalizedCpu.id).length;
     const queuedCacheBits = getQueuedCpuCacheFootprintBits(
@@ -2028,6 +2018,7 @@ const getSystemChildCpuCandidates = (
           normalizedCpu.cacheBits -
           getActiveCpuCacheFootprintBits(state, normalizedCpu.id) -
           queuedCacheBits,
+        availableCoreCount: availableCoreIds(state, normalizedCpu.id).length,
         index,
       },
     ];
@@ -2052,7 +2043,8 @@ const selectCpuIdForChildReservation = (
       ) {
         return candidate;
       }
-    } else if (policy === "smallestMemory") {
+    }
+    if (policy === "smallestMemory") {
       if (candidate.cacheHeadroomBits > best.cacheHeadroomBits) return candidate;
       if (
         candidate.cacheHeadroomBits === best.cacheHeadroomBits &&
@@ -2060,7 +2052,13 @@ const selectCpuIdForChildReservation = (
       ) {
         return candidate;
       }
-    } else if (candidate.queuedSlots < best.queuedSlots) {
+    }
+    if (candidate.queuedSlots < best.queuedSlots) return candidate;
+    if (
+      candidate.queuedSlots === best.queuedSlots &&
+      candidate.availableCoreCount >= task.minCores &&
+      best.availableCoreCount < task.minCores
+    ) {
       return candidate;
     }
 
@@ -4391,13 +4389,15 @@ const updateSchedulerConfig = (
 
 export const requestPowerOff = (state: GameState): GameState => {
   if (state.power.state !== "on") return state;
+  const shutdownSeconds = getBootloaderReducedSeconds(state, POWER_SHUTDOWN_SECONDS);
+
   return {
     ...state,
     power: {
       ...state.power,
       state: "shuttingDown",
-      transitionSeconds: POWER_SHUTDOWN_SECONDS,
-      transitionTotalSeconds: POWER_SHUTDOWN_SECONDS,
+      transitionSeconds: shutdownSeconds,
+      transitionTotalSeconds: shutdownSeconds,
       bootstrapGraceSeconds: 0,
       unpaidShutdownWarningSeconds: 0,
     },

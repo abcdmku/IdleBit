@@ -96,8 +96,11 @@ const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
 const cacheSpeedCosts = (tierId: CpuTierId, targetLevel: number): Cost[] =>
   getCpuTierUpgradeCost(tierId, targetLevel);
 
-const ramStickCosts = (targetLevel: number): Cost[] =>
-  getRamTierInstallCost(targetLevel);
+const ramStickCosts = (targetLevel: number, targetStickCount = 1): Cost[] =>
+  multiplyCosts(
+    getRamTierInstallCost(targetLevel),
+    2 ** Math.max(0, targetStickCount - 1),
+  );
 
 const ramCapacityCosts = (targetLevel: number): Cost[] =>
   getRamTierCapacityUpgradeCost(targetLevel);
@@ -979,7 +982,10 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
       state.flags.systemStats || state.research.completed.includes("ramControl"),
     cost: (state, context) => {
       const installLevel = getRamInstallLevelForContext(state, context);
-      return installLevel === null ? [] : ramStickCosts(installLevel);
+      const targetStickCount = getRamSticks(state).length + 1;
+      return installLevel === null
+        ? []
+        : ramStickCosts(installLevel, targetStickCount);
     },
     buy: (state, context) => {
       const ramSticks = getRamSticks(state);
@@ -999,7 +1005,12 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
     refund: (state) =>
       getRamSticks(state).length > 1
-        ? halfRefund(ramStickCosts(getRamSticks(state).at(-1)?.level ?? 1))
+        ? halfRefund(
+            ramStickCosts(
+              getRamSticks(state).at(-1)?.level ?? 1,
+              getRamSticks(state).length,
+            ),
+          )
         : [],
     downgradeBlockedReason: getRamStickDowngradeBlockedReason,
     downgrade: (state) => {

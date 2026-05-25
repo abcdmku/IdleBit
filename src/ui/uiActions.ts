@@ -2,6 +2,7 @@ import type {
   CronIntervalMode,
   CpuTierId,
   GameAction,
+  ResourceId,
   SchedulerKillPolicy,
   SchedulerPolicy,
   TaskId,
@@ -11,10 +12,16 @@ type WithSystem<T> = Omit<T, "systemId"> & { systemId?: string | number };
 
 export type UiGameAction =
   | WithSystem<GameAction>
+  | WithSystem<{ type: "grantDevResource"; resource: ResourceId }>
   | WithSystem<{ type: "startTask"; taskId: string }>
   | WithSystem<{ type: "startTaskOnCore"; taskId: string; coreId: number }>
   | WithSystem<{ type: "queueTask"; taskId: string; cpuId?: number }>
-  | WithSystem<{ type: "cancelTask"; taskId: string; instanceId?: string }>
+  | WithSystem<{
+      type: "cancelTask";
+      taskId: string;
+      instanceId?: string;
+      coreId?: number;
+    }>
   | WithSystem<{ type: "cancelQueuedTask"; taskId: string }>
   | WithSystem<{
       type: "setSchedulerPolicy";

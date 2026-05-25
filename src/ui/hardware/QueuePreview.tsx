@@ -5,6 +5,7 @@ import { clampMeter, getProgressStyle } from "./meters";
 
 export interface QueuePreviewItem {
   id: string;
+  cancelTaskId?: string;
   name: string;
   waitingReason: string;
   instanceId?: string;
@@ -199,10 +200,10 @@ export function QueuePreview({
                         item.instanceId
                           ? {
                               type: "cancelTask",
-                              taskId: item.id,
+                              taskId: item.cancelTaskId ?? item.id,
                               instanceId: item.instanceId,
                             }
-                          : { type: "cancelQueuedTask", taskId: item.id },
+                          : { type: "cancelQueuedTask", taskId: item.cancelTaskId ?? item.id },
                       )
                     }
                     title={`Cancel ${item.name}`}

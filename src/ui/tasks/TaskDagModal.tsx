@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { VisibleState } from "../../game";
-import { formatBits, formatNumber } from "../format";
+import { formatBits, formatNumber, formatResourceAmount } from "../format";
 import { ModuleMeter } from "../hardware/meters";
 import { clampMeter, firstBits, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
@@ -95,7 +95,7 @@ function buildStages(task: UiTask): DagStage[] {
     return {
       id: node.id ?? `stage-${index}`,
       index: index + 1,
-      name: node.name ?? `Stage ${index + 1}`,
+      name: node.sourceTaskName ?? node.name ?? `Stage ${index + 1}`,
       isBarrier: detectBarrier(operations),
       operationIds,
       operations,
@@ -357,7 +357,7 @@ export function TaskDagModal({
 function payoutLabel(rewards: ReturnType<typeof getTaskRewardCosts>) {
   if (rewards.length === 0) return "No payout";
   return rewards
-    .map((reward) => `+${formatNumber(reward.amount)} ${reward.resource}`)
+    .map((reward) => `+${formatResourceAmount(reward.amount)} ${reward.resource}`)
     .join(" · ");
 }
 

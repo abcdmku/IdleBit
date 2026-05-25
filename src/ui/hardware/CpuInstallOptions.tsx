@@ -17,24 +17,38 @@ export function EmptySocketSection({
   resources: VisibleState["resources"];
   dispatch: Dispatch;
 }) {
+  const hasCpuInstallOptions = upgrades.some(
+    (upgrade) => upgrade.id === "secondCpu" || upgrade.id === "matchedCpu",
+  );
+
   return (
     <section
       className={`hw-section cpu-section ${selected ? "selected" : ""}`}
     >
-      <button type="button" className="hw-section-header" onClick={onSelect}>
-        <Cpu size={14} />
-        <span>CPU Socket</span>
-        <span className="hw-section-meta">Empty</span>
-      </button>
+      <div className="hw-section-header-row cpu-socket-header-row">
+        <button type="button" className="hw-section-header" onClick={onSelect}>
+          <Cpu size={14} />
+          <span>CPU Socket</span>
+          <span className="hw-section-meta">Empty</span>
+        </button>
+        {hasCpuInstallOptions && (
+          <div
+            className="cpu-package-header-install cpu-socket-header-install"
+            aria-label="CPU install"
+          >
+            <CpuInstallOptions
+              upgrades={upgrades}
+              resources={resources}
+              dispatch={dispatch}
+              variant="header"
+            />
+          </div>
+        )}
+      </div>
       <div className="empty-socket">
         <strong>Install CPU</strong>
         <small>Install this system's CPU tier at level 1.</small>
       </div>
-      <CpuInstallOptions
-        upgrades={upgrades}
-        resources={resources}
-        dispatch={dispatch}
-      />
     </section>
   );
 }

@@ -22,6 +22,15 @@
 
 .empty-socket small { color: var(--muted); font-family: var(--font-mono); font-size: 0.7rem; }
 
+.cpu-socket-header-row .hw-section-header {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+.cpu-socket-header-install {
+  flex: 0 1 auto;
+}
+
 .cpu-install-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));

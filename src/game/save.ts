@@ -31,16 +31,19 @@ import type {
   RamStickState,
   ResearchId,
   TaskId,
+  TaskQueueEntry,
 } from "./types";
 
+export const SAVE_VERSION = 6 as const;
+
 export interface SaveEnvelope {
-  version: 4;
+  version: typeof SAVE_VERSION;
   savedAt: string;
   state: GameState;
 }
 
 export const createSaveEnvelope = (state: GameState): SaveEnvelope => ({
-  version: 4,
+  version: SAVE_VERSION,
   savedAt: new Date().toISOString(),
   state,
 });
@@ -295,6 +298,15 @@ const normalizeActiveTask = (
       ? task.coreId
       : (assignedCoreIds[0] ?? 1),
     assignedCoreIds,
+    workUnitsPending: Array.isArray(task.workUnitsPending)
+      ? Array.from(
+          new Set(
+            task.workUnitsPending
+              .map((workUnitIndex) => toInteger(workUnitIndex, NaN))
+              .filter((workUnitIndex) => Number.isFinite(workUnitIndex) && workUnitIndex >= 0),
+          ),
+        )
+      : undefined,
     coreOperations,
     remainingCycles,
     totalCycles: Math.max(remainingCycles, totalCycles),
@@ -493,7 +505,7 @@ const normalizeState = (state: LegacyState): GameState => {
   const normalized: GameState = {
     ...fresh,
     ...state,
-    version: 4,
+    version: SAVE_VERSION,
     hardware: {
       ...fresh.hardware,
       ...hardware,
@@ -596,6 +608,9 @@ const normalizeState = (state: LegacyState): GameState => {
     coreSchedulers:
       state.coreSchedulers ?? createCoreSchedulers(hardware.cores ?? fresh.hardware.cores),
     queue: normalizeTaskIdList(state.queue ?? fresh.queue),
+    queueEntries: Array.isArray(state.queueEntries)
+      ? (state.queueEntries as TaskQueueEntry[])
+      : fresh.queueEntries,
     autoRepeatJobId: normalizeTaskId(state.autoRepeatJobId, null),
   };
 
@@ -615,11 +630,15 @@ export const deserializeSave = (raw: string | null): GameState => {
       state?: LegacyState;
     };
 
-    if (parsed.version === 3 && parsed.state?.version === 3) {
+    if (
+      (parsed.version === 3 && parsed.state?.version === 3) ||
+      (parsed.version === 4 && parsed.state?.version === 4) ||
+      (parsed.version === 5 && parsed.state?.version === 5)
+    ) {
       return createInitialGameState();
     }
 
-    if (parsed.version === 4 && parsed.state?.version === 4) {
+    if (parsed.version === SAVE_VERSION && parsed.state?.version === SAVE_VERSION) {
       return normalizeState(parsed.state);
     }
   } catch {

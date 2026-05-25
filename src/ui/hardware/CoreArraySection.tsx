@@ -1,7 +1,7 @@
 import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { X } from "lucide-react";
 import type { VisibleCore, VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
-import { formatClock } from "../format";
+import { formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
 import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
@@ -22,6 +22,7 @@ export function CoreArraySection({
   resources,
   dispatch,
   deadlockPressure,
+  showEfficiency = false,
 }: {
   socket: VisibleCpuSocket;
   selectedCoreId: number | null;
@@ -33,9 +34,9 @@ export function CoreArraySection({
   resources: VisibleState["resources"];
   dispatch: Dispatch;
   deadlockPressure?: VisibleState["metrics"]["deadlockPressure"] | null;
+  showEfficiency?: boolean;
 }) {
   const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
-  const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
   const grid = getCoreGridMetrics(socket.cores.length);
   const gridStyle = {
     "--core-grid-columns": grid.columns,
@@ -70,9 +71,21 @@ export function CoreArraySection({
             All
           </button>
         )}
-        <small>
-          <strong>{activeCount}</strong>/{socket.cores.length}
-        </small>
+        {showEfficiency && (
+          <span className="core-array-efficiency">
+            Eff <strong>{formatNumber(socket.efficiency)}</strong>
+          </span>
+        )}
+        {coreUpgrade && (
+          <div className="core-array-header-controls" aria-label="Core count">
+            <AddCoreButton
+              upgrade={coreUpgrade}
+              cpuId={socket.id}
+              resources={resources}
+              dispatch={dispatch}
+            />
+          </div>
+        )}
       </div>
 
       <div
@@ -93,25 +106,15 @@ export function CoreArraySection({
         ))}
       </div>
 
-      {(selectedClockUpgrade || coreUpgrade) && (
+      {selectedClockUpgrade && (
         <div className="core-control-strip">
-          {selectedClockUpgrade && (
-            <UpgradeStepper
-              upgrade={selectedClockUpgrade}
-              dispatch={dispatch}
-              cpuId={socket.id}
-              label="CPU Level"
-              resources={resources}
-            />
-          )}
-          {coreUpgrade && (
-            <AddCoreButton
-              upgrade={coreUpgrade}
-              cpuId={socket.id}
-              resources={resources}
-              dispatch={dispatch}
-            />
-          )}
+          <UpgradeStepper
+            upgrade={selectedClockUpgrade}
+            dispatch={dispatch}
+            cpuId={socket.id}
+            label="Core Freq"
+            resources={resources}
+          />
         </div>
       )}
     </section>
@@ -151,6 +154,7 @@ function CoreDie({
       type: "cancelTask",
       taskId: active.taskId,
       instanceId: active.instanceId,
+      coreId: core.id,
     });
   };
   const selectOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

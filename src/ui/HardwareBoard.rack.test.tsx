@@ -701,7 +701,7 @@ describe("HardwareBoard multi-system rack", () => {
     expect(
       container.querySelector(".custom-system-buy .resource-token.credits strong")
         ?.textContent,
-    ).toBe("1,040");
+    ).toBe("1040");
     expect(
       container.querySelector(".custom-system-buy .resource-token.data strong")
         ?.textContent,

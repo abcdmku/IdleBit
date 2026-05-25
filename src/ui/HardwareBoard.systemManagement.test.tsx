@@ -339,9 +339,9 @@ describe("HardwareBoard second CPU system management", () => {
 
     expect(container.querySelector(".empty-socket")).toBeNull();
     expect(cpuPackage?.querySelector(".cpu-package-install")).toBeNull();
-    expect(headerInstall?.textContent).toContain("Buy CPU");
     expect(cpuPackage?.textContent).toContain("Unmatched CPU");
     expect(cpuPackage?.textContent).toContain("Matched CPU");
+    expect(headerInstall?.textContent).not.toContain("Buy CPU");
     expect(cpuPackage?.textContent).toContain("+1.2 mW");
     expect(cpuPackage?.textContent).toContain("+4.2 mW");
     expect(cpuPackage?.textContent).not.toContain("MW");
@@ -353,6 +353,68 @@ describe("HardwareBoard second CPU system management", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "buyUpgrade",
       upgradeId: "matchedCpu",
+    });
+  });
+
+  it("puts pre-RAM CPU socket install controls in the socket header", () => {
+    const dispatch = vi.fn();
+    const base = deriveVisibleState(createInitialGameState());
+    const visible = {
+      ...base,
+      flags: {
+        ...base.flags,
+        secondCpu: true,
+      },
+      upgrades: [
+        {
+          id: "secondCpu",
+          name: "Install CPU",
+          component: "socket",
+          accent: "cyan",
+          costs: [{ resource: "credits", amount: 900 }],
+          refunds: [],
+          powerDeltaWatts: 0.0012,
+          canAfford: true,
+          canDowngrade: false,
+          downgradeBlockedReason: null,
+          purchaseCount: 0,
+        },
+      ],
+    } as unknown as VisibleState;
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="socket"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const socketSection = container.querySelector<HTMLElement>(".cpu-section");
+    const headerInstall = socketSection?.querySelector<HTMLElement>(
+      ".cpu-socket-header-install",
+    );
+    const bodyInstall = Array.from(socketSection?.children ?? []).find((child) =>
+      child.classList.contains("cpu-install-options"),
+    );
+    const button = headerInstall?.querySelector<HTMLButtonElement>(
+      ".cpu-install-option",
+    );
+
+    expect(headerInstall?.textContent).toContain("Install CPU");
+    expect(headerInstall?.textContent).not.toContain("Buy CPU");
+    expect(bodyInstall).toBeUndefined();
+
+    act(() => {
+      button?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyUpgrade",
+      upgradeId: "secondCpu",
     });
   });
 
@@ -529,6 +591,64 @@ describe("HardwareBoard second CPU system management", () => {
     expect(optionLabels).toEqual(["Select Task", "Tiny Checksum"]);
   });
 
+  it("keeps CPU add/remove in the CPU bank header before the view toggle", () => {
+    const dispatch = vi.fn();
+    const visible = makeSecondCpuVisible({
+      upgrades: [
+        {
+          id: "secondCpu",
+          name: "Install CPU",
+          component: "socket",
+          accent: "cyan",
+          costs: [{ resource: "credits", amount: 900 }],
+          refunds: [{ resource: "credits", amount: 450 }],
+          canAfford: false,
+          canDowngrade: true,
+          downgradeBlockedReason: null,
+          purchaseCount: 1,
+        },
+      ],
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const headerChildren = Array.from(
+      container.querySelectorAll<HTMLElement>(".cpu-bank-header > *"),
+    ).map((element) => element.className);
+    const cpuControl = container.querySelector<HTMLElement>(
+      ".cpu-bank-add .upgrade-stepper",
+    );
+    const buttons = Array.from(
+      cpuControl?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    );
+
+    expect(headerChildren[0]).toContain("cpu-bank-title");
+    expect(headerChildren.at(-2)).toContain("cpu-bank-add");
+    expect(headerChildren.at(-1)).toContain("cpu-bank-toggle");
+    expect(cpuControl?.textContent).toContain("CPU");
+    expect(cpuControl?.textContent).not.toContain("Install CPU");
+    expect(buttons[0]?.disabled).toBe(false);
+    expect(buttons[1]?.disabled).toBe(true);
+
+    act(() => {
+      buttons[0]?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "downgradeUpgrade",
+      upgradeId: "secondCpu",
+    });
+  });
+
   it("keeps concise CPU cards focused on scheduler and core selection", () => {
     const onSelectComponent = vi.fn();
     const visible = makeSecondCpuVisible();
@@ -548,7 +668,7 @@ describe("HardwareBoard second CPU system management", () => {
           queuedCount: 1,
           schedulerConfig: {
             ...socket.schedulerConfig,
-            policy: "deadlockSafe",
+            policy: "fifo",
           },
           cores: socket.cores.map((core, coreIndex) =>
             coreIndex === 0
@@ -587,6 +707,7 @@ describe("HardwareBoard second CPU system management", () => {
 
     expect(queue?.classList.contains("slots-4")).toBe(true);
     expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
+    expect(card?.querySelector(".cpu-summary-active")).toBeNull();
     expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
     expect(queueStates).toEqual(["CACHE", "Open", "Open", "Open"]);
     expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(3);
@@ -636,6 +757,46 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".cpu-bank-stack")).not.toBeNull();
     expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
     expect(container.querySelector(".cpu-bank-grid")).toBeNull();
+  });
+
+  it("shows CPU efficiency in array cards and tab detail", () => {
+    const visible = makeSecondCpuVisible();
+    visible.metrics.cpuSockets = visible.metrics.cpuSockets.map((socket) => ({
+      ...socket,
+      efficiency: 7.5,
+    }));
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const cardEfficiency = container.querySelector<HTMLElement>(
+      ".cpu-summary-card .cpu-summary-efficiency",
+    );
+
+    expect(cardEfficiency?.textContent).toContain("Eff");
+    expect(cardEfficiency?.textContent).toContain("7.5");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".cpu-summary-open")?.click();
+    });
+
+    const detailEfficiency = container.querySelector<HTMLElement>(
+      ".cpu-bank-stack .core-array-efficiency",
+    );
+
+    expect(detailEfficiency?.textContent).toContain("Eff");
+    expect(detailEfficiency?.textContent).toContain("7.5");
+    expect(container.querySelector(".cpu-bank-stack .core-array-header small")).toBeNull();
+    expect(container.querySelector(".cpu-bank-stack .cpu-bank-socket-efficiency")).toBeNull();
+    expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
   });
 
   it("labels cores locally within each CPU socket", () => {
@@ -690,10 +851,14 @@ describe("HardwareBoard second CPU system management", () => {
       cards[1]?.querySelector<HTMLButtonElement>(".cpu-summary-open")?.click();
     });
 
+    const tabLabels = Array.from(
+      container.querySelectorAll(".cpu-bank-tab"),
+    ).map((label) => label.textContent);
     const fullViewLabels = Array.from(
       container.querySelectorAll(".cpu-bank-stack .core-label"),
     ).map((label) => label.textContent);
 
+    expect(tabLabels).toEqual(["A", "B"]);
     expect(container.querySelector(".cpu-bank-stack .cpu-package")).toBeNull();
     expect(fullViewLabels).toEqual(["C1", "C2", "C3", "C4"]);
   });

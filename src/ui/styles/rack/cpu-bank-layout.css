@@ -2,12 +2,16 @@
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-left: 8px;
+  margin-left: auto;
 }
 
 .cpu-bank-add .upgrade-stepper {
   flex: 0 0 auto;
   min-width: 140px;
+}
+
+.cpu-bank-add + .cpu-bank-toggle {
+  margin-left: 0;
 }
 
 .cpu-bank-stack {

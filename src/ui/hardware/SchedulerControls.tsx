@@ -7,10 +7,17 @@ import { getCoreTargetLabel } from "./coreTargets";
 import { getProgressStyle } from "./meters";
 
 const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
+  none: "None",
   fifo: "FIFO",
-  deadlockSafe: "Deadlock-safe",
   shortestTask: "Shortest",
   smallestMemory: "Smallest memory",
+};
+
+const systemSchedulerPolicyLabels: Record<SchedulerPolicy, string> = {
+  none: "None",
+  fifo: "Spread",
+  shortestTask: "Least queued",
+  smallestMemory: "Most headroom",
 };
 
 const schedulerKillPolicyLabels: Record<SchedulerKillPolicy, string> = {
@@ -94,6 +101,8 @@ export function SchedulerControls({
   const showAutoKill = visible.flags.schedulerWatchdog;
   const showPolicy = visible.flags.schedulerPolicies;
   const showKillPolicy = visible.flags.schedulerWatchdog;
+  const policyLabels =
+    target === "system" ? systemSchedulerPolicyLabels : schedulerPolicyLabels;
 
   if (!showAutoKill && !showPolicy && !showKillPolicy) {
     return null;
@@ -115,9 +124,9 @@ export function SchedulerControls({
               })
             }
           >
-            {(Object.keys(schedulerPolicyLabels) as SchedulerPolicy[]).map((policy) => (
+            {(Object.keys(policyLabels) as SchedulerPolicy[]).map((policy) => (
               <option key={policy} value={policy}>
-                {schedulerPolicyLabels[policy]}
+                {policyLabels[policy]}
               </option>
             ))}
           </select>

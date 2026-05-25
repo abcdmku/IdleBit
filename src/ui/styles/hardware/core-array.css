@@ -31,6 +31,7 @@
 
 .core-array-header {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-3);
   align-items: center;
   color: var(--cyan);
@@ -41,7 +42,12 @@
   text-transform: uppercase;
 }
 
-.core-array-header small {
+.core-array-header strong { color: var(--text); font-weight: 800; }
+
+.core-array-efficiency {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
   margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
@@ -49,9 +55,33 @@
   font-weight: 600;
   letter-spacing: var(--tracking-tight);
   text-transform: none;
+  white-space: nowrap;
 }
 
-.core-array-header strong { color: var(--text); font-weight: 800; }
+.core-array-efficiency strong {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.core-array-header-controls {
+  display: flex;
+  flex: 0 1 190px;
+  min-width: min(100%, 154px);
+  margin-left: auto;
+}
+
+.core-array-efficiency + .core-array-header-controls {
+  margin-left: 0;
+}
+
+.core-array-header-controls .upgrade-stepper {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.core-array-header-controls .upgrade-stepper-spec {
+  padding-inline: var(--s-2);
+}
 
 /* ---------- Select-all toggle ---------- */
 

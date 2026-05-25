@@ -34,6 +34,15 @@ export const getCpuClockHz = (tierId: CpuTierId, level: number) =>
 export const getCpuEfficiency = (tierId: CpuTierId, level: number) =>
   getCpuTierLevelDefinition(tierId, level).efficiency;
 
+export const getCpuPackageEfficiencyMultiplier = (state: GameState) =>
+  0.75 ** Math.max(0, state.hardware.cpus.length - 1);
+
+export const getEffectiveCpuEfficiency = (
+  state: GameState,
+  tierId: CpuTierId,
+  level: number,
+) => getCpuEfficiency(tierId, level) * getCpuPackageEfficiencyMultiplier(state);
+
 export const getUnlockedCpuTierDefinitions = (state: GameState) =>
   cpuTierDefinitions.filter(
     (tier) => tier.unlockResearchId === null || hasResearch(state, tier.unlockResearchId),
@@ -239,11 +248,22 @@ export const syncCronSchedules = (state: GameState): GameState => {
 
 export const createSchedulerConfig = (
   template?: Partial<SchedulerConfig>,
-): SchedulerConfig => ({
-  policy: template?.policy ?? "fifo",
-  autoKillEnabled: template?.autoKillEnabled ?? false,
-  killPolicy: template?.killPolicy ?? "deadlockedTask",
-});
+): SchedulerConfig => {
+  const rawPolicy = template?.policy as string | undefined;
+  const policy: SchedulerConfig["policy"] =
+    rawPolicy === "none" ||
+    rawPolicy === "fifo" ||
+    rawPolicy === "shortestTask" ||
+    rawPolicy === "smallestMemory"
+      ? rawPolicy
+      : "fifo";
+
+  return {
+    policy,
+    autoKillEnabled: template?.autoKillEnabled ?? false,
+    killPolicy: template?.killPolicy ?? "deadlockedTask",
+  };
+};
 
 export const createCpuHardwareState = (
   id: number,
@@ -420,6 +440,7 @@ export const createCoreSchedulerState = (
   status: "idle",
   memoryState: "idle",
   localQueue: [],
+  localQueueEntries: [],
   progress: 0,
 });
 
@@ -498,6 +519,7 @@ export const createSystemState = (
   cacheResidency: [],
   coreSchedulers: createCoreSchedulers(hardware.cores),
   queue: [],
+  queueEntries: [],
   deadlockPressureSeconds: 0,
   deadlockPressureResource: null,
   deadlockPressureCpuId: null,
@@ -530,7 +552,7 @@ export const createInitialGameState = (): GameState => {
   const firstSystem = createSystemState(1, "Barebones PC", "barebonesPc");
 
   return {
-    version: 4,
+    version: 6,
     tick: 0,
     nextInstanceId: 1,
     selectedSystemId: firstSystem.id,
@@ -585,6 +607,7 @@ export const createInitialGameState = (): GameState => {
     cacheResidency: firstSystem.cacheResidency,
     coreSchedulers: firstSystem.coreSchedulers,
     queue: firstSystem.queue,
+    queueEntries: firstSystem.queueEntries,
     autoRepeatJobId: null,
   };
 };

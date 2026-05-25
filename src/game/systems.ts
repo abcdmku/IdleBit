@@ -107,6 +107,7 @@ const getSystemRuntime = (_state: GameState, system: SystemState): SystemState =
       ? system.coreSchedulers
       : createCoreSchedulers(system.hardware.cores),
   purchaseCosts: Array.isArray(system.purchaseCosts) ? system.purchaseCosts : [],
+  queueEntries: Array.isArray(system.queueEntries) ? system.queueEntries : [],
 });
 
 export const createSystemFromRuntime = (
@@ -133,6 +134,7 @@ export const createSystemFromRuntime = (
   cacheResidency: state.cacheResidency,
   coreSchedulers: state.coreSchedulers,
   queue: state.queue,
+  queueEntries: state.queueEntries ?? [],
   deadlockPressureSeconds: state.deadlockPressureSeconds,
   deadlockPressureResource: state.deadlockPressureResource,
   deadlockPressureCpuId: state.deadlockPressureCpuId,
@@ -234,6 +236,7 @@ export const materializeSystem = (
     cacheResidency: selectedSystem.cacheResidency,
     coreSchedulers: selectedSystem.coreSchedulers,
     queue: selectedSystem.queue,
+    queueEntries: selectedSystem.queueEntries ?? [],
     deadlockPressureSeconds: selectedSystem.deadlockPressureSeconds,
     deadlockPressureResource: selectedSystem.deadlockPressureResource,
     deadlockPressureCpuId: selectedSystem.deadlockPressureCpuId,

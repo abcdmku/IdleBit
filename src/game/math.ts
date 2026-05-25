@@ -7,8 +7,8 @@ import {
 import { getGlobalCStateLevel } from "./cState";
 import {
   bitsToBytes,
-  getCpuEfficiency,
   getCpuClockHz,
+  getEffectiveCpuEfficiency,
   getCpuForCore,
   getCpuHardware,
   getCoreClockHz,
@@ -306,7 +306,9 @@ const isSystemScheduledActiveTask = (task: ActiveTask) => {
   const definition = getTaskDefinition(task.taskId);
   return (
     task.schedulerQueued &&
-    (definition.category === "system" || definition.category === "distributed")
+    (Boolean(task.parentTaskId) ||
+      definition.category === "system" ||
+      definition.category === "distributed")
   );
 };
 
@@ -1244,7 +1246,8 @@ export const getHardwareDrawWatts = (state: GameState) => {
     const coreId = index + 1;
     const cpu = getCpuForCore(state, coreId);
     const activeDrawWatts =
-      (getCoreClockHz(state, coreId) / getCpuEfficiency(cpu.tierId, cpu.level)) /
+      (getCoreClockHz(state, coreId) /
+        getEffectiveCpuEfficiency(state, cpu.tierId, cpu.level)) /
       1_000_000;
     return activeCoreIds.has(coreId)
       ? activeDrawWatts

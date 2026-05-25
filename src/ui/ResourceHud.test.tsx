@@ -110,6 +110,48 @@ describe("ResourceHud", () => {
 
     expect(container.querySelector(".resource-gain-flyout")).toBeNull();
   });
+
+  it("grants the clicked dev resource on shift-clicking resource readouts", () => {
+    const onSelectResource = vi.fn();
+    const onGrantDevResource = vi.fn();
+
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={makeVisibleState(12, 34)}
+          onReset={() => undefined}
+          animateResourceGains={false}
+          onSelectResource={onSelectResource}
+          onGrantDevResource={onGrantDevResource}
+        />,
+      );
+    });
+
+    const creditsReadout = container.querySelector(".resource-readout.credits");
+    const dataReadout = container.querySelector(".resource-readout.data");
+
+    expect(creditsReadout?.getAttribute("title")).toBe("Toggle credits/data graph");
+    expect(creditsReadout?.getAttribute("title")).not.toContain("Shift-click");
+
+    act(() => {
+      creditsReadout?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true }),
+      );
+      dataReadout?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true }),
+      );
+    });
+
+    expect(onGrantDevResource).toHaveBeenNthCalledWith(1, "credits");
+    expect(onGrantDevResource).toHaveBeenNthCalledWith(2, "data");
+    expect(onSelectResource).not.toHaveBeenCalled();
+
+    act(() => {
+      dataReadout?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onSelectResource).toHaveBeenCalledWith("data");
+  });
 });
 
 describe("power formatting", () => {

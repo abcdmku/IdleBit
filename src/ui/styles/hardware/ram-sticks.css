@@ -13,6 +13,21 @@
   width: auto;
 }
 
+.ram-header-controls {
+  display: flex;
+  flex: 0 1 210px;
+  min-width: min(100%, 160px);
+}
+
+.ram-header-controls .upgrade-stepper {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.ram-header-controls .upgrade-stepper-spec {
+  padding-inline: var(--s-2);
+}
+
 .ram-stick-row {
   display: flex;
   gap: var(--s-1);
@@ -115,9 +130,10 @@
 /* ---------- Single-line head: label · spec · % ---------- */
 
 .ram-stick-module-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) max-content max-content;
   align-items: baseline;
-  gap: var(--s-2);
+  gap: var(--s-1);
   min-width: 0;
 }
 
@@ -132,11 +148,11 @@
 }
 
 .ram-stick-module-foot {
-  flex: 1 1 auto;
   display: inline-flex;
   align-items: baseline;
   gap: var(--s-1);
   min-width: 0;
+  max-width: 100%;
   color: var(--muted);
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
@@ -146,10 +162,32 @@
   white-space: nowrap;
 }
 
+.ram-stick-module-foot span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ram-stick-foot-sep { opacity: 0.6; }
 
+.ram-stick-efficiency {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+}
+
+.ram-stick-efficiency strong {
+  color: var(--text);
+  font-weight: 800;
+}
+
 .ram-stick-module-pct {
-  flex: 0 0 auto;
   color: var(--muted);
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;

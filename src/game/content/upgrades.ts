@@ -315,6 +315,9 @@ const getSystemCpuInstallTierId = (state: GameState) =>
 const baseCpuCost = (state: GameState): Cost[] =>
   getCpuTierPurchaseCost(getSystemCpuInstallTierId(state));
 
+const cpuPackageCost = (state: GameState, targetCpuCount: number): Cost[] =>
+  multiplyCosts(baseCpuCost(state), 2 ** Math.max(0, targetCpuCount - 1));
+
 const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   const sourceCpu = getCpuHardware(state, sourceCpuId);
   const costs: Cost[] = getCpuTierPurchaseCost(sourceCpu.tierId);
@@ -387,6 +390,50 @@ const installCpuPackage = (
   );
 };
 
+const getLastCpuPackage = (state: GameState) =>
+  state.hardware.cpus.at(-1) ?? null;
+
+const getCpuPackageDowngradeBlockedReason = (state: GameState) => {
+  const removedCpu = getLastCpuPackage(state);
+  if (state.hardware.cpus.length <= 1 || !removedCpu) return "Minimum one CPU.";
+
+  const removedCoreIds = new Set(removedCpu.coreIds);
+  if (
+    state.activeTasks.some((task) =>
+      task.assignedCoreIds.some((coreId) => removedCoreIds.has(coreId)),
+    )
+  ) {
+    return `${removedCpu.id === 1 ? "CPU" : `CPU ${removedCpu.id}`} is active.`;
+  }
+  if (getSchedulerQueuedCount(state, removedCpu.id) > 0) {
+    return `${removedCpu.id === 1 ? "CPU" : `CPU ${removedCpu.id}`} has queued work.`;
+  }
+  if (getReservedCacheBits(state, removedCpu.id) > 0) return "CPU cache in use.";
+
+  return null;
+};
+
+const removeLastCpuPackage = (state: GameState) => {
+  const removedCpu = getLastCpuPackage(state);
+  if (state.hardware.cpus.length <= 1 || !removedCpu) return state;
+
+  const removedCoreIds = new Set(removedCpu.coreIds);
+  const coreClockLevels = { ...state.hardware.coreClockLevels };
+  removedCoreIds.forEach((coreId) => {
+    delete coreClockLevels[coreId];
+  });
+
+  return syncHardwarePackages({
+    ...state,
+    hardware: {
+      ...state.hardware,
+      cpus: state.hardware.cpus.filter((cpu) => cpu.id !== removedCpu.id),
+      coreClockLevels,
+      secondCpu: state.hardware.cpus.length - 1 > 1,
+    },
+  });
+};
+
 const count = (
   state: GameState,
   id: UpgradeDefinition["id"],
@@ -430,7 +477,7 @@ const count = (
   if (id === "psu") return state.hardware.psuLevel;
   if (id === "cooling") return state.hardware.coolingLevel;
   if (id === "secondCpu" || id === "matchedCpu") {
-    return state.hardware.secondCpu ? 1 : 0;
+    return Math.max(0, state.hardware.cpus.length - 1);
   }
   if (id === "basicQueue") return state.flags.basicQueue ? 1 : 0;
   if (id === "scheduler") return state.flags.scheduler ? 1 : 0;
@@ -897,10 +944,15 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "Install CPU",
     component: "socket",
     accent: "cyan",
-    maxPurchases: 1,
-    requirement: (state) => state.flags.secondCpu && state.hardware.cpus.length < 2,
-    cost: baseCpuCost,
+    requirement: (state) => state.flags.secondCpu,
+    cost: (state) => cpuPackageCost(state, state.hardware.cpus.length + 1),
     buy: (state) => installCpuPackage(state),
+    refund: (state) =>
+      state.hardware.cpus.length > 1
+        ? halfRefund(cpuPackageCost(state, state.hardware.cpus.length))
+        : [],
+    downgradeBlockedReason: getCpuPackageDowngradeBlockedReason,
+    downgrade: removeLastCpuPackage,
   },
   {
     id: "matchedCpu",

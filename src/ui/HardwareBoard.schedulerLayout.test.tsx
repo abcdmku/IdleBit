@@ -108,14 +108,14 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(controlLabels).toEqual(["Policy", "Auto-kill", "Kill"]);
 
     act(() => {
-      selects[0]!.value = "deadlockSafe";
+      selects[0]!.value = "none";
       selects[0]!.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(dispatch).toHaveBeenCalledWith({
       type: "setSchedulerPolicy",
       target: "cpu",
       cpuId: 1,
-      policy: "deadlockSafe",
+      policy: "none",
     });
 
     act(() => {
@@ -422,6 +422,13 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(standaloneCores).not.toBeNull();
     expect(standaloneCores?.closest(".cpu-package")).toBeNull();
     expect(
+      standaloneCores?.querySelector(".core-array-efficiency")?.textContent,
+    ).toContain("Eff");
+    expect(
+      standaloneCores?.querySelector(".core-array-efficiency")?.textContent,
+    ).toContain("10");
+    expect(standaloneCores?.querySelector(".core-array-header small")).toBeNull();
+    expect(
       coreDie?.querySelector(".core-work")?.textContent,
     ).toBe("Idle");
     expect(coreDie?.style.getPropertyValue("--core-status-color")).toBe("");
@@ -485,6 +492,10 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(cpuPackage?.querySelector(".scheduler-section")).not.toBeNull();
     expect(cpuPackage?.querySelector(".cache-section")).not.toBeNull();
     expect(cpuPackage?.querySelector(".core-array-section")).not.toBeNull();
+    expect(cpuPackage?.querySelector(".cpu-package-meta")?.textContent).toContain(
+      "Eff",
+    );
+    expect(cpuPackage?.querySelector(".core-array-efficiency")).toBeNull();
   });
 
   it("uses a dense core array that can scale to two dozen cores", () => {
@@ -544,7 +555,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(container.querySelector(".core-cache-row")).toBeNull();
     expect(
       container.querySelector(".core-array-section .upgrade-stepper")?.textContent,
-    ).toContain("CPU Level");
+    ).toContain("Core Freq");
   });
 
   it("selects all cores and dispatches grouped clock +/- actions", () => {
@@ -596,6 +607,12 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     const selectAll = container.querySelector<HTMLButtonElement>(
       ".core-select-all-button",
     );
+    const coreHeaderStepper = container.querySelector<HTMLElement>(
+      ".core-array-header-controls .upgrade-stepper",
+    );
+
+    expect(coreHeaderStepper?.textContent).toContain("Core");
+    expect(container.querySelector(".core-control-strip .add-core-stepper")).toBeNull();
 
     act(() => {
       selectAll?.click();
@@ -616,7 +633,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     const groupedStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("CPU Level"));
+    ).find((stepper) => stepper.textContent?.includes("Core Freq"));
     const groupButtons = Array.from(
       groupedStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );
@@ -661,7 +678,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     const downgradableStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
-    ).find((stepper) => stepper.textContent?.includes("CPU Level"));
+    ).find((stepper) => stepper.textContent?.includes("Core Freq"));
     const downgradeButtons = Array.from(
       downgradableStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
     );

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Database, LineChart, X, Zap } from "lucide-react";
-import { formatNumber } from "../format";
+import { formatResourceAmount } from "../format";
 import type { ResourceHistoryRef, ResourceSample } from "./useResourceHistory";
 
 interface WindowOption {
@@ -212,7 +212,7 @@ export function ResourceGraph({ history, onClose }: ResourceGraphProps) {
   const formatDelta = (value: number) => {
     if (!isFinite(value) || value === 0) return "0";
     const sign = value > 0 ? "+" : "-";
-    return `${sign}${formatNumber(Math.abs(value))}`;
+    return `${sign}${formatResourceAmount(Math.abs(value))}`;
   };
 
   const creditsTicks = niceTickValues(plot.creditsMin, plot.creditsMax);
@@ -282,7 +282,7 @@ export function ResourceGraph({ history, onClose }: ResourceGraphProps) {
                   y={y + 3}
                   textAnchor="end"
                 >
-                  {formatNumber(value)}
+                  {formatResourceAmount(value)}
                 </text>
               </g>
             );
@@ -302,7 +302,7 @@ export function ResourceGraph({ history, onClose }: ResourceGraphProps) {
                 y={y + 3}
                 textAnchor="start"
               >
-                {formatNumber(value)}
+                {formatResourceAmount(value)}
               </text>
             );
           })}

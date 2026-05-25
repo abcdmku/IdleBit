@@ -151,6 +151,9 @@ export function HardwareSystemBoard({
         onDismissDeadlockHelp={onDismissDeadlockHelp}
         onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
         showCoreDeadlockPressure={!memoryVisible}
+        showCoreArrayEfficiency={
+          !memoryVisible || (multiCpu && bankView === "tabs")
+        }
       />
     );
 

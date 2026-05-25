@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { Database, RefreshCw, Zap } from "lucide-react";
 import type { VisibleState } from "../game";
-import { formatNumber } from "./format";
+import { formatResourceAmount } from "./format";
 import {
   ResourceAmount,
   type ResourceKind,
@@ -53,12 +60,14 @@ export function ResourceHud({
   onReset,
   animateResourceGains,
   onSelectResource,
+  onGrantDevResource,
   graphOpen = false,
 }: {
   visible: VisibleState;
   onReset: () => void;
   animateResourceGains: boolean;
   onSelectResource?: (resource: ResourceKind) => void;
+  onGrantDevResource?: (resource: ResourceKind) => void;
   graphOpen?: boolean;
 }) {
   const dataReadoutRef = useRef<HTMLDivElement>(null);
@@ -68,6 +77,29 @@ export function ResourceHud({
   const nextBurstIdRef = useRef(0);
   const gainTimeoutsRef = useRef<number[]>([]);
   const [gainBursts, setGainBursts] = useState<ResourceGainBurst[]>([]);
+  const resourceInteractive = Boolean(onSelectResource);
+
+  const handleResourceClick =
+    (resource: ResourceKind) => (event: MouseEvent<HTMLDivElement>) => {
+      if (event.shiftKey && onGrantDevResource) {
+        event.preventDefault();
+        onGrantDevResource(resource);
+        return;
+      }
+
+      onSelectResource?.(resource);
+    };
+
+  const handleResourceKeyDown =
+    (resource: ResourceKind) => (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!onSelectResource) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelectResource(resource);
+      }
+    };
+
+  const resourceTitle = onSelectResource ? "Toggle credits/data graph" : undefined;
 
   useEffect(
     () => () => {
@@ -165,50 +197,34 @@ export function ResourceHud({
       )}
       <div
         className={`resource-readout credits ${
-          onSelectResource ? "clickable" : ""
+          resourceInteractive ? "clickable" : ""
         } ${graphOpen ? "active" : ""}`}
         ref={creditsReadoutRef}
-        role={onSelectResource ? "button" : undefined}
-        tabIndex={onSelectResource ? 0 : undefined}
-        onClick={onSelectResource ? () => onSelectResource("credits") : undefined}
-        onKeyDown={
-          onSelectResource
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelectResource("credits");
-                }
-              }
-            : undefined
-        }
-        title={onSelectResource ? "Toggle credits/data graph" : undefined}
+        role={resourceInteractive ? "button" : undefined}
+        tabIndex={resourceInteractive ? 0 : undefined}
+        onClick={resourceInteractive ? handleResourceClick("credits") : undefined}
+        onKeyDown={resourceInteractive ? handleResourceKeyDown("credits") : undefined}
+        title={resourceTitle}
       >
         <Zap size={13} />
-        <strong>{formatNumber(Math.floor(visible.resources.credits))}</strong>
+        <strong>
+          {formatResourceAmount(Math.floor(visible.resources.credits))}
+        </strong>
         <span>cr</span>
       </div>
       <div
         className={`resource-readout data ${
-          onSelectResource ? "clickable" : ""
+          resourceInteractive ? "clickable" : ""
         } ${graphOpen ? "active" : ""}`}
         ref={dataReadoutRef}
-        role={onSelectResource ? "button" : undefined}
-        tabIndex={onSelectResource ? 0 : undefined}
-        onClick={onSelectResource ? () => onSelectResource("data") : undefined}
-        onKeyDown={
-          onSelectResource
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelectResource("data");
-                }
-              }
-            : undefined
-        }
-        title={onSelectResource ? "Toggle credits/data graph" : undefined}
+        role={resourceInteractive ? "button" : undefined}
+        tabIndex={resourceInteractive ? 0 : undefined}
+        onClick={resourceInteractive ? handleResourceClick("data") : undefined}
+        onKeyDown={resourceInteractive ? handleResourceKeyDown("data") : undefined}
+        title={resourceTitle}
       >
         <Database size={13} />
-        <strong>{formatNumber(Math.floor(visible.resources.data))}</strong>
+        <strong>{formatResourceAmount(Math.floor(visible.resources.data))}</strong>
         <span>data</span>
       </div>
       <button

@@ -17,6 +17,8 @@ export type TaskCategoryId = "cpu" | "system" | "distributed" | "other";
 export interface UiTaskGraphNode {
   id?: string;
   name?: string;
+  sourceTaskId?: string;
+  sourceTaskName?: string;
   kind?: string;
   memoryAction?: string | null;
   count?: number;
@@ -124,6 +126,10 @@ export interface UiTask {
 export interface UiActiveTask {
   instanceId?: string;
   taskId?: string;
+  queueEntryId?: string | null;
+  parentQueueEntryId?: string | null;
+  parentTaskId?: string | null;
+  childTaskId?: string | null;
   schedulerQueued?: boolean;
   name: string;
   coreId: number;
@@ -193,8 +199,21 @@ export type UiQueueEntry =
   | string
   | {
       id?: string;
+      reservationId?: string | null;
       taskId?: string;
       name?: string;
+      category?: string;
+      cacheNeedBits?: number;
+      ramNeedBits?: number;
+      requiredCores?: number;
+      parentTaskId?: string | null;
+      parentTaskName?: string | null;
+      parentQueueEntryId?: string | null;
+      childTaskId?: string | null;
+      childTaskName?: string | null;
+      childWorkKey?: string | null;
+      completedChildKeys?: string[];
+      totalChildCount?: number;
       socketId?: number;
       coreId?: number;
       state?: string;

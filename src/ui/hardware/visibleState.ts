@@ -21,6 +21,7 @@ export interface UiPowerOverloadFailure {
 
 export interface UiQueueDisplayItem {
   id: string;
+  cancelTaskId?: string;
   name: string;
   waitingReason: string;
   instanceId?: string;

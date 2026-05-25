@@ -56,13 +56,11 @@ export function CpuPackage({
             <DeadlockCountdown pressure={deadlockPressure} compact />
           )}
           <span className="cpu-package-meta">
-            <strong>{socket.tierName}</strong> L{socket.level} - Eff{" "}
-            {formatNumber(socket.efficiency)}
+            Eff <strong>{formatNumber(socket.efficiency)}</strong>
           </span>
         </button>
         {socketUpgrades.length > 0 && (
-          <div className="cpu-package-header-install" aria-label="Buy CPU">
-            <span className="cpu-package-header-install-label">Buy CPU</span>
+          <div className="cpu-package-header-install" aria-label="CPU install">
             <CpuInstallOptions
               upgrades={socketUpgrades}
               resources={resources}

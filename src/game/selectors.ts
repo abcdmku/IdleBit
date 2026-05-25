@@ -6,7 +6,7 @@ import {
   getCpuTierDefinition,
   getCpuTierLevelDefinition,
 } from "./content/cpuTiers";
-import { MEMORY_VOLTAGE_MAX_LEVEL } from "./content/ramTuning";
+import { getRamStickEfficiency, MEMORY_VOLTAGE_MAX_LEVEL } from "./content/ramTuning";
 import { getRamTierLevelDefinition } from "./content/ramTiers";
 import {
   componentSkus,
@@ -57,6 +57,7 @@ import { bitsToBytes } from "./progression";
 import {
   getCoreClockHz,
   getCoreClockLevel,
+  getEffectiveCpuEfficiency,
   getCpuHardware,
   getCpuIdForCore,
   getCacheBits,
@@ -219,6 +220,9 @@ const isTaskRevealed = (state: GameState, task: TaskDefinition) =>
 
 const isPlayerFacingTask = (task: TaskDefinition) => task.kind !== "benchmark";
 
+const isDefaultVisibleTask = (task: TaskDefinition) =>
+  task.visibility !== "internal";
+
 const taskFitsHardware = (state: GameState, task: TaskDefinition) =>
   task.cacheNeedBits <= getHardwareCacheBits(state) &&
   task.ramNeedBits <= getMemoryCapacityBits(state);
@@ -353,6 +357,8 @@ const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
 const getVisibleOperation = (operation: TaskDefinition["operations"][number]): VisibleOperation => ({
   id: operation.id,
   name: operation.name,
+  sourceTaskId: operation.sourceTaskId,
+  sourceTaskName: operation.sourceTaskName,
   kind: operation.kind,
   memoryAction: operation.memoryAction,
   count: operation.count,
@@ -368,6 +374,8 @@ const getVisibleTaskSubtask = (
 ): VisibleTaskSubtask => ({
   id: node.id,
   name: node.name,
+  sourceTaskId: node.sourceTaskId,
+  sourceTaskName: node.sourceTaskName,
   kind: node.kind,
   dependsOn: node.dependsOn,
   operationIds: node.operationIds,
@@ -381,11 +389,18 @@ const getVisibleTaskSubtask = (
   ramBytes: node.ramBytes,
 });
 
+const getVisibleQueue = (state: GameState) =>
+  state.queueEntries && state.queueEntries.length === state.queue.length
+    ? state.queueEntries
+    : state.queue;
+
 const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => ({
   id: task.id,
   name: task.name,
   kind: task.kind,
   category: task.category,
+  visibility: task.visibility,
+  composition: task.composition,
   rewardCredits: task.rewardCredits,
   rewardData: task.rewardData,
   cacheNeedBits: task.cacheNeedBits,
@@ -1004,6 +1019,10 @@ const getVisibleActiveTask = (
     taskId: activeTask.taskId,
     jobId: activeTask.jobId,
     systemId: activeTask.systemId,
+    queueEntryId: activeTask.queueEntryId,
+    parentQueueEntryId: activeTask.parentQueueEntryId,
+    parentTaskId: activeTask.parentTaskId,
+    childTaskId: activeTask.childTaskId,
     schedulerQueued: activeTask.schedulerQueued,
     name: definition.name,
     coreId: activeTask.coreId,
@@ -1104,6 +1123,10 @@ const getVisibleUpgrade = (
     context,
   );
   const powerDeltaWatts = getUpgradePowerDeltaWatts(state, upgrade, context);
+  const purchaseCount = getUpgradeCount(state, upgrade.id, context);
+  const maxedByPurchaseLimit =
+    upgrade.maxPurchases !== undefined && purchaseCount >= upgrade.maxPurchases;
+  const maxed = maxedByPurchaseLimit || costs.length === 0;
 
   return {
     id: upgrade.id,
@@ -1113,10 +1136,11 @@ const getVisibleUpgrade = (
     costs,
     refunds,
     ...(powerDeltaWatts === null ? {} : { powerDeltaWatts }),
-    canAfford: canAfford(state, costs),
+    canAfford: !maxed && canAfford(state, costs),
     canDowngrade: refunds.length > 0 && downgradeBlockedReason === null,
     downgradeBlockedReason,
-    purchaseCount: getUpgradeCount(state, upgrade.id, context),
+    purchaseCount,
+    maxed,
   };
 };
 
@@ -1198,7 +1222,12 @@ const getCpuSockets = (
       cpu.tierId,
       cpu.cacheSpeedLevel,
     );
-    const activeDrawWatts = tierLevel.clockHz / tierLevel.efficiency / 1_000_000;
+    const effectiveEfficiency = getEffectiveCpuEfficiency(
+      state,
+      cpu.tierId,
+      cpu.level,
+    );
+    const activeDrawWatts = tierLevel.clockHz / effectiveEfficiency / 1_000_000;
     const socketCacheResidency = cacheResidency.filter((segment) =>
       cpu.coreIds.includes(segment.coreId),
     );
@@ -1212,7 +1241,7 @@ const getCpuSockets = (
       tierName: getCpuTierDefinition(cpu.tierId).name,
       level: cpu.level,
       clockHz: tierLevel.clockHz,
-      efficiency: tierLevel.efficiency,
+      efficiency: effectiveEfficiency,
       activeDrawWatts,
       idleDrawWatts: activeDrawWatts * idleMultiplier,
       cacheLevel: cpu.cacheLevel,
@@ -1322,6 +1351,7 @@ const getRamSlots = (
       usedBytes: bitsToBytes(usedBits),
       speedLevel: slot.speedLevel,
       speedMt: slot.speedMt,
+      efficiency: getRamStickEfficiency(slot.speedLevel),
       active: activeStickIds.has(slot.id),
       capacityUpgrade: getVisibleUpgrade(state, capacityUpgrade, {
         ramStickId: slot.id,
@@ -1731,10 +1761,15 @@ const getVisibleSystemSummary = (
       flags: systemState.flags,
       activeTasks,
       activeJobs,
-      queue: systemState.queue,
+      queue: getVisibleQueue(systemState),
       cron: getVisibleCron(systemState),
       tasks: taskDefinitions
-        .filter((task) => isPlayerFacingTask(task) && isTaskRevealed(systemState, task))
+        .filter(
+          (task) =>
+            isDefaultVisibleTask(task) &&
+            isPlayerFacingTask(task) &&
+            isTaskRevealed(systemState, task),
+        )
         .map((task) => getTaskVisible(systemState, task)),
       jobs: getVisibleJobs(systemState),
       upgrades: getAvailableUpgrades(systemState).map((upgrade) =>
@@ -1871,10 +1906,15 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     research: getVisibleResearch(syncedState),
     activeTasks,
     activeJobs,
-    queue: syncedState.queue,
+    queue: getVisibleQueue(syncedState),
     cron: getVisibleCron(syncedState),
     tasks: taskDefinitions
-      .filter((task) => isPlayerFacingTask(task) && isTaskRevealed(syncedState, task))
+      .filter(
+        (task) =>
+          isDefaultVisibleTask(task) &&
+          isPlayerFacingTask(task) &&
+          isTaskRevealed(syncedState, task),
+      )
       .map((task) => getTaskVisible(syncedState, task)),
     jobs: getVisibleJobs(syncedState),
     upgrades: getAvailableUpgrades(syncedState).map((upgrade) =>

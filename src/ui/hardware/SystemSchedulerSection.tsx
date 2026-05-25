@@ -7,7 +7,10 @@ import { HardwareInstallSection } from "./HardwareInstallSection";
 import { PowerTransitionBanner, SystemShutdownControl } from "./PowerControls";
 import { QueuePreview } from "./QueuePreview";
 import { InlineUpgradeRow } from "./UpgradeControls";
-import { getSystemQueueDisplayItems } from "./queueData";
+import {
+  getSystemQueueDisplayItems,
+  getSystemSchedulerBlockedReasons,
+} from "./queueData";
 import { getPowerStats } from "./systemLoad";
 import { SchedulerControls, SchedulerWatchdogStatus } from "./SchedulerControls";
 
@@ -25,6 +28,8 @@ export function SystemSchedulerSection({
   dispatch: Dispatch;
 }) {
   const queueItems = getSystemQueueDisplayItems(visible);
+  const blockedReasons = getSystemSchedulerBlockedReasons(visible, queueItems);
+  const blockedReasonText = blockedReasons.join(" / ");
   const slotCapacity = getVisibleSystemSchedulerSlots(visible);
   const deadlocked = queueItems.some((item) => item.deadlocked);
   const power = getPowerStats(visible);
@@ -87,6 +92,13 @@ export function SystemSchedulerSection({
         dispatch={dispatch}
         startSmall
       />
+
+      {blockedReasons.length > 0 && (
+        <div className="system-scheduler-blocked-reasons" title={blockedReasonText}>
+          <strong>Blocked</strong>
+          <span>{blockedReasonText}</span>
+        </div>
+      )}
 
       <InlineUpgradeRow
         upgrades={upgrades}

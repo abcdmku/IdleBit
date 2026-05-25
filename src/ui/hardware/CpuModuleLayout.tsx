@@ -27,6 +27,7 @@ export function CpuModuleLayout({
   onDismissDeadlockHelp,
   onDismissDeadlockCooldownHelp,
   showCoreDeadlockPressure,
+  showCoreArrayEfficiency = false,
 }: {
   socket: VisibleCpuSocket;
   visible: VisibleState;
@@ -44,6 +45,7 @@ export function CpuModuleLayout({
   onDismissDeadlockHelp?: () => void;
   onDismissDeadlockCooldownHelp?: () => void;
   showCoreDeadlockPressure?: boolean;
+  showCoreArrayEfficiency?: boolean;
 }) {
   const grid = getCoreGridMetrics(socket.cores.length);
   const schedulerInstalled = socket.schedulerSlots > 0;
@@ -99,6 +101,7 @@ export function CpuModuleLayout({
       deadlockPressure={
         showCoreDeadlockPressure ? visible.metrics.deadlockPressure : null
       }
+      showEfficiency={showCoreArrayEfficiency}
     />
   );
 

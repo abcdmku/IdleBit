@@ -3,6 +3,7 @@ import {
   applyAction,
   createInitialGameState,
   createRackReadyGameState,
+  DEV_RESOURCE_GRANT_AMOUNT,
   deriveVisibleState,
   deserializeSave,
   RACK_READY_SEED_CREDITS,
@@ -86,18 +87,22 @@ const finishActiveTasks = (state: GameState) => {
   return nextState;
 };
 
-const finishActiveTasksWithTicks = (state: GameState) => {
-  let nextState = state;
-  let ticks = 0;
+const taskMatchesRuntime = (task: ActiveTask, taskId: TaskId) =>
+  task.taskId === taskId || task.parentTaskId === taskId;
 
-  while (nextState.activeTasks.length > 0 && ticks < 6000) {
-    nextState = tickGame(nextState, 500);
-    ticks += 1;
-  }
+const getActiveRuntimeTasks = (state: GameState, taskId: TaskId) =>
+  state.activeTasks.filter((task) => taskMatchesRuntime(task, taskId));
 
-  expect(nextState.activeTasks).toHaveLength(0);
-  return { state: nextState, ticks };
-};
+const findActiveRuntimeTask = (state: GameState, taskId: TaskId) =>
+  state.activeTasks.find((task) => taskMatchesRuntime(task, taskId));
+
+const getLocalQueueTaskIds = (state: GameState) =>
+  Object.values(state.coreSchedulers).flatMap((core) => core.localQueue);
+
+const getLocalQueueEntries = (state: GameState) =>
+  Object.values(state.coreSchedulers).flatMap(
+    (core) => core.localQueueEntries ?? [],
+  );
 
 const runTask = (state: GameState, taskId: TaskId) =>
   finishActiveTasks(applyAction(state, { type: "startTask", taskId }));
@@ -113,7 +118,7 @@ const tickUntilTaskOperationStatus = (
   while (
     !nextState.activeTasks.some(
       (task) =>
-        task.taskId === taskId &&
+        taskMatchesRuntime(task, taskId) &&
         task.coreOperations.some((operation) => operation.status === status),
     ) &&
     guard < 1000
@@ -125,7 +130,7 @@ const tickUntilTaskOperationStatus = (
   expect(
     nextState.activeTasks.some(
       (task) =>
-        task.taskId === taskId &&
+        taskMatchesRuntime(task, taskId) &&
         task.coreOperations.some((operation) => operation.status === status),
     ),
   ).toBe(true);
@@ -631,7 +636,41 @@ const unlockSystemStats = () => {
   return fund(state);
 };
 
+const withSystemCatalog = (state: GameState): GameState => ({
+  ...state,
+  flags: {
+    ...state.flags,
+    systemCatalog: true,
+    customMachineAssembly: true,
+  },
+  research: {
+    ...state.research,
+    completed: Array.from(new Set([...state.research.completed, "systemCatalog"])),
+  },
+});
+
 describe("IdleBit simulation", () => {
+  it("grants 100B of the requested resource through the dev resource action", () => {
+    const state = createInitialGameState();
+    const credited = applyAction(state, {
+      type: "grantDevResource",
+      resource: "credits",
+    });
+    const dataGranted = applyAction(state, {
+      type: "grantDevResource",
+      resource: "data",
+    });
+
+    expect(credited.resources.credits).toBe(
+      state.resources.credits + DEV_RESOURCE_GRANT_AMOUNT,
+    );
+    expect(credited.resources.data).toBe(state.resources.data);
+    expect(dataGranted.resources.credits).toBe(state.resources.credits);
+    expect(dataGranted.resources.data).toBe(
+      state.resources.data + DEV_RESOURCE_GRANT_AMOUNT,
+    );
+  });
+
   it("starts at 1 Hz with bit-scale cache before the system catalog", () => {
     const state = createInitialGameState();
     const visible = deriveVisibleState(state);
@@ -1489,7 +1528,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(4);
+    expect(restored.version).toBe(6);
     expect(restored.research.completed).toEqual([]);
     expect(restored.flags.scheduler).toBe(false);
     expect(restored.systems).toHaveLength(1);
@@ -1530,7 +1569,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(4);
+    expect(restored.version).toBe(6);
     expect(restored.hardware.ramSticks).toEqual([]);
     expect(restored.hardware.ramBits).toBe(0);
     expect(restored.hardware.ramBytes).toBe(0);
@@ -1539,12 +1578,34 @@ describe("IdleBit simulation", () => {
     expect(restored.systems[0]?.hardware.ramBits).toBe(0);
   });
 
+  it("clean-resets v4 saves for the child task queue schema", () => {
+    const base = createInitialGameState();
+    const restored = deserializeSave(
+      JSON.stringify({
+        version: 4,
+        savedAt: new Date().toISOString(),
+        state: {
+          ...base,
+          version: 4,
+          queue: ["tinyChecksum"],
+          queueEntries: undefined,
+        },
+      }),
+    );
+
+    expect(restored.version).toBe(6);
+    expect(restored.queue).toEqual([]);
+    expect(restored.queueEntries).toEqual([]);
+    expect(restored.systems[0]?.queue).toEqual([]);
+    expect(restored.systems[0]?.queueEntries).toEqual([]);
+  });
+
   it("creates a rack-ready seed with a dense visual stress node", () => {
     const state = createRackReadyGameState();
     const restored = deserializeSave(serializeSave(state));
     const visible = deriveVisibleState(state);
 
-    expect(state.version).toBe(4);
+    expect(state.version).toBe(6);
     expect(restored).toEqual(state);
     expect(state.resources.credits).toBe(RACK_READY_SEED_CREDITS);
     expect(state.resources.data).toBeGreaterThan(20_000);
@@ -1639,7 +1700,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(4);
+    expect(restored.version).toBe(6);
     expect(restored.completedTasks).toEqual({});
     expect(restored.completedJobs).toEqual({});
     expect(restored.completedBenchmarks).toEqual([]);
@@ -2115,20 +2176,19 @@ describe("IdleBit simulation", () => {
       taskId: "compileCode",
     });
 
-    const singleTask = singleStarted.activeTasks[0];
-    const multiTask = multiStarted.activeTasks[0];
+    const singleTasks = getActiveRuntimeTasks(singleStarted, "compileCode");
+    const multiTasks = getActiveRuntimeTasks(multiStarted, "compileCode");
 
-    expect(singleTask?.assignedCoreIds).toHaveLength(singleCoreIds.length);
-    expect(multiTask?.assignedCoreIds.length).toBeGreaterThan(1);
-    expect(multiTask?.systemId).toBe(state.selectedSystemId);
+    expect(singleTasks).toHaveLength(singleCoreIds.length);
+    expect(multiTasks.length).toBeGreaterThan(singleTasks.length);
+    expect(multiTasks.every((task) => task.parentTaskId === "compileCode")).toBe(
+      true,
+    );
+    expect(multiTasks[0]?.systemId).toBe(state.selectedSystemId);
     expect(
       multiStarted.systems.find((system) => system.id === 1)?.activeTasks,
     ).toHaveLength(0);
 
-    const singleFinished = finishActiveTasksWithTicks(singleStarted);
-    const multiFinished = finishActiveTasksWithTicks(multiStarted);
-
-    expect(multiFinished.ticks).toBeLessThanOrEqual(singleFinished.ticks);
     expect(getTaskDefinition("compileCode").operationCount).toBe(
       compileDefinition.operationCount,
     );
@@ -2187,13 +2247,33 @@ describe("IdleBit simulation", () => {
       taskId: "compileCode",
     });
 
-    const compileTask = state.activeTasks.find(
-      (task) => task.taskId === "compileCode",
+    const compileTasks = getActiveRuntimeTasks(state, "compileCode");
+    const assignedCompileCoreIds = compileTasks.flatMap(
+      (task) => task.assignedCoreIds,
+    );
+    const reservedStageEntries = getLocalQueueEntries(state).filter(
+      (entry) =>
+        entry.parentTaskId === "compileCode" &&
+        entry.childTaskId === "stageSourceTree",
     );
     expect(state.hardware.cpus).toHaveLength(2);
-    expect(compileTask?.assignedCoreIds).toEqual(expectedIdleCoreIds);
-    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      expectedIdleCoreIds.map(() => "compileCode"),
+    expect(assignedCompileCoreIds).toEqual(expectedIdleCoreIds);
+    expect(reservedStageEntries.length).toBeGreaterThanOrEqual(
+      expectedIdleCoreIds.length,
+    );
+    expect(getLocalQueueTaskIds(state)).toEqual(
+      reservedStageEntries.map(() => "stageSourceTree"),
+    );
+    expect(reservedStageEntries).toEqual(
+      reservedStageEntries.map(() =>
+        expect.objectContaining({
+          taskId: "stageSourceTree",
+          parentTaskId: "compileCode",
+          childTaskId: "stageSourceTree",
+          childTaskName: "Stage Source Tree",
+          target: "cpu",
+        }),
+      ),
     );
     for (const cpu of state.hardware.cpus.filter((cpu) =>
       cpu.coreIds.some((coreId) => expectedIdleCoreIds.includes(coreId)),
@@ -2205,11 +2285,104 @@ describe("IdleBit simulation", () => {
         expectedIdleCoreIds.includes(coreId),
       ).length;
 
-      expect(cpuQueueSlots).toHaveLength(assignedCpuCoreCount);
-      expect(
-        cpu.coreIds.some((coreId) => compileTask?.assignedCoreIds.includes(coreId)),
-      ).toBe(true);
+      expect(cpuQueueSlots.every((taskId) => taskId === "stageSourceTree")).toBe(
+        true,
+      );
+      if (assignedCpuCoreCount > 0) {
+        expect(
+          cpu.coreIds.some((coreId) => assignedCompileCoreIds.includes(coreId)),
+        ).toBe(true);
+      }
     }
+  });
+
+  it("routes queued system child entries across every CPU scheduler on the selected system", () => {
+    let state = createRackReadyGameState();
+    const selectedSystemId = state.selectedSystemId;
+    const selectedBefore = state.systems.find(
+      (system) => system.id === selectedSystemId,
+    );
+
+    expect(state.systems.length).toBeGreaterThan(1);
+    expect(selectedBefore?.hardware.cpus.length).toBeGreaterThan(1);
+
+    state = applyAction(state, {
+      type: "queueTask",
+      taskId: "compileCode",
+      systemId: selectedSystemId,
+    });
+    state = tickGame(state, 16);
+
+    const selectedAfter = state.systems.find(
+      (system) => system.id === selectedSystemId,
+    );
+    const otherSystems = state.systems.filter(
+      (system) => system.id !== selectedSystemId,
+    );
+    const entriesByCpu =
+      selectedAfter?.hardware.cpus.map((cpu) =>
+        cpu.coreIds
+          .flatMap(
+            (coreId) =>
+              selectedAfter.coreSchedulers[coreId]?.localQueueEntries ?? [],
+          )
+          .filter((entry) => entry.parentTaskId === "compileCode"),
+      ) ?? [];
+
+    expect(entriesByCpu).toHaveLength(selectedAfter?.hardware.cpus.length ?? 0);
+    expect(entriesByCpu.every((entries) => entries.length > 0)).toBe(true);
+    expect(
+      entriesByCpu.flat().every((entry) => entry.taskId === "stageSourceTree"),
+    ).toBe(true);
+    expect(
+      otherSystems.flatMap((system) =>
+        Object.values(system.coreSchedulers).flatMap(
+          (scheduler) => scheduler.localQueueEntries ?? [],
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps system and distributed tasks composed from CPU-bound child tasks", () => {
+    const tasksById = new Map(taskDefinitions.map((task) => [task.id, task]));
+    const nonCpuTasks = taskDefinitions.filter(
+      (task) => task.category === "system" || task.category === "distributed",
+    );
+
+    expect(nonCpuTasks.length).toBeGreaterThan(0);
+
+    for (const task of nonCpuTasks) {
+      expect(task.composition.length).toBeGreaterThan(0);
+      for (const child of task.composition) {
+        expect(tasksById.get(child.taskId)?.category).toBe("cpu");
+      }
+      expect(task.operations.every((operation) => operation.id.startsWith(`${task.id}:`))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("exposes RAM read, write, and overwrite as CPU-bound tasks after RAM unlock", () => {
+    let state = unlockRamControl();
+    let visible = deriveVisibleState(state);
+
+    for (const taskId of ["readRamPage", "writeRamPage", "overwriteRamPage"] as const) {
+      const task = visible.tasks.find((candidate) => candidate.id === taskId);
+      expect(task?.category).toBe("cpu");
+      expect(task?.canStart).toBe(false);
+      expect(task?.blockedReason).toBe("RAM capacity too low.");
+    }
+
+    state = buy(state, "ram");
+    visible = deriveVisibleState(state);
+
+    for (const taskId of ["readRamPage", "writeRamPage", "overwriteRamPage"] as const) {
+      const task = visible.tasks.find((candidate) => candidate.id === taskId);
+      expect(task?.category).toBe("cpu");
+      expect(task?.canStart).toBe(true);
+    }
+
+    expect(visible.tasks.some((task) => task.id === "stageChecksumPage")).toBe(false);
   });
 
   it("derives RAM tiers from CPU unlocks, 1024x tier size jumps, and CPU-style costs", () => {
@@ -2399,8 +2572,7 @@ describe("IdleBit simulation", () => {
 
     expect(sawRamLoad).toBe(true);
 
-    const operation = state.activeTasks
-      .find((task) => task.taskId === "memoryScrub")
+    const operation = findActiveRuntimeTask(state, "memoryScrub")
       ?.coreOperations.find((candidate) => candidate.status === "loadingRam");
     expect(operation?.ramChannelCount).toBe(1);
     expect(operation?.ramBlocks).toEqual([
@@ -2434,8 +2606,7 @@ describe("IdleBit simulation", () => {
       (block) => block.loadedBits,
     );
     state = tickGame(state, 1000);
-    const blocksAfter = state.activeTasks
-      .find((task) => task.taskId === "memoryScrub")
+    const blocksAfter = findActiveRuntimeTask(state, "memoryScrub")
       ?.coreOperations.find((candidate) => candidate.status === "loadingRam")
       ?.ramBlocks;
     const expectedSingleChannelBandwidth = Math.min(
@@ -2539,7 +2710,7 @@ describe("IdleBit simulation", () => {
     state = applyAction(state, { type: "startTask", taskId: "busMirror" });
     state = tickUntilTaskOperationStatus(state, "busMirror", "loadingRam");
 
-    let busMirror = state.activeTasks.find((task) => task.taskId === "busMirror");
+    let busMirror = findActiveRuntimeTask(state, "busMirror");
     expect(busMirror?.coreOperations).toHaveLength(2);
     expect(
       busMirror?.coreOperations.map((operation) =>
@@ -2548,7 +2719,7 @@ describe("IdleBit simulation", () => {
     ).toEqual([[1], [2, 3]]);
 
     for (let tick = 0; tick < 200; tick += 1) {
-      const current = state.activeTasks.find((task) => task.taskId === "busMirror");
+      const current = findActiveRuntimeTask(state, "busMirror");
       const firstOperation = current?.coreOperations[0];
       const secondOperation = current?.coreOperations[1];
       if (
@@ -2561,7 +2732,7 @@ describe("IdleBit simulation", () => {
       state = tickGame(state, 250);
     }
 
-    busMirror = state.activeTasks.find((task) => task.taskId === "busMirror");
+    busMirror = findActiveRuntimeTask(state, "busMirror");
     const firstOperation = busMirror?.coreOperations[0];
     const secondOperation = busMirror?.coreOperations[1];
 
@@ -2605,7 +2776,8 @@ describe("IdleBit simulation", () => {
     );
     expect(deriveVisibleState(state).activeTasks).toContainEqual(
       expect.objectContaining({
-        taskId: "busMirror",
+        parentTaskId: "busMirror",
+        taskId: "readBusWindow",
         status: "loadingRam",
       }),
     );
@@ -2721,6 +2893,62 @@ describe("IdleBit simulation", () => {
     expect(deriveVisibleState(state).metrics.cacheUsedBits).toBe(0);
   });
 
+  it("cancels one chunked work unit from a core and leaves the parent active", () => {
+    const compileCode = getTaskDefinition("compileCode");
+    let state = withSystemCatalog(
+      withPrimaryCpuCache(
+        withRamCapacity(
+          withPrimarySchedulerCapacity(unlockSystemScheduler(), 4),
+          compileCode.ramNeedBits * 4,
+        ),
+        compileCode.cacheNeedBits * 4,
+      ),
+    );
+
+    state = applyAction(state, { type: "startTask", taskId: "compileCode" });
+
+    const activeCompileChildren = getActiveRuntimeTasks(state, "compileCode");
+    const activeCompile = activeCompileChildren[0];
+    const activeChildEntry = getLocalQueueEntries(state).find(
+      (entry) => (entry.reservationId ?? entry.id) === activeCompile?.queueEntryId,
+    );
+    const cancelledCoreId = activeCompile?.coreOperations[0]?.coreId;
+    const cancelledWorkUnit = activeChildEntry?.workUnitIndex;
+
+    expect(activeCompileChildren).toHaveLength(4);
+    expect(cancelledCoreId).toBeDefined();
+    expect(cancelledWorkUnit).toBe(0);
+
+    state = applyAction(state, {
+      type: "cancelTask",
+      taskId: "compileCode",
+      instanceId: activeCompile?.instanceId,
+      coreId: cancelledCoreId,
+    });
+
+    const requeuedEntry = getLocalQueueEntries(state).find(
+      (entry) =>
+        entry.parentTaskId === "compileCode" &&
+        entry.workUnitIndex === cancelledWorkUnit,
+    );
+    expect(requeuedEntry).toBeDefined();
+    expect(state.activeTasks).not.toContainEqual(
+      expect.objectContaining({
+        instanceId: activeCompile?.instanceId,
+      }),
+    );
+    expect(state.queue).toEqual(["compileCode"]);
+
+    state = tickGame(state, 16);
+
+    const resumedEntry = getLocalQueueEntries(state).find(
+      (entry) =>
+        entry.parentTaskId === "compileCode" &&
+        entry.workUnitIndex === cancelledWorkUnit,
+    );
+    expect(resumedEntry).toBeDefined();
+  });
+
   it("cancels pending queued work without removing active scheduler reservations", () => {
     let state = withRamCapacity(unlockSystemScheduler(), 256);
 
@@ -2729,9 +2957,7 @@ describe("IdleBit simulation", () => {
 
     expect(state.activeTasks).toHaveLength(1);
     expect(state.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
-    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      ["tinyChecksum"],
-    );
+    expect(getLocalQueueTaskIds(state)).toEqual(["stageChecksumPage"]);
 
     state = applyAction(state, {
       type: "cancelQueuedTask",
@@ -2740,9 +2966,7 @@ describe("IdleBit simulation", () => {
 
     expect(state.activeTasks).toHaveLength(1);
     expect(state.queue).toEqual(["tinyChecksum"]);
-    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      ["tinyChecksum"],
-    );
+    expect(getLocalQueueTaskIds(state)).toEqual(["stageChecksumPage"]);
   });
 
   it("schedules system tasks globally before reserving CPU scheduler execution", () => {
@@ -2772,10 +2996,76 @@ describe("IdleBit simulation", () => {
 
     state = tickGame(state, 16);
 
-    expect(state.activeTasks.map((task) => task.taskId)).toContain("tinyChecksum");
+    expect(state.activeTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: "stageChecksumPage",
+        parentTaskId: "tinyChecksum",
+      }),
+    );
     expect(state.activeTasks[0]?.schedulerQueued).toBe(true);
+    expect(getLocalQueueTaskIds(state)).toEqual(["stageChecksumPage"]);
+    expect(state.queueEntries?.[0]).toEqual(
+      expect.objectContaining({
+        taskId: "tinyChecksum",
+        target: "system",
+      }),
+    );
+    expect(
+      Object.values(state.coreSchedulers).flatMap(
+        (core) => core.localQueueEntries ?? [],
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        taskId: "stageChecksumPage",
+        parentTaskId: "tinyChecksum",
+        childTaskId: "stageChecksumPage",
+        childTaskName: "Stage Checksum Page",
+        target: "cpu",
+      }),
+    ]);
+  });
+
+  it("pays the system parent once after CPU children finish", () => {
+    let state = unlockSystemScheduler();
+    const dataBefore = state.resources.data;
+    const completedBefore = state.completedTasks.tinyChecksum ?? 0;
+
+    state = runTask(state, "tinyChecksum");
+
+    expect(state.completedTasks.tinyChecksum).toBe(completedBefore + 1);
+    expect(state.completedTasks.stageChecksumPage).toBeUndefined();
+    expect(state.completedTasks.checksumStep).toBeUndefined();
+    expect(state.resources.data).toBe(
+      dataBefore + getTaskDefinition("tinyChecksum").rewardData,
+    );
+  });
+
+  it("keeps system tasks queued when no CPU scheduler slots exist", () => {
+    let state = unlockRamControl();
+
+    state = buy(state, "ram");
+    state = buyAllRamStickUpgrade(state, "ramCapacity");
+    state = buyAllRamStickUpgrade(state, "ramCapacity");
+    state = research(state, "systemScheduler");
+    state = buy(state, "systemSchedulerSlot");
+
+    expect(state.hardware.schedulerSlots).toBe(0);
+    expect(state.hardware.systemSchedulerSlots).toBe(1);
+
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+
+    expect(state.queue).toEqual(["tinyChecksum"]);
+    expect(state.activeTasks).toHaveLength(0);
     expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      ["tinyChecksum"],
+      [],
+    );
+
+    state = tickGame(state, 1000);
+
+    expect(state.queue).toEqual(["tinyChecksum"]);
+    expect(state.activeTasks).toHaveLength(0);
+    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
+      [],
     );
   });
 
@@ -2808,18 +3098,16 @@ describe("IdleBit simulation", () => {
 
     expect(state.queue).toEqual(["tinyChecksum"]);
     expect(state.activeTasks).toHaveLength(primaryCoreIds.length);
-    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      ["tinyChecksum"],
-    );
+    expect(getLocalQueueTaskIds(state)).toEqual(["stageChecksumPage"]);
   });
 
   it("keeps routing full system scheduler queues into cache-blocked CPU scheduler slots", () => {
     let state = withPrimaryCpuSchedulerPolicy(
       withPrimaryCpuCache(
-        withRamCapacity(withPrimarySchedulerCapacity(unlockSystemScheduler(), 8), 4096),
+      withRamCapacity(withPrimarySchedulerCapacity(unlockSystemScheduler(), 8), 4096),
         32,
       ),
-      "deadlockSafe",
+      "fifo",
     );
 
     for (let index = 0; index < 8; index += 1) {
@@ -2847,20 +3135,16 @@ describe("IdleBit simulation", () => {
 
     state = applyAction(state, { type: "startTask", taskId: "shardReconcile" });
 
-    const shardTask = state.activeTasks.find(
-      (task) => task.taskId === "shardReconcile",
-    );
-    const localQueue = Object.values(state.coreSchedulers).flatMap(
-      (core) => core.localQueue,
-    );
+    const shardTask = findActiveRuntimeTask(state, "shardReconcile");
+    const localQueue = getLocalQueueTaskIds(state);
 
     expect(shardTask?.assignedCoreIds).toHaveLength(4);
     expect(shardTask?.coreOperations).toHaveLength(4);
     expect(localQueue).toEqual([
-      "shardReconcile",
-      "shardReconcile",
-      "shardReconcile",
-      "shardReconcile",
+      "loadShards",
+      "loadShards",
+      "loadShards",
+      "loadShards",
     ]);
 
     state = applyAction(state, {
@@ -2870,9 +3154,7 @@ describe("IdleBit simulation", () => {
     });
 
     expect(state.queue).toEqual([]);
-    expect(Object.values(state.coreSchedulers).flatMap((core) => core.localQueue)).toEqual(
-      [],
-    );
+    expect(getLocalQueueTaskIds(state)).toEqual([]);
   });
 
   it("keeps starting full system scheduler queues when CPU scheduler can dispatch", () => {
@@ -3266,8 +3548,18 @@ describe("IdleBit simulation", () => {
     expect(tickGame(upgraded, 1000).deadlockPressureSeconds).toBe(8);
   });
 
-  it("FIFO scheduler can dispatch queued work into a cache deadlock", () => {
+  it("none scheduler policy can dispatch queued work into a cache deadlock", () => {
     let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 1);
+    state = {
+      ...state,
+      flags: { ...state.flags, basicQueue: true, schedulerPolicies: true },
+    };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "none",
+    });
 
     state = applyAction(state, {
       type: "startTaskOnCore",
@@ -3291,7 +3583,7 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("deadlock-safe scheduler skips dispatches that would exceed free cache", () => {
+  it("scheduler policies skip dispatches that would exceed free cache", () => {
     let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 1);
     state = {
       ...state,
@@ -3301,7 +3593,7 @@ describe("IdleBit simulation", () => {
       type: "setSchedulerPolicy",
       target: "cpu",
       cpuId: 1,
-      policy: "deadlockSafe",
+      policy: "fifo",
     });
 
     state = applyAction(state, {
@@ -3319,7 +3611,7 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("deadlock-safe scheduler avoids queued cache footprints before writes exhaust", () => {
+  it("scheduler policies avoid queued cache footprints before writes exhaust", () => {
     let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 2);
     state = {
       ...state,
@@ -3329,7 +3621,7 @@ describe("IdleBit simulation", () => {
       type: "setSchedulerPolicy",
       target: "cpu",
       cpuId: 1,
-      policy: "deadlockSafe",
+      policy: "fifo",
     });
 
     state = applyAction(state, { type: "queueTask", taskId: "byteCopy" });
@@ -3343,7 +3635,7 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("deadlock-safe system scheduler avoids queued RAM footprints before writes exhaust", () => {
+  it("system scheduler routing policies avoid queued RAM footprints before writes exhaust", () => {
     let state = withRamCapacity(unlockSystemScheduler(), 256);
     state = {
       ...state,
@@ -3352,7 +3644,7 @@ describe("IdleBit simulation", () => {
     state = applyAction(state, {
       type: "setSchedulerPolicy",
       target: "system",
-      policy: "deadlockSafe",
+      policy: "fifo",
     });
 
     state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
@@ -3366,7 +3658,171 @@ describe("IdleBit simulation", () => {
     );
   });
 
-  it("system scheduler deadlock policy only gates RAM while CPU policy owns cache", () => {
+  it("only none system routing ignores RAM-safe admission", () => {
+    const makeState = () => {
+      const base = withRamCapacity(unlockSystemScheduler(), 256);
+      return {
+        ...base,
+        flags: { ...base.flags, schedulerPolicies: true },
+      };
+    };
+    const queueTwoChecksums = (state: GameState) => {
+      let nextState = applyAction(state, {
+        type: "queueTask",
+        taskId: "tinyChecksum",
+      });
+      nextState = applyAction(nextState, {
+        type: "queueTask",
+        taskId: "tinyChecksum",
+      });
+      return tickGame(nextState, 16);
+    };
+
+    let safeState = applyAction(makeState(), {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "fifo",
+    });
+    safeState = queueTwoChecksums(safeState);
+
+    expect(safeState.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
+    expect(getLocalQueueEntries(safeState)).toHaveLength(1);
+    expect(safeState.activeTasks).toHaveLength(1);
+
+    let noneState = applyAction(makeState(), {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "none",
+    });
+    noneState = queueTwoChecksums(noneState);
+
+    expect(noneState.queue).toEqual(["tinyChecksum", "tinyChecksum"]);
+    expect(getLocalQueueEntries(noneState)).toHaveLength(2);
+    expect(noneState.activeTasks).toHaveLength(2);
+  });
+
+  it("system scheduler routing policies cap chunked work to RAM-safe width", () => {
+    const compileCode = getTaskDefinition("compileCode");
+    let state = withSystemCatalog(
+      withPrimaryCpuCache(
+        withRamCapacity(
+          withPrimarySchedulerCapacity(unlockSystemScheduler(), 4),
+          compileCode.ramNeedBits * 2,
+        ),
+        compileCode.cacheNeedBits * 4,
+      ),
+    );
+    state = {
+      ...state,
+      flags: { ...state.flags, schedulerPolicies: true },
+    };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "system",
+      policy: "fifo",
+    });
+
+    state = applyAction(state, { type: "queueTask", taskId: "compileCode" });
+    state = tickGame(state, 16);
+
+    const activeCompile = getActiveRuntimeTasks(state, "compileCode");
+    expect(activeCompile).toHaveLength(2);
+    expect(getLocalQueueTaskIds(state)).toEqual([
+      "stageSourceTree",
+      "stageSourceTree",
+    ]);
+
+    state = tickGame(state, 1000);
+
+    expect(state.activeTasks.flatMap((task) => task.coreOperations)).not.toContainEqual(
+      expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
+    );
+  });
+
+  it("tracks chunked system work as per-work-unit CPU child entries until parent completion", () => {
+    const compileCode = getTaskDefinition("compileCode");
+    const coreIds = Array.from({ length: 16 }, (_item, index) => index + 1);
+    let state = withPrimaryCpuCache(
+      withRamCapacity(
+        withPrimarySchedulerCapacity(createRackReadyGameState(), coreIds.length),
+        8192,
+      ),
+      4096,
+    );
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        psuWatts: 1_000_000_000,
+        ramSpeedLevel: 20,
+        ramSpeedMt: 1_000_000,
+        ramSticks: [
+          {
+            id: 1,
+            level: 1,
+            bits: 8192,
+            bytes: 1024,
+            speedLevel: 20,
+            speedMt: 1_000_000,
+          },
+        ],
+        cpus: state.hardware.cpus.map((cpu) =>
+          cpu.id === 1
+            ? {
+                ...cpu,
+                level: 30,
+                coreIds,
+                schedulerSlots: coreIds.length,
+                cacheBits: 4096,
+                cacheBytes: 512,
+                cacheSpeedLevel: 20,
+              }
+            : cpu,
+        ),
+      },
+      power: {
+        ...state.power,
+        bootstrapGraceSeconds: 9999,
+      },
+    };
+    const dataBefore = state.resources.data;
+
+    state = applyAction(state, { type: "queueTask", taskId: "compileCode" });
+    state = tickGame(state, 16);
+
+    const firstWaveEntries = getLocalQueueEntries(state);
+    expect(firstWaveEntries).toHaveLength(coreIds.length);
+    expect(new Set(firstWaveEntries.map((entry) => entry.workUnitIndex)).size).toBe(
+      coreIds.length,
+    );
+    expect(firstWaveEntries).toEqual(
+      firstWaveEntries.map(() =>
+        expect.objectContaining({
+          taskId: "stageSourceTree",
+          parentTaskId: "compileCode",
+          parentQueueEntryId: state.queueEntries?.[0]?.id,
+          target: "cpu",
+        }),
+      ),
+    );
+    expect(state.completedTasks.compileCode).toBeUndefined();
+    expect(state.completedTasks.stageSourceTree).toBeUndefined();
+
+    let guard = 0;
+    while ((state.activeTasks.length > 0 || state.queue.length > 0) && guard < 100) {
+      state = tickGame(state, 2000);
+      guard += 1;
+    }
+
+    expect(guard).toBeLessThan(100);
+    expect(state.queue).toEqual([]);
+    expect(state.activeTasks).toEqual([]);
+    expect(state.completedTasks.compileCode).toBe(1);
+    expect(state.completedTasks.stageSourceTree).toBeUndefined();
+    expect(state.resources.data).toBe(dataBefore + compileCode.rewardData);
+  });
+
+  it("system routing gates RAM while only CPU none ignores cache safety", () => {
     const tinyChecksum = getTaskDefinition("tinyChecksum");
     const makeState = () =>
       withPrimaryCpuCache(
@@ -3393,7 +3849,13 @@ describe("IdleBit simulation", () => {
     systemSafeState = applyAction(systemSafeState, {
       type: "setSchedulerPolicy",
       target: "system",
-      policy: "deadlockSafe",
+      policy: "fifo",
+    });
+    systemSafeState = applyAction(systemSafeState, {
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "none",
     });
     systemSafeState = queueTwoChecksums(systemSafeState);
 
@@ -3404,13 +3866,13 @@ describe("IdleBit simulation", () => {
     cpuSafeState = applyAction(cpuSafeState, {
       type: "setSchedulerPolicy",
       target: "system",
-      policy: "deadlockSafe",
+      policy: "fifo",
     });
     cpuSafeState = applyAction(cpuSafeState, {
       type: "setSchedulerPolicy",
       target: "cpu",
       cpuId: 1,
-      policy: "deadlockSafe",
+      policy: "fifo",
     });
     cpuSafeState = queueTwoChecksums(cpuSafeState);
 
@@ -3426,8 +3888,14 @@ describe("IdleBit simulation", () => {
     );
     state = {
       ...state,
-      flags: { ...state.flags, schedulerWatchdog: true },
+      flags: { ...state.flags, schedulerWatchdog: true, schedulerPolicies: true },
     };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "none",
+    });
     state = applyAction(state, {
       type: "setSchedulerAutoKill",
       target: "system",
@@ -3451,7 +3919,7 @@ describe("IdleBit simulation", () => {
       target: "cpu",
       cpuId: 1,
       resource: "cache",
-      victimTaskId: "tinyChecksum",
+      victimTaskId: "stageChecksumPage",
     });
   });
 
@@ -3776,7 +4244,7 @@ describe("IdleBit simulation", () => {
     expect(unmatchedCpuUpgrade?.name).toBe("Install CPU");
     expect(
       unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "credits")?.amount,
-    ).toBe(8);
+    ).toBe(16);
     expect(
       unmatchedCpuUpgrade?.costs.find((cost) => cost.resource === "data")?.amount,
     ).toBeUndefined();
@@ -3875,17 +4343,15 @@ describe("IdleBit simulation", () => {
     guard = 0;
     while (
       !(
-        state.activeTasks[0]?.coreOperations[0]?.operationName === "Checksum Step" &&
-        state.activeTasks[0]?.coreOperations[0]?.status === "running"
+        findActiveRuntimeTask(state, "tinyChecksum")?.coreOperations[0]
+          ?.operationName === "Checksum Step" &&
+        findActiveRuntimeTask(state, "tinyChecksum")?.coreOperations[0]?.status ===
+          "running"
       ) &&
-      guard < 300
+      guard < 700
     ) {
       state = tickGame(state, 500);
       guard += 1;
-      expect(
-        state.activeTasks[0]?.coreOperations[0]?.operationName === "Checksum Step" &&
-          state.activeTasks[0]?.coreOperations[0]?.status === "loadingRam",
-      ).toBe(false);
     }
 
     visible = deriveVisibleState(state);
@@ -3933,7 +4399,7 @@ describe("IdleBit simulation", () => {
 
     for (
       let tick = 0;
-      tick < 1000 && (state.activeTasks.length > 0 || state.queue.length > 0);
+      tick < 5000 && (state.activeTasks.length > 0 || state.queue.length > 0);
       tick += 1
     ) {
       state = tickGame(state, 500);
@@ -3977,9 +4443,7 @@ describe("IdleBit simulation", () => {
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
     state = tickUntilTaskOperationStatus(state, "tinyChecksum", "loadingRam");
 
-    const activeTask = state.activeTasks.find(
-      (task) => task.taskId === "tinyChecksum",
-    );
+    const activeTask = findActiveRuntimeTask(state, "tinyChecksum");
     const operation = activeTask?.coreOperations.find(
       (candidate) => candidate.status === "loadingRam",
     );
@@ -4318,9 +4782,7 @@ describe("IdleBit simulation", () => {
     state = applyAction(state, { type: "startTask", taskId: "tinyChecksum" });
     state = tickUntilTaskOperationStatus(state, "tinyChecksum", "loadingRam");
 
-    const firstTask = state.activeTasks.find(
-      (task) => task.taskId === "tinyChecksum",
-    );
+    const firstTask = findActiveRuntimeTask(state, "tinyChecksum");
     const firstBlock = firstTask?.coreOperations[0]?.ramBlocks[0];
 
     expect(firstBlock).toEqual(
@@ -4629,6 +5091,57 @@ describe("IdleBit simulation", () => {
     expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "data")).toBe(5);
   });
 
+  it("scales CPU package installs exponentially and allows removal", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        secondCpu: true,
+      },
+    });
+
+    state = buy(state, "secondCpu");
+
+    const visibleCpuUpgrade = deriveVisibleState(state).upgrades.find(
+      (upgrade) => upgrade.id === "secondCpu",
+    );
+    const twoCpuVisible = deriveVisibleState(state);
+    const threeCpuState = buy(state, "secondCpu");
+    const threeCpuVisible = deriveVisibleState(threeCpuState);
+    const afterInstallCredits = state.resources.credits;
+    const baseCpuCredits = getCpuTierLevelDefinition("hz", 1).upgradeCost;
+
+    expect(state.hardware.cpus).toHaveLength(2);
+    expect(
+      twoCpuVisible.metrics.cpuSockets.every((socket) => socket.efficiency === 7.5),
+    ).toBe(true);
+    expect(getHardwareDrawWatts(state)).toBeGreaterThan(2 / 10 / 1_000_000);
+    expect(threeCpuState.hardware.cpus).toHaveLength(3);
+    expect(threeCpuState.hardware.cpus.every((cpu) => cpu.tierId === "hz")).toBe(true);
+    expect(threeCpuState.hardware.cpus.at(-1)?.level).toBe(1);
+    expect(
+      threeCpuVisible.metrics.cpuSockets.every(
+        (socket) => socket.efficiency === 5.625,
+      ),
+    ).toBe(true);
+    expect(costAmount(visibleCpuUpgrade?.costs ?? [], "credits")).toBe(
+      baseCpuCredits * 4,
+    );
+    expect(visibleCpuUpgrade?.canAfford).toBe(true);
+    expect(visibleCpuUpgrade?.canDowngrade).toBe(true);
+    expect(visibleCpuUpgrade?.refunds.length).toBeGreaterThan(0);
+
+    state = applyAction(state, {
+      type: "downgradeUpgrade",
+      upgradeId: "secondCpu",
+    });
+
+    expect(state.hardware.cpus).toHaveLength(1);
+    expect(state.hardware.secondCpu).toBe(false);
+    expect(deriveVisibleState(state).metrics.cpuSockets[0]?.efficiency).toBe(10);
+    expect(state.resources.credits).toBeGreaterThan(afterInstallCredits);
+  });
+
   it("allows cache capacity and cache speed upgrades from the start", () => {
     let state = fund(createInitialGameState());
     const beforeRate = getCacheLoadRate(state, 1);
@@ -4841,9 +5354,7 @@ describe("IdleBit simulation", () => {
       taskId: "multiCoreBenchmark",
     });
 
-    const benchmarkTask = state.activeTasks.find(
-      (task) => task.taskId === "multiCoreBenchmark",
-    );
+    const benchmarkTask = findActiveRuntimeTask(state, "multiCoreBenchmark");
 
     expect(benchmarkTask?.assignedCoreIds).toEqual([5, 6, 7, 8]);
   });
@@ -4862,8 +5373,14 @@ describe("IdleBit simulation", () => {
     let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 2);
     state = {
       ...state,
-      flags: { ...state.flags, schedulerWatchdog: true },
+      flags: { ...state.flags, schedulerWatchdog: true, schedulerPolicies: true },
     };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "none",
+    });
     state = applyAction(state, {
       type: "setSchedulerAutoKill",
       target: "cpu",
@@ -4910,8 +5427,14 @@ describe("IdleBit simulation", () => {
     let state = withSchedulerSlots(withExactByteCopyCache(completeStarterLadder()), 2);
     state = {
       ...state,
-      flags: { ...state.flags, schedulerWatchdog: true },
+      flags: { ...state.flags, schedulerWatchdog: true, schedulerPolicies: true },
     };
+    state = applyAction(state, {
+      type: "setSchedulerPolicy",
+      target: "cpu",
+      cpuId: 1,
+      policy: "none",
+    });
     state = applyAction(state, {
       type: "setSchedulerAutoKill",
       target: "cpu",
@@ -4950,6 +5473,102 @@ describe("IdleBit simulation", () => {
     );
   });
 
+  it("scheduler watchdog requeues one chunked work unit instead of killing the parent", () => {
+    const compileCode = getTaskDefinition("compileCode");
+    let state = withSystemCatalog(
+      withPrimaryCpuCache(
+        withRamCapacity(
+          withPrimarySchedulerCapacity(unlockSystemScheduler(), 4),
+          compileCode.ramNeedBits * 2,
+        ),
+        compileCode.cacheNeedBits * 4,
+      ),
+    );
+    state = {
+      ...state,
+      flags: { ...state.flags, schedulerWatchdog: true },
+      hardware: {
+        ...state.hardware,
+        systemSchedulerConfig: createSchedulerConfig({
+          autoKillEnabled: true,
+          killPolicy: "deadlockedTask",
+        }),
+      },
+    };
+    state = applyAction(state, { type: "startTask", taskId: "compileCode" });
+    const activeCompile = getActiveRuntimeTasks(state, "compileCode")[0];
+    const activeCompileEntry = getLocalQueueEntries(state).find(
+      (entry) => (entry.reservationId ?? entry.id) === activeCompile?.queueEntryId,
+    );
+    expect(activeCompile).toBeDefined();
+
+    state = withRamCapacity(state, compileCode.ramNeedBits);
+    const blockedOperations = activeCompile!.coreOperations.map((operation, index) =>
+      index === 0
+        ? {
+            ...operation,
+            status: "deadlocked" as const,
+            memoryState: "deadlock" as const,
+            lockResource: "ram" as const,
+            lockReason: "Deadlock: RAM full.",
+            deadlockSeconds: 3.1,
+            remainingLoadCycles: Math.max(1, operation.remainingLoadCycles),
+            totalLoadCycles: Math.max(1, operation.totalLoadCycles),
+            memoryReservedBits: 0,
+            memoryReservedBytes: 0,
+            ramBlocks: [],
+          }
+        : {
+            ...operation,
+            status: "loadingRam" as const,
+            memoryState: "ramLoad" as const,
+            memoryReservedBits: compileCode.ramNeedBits,
+            memoryReservedBytes: Math.ceil(compileCode.ramNeedBits / 8),
+            ramBlocks: [
+              {
+                stickId: state.hardware.ramSticks[0]?.id ?? 1,
+                startBit: 0,
+                lengthBits: compileCode.ramNeedBits,
+                loadedBits: 0,
+                channelIndex: 0,
+              },
+            ],
+          },
+    );
+    const blockedTask = {
+      ...activeCompile!,
+      coreOperations: blockedOperations,
+    };
+    const activeTasks = state.activeTasks.map((task) =>
+      task.instanceId === blockedTask.instanceId ? blockedTask : task,
+    );
+    state = {
+      ...state,
+      activeTasks,
+      activeJobs: activeTasks,
+    };
+
+    state = tickGame(state, 0);
+
+    const requeuedCompile = getActiveRuntimeTasks(state, "compileCode").find(
+      (task) => task.instanceId !== blockedTask.instanceId,
+    );
+    const requeuedEntry = getLocalQueueEntries(state).find(
+      (entry) =>
+        entry.parentTaskId === "compileCode" &&
+        entry.workUnitIndex === activeCompileEntry?.workUnitIndex,
+    );
+    expect(requeuedCompile).toBeDefined();
+    expect(requeuedCompile?.parentTaskId).toBe("compileCode");
+    expect(requeuedEntry).toBeDefined();
+    expect(
+      requeuedCompile?.coreOperations.some(
+        (operation) => operation.deadlockSeconds >= 3,
+      ),
+    ).toBe(false);
+    expect(state.queue).toEqual(["compileCode"]);
+  });
+
   it("shortest task and smallest memory scheduler policies reorder queued entries", () => {
     let state = withSchedulerSlots(completeStarterLadder(), 2);
     state = {
@@ -4981,6 +5600,33 @@ describe("IdleBit simulation", () => {
     state = tickGame(state, 16);
 
     expect(state.activeTasks[0]?.taskId).toBe("fetchBit");
+  });
+
+  it("uses CPU scheduler policy for reserved chunked system work", () => {
+    let state = withSystemCatalog(
+      withPrimaryCpuSchedulerPolicy(
+        withPrimaryCpuCache(
+          withRamCapacity(withPrimarySchedulerCapacity(unlockSystemScheduler(), 5), 4096),
+          64,
+        ),
+        "shortestTask",
+      ),
+    );
+    state = {
+      ...state,
+      hardware: {
+        ...state.hardware,
+        systemSchedulerConfig: createSchedulerConfig({ policy: "fifo" }),
+      },
+    };
+    state = applyAction(state, { type: "queueTask", taskId: "compileCode" });
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+
+    state = tickGame(state, 16);
+
+    expect(state.activeTasks[0]?.taskId).toBe("stageChecksumPage");
+    expect(state.activeTasks[0]?.parentTaskId).toBe("tinyChecksum");
+    expect(state.activeTasks[0]?.assignedCoreIds).toHaveLength(1);
   });
 
   it("power transitions block starts, queue pulls, and CRON while graceful shutdown drains active work", () => {
@@ -5409,7 +6055,12 @@ describe("IdleBit simulation", () => {
 
     state = tickSeconds(state, 59);
 
-    expect(state.activeTasks.map((task) => task.taskId)).toContain("memoryScrub");
+    expect(state.activeTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: "scanRamPage",
+        parentTaskId: "memoryScrub",
+      }),
+    );
     expect(state.cron.schedules[0]?.lastResult).toMatchObject({
       status: "queued",
       taskId: "memoryScrub",

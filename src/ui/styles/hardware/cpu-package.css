@@ -89,16 +89,6 @@
   margin-left: auto;
 }
 
-.cpu-package-header-install-label {
-  flex: 0 0 auto;
-  color: var(--amber);
-  font-family: var(--font-display);
-  font-size: var(--fs-2xs);
-  font-weight: 800;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-}
-
 .cpu-package-meta {
   margin-left: auto;
   color: var(--muted);

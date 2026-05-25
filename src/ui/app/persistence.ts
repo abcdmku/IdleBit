@@ -1,7 +1,7 @@
 import { serializeSave, type GameState } from "../../game";
 import { idleBitPersistence, type PersistedValue } from "../../platform";
 
-export const SAVE_KEY = "save-v4";
+export const SAVE_KEY = "save-v6";
 export const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
 export const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 export const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";

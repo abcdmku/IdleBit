@@ -32,7 +32,9 @@ export function UpgradeStepper({
   className?: string;
   resources?: VisibleState["resources"];
 }) {
-  const buyTitle = `${upgrade.name}: ${formatCost(upgrade.costs)}`;
+  const buyTitle = upgrade.maxed
+    ? `${upgrade.name}: Max`
+    : `${upgrade.name}: ${formatCost(upgrade.costs)}`;
   const upgradeContext = {
     upgradeId: upgrade.id as UpgradeId,
     ...(coreId !== undefined ? { coreId } : {}),
@@ -63,7 +65,12 @@ export function UpgradeStepper({
       </button>
       <span className="upgrade-stepper-spec" title={buyTitle}>
         <span>{label ?? upgrade.name}</span>
-        <ResourceCost costs={upgrade.costs} compact resources={resources} />
+        <ResourceCost
+          costs={upgrade.costs}
+          compact
+          resources={resources}
+          emptyLabel={upgrade.maxed ? "Max" : "Open"}
+        />
       </span>
       <button
         type="button"

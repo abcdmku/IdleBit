@@ -246,6 +246,9 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
       );
     });
 
+    const headerControlText =
+      container.querySelector<HTMLElement>(".ram-header-controls .upgrade-stepper")
+        ?.textContent ?? "";
     const controlText = Array.from(
       container.querySelectorAll<HTMLElement>(".ram-control-strip .upgrade-stepper"),
     ).map((control) => control.textContent ?? "");
@@ -253,8 +256,8 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     const ramText = container.querySelector(".memory-section")?.textContent ?? "";
 
     expect(container.querySelector(".ram-stat-row")).toBeNull();
+    expect(headerControlText).toContain("New stick");
     expect(controlText).toEqual([
-      expect.stringContaining("New stick"),
       expect.stringContaining("R1 Size"),
       expect.stringContaining("R1 Freq"),
     ]);
@@ -286,6 +289,7 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
       usedBytes: 0,
       speedLevel: 1,
       speedMt: 64,
+      efficiency: 10,
       capacityUpgrade: null,
       speedUpgrade: null,
     }));
@@ -323,6 +327,12 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(grid?.dataset.grid).toBe("2x2");
     expect(grid?.style.getPropertyValue("--ram-stick-grid-columns")).toBe("2");
     expect(container.querySelectorAll(".ram-stick-module")).toHaveLength(4);
+    expect(container.querySelector(".ram-stick-efficiency")?.textContent).toContain(
+      "Eff",
+    );
+    expect(container.querySelector(".ram-stick-efficiency")?.textContent).toContain(
+      "10",
+    );
   });
 
   it("uses standalone pre-RAM hardware labels and a compact scheduler grid", () => {

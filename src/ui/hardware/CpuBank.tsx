@@ -1,7 +1,7 @@
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Cpu, HardDrive, LayoutGrid, ListTodo, Rows3 } from "lucide-react";
 import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
-import { formatBits, formatClock } from "../format";
+import { formatBits, formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
 import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
@@ -13,6 +13,11 @@ import type { UiQueueDisplayItem } from "./visibleState";
 /* ============ CPU BANK (multi-socket) ============ */
 
 export type CpuBankView = "array" | "tabs";
+
+const getCpuTabLabel = (label: string, id: number) => {
+  const shortLabel = label.replace(/^CPU\s+/iu, "").trim();
+  return shortLabel || String(id);
+};
 
 function CpuSummaryCard({
   socket,
@@ -53,6 +58,7 @@ function CpuSummaryCard({
   const hiddenQueueCount = Math.max(0, queueItems.length - compactSlotCount);
   const summaryQueueColumns = getCompactSchedulerColumnCount(compactSlotCount);
   const deadlocked = socket.deadlocked;
+  const efficiencyLabel = formatNumber(socket.efficiency);
 
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -78,14 +84,14 @@ function CpuSummaryCard({
       onDoubleClick={handleCardDoubleClick}
       onKeyDown={handleCardKeyDown}
       title={`Select ${socket.label} scheduler`}
-      aria-label={`Select ${socket.label} scheduler, ${activeCount} of ${totalCores} active`}
+      aria-label={`Select ${socket.label} scheduler, ${activeCount} of ${totalCores} active, efficiency ${efficiencyLabel}`}
     >
       <div className="cpu-summary-head-row">
         <span className="cpu-summary-head">
           <Cpu size={11} />
           <span className="cpu-summary-label">{socket.label}</span>
-          <span className="cpu-summary-active">
-            <strong>{activeCount}</strong>/{totalCores}
+          <span className="cpu-summary-efficiency">
+            Eff <strong>{efficiencyLabel}</strong>
           </span>
         </span>
         <button
@@ -301,16 +307,22 @@ export function CpuBank({
         </span>
         {view === "tabs" && (
           <nav className="cpu-bank-tabs" aria-label="CPU tabs">
-            {sockets.map((socket) => (
-              <button
-                key={socket.id}
-                type="button"
-                className={`cpu-bank-tab ${socket.id === activeSocketId ? "active" : ""}`}
-                onClick={() => onSelectTab(socket.id)}
-              >
-                {socket.label}
-              </button>
-            ))}
+            {sockets.map((socket) => {
+              const tabLabel = getCpuTabLabel(socket.label, socket.id);
+
+              return (
+                <button
+                  key={socket.id}
+                  type="button"
+                  className={`cpu-bank-tab ${socket.id === activeSocketId ? "active" : ""}`}
+                  onClick={() => onSelectTab(socket.id)}
+                  title={socket.label}
+                  aria-label={socket.label}
+                >
+                  {tabLabel}
+                </button>
+              );
+            })}
           </nav>
         )}
         {socketUpgrades.length > 0 && (
@@ -320,7 +332,7 @@ export function CpuBank({
                 key={upgrade.id}
                 upgrade={upgrade}
                 dispatch={dispatch}
-                label={upgrade.name}
+                label="CPU"
                 className="cpu-bank-add-stepper"
                 resources={resources}
               />

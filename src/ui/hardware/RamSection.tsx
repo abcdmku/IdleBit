@@ -6,7 +6,7 @@ import type {
   VisibleState,
   VisibleUpgrade,
 } from "../../game";
-import { formatBits, formatClock, formatCost } from "../format";
+import { formatBits, formatClock, formatCost, formatNumber } from "../format";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, DeadlockHelpCaption, shouldShowRamDeadlockPressure } from "./DeadlockHelp";
@@ -182,6 +182,17 @@ export function RamSection({
             All
           </button>
         )}
+        {ramUpgrade && (
+          <div className="ram-header-controls" aria-label="RAM stick count">
+            <UpgradeChip
+              upgrade={ramUpgrade}
+              label="New stick"
+              control
+              resources={visible.resources}
+              dispatch={dispatch}
+            />
+          </div>
+        )}
       </div>
       {showDeadlockHelp && (
         <DeadlockHelpCaption onDismiss={onDismissDeadlockHelp} />
@@ -227,17 +238,8 @@ export function RamSection({
         })}
       </div>
 
-      {(ramUpgrade || ramCapacityUpgrade || selectedRamSpeedUpgrade) && (
+      {(ramCapacityUpgrade || selectedRamSpeedUpgrade) && (
         <div className="core-control-strip cache-control-strip ram-control-strip">
-          {ramUpgrade && (
-            <UpgradeChip
-              upgrade={ramUpgrade}
-              label="New stick"
-              control
-              resources={visible.resources}
-              dispatch={dispatch}
-            />
-          )}
           {ramCapacityUpgrade && (
             <UpgradeChip
               upgrade={ramCapacityUpgrade}
@@ -385,6 +387,8 @@ function RamStickCard({
   const pct = Math.round((used / capacity) * 100);
   const active = slot.usedBits > 0;
   const stateClass = state.toLowerCase();
+  const efficiencyLabel =
+    slot.efficiency === undefined ? null : formatNumber(slot.efficiency);
 
   return (
     <button
@@ -394,7 +398,9 @@ function RamStickCard({
       } ram-stick-state-${stateClass}`}
       onClick={onSelect}
       aria-pressed={selected}
-      title={`R${slot.id} - ${formatBits(slot.sizeBits)} - ${formatClock(slot.speedMt)} - ${state}`}
+      title={`R${slot.id} - ${formatBits(slot.sizeBits)} - ${formatClock(slot.speedMt)}${
+        efficiencyLabel ? ` - Eff ${efficiencyLabel}` : ""
+      } - ${state}`}
     >
       <span className="ram-stick-module-head">
         <span className="ram-stick-label">R{slot.id}</span>
@@ -403,6 +409,11 @@ function RamStickCard({
           <span className="ram-stick-foot-sep" aria-hidden="true">·</span>
           <span>{formatClock(slot.speedMt)}</span>
         </span>
+        {efficiencyLabel && (
+          <span className="ram-stick-efficiency">
+            Eff <strong>{efficiencyLabel}</strong>
+          </span>
+        )}
         <span className="ram-stick-module-pct">{pct}%</span>
       </span>
       <span className="ram-stick-module-meter" aria-hidden="true">

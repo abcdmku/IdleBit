@@ -17,6 +17,45 @@ export type TaskId =
   | "bitShift"
   | "byteCopy"
   | "packetCheck"
+  | "readRamPage"
+  | "writeRamPage"
+  | "overwriteRamPage"
+  | "stageChecksumPage"
+  | "checksumStep"
+  | "scanRamPage"
+  | "repairRamDrift"
+  | "readQueueTable"
+  | "compactQueueEntries"
+  | "samplePowerRails"
+  | "normalizeDrawTrace"
+  | "readBusWindow"
+  | "mirrorBusState"
+  | "sampleThermalSensors"
+  | "fitHeatCurve"
+  | "loadShards"
+  | "reconcileShards"
+  | "mergeShardBarrier"
+  | "commitShards"
+  | "stageSourceTree"
+  | "compileUnits"
+  | "linkBarrier"
+  | "linkBinary"
+  | "writeArtifact"
+  | "loadSceneTiles"
+  | "shadeTiles"
+  | "compositeBarrier"
+  | "compositeFrame"
+  | "writeFrameBuffer"
+  | "stageTestFixtures"
+  | "runRegressionCases"
+  | "compareResults"
+  | "reportBarrier"
+  | "summarizeReport"
+  | "writeReport"
+  | "scatterShards"
+  | "decodeShards"
+  | "hashShards"
+  | "commitBenchmarkResult"
   | "tinyChecksum"
   | "memoryScrub"
   | "queueCompaction"
@@ -124,6 +163,8 @@ export type TaskCategory = "cpu" | "system" | "distributed";
 
 export type TaskCoreScaling = "fixed" | "chunked";
 
+export type TaskVisibility = "default" | "internal";
+
 export type TaskOperationKind = "memory" | "compute" | "barrier";
 
 export type TaskMemoryOperationKind = "read" | "write" | "overwrite";
@@ -148,8 +189,8 @@ export type MemoryRuntimeState =
 export type DeadlockResource = "cache" | "ram";
 
 export type SchedulerPolicy =
+  | "none"
   | "fifo"
-  | "deadlockSafe"
   | "shortestTask"
   | "smallestMemory";
 
@@ -200,6 +241,8 @@ export interface Cost {
 export interface TaskOperationDefinition {
   id: string;
   name: string;
+  sourceTaskId?: TaskId;
+  sourceTaskName?: string;
   kind: TaskOperationKind;
   memoryAction: TaskMemoryOperationKind | null;
   count: number;
@@ -224,6 +267,8 @@ export type TaskSubtaskKind =
 export interface TaskSubtaskDefinition {
   id: string;
   name: string;
+  sourceTaskId?: TaskId;
+  sourceTaskName?: string;
   kind: TaskSubtaskKind;
   dependsOn: string[];
   operationIds: string[];
@@ -237,11 +282,19 @@ export interface TaskSubtaskDefinition {
   ramBytes: number;
 }
 
+export interface TaskCompositionDefinition {
+  taskId: TaskId;
+  count: number;
+  mode: "single" | "perWorkUnit";
+}
+
 export interface TaskDefinition {
   id: TaskId;
   name: string;
   kind: TaskKind;
   category: TaskCategory;
+  visibility: TaskVisibility;
+  composition: TaskCompositionDefinition[];
   operations: TaskOperationDefinition[];
   subtasks: TaskSubtaskDefinition[];
   dagNodes: TaskSubtaskDefinition[];
@@ -349,12 +402,17 @@ export interface ActiveTask {
   taskId: TaskId;
   jobId: JobId;
   systemId?: number;
+  queueEntryId?: string | null;
+  parentQueueEntryId?: string | null;
+  parentTaskId?: TaskId | null;
+  childTaskId?: TaskId | null;
   schedulerQueued: boolean;
   coreId: number;
   assignedCoreIds: number[];
   workUnitsTotal?: number;
   workUnitsStarted?: number;
   workUnitsCompleted?: number;
+  workUnitsPending?: number[];
   coreOperations: ActiveCoreOperation[];
   remainingCycles: number;
   totalCycles: number;
@@ -369,7 +427,31 @@ export interface CoreSchedulerState {
   status: OperationRuntimeStatus | "idle";
   memoryState: MemoryRuntimeState;
   localQueue: TaskId[];
+  localQueueEntries?: TaskQueueEntry[];
   progress: number;
+}
+
+export interface TaskQueueEntry {
+  id: string;
+  reservationId?: string | null;
+  taskId: TaskId;
+  name?: string;
+  category?: TaskCategory;
+  cacheNeedBits?: number;
+  ramNeedBits?: number;
+  requiredCores?: number;
+  parentTaskId?: TaskId | null;
+  parentTaskName?: string | null;
+  parentQueueEntryId?: string | null;
+  childTaskId?: TaskId | null;
+  childTaskName?: string | null;
+  compositionIndex?: number | null;
+  compositionRepeatIndex?: number | null;
+  workUnitIndex?: number | null;
+  childWorkKey?: string | null;
+  completedChildKeys?: string[];
+  totalChildCount?: number;
+  target: "cpu" | "system";
 }
 
 export interface PowerRuntimeState {
@@ -454,6 +536,7 @@ export interface SystemState {
   cacheResidency: CacheResidencySegment[];
   coreSchedulers: Record<number, CoreSchedulerState>;
   queue: TaskId[];
+  queueEntries?: TaskQueueEntry[];
   deadlockPressureSeconds: number;
   deadlockPressureResource: DeadlockResource | null;
   deadlockPressureCpuId: number | null;
@@ -584,7 +667,7 @@ export interface RamResidencySegment {
 }
 
 export interface GameState {
-  version: 4;
+  version: 6;
   tick: number;
   nextInstanceId: number;
   selectedSystemId: number;
@@ -609,14 +692,22 @@ export interface GameState {
   cacheResidency: CacheResidencySegment[];
   coreSchedulers: Record<number, CoreSchedulerState>;
   queue: TaskId[];
+  queueEntries?: TaskQueueEntry[];
   autoRepeatJobId: JobId | null;
 }
 
 export type GameAction =
   | { type: "startTask"; taskId: TaskId; systemId?: number }
+  | { type: "grantDevResource"; resource: ResourceId }
   | { type: "startTaskOnCore"; taskId: TaskId; coreId: number; systemId?: number }
   | { type: "queueTask"; taskId: TaskId; cpuId?: number; systemId?: number }
-  | { type: "cancelTask"; taskId: TaskId; instanceId?: string; systemId?: number }
+  | {
+      type: "cancelTask";
+      taskId: TaskId;
+      instanceId?: string;
+      coreId?: number;
+      systemId?: number;
+    }
   | { type: "cancelQueuedTask"; taskId: TaskId; systemId?: number }
   | { type: "requestShutdown"; systemId?: number }
   | { type: "requestStartup"; systemId?: number }
@@ -691,6 +782,8 @@ export type GameAction =
 export interface VisibleOperation {
   id: string;
   name: string;
+  sourceTaskId?: TaskId;
+  sourceTaskName?: string;
   kind: TaskOperationKind;
   memoryAction: TaskMemoryOperationKind | null;
   count: number;
@@ -704,6 +797,8 @@ export interface VisibleOperation {
 export interface VisibleTaskSubtask {
   id: string;
   name: string;
+  sourceTaskId?: TaskId;
+  sourceTaskName?: string;
   kind: TaskSubtaskKind;
   dependsOn: string[];
   operationIds: string[];
@@ -722,6 +817,8 @@ export interface VisibleTask {
   name: string;
   kind: TaskKind;
   category: TaskCategory;
+  visibility: TaskVisibility;
+  composition: TaskCompositionDefinition[];
   rewardCredits: number;
   rewardData: number;
   cacheNeedBits: number;
@@ -760,6 +857,7 @@ export interface VisibleUpgrade {
   canDowngrade: boolean;
   downgradeBlockedReason: string | null;
   purchaseCount: number;
+  maxed?: boolean;
 }
 
 export interface VisibleRamInstallOption {
@@ -838,6 +936,10 @@ export interface VisibleActiveTask {
   taskId: TaskId;
   jobId: JobId;
   systemId?: number;
+  queueEntryId?: string | null;
+  parentQueueEntryId?: string | null;
+  parentTaskId?: TaskId | null;
+  childTaskId?: TaskId | null;
   schedulerQueued: boolean;
   name: string;
   coreId: number;
@@ -911,6 +1013,7 @@ export interface VisibleRamSlot {
   usedBytes: number;
   speedLevel: number;
   speedMt: number;
+  efficiency?: number;
   active?: boolean;
   capacityUpgrade: VisibleUpgrade | null;
   speedUpgrade: VisibleUpgrade | null;
@@ -1091,7 +1194,7 @@ export interface VisibleState {
   research: VisibleResearch[];
   activeTasks: VisibleActiveTask[];
   activeJobs: VisibleActiveJob[];
-  queue: TaskId[];
+  queue: Array<TaskId | TaskQueueEntry>;
   cron: VisibleCronState;
   tasks: VisibleTask[];
   jobs: VisibleJob[];

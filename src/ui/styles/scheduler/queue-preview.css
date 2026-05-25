@@ -198,6 +198,39 @@
 .queue-slot-cell.active .queue-slot-state { color: var(--green); opacity: 0.75; }
 .queue-slot-cell.deadlocked .queue-slot-state { color: var(--rose); opacity: 0.9; }
 
+/* ---------- System blocked summary ---------- */
+
+.system-scheduler-blocked-reasons {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid rgba(242, 194, 78, 0.28);
+  border-radius: 4px;
+  background: rgba(242, 194, 78, 0.055);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.system-scheduler-blocked-reasons strong {
+  font-size: 0.52rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.system-scheduler-blocked-reasons span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- Cancel button ---------- */
 
 .queue-cancel-button {

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyAction,
   createInitialGameState,
+  createRackReadyGameState,
   deriveVisibleState,
+  tickGame,
   type VisibleState
 } from "../game";
 import {
@@ -12,6 +14,7 @@ import {
   PinnedTaskBar,
   TaskBay
 } from "./HardwareBoard";
+import { TaskDagModal } from "./tasks/TaskDagModal";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -137,7 +140,7 @@ describe("TaskBay queue and deadlock status", () => {
             schedulerSlots: 4,
             queuedCount: 1,
             schedulerConfig: {
-              policy: "deadlockSafe",
+              policy: "fifo",
               autoKillEnabled: false,
               killPolicy: "deadlockedTask",
             },
@@ -192,7 +195,199 @@ describe("TaskBay queue and deadlock status", () => {
 
     expect(systemStatus).toBe("Waiting for CPU cache.");
     expect(cpuStatus).toBe("Waiting for CPU cache.");
+    const blockedSummary = container.querySelector(
+      ".system-scheduler-blocked-reasons",
+    )?.textContent;
+    expect(blockedSummary).toContain("Blocked");
+    expect(blockedSummary).toContain("Waiting for CPU cache.");
     expect(container.textContent).not.toContain("System scheduler slots full.");
+  });
+
+  it("shows CPU child work with parent context while system slots keep parent labels", () => {
+    let state = createRackReadyGameState();
+    state = applyAction(state, { type: "queueTask", taskId: "tinyChecksum" });
+    state = tickGame(state, 16);
+    const rackVisible = deriveVisibleState(state);
+    const selectedSystem = rackVisible.rack.systems.find((system) => system.selected) as
+      | { visible?: VisibleState }
+      | undefined;
+    const selectedVisible =
+      selectedSystem?.visible ?? rackVisible;
+    const visible: VisibleState = {
+      ...selectedVisible,
+      hardware: {
+        ...selectedVisible.hardware,
+        secondCpu: false,
+      },
+      metrics: {
+        ...selectedVisible.metrics,
+        cpuSockets: [selectedVisible.metrics.cpuSockets[0]!],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="scheduler:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const cpuSlot = container.querySelector(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell",
+    );
+    const systemSlot = container.querySelector(
+      ".system-scheduler-section .queue-slot-cell",
+    );
+
+    expect(cpuSlot?.textContent).toContain("Stage Checksum Page");
+    expect(cpuSlot?.textContent).toContain("Tiny Checksum");
+    expect(systemSlot?.textContent).toContain("Tiny Checksum");
+    expect(systemSlot?.textContent).not.toContain("Stage Checksum Page");
+  });
+
+  it("renders composed CPU child stages in task DAG modals", () => {
+    const visible = deriveVisibleState(createRackReadyGameState());
+    const tinyChecksum = visible.tasks.find((task) => task.id === "tinyChecksum");
+    const compileCode = visible.tasks.find((task) => task.id === "compileCode");
+
+    if (!tinyChecksum || !compileCode) {
+      throw new Error("Expected rack-ready tasks to include DAG-covered system tasks.");
+    }
+
+    act(() => {
+      root.render(
+        <TaskDagModal
+          task={tinyChecksum}
+          visible={visible}
+          activeTask={null}
+          onClose={() => undefined}
+          memoryUnlocked
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Stage Checksum Page");
+    expect(container.textContent).toContain("Checksum Step");
+
+    act(() => {
+      root.render(
+        <TaskDagModal
+          task={compileCode}
+          visible={visible}
+          activeTask={null}
+          onClose={() => undefined}
+          memoryUnlocked
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Stage Source Tree");
+    expect(container.textContent).toContain("Compile Units");
+    expect(container.textContent).toContain("Link Barrier");
+    expect(container.textContent).toContain("Link Binary");
+    expect(container.textContent).toContain("Write Artifact");
+  });
+
+  it("explains RAM-blocked system tasks already reserved by a CPU scheduler", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const socket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+        systemStats: true,
+      },
+      hardware: {
+        ...base.hardware,
+        ramBits: 256,
+        ramBytes: 32,
+        systemSchedulerSlots: 1,
+        systemSchedulerConfig: {
+          policy: "fifo",
+          autoKillEnabled: false,
+          killPolicy: "deadlockedTask",
+        },
+      },
+      metrics: {
+        ...base.metrics,
+        ramUsedBits: 256,
+        ramUsedBytes: 32,
+        cpuSockets: [
+          {
+            ...socket,
+            cacheBits: 64,
+            cacheUsedBits: 0,
+            schedulerSlots: 1,
+            queuedCount: 1,
+            schedulerConfig: {
+              policy: "fifo",
+              autoKillEnabled: false,
+              killPolicy: "deadlockedTask",
+            },
+            cores: socket.cores.map((core, index) => ({
+              ...core,
+              scheduler: {
+                ...core.scheduler,
+                localQueue: index === 0 ? ["tinyChecksum"] : [],
+              },
+            })),
+          },
+        ],
+      },
+      queue: ["tinyChecksum"],
+      tasks: [
+        {
+          ...base.tasks[0]!,
+          id: "tinyChecksum",
+          name: "Tiny Checksum",
+          category: "system",
+          operationCount: 332,
+          rewardCredits: 332,
+          rewardData: 2,
+          cacheNeedBits: 8,
+          ramNeedBits: 256,
+          requiredCores: 1,
+          canStart: false,
+          canQueue: false,
+          blockedReason: null,
+          queueBlockedReason: "System scheduler slots full.",
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="scheduler"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const systemStatus = container.querySelector(
+      ".system-scheduler-section .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+    const cpuStatus = container.querySelector(
+      ".scheduler-section:not(.system-scheduler-section) .queue-slot-cell .queue-slot-state",
+    )?.textContent;
+
+    expect(systemStatus).toBe("Waiting for RAM.");
+    expect(cpuStatus).toBe("Waiting for RAM.");
+    const blockedSummary = container.querySelector(
+      ".system-scheduler-blocked-reasons",
+    )?.textContent;
+    expect(blockedSummary).toContain("Blocked");
+    expect(blockedSummary).toContain("Waiting for RAM.");
+    expect(container.textContent).not.toContain("Waiting for CPU scheduler dispatch.");
   });
 
   it("shows active scheduler slots with whole-task progress", () => {
@@ -383,6 +578,7 @@ describe("TaskBay queue and deadlock status", () => {
       type: "cancelTask",
       taskId: "fetchBit",
       instanceId: state.activeTasks[0]?.instanceId,
+      coreId: 1,
     });
 
     dispatch.mockClear();

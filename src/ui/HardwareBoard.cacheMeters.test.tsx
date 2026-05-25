@@ -8,6 +8,7 @@ import {
   tickGame,
   type GameState
 } from "../game";
+import { CPU_TIER_MAX_LEVEL } from "../game/content/cpuTiers";
 import { getCpuClockHz } from "../game/progression";
 import {
   HardwareBoard
@@ -278,6 +279,52 @@ describe("HardwareBoard cache and upgrade meters", () => {
       upgradeId: "cache",
       cpuId: 1,
     });
+  });
+
+  it("labels maxed hardware upgrade steppers as max instead of open", () => {
+    const initial = createInitialGameState();
+    const state: GameState = {
+      ...initial,
+      hardware: {
+        ...initial.hardware,
+        cacheSpeedLevel: CPU_TIER_MAX_LEVEL,
+        cpus: initial.hardware.cpus.map((cpu) =>
+          cpu.id === 1
+            ? { ...cpu, cacheSpeedLevel: CPU_TIER_MAX_LEVEL }
+            : cpu,
+        ),
+      },
+    };
+    const visible = deriveVisibleState(state);
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="cache"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const steppers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        ".cache-control-strip .upgrade-stepper.green",
+      ),
+    );
+    const cacheFreq = steppers.find((stepper) =>
+      stepper.textContent?.includes("Freq"),
+    );
+    const plusButton = cacheFreq?.querySelector<HTMLButtonElement>(
+      ".upgrade-stepper-button.plus",
+    );
+    const spec = cacheFreq?.querySelector<HTMLElement>(".upgrade-stepper-spec");
+
+    expect(cacheFreq?.textContent).toContain("Max");
+    expect(cacheFreq?.textContent).not.toContain("Open");
+    expect(spec?.getAttribute("title")).toContain("Max");
+    expect(plusButton?.disabled).toBe(true);
   });
 
 });

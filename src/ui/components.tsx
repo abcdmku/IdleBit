@@ -124,6 +124,10 @@ export function SystemWorkbench({
     [isMobile],
   );
 
+  const handleGrantDevResource = useCallback((resource: ResourceKind) => {
+    dispatch({ type: "grantDevResource", resource });
+  }, [dispatch]);
+
   const handleCloseGraph = useCallback(() => {
     setGraphOpen(false);
   }, []);
@@ -204,6 +208,7 @@ export function SystemWorkbench({
           onReset={onReset}
           animateResourceGains={animateResourceGains}
           onSelectResource={handleSelectResource}
+          onGrantDevResource={handleGrantDevResource}
           graphOpen={graphOpen}
         />
       </div>

@@ -1,7 +1,8 @@
 import { Database, Zap, type LucideIcon } from "lucide-react";
 import type { VisibleState } from "../game";
 import {
-  formatNumber,
+  formatDisplayCostAmount,
+  formatResourceAmount,
   type DisplayCost,
 } from "./format";
 
@@ -44,7 +45,7 @@ export function ResourceAmount({
       <Icon size={compact ? 13 : 14} />
       <strong>
         {plus ? "+" : ""}
-        {formatNumber(amount)}
+        {formatResourceAmount(amount)}
       </strong>
       {showLabel && <span>{label}</span>}
     </span>
@@ -55,12 +56,16 @@ export function ResourceCost({
   costs,
   compact = false,
   resources,
+  emptyLabel = "Open",
 }: {
   costs: DisplayCost[];
   compact?: boolean;
   resources?: VisibleState["resources"];
+  emptyLabel?: string;
 }) {
-  if (costs.length === 0) return <span className="resource-cost empty">Open</span>;
+  if (costs.length === 0) {
+    return <span className="resource-cost empty">{emptyLabel}</span>;
+  }
 
   return (
     <span className={`resource-cost ${compact ? "compact" : ""}`}>
@@ -70,7 +75,7 @@ export function ResourceCost({
         if (!isResourceKind(cost.resource)) {
           return (
             <span className="resource-token unknown" key={key}>
-              <strong>{formatNumber(cost.amount)}</strong>
+              <strong>{formatDisplayCostAmount(cost)}</strong>
               <span>{cost.resource}</span>
             </span>
           );

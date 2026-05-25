@@ -1,10 +1,12 @@
 import { bitsToBytes } from "../progression";
 import type {
   GameState,
+  TaskCompositionDefinition,
   TaskCoreScaling,
   TaskDefinition,
   TaskId,
   TaskKind,
+  TaskVisibility,
   TaskMemoryOperationKind,
   TaskOperationDefinition,
   TaskOperationKind,
@@ -41,6 +43,7 @@ type RawTask = {
   name: string;
   kind: TaskKind;
   category: TaskDefinition["category"];
+  visibility?: TaskVisibility;
   rewardData: number;
   parallelizable: boolean;
   repeatable: boolean;
@@ -51,7 +54,12 @@ type RawTask = {
   maxCores?: number;
   reveal: (state: GameState) => boolean;
   requirement: (state: GameState) => boolean;
-  operations: RawOperation[];
+  operations?: RawOperation[];
+  composition?: Array<{
+    taskId: TaskId;
+    count?: number;
+    mode?: TaskCompositionDefinition["mode"];
+  }>;
   recipe: RawRecipeStep[];
 };
 
@@ -87,6 +95,7 @@ const op = (
   return {
     id: `${originTaskId}:${operation.id}`,
     name: operation.name,
+    sourceTaskId: originTaskId,
     kind: operation.kind,
     memoryAction: operation.memoryAction ?? null,
     count,
@@ -316,10 +325,26 @@ const deriveRecipeNodes = (
       return operation;
     });
     const summary = summarizeOperations(stepOperations, parallelCoreCount);
+    const sourceTaskIds = Array.from(
+      new Set(
+        stepOperations
+          .map((operation) => operation.sourceTaskId)
+          .filter((id): id is TaskId => Boolean(id)),
+      ),
+    );
+    const sourceTaskNames = Array.from(
+      new Set(
+        stepOperations
+          .map((operation) => operation.sourceTaskName)
+          .filter((name): name is string => Boolean(name)),
+      ),
+    );
 
     return dagNode({
       id: `${taskId}:recipe:${step.id}`,
       name: step.name,
+      sourceTaskId: sourceTaskIds.length === 1 ? sourceTaskIds[0] : undefined,
+      sourceTaskName: sourceTaskNames.length === 1 ? sourceTaskNames[0] : undefined,
       kind: "recipe",
       dependsOn:
         step.dependsOn?.map((dependencyId) => `${taskId}:recipe:${dependencyId}`) ??
@@ -366,6 +391,84 @@ const getRecipeDependencyNodeIds = (
 
   return [previousNodeId];
 };
+
+const getOperationSuffix = (taskId: TaskId, operationId: string) =>
+  operationId.startsWith(`${taskId}:`)
+    ? operationId.slice(`${taskId}:`.length)
+    : operationId;
+
+const cloneComposedOperation = (
+  parentTaskId: TaskId,
+  childTask: TaskDefinition,
+  operation: TaskOperationDefinition,
+  count: number,
+): TaskOperationDefinition => {
+  const suffix = getOperationSuffix(childTask.id, operation.id);
+  const scaledCount = Math.max(1, operation.count * count);
+  const scaledCycles = operation.cycles * count;
+  const scaledCacheBits = operation.cacheBits * count;
+  const scaledRamBits = operation.ramBits * count;
+
+  return {
+    ...operation,
+    id: `${parentTaskId}:${suffix}`,
+    sourceTaskId: childTask.id,
+    sourceTaskName: childTask.name,
+    count: scaledCount,
+    cycles: scaledCycles,
+    cacheBits: scaledCacheBits,
+    ramBits: scaledRamBits,
+    cacheBytes: bitsToBytes(scaledCacheBits),
+    ramBytes: bitsToBytes(scaledRamBits),
+  };
+};
+
+const hasRamControl = (state: GameState) => hasResearch(state, "ramControl");
+
+const hasInstalledRam = (state: GameState) =>
+  hasRamControl(state) && state.hardware.ramBits > 0;
+
+const rawCpuLeafTask = (
+  id: TaskId,
+  name: string,
+  operation: RawOperation,
+  options: {
+    visibility?: TaskVisibility;
+    reveal?: (state: GameState) => boolean;
+    requirement?: (state: GameState) => boolean;
+    parallelizable?: boolean;
+    repeatable?: boolean;
+    minCores?: number;
+    maxCores?: number;
+  } = {},
+): RawTask => ({
+  id,
+  name,
+  kind: "task",
+  category: "cpu",
+  visibility: options.visibility ?? "internal",
+  rewardData: 0,
+  parallelizable: options.parallelizable ?? operation.parallel ?? false,
+  repeatable: options.repeatable ?? true,
+  minCores: options.minCores ?? 1,
+  maxCores: options.maxCores,
+  reveal: options.reveal ?? (() => false),
+  requirement: options.requirement ?? (() => false),
+  operations: [operation],
+  recipe: [
+    {
+      id: operation.id,
+      name,
+      operationIds: [operation.id],
+    },
+  ],
+});
+
+const compose = (
+  taskId: TaskId,
+  count = 1,
+  mode: TaskCompositionDefinition["mode"] = "single",
+) => ({ taskId, count, mode });
 
 const rawTasks: RawTask[] = [
   {
@@ -627,6 +730,471 @@ const rawTasks: RawTask[] = [
       },
     ],
   },
+  rawCpuLeafTask(
+    "readRamPage",
+    "Read RAM Page",
+    {
+      id: "read-ram-page",
+      name: "Read 256 b RAM Page",
+      kind: "memory",
+      memoryAction: "read",
+      count: 8,
+      cycles: 3,
+      ramBits: 256,
+    },
+    {
+      visibility: "default",
+      reveal: hasRamControl,
+      requirement: hasInstalledRam,
+    },
+  ),
+  rawCpuLeafTask(
+    "writeRamPage",
+    "Write RAM Page",
+    {
+      id: "write-ram-page",
+      name: "Write 256 b RAM Page",
+      kind: "memory",
+      memoryAction: "write",
+      count: 8,
+      cycles: 4,
+      ramBits: 256,
+    },
+    {
+      visibility: "default",
+      reveal: hasRamControl,
+      requirement: hasInstalledRam,
+    },
+  ),
+  rawCpuLeafTask(
+    "overwriteRamPage",
+    "Overwrite RAM Page",
+    {
+      id: "overwrite-ram-page",
+      name: "Overwrite 256 b RAM Page",
+      kind: "memory",
+      memoryAction: "overwrite",
+      count: 8,
+      cycles: 2,
+      ramBits: 256,
+    },
+    {
+      visibility: "default",
+      reveal: hasRamControl,
+      requirement: hasInstalledRam,
+    },
+  ),
+  rawCpuLeafTask("stageChecksumPage", "Stage Checksum Page", {
+    id: "stage-checksum",
+    name: "Stage Checksum Page",
+    kind: "memory",
+    memoryAction: "read",
+    count: 8,
+    cycles: 3,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask("checksumStep", "Checksum Step", {
+    id: "checksum-step",
+    name: "Checksum Step",
+    kind: "compute",
+    cycles: 36,
+    cacheBits: 8,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask("scanRamPage", "Scan RAM Page", {
+    id: "scan-page",
+    name: "Scan RAM Page",
+    kind: "memory",
+    memoryAction: "read",
+    count: 16,
+    cycles: 2,
+    ramBits: 512,
+  }),
+  rawCpuLeafTask("repairRamDrift", "Repair Drift", {
+    id: "repair-page",
+    name: "Repair Drift",
+    kind: "memory",
+    memoryAction: "overwrite",
+    count: 16,
+    cycles: 2,
+    ramBits: 512,
+  }),
+  rawCpuLeafTask("readQueueTable", "Read Queue Table", {
+    id: "read-queue",
+    name: "Read Queue Table",
+    kind: "memory",
+    memoryAction: "read",
+    count: 8,
+    cycles: 3,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask("compactQueueEntries", "Compact Queue Entries", {
+    id: "compact-queue",
+    name: "Compact Queue Entries",
+    kind: "compute",
+    cycles: 54,
+    cacheBits: 8,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask("samplePowerRails", "Sample Power Rails", {
+    id: "sample-rails",
+    name: "Sample Power Rails",
+    kind: "memory",
+    memoryAction: "read",
+    count: 8,
+    cycles: 4,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask("normalizeDrawTrace", "Normalize Draw Trace", {
+    id: "normalize-draw",
+    name: "Normalize Draw Trace",
+    kind: "compute",
+    cycles: 48,
+    cacheBits: 8,
+    ramBits: 256,
+  }),
+  rawCpuLeafTask(
+    "readBusWindow",
+    "Read Bus Window",
+    {
+      id: "read-bus",
+      name: "Read Bus Window",
+      kind: "memory",
+      memoryAction: "read",
+      count: 8,
+      cycles: 5,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 2, maxCores: 2 },
+  ),
+  rawCpuLeafTask(
+    "mirrorBusState",
+    "Mirror Bus State",
+    {
+      id: "mirror-bus",
+      name: "Mirror Bus State",
+      kind: "compute",
+      cycles: 72,
+      cacheBits: 8,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 2, maxCores: 2 },
+  ),
+  rawCpuLeafTask("sampleThermalSensors", "Sample Thermal Sensors", {
+    id: "sample-thermals",
+    name: "Sample Thermal Sensors",
+    kind: "memory",
+    memoryAction: "read",
+    count: 12,
+    cycles: 4,
+    ramBits: 384,
+  }),
+  rawCpuLeafTask("fitHeatCurve", "Fit Heat Curve", {
+    id: "fit-curve",
+    name: "Fit Heat Curve",
+    kind: "compute",
+    cycles: 84,
+    cacheBits: 12,
+    ramBits: 384,
+  }),
+  rawCpuLeafTask(
+    "loadShards",
+    "Load Shards",
+    {
+      id: "load-shards",
+      name: "Load Shards",
+      kind: "memory",
+      memoryAction: "read",
+      count: 8,
+      cycles: 6,
+      ramBits: 1024,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask(
+    "reconcileShards",
+    "Reconcile Shards",
+    {
+      id: "reconcile-shards",
+      name: "Reconcile Shards",
+      kind: "compute",
+      cycles: 108,
+      cacheBits: 8,
+      ramBits: 1024,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask(
+    "mergeShardBarrier",
+    "Merge Barrier",
+    {
+      id: "merge-barrier",
+      name: "Merge Barrier",
+      kind: "barrier",
+      cycles: 0,
+      cacheBits: 0,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask("commitShards", "Commit Shards", {
+    id: "commit-shards",
+    name: "Commit Shards",
+    kind: "compute",
+    cycles: 84,
+    cacheBits: 16,
+    ramBits: 1024,
+  }),
+  rawCpuLeafTask(
+    "stageSourceTree",
+    "Stage Source Tree",
+    {
+      id: "stage-source",
+      name: "Stage Source Tree",
+      kind: "memory",
+      memoryAction: "read",
+      count: 16,
+      cycles: 5,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "compileUnits",
+    "Compile Units",
+    {
+      id: "compile-units",
+      name: "Compile Units",
+      kind: "compute",
+      cycles: 160,
+      cacheBits: 8,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "linkBarrier",
+    "Link Barrier",
+    {
+      id: "link-barrier",
+      name: "Link Barrier",
+      kind: "barrier",
+      cycles: 0,
+      cacheBits: 0,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask("linkBinary", "Link Binary", {
+    id: "link-binary",
+    name: "Link Binary",
+    kind: "compute",
+    cycles: 120,
+    cacheBits: 16,
+    ramBits: 512,
+  }),
+  rawCpuLeafTask("writeArtifact", "Write Artifact", {
+    id: "write-artifact",
+    name: "Write Artifact",
+    kind: "memory",
+    memoryAction: "write",
+    count: 8,
+    cycles: 4,
+    ramBits: 512,
+  }),
+  rawCpuLeafTask(
+    "loadSceneTiles",
+    "Load Scene Tiles",
+    {
+      id: "load-scene",
+      name: "Load Scene Tiles",
+      kind: "memory",
+      memoryAction: "read",
+      count: 24,
+      cycles: 6,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "shadeTiles",
+    "Shade Tiles",
+    {
+      id: "shade-tiles",
+      name: "Shade Tiles",
+      kind: "compute",
+      cycles: 220,
+      cacheBits: 8,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "compositeBarrier",
+    "Composite Barrier",
+    {
+      id: "composite-barrier",
+      name: "Composite Barrier",
+      kind: "barrier",
+      cycles: 0,
+      cacheBits: 0,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask("compositeFrame", "Composite Frame", {
+    id: "composite-frame",
+    name: "Composite Frame",
+    kind: "compute",
+    cycles: 180,
+    cacheBits: 16,
+    ramBits: 1024,
+  }),
+  rawCpuLeafTask("writeFrameBuffer", "Write Frame Buffer", {
+    id: "write-frame",
+    name: "Write Frame Buffer",
+    kind: "memory",
+    memoryAction: "write",
+    count: 16,
+    cycles: 5,
+    ramBits: 1024,
+  }),
+  rawCpuLeafTask(
+    "stageTestFixtures",
+    "Stage Test Fixtures",
+    {
+      id: "stage-fixtures",
+      name: "Stage Test Fixtures",
+      kind: "memory",
+      memoryAction: "read",
+      count: 32,
+      cycles: 4,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "runRegressionCases",
+    "Run Cases",
+    {
+      id: "run-cases",
+      name: "Run Cases",
+      kind: "compute",
+      cycles: 200,
+      cacheBits: 8,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "compareResults",
+    "Compare Results",
+    {
+      id: "compare-results",
+      name: "Compare Results",
+      kind: "compute",
+      cycles: 140,
+      cacheBits: 8,
+      ramBits: 512,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask(
+    "reportBarrier",
+    "Report Barrier",
+    {
+      id: "report-barrier",
+      name: "Report Barrier",
+      kind: "barrier",
+      cycles: 0,
+      cacheBits: 0,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask("summarizeReport", "Summarize Report", {
+    id: "summarize-report",
+    name: "Summarize Report",
+    kind: "compute",
+    cycles: 160,
+    cacheBits: 16,
+    ramBits: 1024,
+  }),
+  rawCpuLeafTask("writeReport", "Write Report", {
+    id: "write-report",
+    name: "Write Report",
+    kind: "memory",
+    memoryAction: "write",
+    count: 16,
+    cycles: 5,
+    ramBits: 1024,
+  }),
+  rawCpuLeafTask(
+    "scatterShards",
+    "Scatter Shards",
+    {
+      id: "scatter-shards",
+      name: "Scatter Shards",
+      kind: "memory",
+      memoryAction: "read",
+      count: 2,
+      cycles: 21,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask(
+    "decodeShards",
+    "Decode Shards",
+    {
+      id: "decode-shards",
+      name: "Decode Shards",
+      kind: "compute",
+      cycles: 48,
+      cacheBits: 2,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask(
+    "hashShards",
+    "Hash Shards",
+    {
+      id: "hash-shards",
+      name: "Hash Shards",
+      kind: "compute",
+      cycles: 120,
+      cacheBits: 2,
+      ramBits: 0,
+      parallel: true,
+    },
+    { parallelizable: true, minCores: 4, maxCores: 4 },
+  ),
+  rawCpuLeafTask("commitBenchmarkResult", "Commit Result", {
+    id: "commit-result",
+    name: "Commit Result",
+    kind: "compute",
+    cycles: 60,
+    cacheBits: 4,
+    ramBits: 0,
+  }),
   {
     id: "tinyChecksum",
     name: "Tiny Checksum",
@@ -640,25 +1208,7 @@ const rawTasks: RawTask[] = [
       hasResearch(state, "ramControl") && hasCompleted(state, "packetCheck"),
     requirement: (state) =>
       hasResearch(state, "ramControl") && countTask(state, "packetCheck") >= 1,
-    operations: [
-      {
-        id: "stage-checksum",
-        name: "Stage Checksum Page",
-        kind: "memory",
-        memoryAction: "read",
-        count: 8,
-        cycles: 3,
-        ramBits: 256,
-      },
-      {
-        id: "checksum-step",
-        name: "Checksum Step",
-        kind: "compute",
-        cycles: 36,
-        cacheBits: 8,
-        ramBits: 256,
-      },
-    ],
+    composition: [compose("stageChecksumPage"), compose("checksumStep")],
     recipe: [
       {
         id: "stage",
@@ -684,26 +1234,7 @@ const rawTasks: RawTask[] = [
     reveal: (state) => hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
-    operations: [
-      {
-        id: "scan-page",
-        name: "Scan RAM Page",
-        kind: "memory",
-        memoryAction: "read",
-        count: 16,
-        cycles: 2,
-        ramBits: 512,
-      },
-      {
-        id: "repair-page",
-        name: "Repair Drift",
-        kind: "memory",
-        memoryAction: "overwrite",
-        count: 16,
-        cycles: 2,
-        ramBits: 512,
-      },
-    ],
+    composition: [compose("scanRamPage"), compose("repairRamDrift")],
     recipe: [
       {
         id: "scan",
@@ -729,25 +1260,7 @@ const rawTasks: RawTask[] = [
     reveal: (state) => hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
-    operations: [
-      {
-        id: "read-queue",
-        name: "Read Queue Table",
-        kind: "memory",
-        memoryAction: "read",
-        count: 8,
-        cycles: 3,
-        ramBits: 256,
-      },
-      {
-        id: "compact-queue",
-        name: "Compact Queue Entries",
-        kind: "compute",
-        cycles: 54,
-        cacheBits: 8,
-        ramBits: 256,
-      },
-    ],
+    composition: [compose("readQueueTable"), compose("compactQueueEntries")],
     recipe: [
       {
         id: "read",
@@ -773,25 +1286,7 @@ const rawTasks: RawTask[] = [
     reveal: (state) => hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
-    operations: [
-      {
-        id: "sample-rails",
-        name: "Sample Power Rails",
-        kind: "memory",
-        memoryAction: "read",
-        count: 8,
-        cycles: 4,
-        ramBits: 256,
-      },
-      {
-        id: "normalize-draw",
-        name: "Normalize Draw Trace",
-        kind: "compute",
-        cycles: 48,
-        cacheBits: 8,
-        ramBits: 256,
-      },
-    ],
+    composition: [compose("samplePowerRails"), compose("normalizeDrawTrace")],
     recipe: [
       {
         id: "sample",
@@ -818,27 +1313,7 @@ const rawTasks: RawTask[] = [
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) =>
       state.hardware.secondCpu && hasResearch(state, "systemScheduler"),
-    operations: [
-      {
-        id: "read-bus",
-        name: "Read Bus Window",
-        kind: "memory",
-        memoryAction: "read",
-        count: 8,
-        cycles: 5,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "mirror-bus",
-        name: "Mirror Bus State",
-        kind: "compute",
-        cycles: 72,
-        cacheBits: 8,
-        ramBits: 512,
-        parallel: true,
-      },
-    ],
+    composition: [compose("readBusWindow"), compose("mirrorBusState")],
     recipe: [
       {
         id: "read",
@@ -863,25 +1338,7 @@ const rawTasks: RawTask[] = [
     minCores: 1,
     reveal: () => false,
     requirement: () => false,
-    operations: [
-      {
-        id: "sample-thermals",
-        name: "Sample Thermal Sensors",
-        kind: "memory",
-        memoryAction: "read",
-        count: 12,
-        cycles: 4,
-        ramBits: 384,
-      },
-      {
-        id: "fit-curve",
-        name: "Fit Heat Curve",
-        kind: "compute",
-        cycles: 84,
-        cacheBits: 12,
-        ramBits: 384,
-      },
-    ],
+    composition: [compose("sampleThermalSensors"), compose("fitHeatCurve")],
     recipe: [
       {
         id: "sample",
@@ -908,43 +1365,11 @@ const rawTasks: RawTask[] = [
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) =>
       state.hardware.secondCpu && hasResearch(state, "systemScheduler"),
-    operations: [
-      {
-        id: "load-shards",
-        name: "Load Shards",
-        kind: "memory",
-        memoryAction: "read",
-        count: 8,
-        cycles: 6,
-        ramBits: 1024,
-        parallel: true,
-      },
-      {
-        id: "reconcile-shards",
-        name: "Reconcile Shards",
-        kind: "compute",
-        cycles: 108,
-        cacheBits: 8,
-        ramBits: 1024,
-        parallel: true,
-      },
-      {
-        id: "merge-barrier",
-        name: "Merge Barrier",
-        kind: "barrier",
-        cycles: 0,
-        cacheBits: 0,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "commit-shards",
-        name: "Commit Shards",
-        kind: "compute",
-        cycles: 84,
-        cacheBits: 16,
-        ramBits: 1024,
-      },
+    composition: [
+      compose("loadShards"),
+      compose("reconcileShards"),
+      compose("mergeShardBarrier"),
+      compose("commitShards"),
     ],
     recipe: [
       {
@@ -983,52 +1408,12 @@ const rawTasks: RawTask[] = [
     minCores: 1,
     reveal: (state) => hasResearch(state, systemCatalogResearchId),
     requirement: (state) => hasResearch(state, systemCatalogResearchId),
-    operations: [
-      {
-        id: "stage-source",
-        name: "Stage Source Tree",
-        kind: "memory",
-        memoryAction: "read",
-        count: 16,
-        cycles: 5,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "compile-units",
-        name: "Compile Units",
-        kind: "compute",
-        cycles: 160,
-        cacheBits: 8,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "link-barrier",
-        name: "Link Barrier",
-        kind: "barrier",
-        cycles: 0,
-        cacheBits: 0,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "link-binary",
-        name: "Link Binary",
-        kind: "compute",
-        cycles: 120,
-        cacheBits: 16,
-        ramBits: 512,
-      },
-      {
-        id: "write-artifact",
-        name: "Write Artifact",
-        kind: "memory",
-        memoryAction: "write",
-        count: 8,
-        cycles: 4,
-        ramBits: 512,
-      },
+    composition: [
+      compose("stageSourceTree"),
+      compose("compileUnits"),
+      compose("linkBarrier"),
+      compose("linkBinary"),
+      compose("writeArtifact"),
     ],
     recipe: [
       {
@@ -1074,52 +1459,12 @@ const rawTasks: RawTask[] = [
       hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
     requirement: (state) =>
       hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
-    operations: [
-      {
-        id: "load-scene",
-        name: "Load Scene Tiles",
-        kind: "memory",
-        memoryAction: "read",
-        count: 24,
-        cycles: 6,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "shade-tiles",
-        name: "Shade Tiles",
-        kind: "compute",
-        cycles: 220,
-        cacheBits: 8,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "composite-barrier",
-        name: "Composite Barrier",
-        kind: "barrier",
-        cycles: 0,
-        cacheBits: 0,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "composite-frame",
-        name: "Composite Frame",
-        kind: "compute",
-        cycles: 180,
-        cacheBits: 16,
-        ramBits: 1024,
-      },
-      {
-        id: "write-frame",
-        name: "Write Frame Buffer",
-        kind: "memory",
-        memoryAction: "write",
-        count: 16,
-        cycles: 5,
-        ramBits: 1024,
-      },
+    composition: [
+      compose("loadSceneTiles"),
+      compose("shadeTiles"),
+      compose("compositeBarrier"),
+      compose("compositeFrame"),
+      compose("writeFrameBuffer"),
     ],
     recipe: [
       {
@@ -1165,61 +1510,13 @@ const rawTasks: RawTask[] = [
     requirement: (state) =>
       hasResearch(state, customMachineAssemblyResearchId) &&
       hasCompleted(state, renderFrameTaskId),
-    operations: [
-      {
-        id: "stage-fixtures",
-        name: "Stage Test Fixtures",
-        kind: "memory",
-        memoryAction: "read",
-        count: 32,
-        cycles: 4,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "run-cases",
-        name: "Run Cases",
-        kind: "compute",
-        cycles: 200,
-        cacheBits: 8,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "compare-results",
-        name: "Compare Results",
-        kind: "compute",
-        cycles: 140,
-        cacheBits: 8,
-        ramBits: 512,
-        parallel: true,
-      },
-      {
-        id: "report-barrier",
-        name: "Report Barrier",
-        kind: "barrier",
-        cycles: 0,
-        cacheBits: 0,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "summarize-report",
-        name: "Summarize Report",
-        kind: "compute",
-        cycles: 160,
-        cacheBits: 16,
-        ramBits: 1024,
-      },
-      {
-        id: "write-report",
-        name: "Write Report",
-        kind: "memory",
-        memoryAction: "write",
-        count: 16,
-        cycles: 5,
-        ramBits: 1024,
-      },
+    composition: [
+      compose("stageTestFixtures"),
+      compose("runRegressionCases"),
+      compose("compareResults"),
+      compose("reportBarrier"),
+      compose("summarizeReport"),
+      compose("writeReport"),
     ],
     recipe: [
       {
@@ -1334,52 +1631,12 @@ const rawTasks: RawTask[] = [
       hasResearch(state, "systemScheduler") &&
       state.hardware.cores >= 4 &&
       !hasCompleted(state, "multiCoreBenchmark"),
-    operations: [
-      {
-        id: "scatter-shards",
-        name: "Scatter Shards",
-        kind: "memory",
-        memoryAction: "read",
-        count: 2,
-        cycles: 21,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "decode-shards",
-        name: "Decode Shards",
-        kind: "compute",
-        cycles: 48,
-        cacheBits: 2,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "hash-shards",
-        name: "Hash Shards",
-        kind: "compute",
-        cycles: 120,
-        cacheBits: 2,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "merge-barrier",
-        name: "Merge Barrier",
-        kind: "barrier",
-        cycles: 0,
-        cacheBits: 0,
-        ramBits: 0,
-        parallel: true,
-      },
-      {
-        id: "commit-result",
-        name: "Commit Result",
-        kind: "compute",
-        cycles: 60,
-        cacheBits: 4,
-        ramBits: 0,
-      },
+    composition: [
+      compose("scatterShards"),
+      compose("decodeShards"),
+      compose("hashShards"),
+      compose("mergeShardBarrier"),
+      compose("commitBenchmarkResult"),
     ],
     recipe: [
       {
@@ -1413,6 +1670,37 @@ const rawTasks: RawTask[] = [
 
 const rawTaskById = new Map(rawTasks.map((task) => [task.id, task]));
 const definitionCache = new Map<TaskId, TaskDefinition>();
+
+const getTaskComposition = (task: RawTask): TaskCompositionDefinition[] =>
+  (task.composition ?? []).map((entry) => ({
+    taskId: entry.taskId,
+    count: Math.max(1, entry.count ?? 1),
+    mode: entry.mode ?? "single",
+  }));
+
+const getTaskOperations = (
+  task: RawTask,
+  composition: TaskCompositionDefinition[],
+): TaskOperationDefinition[] => {
+  if (composition.length === 0) {
+    return (task.operations ?? []).map((operation) => op(task.id, operation));
+  }
+
+  if (task.category === "cpu") {
+    throw new Error(`CPU task ${task.id} cannot be composed from other tasks`);
+  }
+
+  return composition.flatMap((entry) => {
+    const child = buildTaskDefinition(entry.taskId);
+    if (child.category !== "cpu") {
+      throw new Error(`Composed task ${task.id} can only use CPU child ${entry.taskId}`);
+    }
+
+    return child.operations.map((operation) =>
+      cloneComposedOperation(task.id, child, operation, entry.count),
+    );
+  });
+};
 
 const makeTaskNode = (task: TaskDefinition): TaskSubtaskDefinition =>
   dagNode({
@@ -1590,7 +1878,8 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     throw new Error(`Unknown task: ${id}`);
   }
 
-  const operations = raw.operations.map((operation) => op(raw.id, operation));
+  const composition = getTaskComposition(raw);
+  const operations = getTaskOperations(raw, composition);
   const parallelCoreCount = raw.maxCores ?? raw.minCores;
   const coreScaling = raw.coreScaling ?? "fixed";
   const workUnitCount =
@@ -1612,6 +1901,8 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     name: raw.name,
     kind: raw.kind,
     category: raw.category,
+    visibility: raw.visibility ?? "default",
+    composition,
     rewardData: raw.rewardData,
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,

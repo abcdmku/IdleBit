@@ -148,7 +148,7 @@ describe("App failure modals", () => {
       });
       await flushEffects();
 
-      const rawSave = await idleBitPersistence.get<string>("save-v4");
+      const rawSave = await idleBitPersistence.get<string>("save-v6");
       const restored = deserializeSave(rawSave);
 
       expect(window.location.search).toBe("");
@@ -176,7 +176,7 @@ describe("App failure modals", () => {
       },
     };
 
-    await idleBitPersistence.set("save-v4", serializeSave(savedState));
+    await idleBitPersistence.set("save-v6", serializeSave(savedState));
     window.localStorage.setItem("idlebit:ui.pinned-tasks-v1", "{bad-json");
 
     await act(async () => {
@@ -194,7 +194,7 @@ describe("App failure modals", () => {
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v4",
+      "save-v6",
       serializeSave(makePsuFailureSaveState()),
     );
 
@@ -224,7 +224,7 @@ describe("App failure modals", () => {
 
   it("uses a topbar badge instead of the popup after the first PSU failure", async () => {
     await idleBitPersistence.set(
-      "save-v4",
+      "save-v6",
       serializeSave(makePsuFailureSaveState()),
     );
     await idleBitPersistence.set("ui.psu-failure-modal-seen-v1", true);
@@ -250,7 +250,7 @@ describe("App failure modals", () => {
 
   it("explains the first out-of-credits power cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v4",
+      "save-v6",
       serializeSave(makeCreditFailureSaveState()),
     );
 
@@ -281,7 +281,7 @@ describe("App failure modals", () => {
 
   it("uses a quick popup for later out-of-credits cutoffs", async () => {
     await idleBitPersistence.set(
-      "save-v4",
+      "save-v6",
       serializeSave(makeCreditFailureSaveState()),
     );
     await idleBitPersistence.set("ui.credit-failure-modal-seen-v1", true);
@@ -321,7 +321,7 @@ describe("App failure modals", () => {
       })),
     });
     await idleBitPersistence.set(
-      "save-v4",
+      "save-v6",
       serializeSave(makeUnlockNoticeSaveState()),
     );
     await idleBitPersistence.set("ui.seen-tasks-v1", ["fetchBit", "decodeBit"]);

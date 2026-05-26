@@ -208,16 +208,25 @@ describe("HardwareBoard multi-system rack", () => {
                 {
                   id: "base",
                   name: "Base",
+                  tierName: "Hz",
+                  cpuTierId: "hz",
                   cores: 1,
+                  clockHz: 1,
+                  cpuEfficiency: 4,
+                  cacheBits: 1,
+                  cacheSpeedHz: 1,
                   costs: [{ resource: "credits", amount: 100 }],
                 },
                 {
                   id: "pro",
                   name: "Pro",
-                  cores: 2,
-                  clockHz: 2.5,
+                  tierName: "kHz",
+                  cpuTierId: "khz",
+                  cores: 1,
+                  clockHz: 2500,
+                  cpuEfficiency: 6,
                   cacheBits: 2,
-                  cacheSpeedHz: 1.5,
+                  cacheSpeedHz: 1500,
                   powerDeltaWatts: 12,
                   costs: [{ resource: "credits", amount: 240 }],
                 },
@@ -229,7 +238,7 @@ describe("HardwareBoard multi-system rack", () => {
               tiers: [
                 {
                   id: "thin",
-                  name: "Thin",
+                  name: "Hz RAM Tier",
                   ramBits: 256,
                   ramStickCount: 2,
                   ramLevel: 1,
@@ -239,7 +248,7 @@ describe("HardwareBoard multi-system rack", () => {
                 },
                 {
                   id: "wide",
-                  name: "Wide",
+                  name: "kHz RAM Tier",
                   ramBits: 1024,
                   ramStickCount: 4,
                   ramLevel: 3,
@@ -585,7 +594,7 @@ describe("HardwareBoard multi-system rack", () => {
     });
   });
 
-  it("offers preset purchases and a tiered custom builder", () => {
+  it("opens a system-view custom builder without premade configs", () => {
     const visible = makeRackVisible();
     const dispatch = vi.fn();
 
@@ -604,69 +613,82 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
     });
 
-    const presetButton =
-      container.querySelector<HTMLButtonElement>(".system-preset-card");
-
-    expect(presetButton?.textContent).toContain("Balanced Node");
-    expect(presetButton?.textContent).toContain("2 cores @ 2.5 Hz");
-    expect(presetButton?.textContent).toContain("cache 2 b @ 1.5 Hz");
-    expect(presetButton?.textContent).toContain("1 Kb @ 2 Hz");
-    expect(presetButton?.textContent).toContain("4 x 256 b sticks");
-    expect(presetButton?.textContent).toContain("4 queue slots");
-    expect(presetButton?.textContent).toContain("24 W capacity");
-    expect(presetButton?.textContent).not.toContain("Pro");
-    expect(presetButton?.textContent).not.toContain("Wide");
-    expect(presetButton?.textContent).not.toContain("Queue");
-    expect(presetButton?.textContent).not.toContain("Supply");
+    expect(container.querySelector(".builder-new-modes")).toBeNull();
+    expect(container.querySelector(".system-preset-card")).toBeNull();
+    expect(container.querySelector(".custom-system-module-picker")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .custom-build-module")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .custom-build-module-option")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .system-scheduler-section")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .memory-section")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .cpu-package")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .core-array-section")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .cache-section")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .psu-section")).not.toBeNull();
+    expect(container.querySelector(".custom-system-builder-header h2")?.textContent).toBe(
+      "System Builder",
+    );
+    expect(container.querySelector(".custom-system-builder-header")?.textContent).toContain(
+      "Price",
+    );
+    expect(container.querySelector(".custom-system-builder-header")?.textContent).toContain(
+      "Review build",
+    );
     expect(
-      presetButton?.querySelector(".premade-card-footer .resource-token.credits strong")
+      container.querySelector(".custom-builder-cpu-tier-controls .custom-builder-tier-title")
         ?.textContent,
-    ).toBe("500");
+    ).toBe("Tier");
+    expect(
+      container.querySelector(".custom-builder-memory-tier-controls .custom-builder-tier-title")
+        ?.textContent,
+    ).toBe("Tier");
+    expect(container.querySelector(".custom-builder-tier-select")).toBeNull();
+    expect(container.querySelector(".custom-cpu-package-options")).toBeNull();
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".custom-builder-cpu-tier-options button",
+        ),
+      ).map((button) => button.textContent),
+    ).toEqual(["Hz", "kHz"]);
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".custom-builder-memory-tier-options button",
+        ),
+      ).map((button) => button.textContent),
+    ).toEqual(["Hz", "kHz"]);
+    expect(
+      container.querySelector(".custom-builder-cpu-tier-options button.active")
+        ?.textContent,
+    ).toBe("Hz");
+    expect(
+      container.querySelector(".custom-builder-memory-tier-options button.active")
+        ?.textContent,
+    ).toBe("Hz");
 
-    act(() => {
-      presetButton?.click();
-    });
-
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "buyPreconfiguredSystem",
-      presetId: "balanced",
-      systemId: "beta",
-    });
-
-    dispatch.mockClear();
-
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".builder-new-mode-custom")?.click();
-    });
-
-    let tierButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
+    const cpuTierButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".custom-builder-cpu-tier-options button",
+      ),
     );
-    const proButton = tierButtons.find((button) =>
-      button.textContent?.includes("2 cores @ 2.5 Hz"),
-    );
-    const proButtonText = proButton?.textContent ?? "";
-    expect(proButtonText.match(/2 cores @ 2\.5 Hz/g) ?? []).toHaveLength(1);
-    expect(proButtonText.match(/cache 2 b @ 1\.5 Hz/g) ?? []).toHaveLength(1);
-
     act(() => {
-      proButton?.click();
+      cpuTierButtons.find((button) => button.textContent === "kHz")?.click();
     });
 
-    const cpuCountButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".custom-cpu-package-options button"),
+    const corePlus = container.querySelector<HTMLButtonElement>(
+      ".core-array-header-controls .upgrade-stepper-button.plus",
     );
-    act(() => {
-      cpuCountButtons.find((button) => button.textContent === "4")?.click();
-    });
+    act(() => corePlus?.click());
+    act(() => corePlus?.click());
+    act(() => corePlus?.click());
 
     const bayButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".custom-system-bay"),
+      container.querySelectorAll<HTMLButtonElement>(".custom-build-bay"),
     );
     expect(bayButtons.map((button) => button.dataset.slot)).toEqual([
-      "cpu",
-      "memory",
       "scheduler",
+      "memory",
+      "cpu",
       "psu",
     ]);
 
@@ -678,43 +700,63 @@ describe("HardwareBoard multi-system rack", () => {
       memoryBay?.click();
     });
 
-    tierButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".custom-tier-option"),
+    const memoryTierButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".custom-builder-memory-tier-options button",
+      ),
     );
-    const wideButton = tierButtons.find((button) =>
-      button.textContent?.includes("1 Kb @ 2 Hz"),
-    );
-    const wideButtonText = wideButton?.textContent ?? "";
-    expect(wideButtonText).toContain("4 x 256 b sticks");
-
     act(() => {
-      wideButton?.click();
+      memoryTierButtons.find((button) => button.textContent === "kHz")?.click();
     });
 
-    const customPower = container.querySelector<HTMLElement>(".custom-power-check");
-    expect(customPower?.className).toContain("short");
-    expect(customPower?.getAttribute("title")).toContain("48 W needed / 24 W PSU");
+    const ramStickPlus = container.querySelector<HTMLButtonElement>(
+      ".ram-header-controls .upgrade-stepper-button.plus",
+    );
+    act(() => ramStickPlus?.click());
+    act(() => ramStickPlus?.click());
+    act(() => ramStickPlus?.click());
+
+    const psuState = container.querySelector<HTMLElement>(".custom-builder-psu-state");
+    expect(psuState?.textContent).toContain("Met");
+    expect(container.querySelector(".custom-builder-system-preview .psu-section")?.textContent).toContain(
+      "24 W",
+    );
+    expect(container.querySelector(".custom-builder-system-preview .core-control-strip .upgrade-stepper")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .cache-control-strip .upgrade-stepper")).not.toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .rack-gauge-bar")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .progress-fill")).toBeNull();
+    expect(container.querySelector(".custom-system-module-picker")).toBeNull();
+    expect(container.querySelector(".custom-system-summary")).toBeNull();
+    expect(container.querySelector(".custom-system-builder-header")?.textContent).not.toContain(
+      "Efficiency",
+    );
+    expect(container.querySelector(".custom-system-builder-header")?.textContent).not.toContain(
+      "Cost to run",
+    );
+    expect(container.querySelector(".custom-system-builder-header")?.textContent).not.toContain(
+      "Upgrade cost",
+    );
     expect(
-      customPower
-        ?.style.getPropertyValue("--custom-power-fill"),
-    ).toBe("100%");
-    expect(
-      container.querySelector(".custom-system-buy .resource-token.credits strong")
+      container.querySelector(".custom-system-builder-price .resource-token.credits strong")
         ?.textContent,
     ).toBe("1040");
     expect(
-      container.querySelector(".custom-system-buy .resource-token.data strong")
+      container.querySelector(".custom-system-builder-price .resource-token.data strong")
         ?.textContent,
     ).toBe("32");
 
     act(() => {
-      container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
     });
 
     expect(dispatch).not.toHaveBeenCalled();
 
     act(() => {
-      container.querySelector<HTMLButtonElement>(".custom-builder-buy")?.click();
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
     });
 
     expect(dispatch).toHaveBeenCalledWith({
@@ -724,7 +766,16 @@ describe("HardwareBoard multi-system rack", () => {
         memory: "wide",
         scheduler: "queue",
         psu: "supply",
-        cpuPackages: "4",
+        cpuCores: "4",
+        cpuLevel: "1",
+        cacheLevel: "1",
+        cacheSpeedLevel: "1",
+        ramSticks: "4",
+        ramTierLevel: "1",
+        ramSpeedTierLevel: "1",
+        cpuPackages: "1",
+        ramLevel: "37",
+        ramSpeedLevel: "37",
       },
       systemId: "beta",
     });

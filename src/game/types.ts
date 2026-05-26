@@ -515,8 +515,15 @@ export interface ComponentSkuDefinition {
 
 export interface MachineComponentSelection {
   cpu: string;
-  cpuPackageCount?: 1 | 2 | 4 | 8;
+  cpuPackageCount?: number;
+  cpuCoreCount?: number;
+  cpuLevel?: number;
+  cacheLevel?: number;
+  cacheSpeedLevel?: number;
   ram: string;
+  ramStickCount?: number;
+  ramLevel?: number;
+  ramSpeedLevel?: number;
   scheduler: string;
   psu: string;
 }

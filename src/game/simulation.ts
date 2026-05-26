@@ -100,7 +100,7 @@ export const DEV_RESOURCE_GRANT_AMOUNT = 100_000_000_000;
 
 const getSku = (
   selection: MachineComponentSelection,
-  key: Exclude<keyof MachineComponentSelection, "cpuPackageCount">,
+  key: "cpu" | "ram" | "scheduler" | "psu",
 ) =>
   getComponentSku(selection[key]);
 
@@ -117,22 +117,31 @@ const createHardwareFromMachineSelection = (
   );
   const coreCount = Math.max(
     cpuPackageCount,
-    (cpu.coreCount ?? 1) * cpuPackageCount,
+    selection.cpuCoreCount ?? (cpu.coreCount ?? 1) * cpuPackageCount,
   );
   const coresPerPackage = Math.max(1, Math.floor(coreCount / cpuPackageCount));
   const extraCores = coreCount % cpuPackageCount;
-  const cacheLevel = Math.max(1, cpu.cacheLevel ?? 1);
-  const cacheSpeedLevel = Math.max(1, cpu.cacheSpeedLevel ?? 1);
+  const cacheLevel = Math.max(1, selection.cacheLevel ?? cpu.cacheLevel ?? 1);
+  const cacheSpeedLevel = Math.max(
+    1,
+    selection.cacheSpeedLevel ?? cpu.cacheSpeedLevel ?? 1,
+  );
   const schedulerSlots = Math.max(0, scheduler.schedulerSlots ?? 0);
   const cpuTierId = cpu.cpuTierId ?? "hz";
   const coreIds = Array.from({ length: coreCount }, (_, index) => index + 1);
-  const cpuLevel = Math.max(1, cpu.cpuLevel ?? cpu.clockLevel ?? 1);
+  const cpuLevel = Math.max(
+    1,
+    selection.cpuLevel ?? cpu.cpuLevel ?? cpu.clockLevel ?? 1,
+  );
   const coreClockLevels = Object.fromEntries(
     coreIds.map((coreId) => [coreId, cpuLevel]),
   ) as Record<number, number>;
-  const ramStickCount = Math.max(0, ram.ramStickCount ?? 0);
-  const ramLevel = Math.max(1, ram.ramLevel ?? 1);
-  const ramSpeedLevel = Math.max(1, ram.ramSpeedLevel ?? 1);
+  const ramStickCount = Math.max(0, selection.ramStickCount ?? ram.ramStickCount ?? 0);
+  const ramLevel = Math.max(1, selection.ramLevel ?? ram.ramLevel ?? 1);
+  const ramSpeedLevel = Math.max(
+    1,
+    selection.ramSpeedLevel ?? ram.ramSpeedLevel ?? 1,
+  );
   const ramSticks = Array.from({ length: ramStickCount }, (_, index) =>
     createRamStickState(index + 1, ramLevel, ramSpeedLevel),
   );

@@ -91,6 +91,7 @@ export interface UiSystemPreset {
 export interface UiCustomMachineTier {
   id?: string | number;
   tierId?: string | number;
+  type?: string;
   name?: string;
   label?: string;
   description?: string;
@@ -109,6 +110,8 @@ export interface UiCustomMachineTier {
   cacheBits?: number;
   cacheBytes?: number;
   tierName?: string;
+  cpuTierId?: string;
+  ramTierId?: string;
   cpuLevel?: number;
   cpuEfficiency?: number;
   clockLevel?: number;

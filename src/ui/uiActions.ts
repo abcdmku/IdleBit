@@ -110,6 +110,11 @@ const toSystemId = (systemId: string | number | undefined) => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const toPositiveInteger = (value: string | undefined) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
+};
+
 const withSystem = <T extends { type: string }>(
   gameAction: T,
   action: { systemId?: string | number },
@@ -187,15 +192,15 @@ export const toGameAction = (action: UiGameAction): GameAction => {
       type: "buyCustomMachine",
       components: {
         cpu: action.tierIds.cpu ?? action.tierIds.cpuPackage ?? "",
-        cpuPackageCount:
-          action.tierIds.cpuPackages === "2"
-            ? 2
-            : action.tierIds.cpuPackages === "4"
-              ? 4
-              : action.tierIds.cpuPackages === "8"
-                ? 8
-                : 1,
+        cpuPackageCount: toPositiveInteger(action.tierIds.cpuPackages) ?? 1,
+        cpuCoreCount: toPositiveInteger(action.tierIds.cpuCores),
+        cpuLevel: toPositiveInteger(action.tierIds.cpuLevel),
+        cacheLevel: toPositiveInteger(action.tierIds.cacheLevel),
+        cacheSpeedLevel: toPositiveInteger(action.tierIds.cacheSpeedLevel),
         ram: action.tierIds.ram ?? action.tierIds.memory ?? action.tierIds.ramModule ?? "",
+        ramStickCount: toPositiveInteger(action.tierIds.ramSticks),
+        ramLevel: toPositiveInteger(action.tierIds.ramLevel),
+        ramSpeedLevel: toPositiveInteger(action.tierIds.ramSpeedLevel),
         scheduler: action.tierIds.scheduler ?? action.tierIds.schedulerBackplane ?? "",
         psu: action.tierIds.psu ?? action.tierIds.powerSupply ?? "",
       },

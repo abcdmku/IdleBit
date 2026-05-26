@@ -261,6 +261,27 @@
     grid-template-columns: 1fr;
   }
 
+  .custom-build-module-body {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-build-module-options {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-system-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-system-buy {
+    justify-content: stretch;
+  }
+
+  .custom-system-buy-inline,
+  .custom-builder-buy {
+    width: 100%;
+  }
+
   .custom-system-board {
     min-height: 320px;
     grid-template-areas:

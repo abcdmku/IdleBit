@@ -2116,6 +2116,72 @@ describe("IdleBit simulation", () => {
     expect(template.components.cpu).toBe("cpu-ghz-16");
   });
 
+  it("applies custom builder core, RAM, frequency, and size modifiers", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
+      },
+    });
+    state = {
+      ...state,
+      resources: { credits: 1e18, data: 1e18 },
+    };
+    const ramBaseLevel = getRamTierFirstGlobalLevel("khz");
+    const components = {
+      cpu: "cpu-sip-core",
+      cpuPackageCount: 1,
+      cpuCoreCount: 4,
+      cpuLevel: 3,
+      cacheLevel: 4,
+      cacheSpeedLevel: 5,
+      ram: "ram-khz-tier",
+      ramStickCount: 3,
+      ramLevel: ramBaseLevel + 2,
+      ramSpeedLevel: ramBaseLevel + 1,
+      scheduler: "scheduler-2-slot",
+      psu: "psu-compact",
+    };
+    const expectedCost = getMachineSelectionCost(components);
+
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components,
+    });
+
+    const custom = state.systems.at(-1);
+    expect(custom?.purchaseCosts).toEqual(expectedCost);
+    expect(custom?.hardware.cpus).toHaveLength(1);
+    expect(custom?.hardware.cores).toBe(4);
+    expect(custom?.hardware.clockHz).toBe(getCpuClockHz("khz", 3));
+    expect(custom?.hardware.cpus[0]?.level).toBe(3);
+    expect(Object.values(custom?.hardware.coreClockLevels ?? {})).toEqual([
+      3,
+      3,
+      3,
+      3,
+    ]);
+    expect(custom?.hardware.cacheLevel).toBe(4);
+    expect(custom?.hardware.cacheBits).toBeGreaterThan(1);
+    expect(custom?.hardware.cacheSpeedLevel).toBe(5);
+    expect(custom?.hardware.ramSticks).toHaveLength(3);
+    expect(custom?.hardware.ramBits).toBe(getRamBits(ramBaseLevel + 2) * 3);
+    expect(custom?.hardware.ramSpeedLevel).toBe(ramBaseLevel + 1);
+    expect(custom?.hardware.ramSpeedMt).toBe(getRamSpeedMt(ramBaseLevel + 1));
+    expect(
+      custom?.hardware.ramSticks.every(
+        (stick) =>
+          stick.level === ramBaseLevel + 2 &&
+          stick.speedLevel === ramBaseLevel + 1,
+      ),
+    ).toBe(true);
+  });
+
   it("routes selected-system upgrades without mutating other rack systems", () => {
     let state = fund({
       ...createInitialGameState(),

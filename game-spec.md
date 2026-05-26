@@ -867,7 +867,6 @@ the v1 custom builder separately; the custom path appears with the catalog.
 ### New Mechanics
 
 - Buy additional systems.
-- Buy preconfigured systems.
 - Build custom systems through tiered builder choices.
 - View owned systems in a rack-style surface.
 - Assign eligible jobs to one selected system.
@@ -877,8 +876,8 @@ the v1 custom builder separately; the custom path appears with the catalog.
 ### Visual Rack Rule
 
 The rack surface grows from ownership, not from theoretical capacity. It should
-show exactly one visible slot for each owned system. Buying a preconfigured
-system or completing a custom build adds one occupied slot. Do not show empty
+show exactly one visible slot for each owned system. Completing a custom build
+adds one occupied slot. Do not show empty
 future rack capacity, server rack units, rack power distribution, rack heat, or
 backplane bandwidth in this phase. Those are Stage 10 rack mechanics.
 
@@ -895,11 +894,10 @@ system still occupies its slot.
 | Compile Box | CPU/RAM-heavy Compile Code and Regression Test work |
 | Render Brick | Core-heavy Render Frame work before distributed rendering exists |
 
-Preconfigured systems are the fast purchase path. They should let the player add
-another useful machine without picking every component. They cost the sum of
-their off-the-shelf parts and do not add discounts. The premade system view
-lists the complete CPU, RAM, scheduler, and PSU module specs and price before
-purchase, without exposing internal hardware part names.
+Preconfigured systems are deferred from the current builder UI. The data can
+remain available for later template work, but the acquisition view should not
+show premade cards, premade/custom mode tabs, or predefined complete-system
+configs until that path is reintroduced.
 
 ### Tiered Custom Machine Builder
 
@@ -913,27 +911,28 @@ Catalog` and should expose compatible v1 choices without requiring separate
 | Tier 2: Workstation | Larger CPU/RAM/PSU ranges and role presets for compile, render, or test workloads |
 | Tier 3: Specialist | Later expansion-slot and accelerator choices after specialized compute is introduced |
 
-The builder creates one complete system at a time through a full-size system
-chassis view. Each visible bay is clickable and opens the curated premade module
-choices for that part. The CPU bay should offer at least ten single-CPU die
-choices and a separate top-level CPU count selector for 1, 2, 4, or 8 packages,
-with current server-preview systems reaching up to 512 total cores.
-CPU module cards list cores, tier, level, clock, efficiency, and cache directly
-so the choice is scannable before purchase: `cores @ speed` on the first line
-and `tier L1, efficiency, cache capacity @ speed` on the second line. Catalog
-and builder CPU choices are research-gated by unlocked CPU tiers, and each CPU
-purchase path instantiates level-1 packages rather than copied package specs.
-Other builder module cards follow the same single spec-block pattern with actual
-values, such as RAM capacity at speed, stick count and stick size, scheduler
-slots, or PSU watt capacity. The RAM bay should offer only the CPU-unlocked
-Hz/kHz/MHz/GHz/THz/PHz tier modules, with each store option represented as a
-four-stick kit at that tier's base capacity and frequency. Module choice lists
-show specs and price only rather than internal hardware part names. Module
-selection configures the build
-only; it never buys the part immediately. All v1 parts are compatible. It should
-validate costs before purchase, require an explicit purchase confirmation, show
-projected draw/stress, allow risky PSU choices with warnings, then add exactly
-one owned-system rack slot.
+The builder creates one complete system at a time in the same System
+Scheduler/RAM/CPU package/cache/PSU layout as the normal in-game system view.
+It does not use premade cards, premade/custom mode tabs, predefined complete
+system configs, or a separate module picker. CPU and RAM expose a clear `Tier`
+header whose selectable values are only the clock-scale tiers:
+Hz/kHz/MHz/GHz/THz/PHz. After a tier is selected, the player configures the
+system through the same compact +/- upgrade-style controls used by the normal
+system view for core count, CPU frequency, cache capacity/frequency, RAM stick
+count, RAM capacity/frequency, scheduler slots, and PSU capacity. Those
+modifiers must affect the preview, total buy price, and the purchased system.
+
+Catalog and builder CPU choices are research-gated by unlocked CPU tiers, and
+each CPU purchase path instantiates level-1 packages rather than copied package
+specs. The RAM bay should offer only the CPU-unlocked Hz/kHz/MHz/GHz/THz/PHz
+tier modules, with RAM sticks added or removed through the RAM header stepper
+after tier selection. Selection configures the build only; it
+never buys the part immediately. The builder header should read `System Builder`,
+show only the total buy price, and hold the review/confirm purchase action. It
+should validate costs before purchase, require explicit purchase confirmation,
+render the build as a regular system-board preview without runtime progress
+bars, allow risky PSU choices with warnings, then add exactly one owned-system
+rack slot.
 
 ### Chunked Single-System Tasks
 
@@ -1664,7 +1663,7 @@ The next pre-live phase should include:
   state.
 - A rack-style owned-system view that grows exactly one visible slot per owned
   system.
-- Preconfigured system purchases.
+- A custom-only acquisition path; preconfigured system purchase UI is deferred.
 - A tiered custom machine builder that creates one complete system at a time.
 - Chunked single-system tasks: Compile Code, Render Frame, and Regression Test.
 - Per-system task targeting and local system constraints.

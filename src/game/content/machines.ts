@@ -8,8 +8,15 @@ import type {
   TaskId,
 } from "../types";
 import {
+  getCpuTierPurchaseCost,
+  getCpuTierUpgradeCost,
+} from "./cpuTiers";
+import {
   getRamTierFirstGlobalLevel,
+  getRamTierCapacityUpgradeCost,
+  getRamTierInstallCost,
   getRamTierLevelDefinition,
+  getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
 
 type ComponentSkuTier = "starter" | "compile" | "render" | "workstation" | "server";
@@ -46,6 +53,44 @@ const ramTierLevel = (tierId: CpuTierId) => getRamTierFirstGlobalLevel(tierId);
 
 const ramTierCost = (tierId: CpuTierId, stickCount = RAM_TIER_STICK_COUNT) => [
   credits(getRamTierLevelDefinition(ramTierLevel(tierId)).upgradeCost * stickCount),
+];
+
+const coreCosts = (purchaseCount: number): Cost[] => [
+  credits(140 * 2.05 ** purchaseCount),
+  data(5 * 1.45 ** purchaseCount),
+];
+
+const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
+  credits(3 * 1.45 ** purchaseCount),
+  data(6 * 1.78 ** purchaseCount),
+];
+
+const getPositiveInteger = (value: number | undefined, fallback: number) =>
+  Math.max(0, Math.trunc(value ?? fallback));
+
+const costLevels = (
+  fromLevel: number,
+  toLevel: number,
+  getCosts: (targetLevel: number) => Cost[],
+) =>
+  Array.from(
+    { length: Math.max(0, Math.trunc(toLevel) - Math.trunc(fromLevel)) },
+    (_, index) => Math.trunc(fromLevel) + index + 1,
+  ).flatMap(getCosts);
+
+const getCpuLevelBackfillCosts = (tierId: CpuTierId, targetLevel: number) =>
+  costLevels(1, targetLevel, (level) => getCpuTierUpgradeCost(tierId, level));
+
+const getCoreBuildCost = (
+  tierId: CpuTierId,
+  cpuLevel: number,
+  cacheSpeedLevel: number,
+  purchaseCount: number,
+) => [
+  ...coreCosts(purchaseCount),
+  ...getCpuTierPurchaseCost(tierId),
+  ...getCpuLevelBackfillCosts(tierId, cpuLevel),
+  ...getCpuLevelBackfillCosts(tierId, cacheSpeedLevel),
 ];
 
 export const componentSkus: CatalogComponentSkuDefinition[] = [
@@ -575,12 +620,93 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
   const [cpu, ram, scheduler, psu] = getMachineComponentSkus(selection);
   const cpuPackageCount = Math.max(
     1,
-    selection.cpuPackageCount ?? cpu.cpuPackageCount ?? 1,
+    getPositiveInteger(selection.cpuPackageCount, cpu.cpuPackageCount ?? 1),
   );
+  const cpuTierId = cpu.cpuTierId ?? "hz";
+  const baseCpuLevel = Math.max(1, cpu.cpuLevel ?? cpu.clockLevel ?? 1);
+  const targetCpuLevel = Math.max(1, getPositiveInteger(selection.cpuLevel, baseCpuLevel));
+  const baseCacheLevel = Math.max(1, cpu.cacheLevel ?? 1);
+  const targetCacheLevel = Math.max(
+    1,
+    getPositiveInteger(selection.cacheLevel, baseCacheLevel),
+  );
+  const baseCacheSpeedLevel = Math.max(1, cpu.cacheSpeedLevel ?? 1);
+  const targetCacheSpeedLevel = Math.max(
+    1,
+    getPositiveInteger(selection.cacheSpeedLevel, baseCacheSpeedLevel),
+  );
+  const baseCoreCount = Math.max(
+    cpuPackageCount,
+    (cpu.coreCount ?? 1) * cpuPackageCount,
+  );
+  const targetCoreCount = Math.max(
+    cpuPackageCount,
+    getPositiveInteger(selection.cpuCoreCount, baseCoreCount),
+  );
+  const extraCoreCosts = Array.from(
+    { length: Math.max(0, targetCoreCount - baseCoreCount) },
+    (_, index) => baseCoreCount + index,
+  ).flatMap((currentCoreCount) =>
+    getCoreBuildCost(
+      cpuTierId,
+      targetCpuLevel,
+      targetCacheSpeedLevel,
+      Math.max(0, currentCoreCount - 1),
+    ),
+  );
+  const cpuLevelCosts = costLevels(baseCpuLevel, targetCpuLevel, (level) =>
+    scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
+  );
+  const cacheLevelCosts = costLevels(baseCacheLevel, targetCacheLevel, (level) =>
+    scaleCosts(cacheCapacityCosts(level - 1), cpuPackageCount),
+  );
+  const cacheSpeedCosts = costLevels(
+    baseCacheSpeedLevel,
+    targetCacheSpeedLevel,
+    (level) =>
+      scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
+  );
+  const hasCustomRam =
+    selection.ramStickCount !== undefined ||
+    selection.ramLevel !== undefined ||
+    selection.ramSpeedLevel !== undefined;
+  const baseRamStickCount = Math.max(0, ram.ramStickCount ?? 0);
+  const targetRamStickCount = Math.max(
+    0,
+    getPositiveInteger(selection.ramStickCount, baseRamStickCount),
+  );
+  const baseRamLevel = Math.max(1, ram.ramLevel ?? 1);
+  const targetRamLevel = Math.max(1, getPositiveInteger(selection.ramLevel, baseRamLevel));
+  const baseRamSpeedLevel = Math.max(1, ram.ramSpeedLevel ?? baseRamLevel);
+  const targetRamSpeedLevel = Math.max(
+    1,
+    getPositiveInteger(selection.ramSpeedLevel, baseRamSpeedLevel),
+  );
+  const ramInstallCosts = hasCustomRam
+    ? Array.from({ length: targetRamStickCount }, (_, index) =>
+        scaleCosts(getRamTierInstallCost(baseRamLevel), 2 ** index),
+      ).flat()
+    : ram.cost;
+  const ramCapacityCosts = hasCustomRam
+    ? costLevels(baseRamLevel, targetRamLevel, (level) =>
+        scaleCosts(getRamTierCapacityUpgradeCost(level), targetRamStickCount),
+      )
+    : [];
+  const ramSpeedCosts = hasCustomRam
+    ? costLevels(baseRamSpeedLevel, targetRamSpeedLevel, (level) =>
+        scaleCosts(getRamTierSpeedUpgradeCost(level), targetRamStickCount),
+      )
+    : [];
 
   return combineCosts([
     ...scaleCosts(cpu.cost, cpuPackageCount),
-    ...ram.cost,
+    ...extraCoreCosts,
+    ...cpuLevelCosts,
+    ...cacheLevelCosts,
+    ...cacheSpeedCosts,
+    ...ramInstallCosts,
+    ...ramCapacityCosts,
+    ...ramSpeedCosts,
     ...scheduler.cost,
     ...psu.cost,
   ]);

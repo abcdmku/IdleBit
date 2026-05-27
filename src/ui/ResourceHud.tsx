@@ -99,9 +99,6 @@ export function ResourceHud({
   const [gainBursts, setGainBursts] = useState<ResourceGainBurst[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const resourceInteractive = Boolean(onSelectResource);
-  const settingsAvailable = Boolean(
-    onHardwarePurchasesVisibleChange || onKeepScreenAwakeChange,
-  );
 
   const handleResourceClick =
     (resource: ResourceKind) => (event: MouseEvent<HTMLDivElement>) => {
@@ -277,76 +274,80 @@ export function ResourceHud({
         <strong>{formatResourceAmount(Math.floor(visible.resources.data))}</strong>
         <span>data</span>
       </div>
-      {settingsAvailable && (
-        <div className="resource-settings" ref={settingsRef}>
-          <button
-            type="button"
-            className={`resource-settings-button ${settingsOpen ? "active" : ""}`}
-            onClick={() => setSettingsOpen((open) => !open)}
-            aria-label="Open settings"
-            aria-expanded={settingsOpen}
-            aria-haspopup="true"
-            title="Settings"
-          >
-            <Settings size={13} />
-          </button>
-          {settingsOpen && (
-            <div className="resource-settings-menu" role="group" aria-label="Settings">
-              {onHardwarePurchasesVisibleChange && (
-                <label className="resource-settings-row">
-                  <span className="resource-settings-label">
-                    <ShoppingCart size={12} />
-                    <span>Hardware purchases</span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    aria-label="Show hardware purchases"
-                    checked={hardwarePurchasesVisible}
-                    onChange={(event) =>
-                      onHardwarePurchasesVisibleChange(event.currentTarget.checked)
-                    }
-                  />
-                </label>
-              )}
-              {onKeepScreenAwakeChange && (
-                <label
-                  className={`resource-settings-row ${
-                    keepScreenAwakeSupported ? "" : "disabled"
-                  }`}
-                  title={
-                    keepScreenAwakeSupported
-                      ? undefined
-                      : "Screen wake lock unavailable"
+      <div className="resource-settings" ref={settingsRef}>
+        <button
+          type="button"
+          className={`resource-settings-button ${settingsOpen ? "active" : ""}`}
+          onClick={() => setSettingsOpen((open) => !open)}
+          aria-label="Open settings"
+          aria-expanded={settingsOpen}
+          aria-haspopup="true"
+          title="Settings"
+        >
+          <Settings size={13} />
+        </button>
+        {settingsOpen && (
+          <div className="resource-settings-menu" role="group" aria-label="Settings">
+            {onHardwarePurchasesVisibleChange && (
+              <label className="resource-settings-row">
+                <span className="resource-settings-label">
+                  <ShoppingCart size={12} />
+                  <span>Hardware purchases</span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Show hardware purchases"
+                  checked={hardwarePurchasesVisible}
+                  onChange={(event) =>
+                    onHardwarePurchasesVisibleChange(event.currentTarget.checked)
                   }
-                >
-                  <span className="resource-settings-label">
-                    <Monitor size={12} />
-                    <span>Keep screen awake</span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    aria-label="Keep screen awake"
-                    checked={keepScreenAwake && keepScreenAwakeSupported}
-                    disabled={!keepScreenAwakeSupported}
-                    onChange={(event) =>
-                      onKeepScreenAwakeChange(event.currentTarget.checked)
-                    }
-                  />
-                </label>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-      <button
-        type="button"
-        className="dev-reset-button"
-        onClick={onReset}
-        title="Reset dev save"
-        aria-label="Reset dev save"
-      >
-        <RefreshCw size={13} />
-      </button>
+                />
+              </label>
+            )}
+            {onKeepScreenAwakeChange && (
+              <label
+                className={`resource-settings-row ${
+                  keepScreenAwakeSupported ? "" : "disabled"
+                }`}
+                title={
+                  keepScreenAwakeSupported
+                    ? undefined
+                    : "Screen wake lock unavailable"
+                }
+              >
+                <span className="resource-settings-label">
+                  <Monitor size={12} />
+                  <span>Keep screen awake</span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Keep screen awake"
+                  checked={keepScreenAwake && keepScreenAwakeSupported}
+                  disabled={!keepScreenAwakeSupported}
+                  onChange={(event) =>
+                    onKeepScreenAwakeChange(event.currentTarget.checked)
+                  }
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              className="resource-settings-row resource-settings-reset"
+              onClick={() => {
+                setSettingsOpen(false);
+                onReset();
+              }}
+              title="Reset dev save"
+              aria-label="Reset dev save"
+            >
+              <span className="resource-settings-label">
+                <RefreshCw size={12} />
+                <span>Reset save</span>
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

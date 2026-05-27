@@ -57,6 +57,41 @@ describe("ResourceHud", () => {
     ).toEqual(["credits", "data"]);
   });
 
+  it("keeps reset inside the HUD settings menu", () => {
+    const onReset = vi.fn();
+
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={makeVisibleState(12, 34)}
+          onReset={onReset}
+          animateResourceGains={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".dev-reset-button")).toBeNull();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".resource-settings-button")?.click();
+    });
+
+    const resetButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Reset dev save"]',
+    );
+
+    expect(resetButton?.textContent).toContain("Reset save");
+
+    act(() => {
+      resetButton?.click();
+    });
+
+    expect(onReset).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector('button[aria-label="Reset dev save"]'),
+    ).toBeNull();
+  });
+
   it("animates earned resources after resource effects are armed", () => {
     act(() => {
       root.render(

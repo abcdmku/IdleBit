@@ -125,7 +125,6 @@
   align-items: center;
 }
 
-.dev-reset-button,
 .resource-settings-button {
   display: inline-flex;
   align-items: center;
@@ -133,18 +132,6 @@
   width: 26px;
   height: 26px;
   padding: 0;
-}
-
-.dev-reset-button {
-  border: 1px solid rgba(255, 111, 145, 0.32);
-  border-radius: var(--radius-pill);
-  color: var(--rose);
-  background: rgba(255, 111, 145, 0.04);
-}
-
-.dev-reset-button:hover:not(:disabled) {
-  border-color: var(--rose);
-  background: rgba(255, 111, 145, 0.14);
 }
 
 .resource-settings-button {
@@ -186,13 +173,18 @@
   align-items: center;
   justify-content: space-between;
   min-height: 32px;
+  width: 100%;
   padding: var(--s-2);
+  border: 0;
   border-radius: var(--radius-sm);
   color: var(--text);
+  background: transparent;
   cursor: pointer;
+  text-align: left;
 }
 
-.resource-settings-row:hover {
+.resource-settings-row:hover,
+button.resource-settings-row:hover:not(:disabled) {
   background: rgba(216, 231, 225, 0.08);
 }
 
@@ -203,6 +195,10 @@
 
 .resource-settings-row.disabled:hover {
   background: transparent;
+}
+
+button.resource-settings-row:active:not(:disabled) {
+  transform: none;
 }
 
 .resource-settings-label {
@@ -234,6 +230,23 @@
   height: 14px;
   margin: 0;
   accent-color: var(--cyan);
+}
+
+.resource-settings-reset {
+  margin-top: var(--s-1);
+}
+
+.resource-settings-reset .resource-settings-label {
+  color: var(--rose);
+}
+
+.resource-settings-reset .resource-settings-label > svg {
+  color: var(--rose);
+}
+
+.resource-settings-reset:hover,
+button.resource-settings-reset:hover:not(:disabled) {
+  background: rgba(255, 111, 145, 0.12);
 }
 
 /* ---------- Floating gain bursts ---------- */

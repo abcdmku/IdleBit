@@ -68,8 +68,6 @@
     height: 24px;
   }
 
-  .dev-reset-button { display: none; }
-
   /* ----- Bottom-style section tabs ----- */
   .section-tabs {
     display: flex;

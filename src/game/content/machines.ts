@@ -19,6 +19,7 @@ import {
   getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
 import { getPsuCapacityBuildCost } from "./psu";
+import { getCpuSchedulerSlotBuildCost } from "./scheduler";
 
 type ComponentSkuTier = "starter" | "compile" | "render" | "workstation" | "server";
 type CatalogResearchId = Extract<
@@ -673,6 +674,10 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
         1,
         config?.cacheSpeedLevel ?? targetCacheSpeedLevel,
       ),
+      schedulerSlots:
+        config?.schedulerSlots === undefined
+          ? undefined
+          : Math.max(0, Math.trunc(config.schedulerSlots)),
     };
   });
   const baseCoreCount = Math.max(
@@ -685,6 +690,14 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
         cpuPackageCount,
         getPositiveInteger(selection.cpuCoreCount, baseCoreCount),
       );
+  const hasCustomCpuSchedulerSlots = selection.cpuSchedulerSlots !== undefined;
+  const targetCpuSchedulerSlots = Math.max(
+    0,
+    getPositiveInteger(selection.cpuSchedulerSlots, targetCoreCount),
+  );
+  const hasPackageCpuSchedulerSlots = cpuPackageConfigs.some(
+    (config) => config.schedulerSlots !== undefined,
+  );
   const extraCoreCosts = hasCpuPackageConfigs
     ? cpuPackageConfigs.flatMap((config) =>
         Array.from(
@@ -740,6 +753,16 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
         (level) =>
           scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
       );
+  const cpuSchedulerSlotCosts = hasPackageCpuSchedulerSlots
+    ? cpuPackageConfigs.flatMap((config) =>
+        config.schedulerSlots !== undefined &&
+        config.schedulerSlots > config.coreCount
+          ? getCpuSchedulerSlotBuildCost(config.coreCount, config.schedulerSlots)
+          : [],
+      )
+    : hasCustomCpuSchedulerSlots && targetCpuSchedulerSlots > targetCoreCount
+      ? getCpuSchedulerSlotBuildCost(targetCoreCount, targetCpuSchedulerSlots)
+      : [];
   const hasCustomRam =
     selection.ramStickCount !== undefined ||
     selection.ramLevel !== undefined ||
@@ -787,6 +810,7 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
     ...cpuLevelCosts,
     ...cacheLevelCosts,
     ...cacheSpeedCosts,
+    ...cpuSchedulerSlotCosts,
     ...ramInstallCosts,
     ...ramCapacityCosts,
     ...ramSpeedCosts,

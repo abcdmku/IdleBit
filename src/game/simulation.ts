@@ -116,6 +116,18 @@ const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
   );
 };
 
+const distributeSlotCount = (slotCount: number, cpuPackageCount: number) => {
+  const packageCount = Math.max(1, cpuPackageCount);
+  const total = Math.max(0, Math.trunc(slotCount));
+  const slotsPerPackage = Math.floor(total / packageCount);
+  const extraSlots = total % packageCount;
+
+  return Array.from(
+    { length: packageCount },
+    (_, index) => slotsPerPackage + (index < extraSlots ? 1 : 0),
+  );
+};
+
 const createHardwareFromMachineSelection = (
   selection: MachineComponentSelection,
 ): GameState["hardware"] => {
@@ -154,12 +166,32 @@ const createHardwareFromMachineSelection = (
         1,
         config?.cacheSpeedLevel ?? fallbackCacheSpeedLevel,
       ),
+      schedulerSlots:
+        config?.schedulerSlots === undefined
+          ? undefined
+          : Math.max(0, Math.trunc(config.schedulerSlots)),
     };
   });
   const coreCount = cpuPackageConfigs.reduce(
     (total, config) => total + config.coreCount,
     0,
   );
+  const packageCpuSchedulerSlotCounts = cpuPackageConfigs.some(
+    (config) => config.schedulerSlots !== undefined,
+  )
+    ? cpuPackageConfigs.map((config) => config.schedulerSlots ?? config.coreCount)
+    : null;
+  const totalCpuSchedulerSlots =
+    selection.cpuSchedulerSlots === undefined
+      ? null
+      : Math.max(0, Math.trunc(selection.cpuSchedulerSlots));
+  const customCpuSchedulerSlotCounts =
+    packageCpuSchedulerSlotCounts ??
+    (totalCpuSchedulerSlots === null
+      ? null
+      : totalCpuSchedulerSlots === coreCount
+        ? cpuPackageConfigs.map((config) => config.coreCount)
+        : distributeSlotCount(totalCpuSchedulerSlots, cpuPackageCount));
   const ramStickCount = Math.max(0, selection.ramStickCount ?? ram.ramStickCount ?? 0);
   const ramLevel = Math.max(1, selection.ramLevel ?? ram.ramLevel ?? 1);
   const ramSpeedLevel = Math.max(
@@ -190,7 +222,10 @@ const createHardwareFromMachineSelection = (
       cacheSpeedLevel: config.cacheSpeedLevel,
       cacheBits: getCacheBits(config.cacheLevel),
       cacheBytes: getCacheBytes(config.cacheLevel),
-      schedulerSlots: Math.max(0, cpu.schedulerSlots ?? count),
+      schedulerSlots: Math.max(
+        0,
+        customCpuSchedulerSlotCounts?.[index] ?? cpu.schedulerSlots ?? count,
+      ),
       tierId: cpuTierId,
       level: config.cpuLevel,
     });

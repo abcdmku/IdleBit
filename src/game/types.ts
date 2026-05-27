@@ -518,6 +518,7 @@ export interface MachineCpuPackageSelection {
   cpuLevel?: number;
   cacheLevel?: number;
   cacheSpeedLevel?: number;
+  schedulerSlots?: number;
 }
 
 export interface MachineComponentSelection {
@@ -528,6 +529,7 @@ export interface MachineComponentSelection {
   cacheLevel?: number;
   cacheSpeedLevel?: number;
   cpuPackageConfigs?: MachineCpuPackageSelection[];
+  cpuSchedulerSlots?: number;
   ram: string;
   ramStickCount?: number;
   ramLevel?: number;

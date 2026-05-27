@@ -40,6 +40,7 @@ import {
   getRamTierLevelDefinition,
 } from "./content/ramTiers";
 import { getPsuCapacityBuildCost } from "./content/psu";
+import { getCpuSchedulerSlotBuildCost } from "./content/scheduler";
 import {
   allocateRamBlocksForOperation,
   getCacheLoadCycles,
@@ -2288,6 +2289,73 @@ describe("IdleBit simulation", () => {
       4: 5,
       5: 5,
     });
+  });
+
+  it("materializes custom CPU scheduler slots per CPU package", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
+      },
+    });
+    state = {
+      ...state,
+      resources: { credits: 1e18, data: 1e18 },
+    };
+    const baseComponents = {
+      cpu: "cpu-sip-core",
+      cpuPackageCount: 2,
+      cpuPackageConfigs: [
+        { coreCount: 1, cpuLevel: 1, cacheLevel: 1, cacheSpeedLevel: 1 },
+        { coreCount: 2, cpuLevel: 1, cacheLevel: 1, cacheSpeedLevel: 1 },
+      ],
+      ram: "ram-none",
+      scheduler: "scheduler-none",
+      psu: "psu-barebones",
+    };
+    const components = {
+      ...baseComponents,
+      cpuPackageConfigs: [
+        { ...baseComponents.cpuPackageConfigs[0]!, schedulerSlots: 1 },
+        { ...baseComponents.cpuPackageConfigs[1]!, schedulerSlots: 4 },
+      ],
+    };
+    const baseCost = getMachineSelectionCost(baseComponents);
+    const cost = getMachineSelectionCost(components);
+    const extraSlotCost = getCpuSchedulerSlotBuildCost(2, 4);
+    const extraSlotCredits = extraSlotCost.reduce(
+      (total, item) => total + (item.resource === "credits" ? item.amount : 0),
+      0,
+    );
+    const extraSlotData = extraSlotCost.reduce(
+      (total, item) => total + (item.resource === "data" ? item.amount : 0),
+      0,
+    );
+
+    expect(costAmount(cost, "credits")).toBe(
+      costAmount(baseCost, "credits") + extraSlotCredits,
+    );
+    expect(costAmount(cost, "data")).toBe(
+      costAmount(baseCost, "data") + extraSlotData,
+    );
+
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components,
+    });
+
+    const custom = state.systems.at(-1);
+    expect(custom?.purchaseCosts).toEqual(cost);
+    expect(custom?.hardware.cpus.map((cpu) => cpu.schedulerSlots)).toEqual([
+      1,
+      4,
+    ]);
+    expect(custom?.hardware.schedulerSlots).toBe(5);
   });
 
   it("routes selected-system upgrades without mutating other rack systems", () => {

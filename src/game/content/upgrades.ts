@@ -45,6 +45,7 @@ import {
   getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
 import { getPsuCapacityUpgradeCost } from "./psu";
+import { getCpuSchedulerSlotUpgradeCost } from "./scheduler";
 import {
   MEMORY_VOLTAGE_MAX_LEVEL,
   getMemoryVoltageCost,
@@ -73,11 +74,6 @@ const halfRefund = (costs: Cost[]): Cost[] =>
       amount: Math.floor(cost.amount * 0.5),
     }))
     .filter((cost) => cost.amount > 0);
-
-const schedulerSlotCosts = (slotCount: number): Cost[] => [
-  credits(72 * 1.85 ** slotCount),
-  data(5 * 1.42 ** slotCount),
-];
 
 const systemSchedulerSlotCosts = (slotCount: number): Cost[] => [
   credits(180 * 1.72 ** slotCount),
@@ -347,7 +343,7 @@ const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   }
 
   for (let slot = 0; slot < sourceCpu.schedulerSlots; slot += 1) {
-    costs.push(...schedulerSlotCosts(slot));
+    costs.push(...getCpuSchedulerSlotUpgradeCost(slot));
   }
 
   for (const sourceCoreId of sourceCpu.coreIds) {
@@ -800,7 +796,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     requirement: (state) => state.flags.basicQueue || state.flags.scheduler,
     cost: (state, context) => {
       const cpu = getCpuHardware(state, getContextCpuId(state, context));
-      return schedulerSlotCosts(cpu.schedulerSlots);
+      return getCpuSchedulerSlotUpgradeCost(cpu.schedulerSlots);
     },
     buy: (state, context) => {
       const cpuId = getContextCpuId(state, context);
@@ -812,7 +808,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     refund: (state, context) => {
       const cpu = getCpuHardware(state, getContextCpuId(state, context));
       return cpu.schedulerSlots > 0
-        ? halfRefund(schedulerSlotCosts(cpu.schedulerSlots - 1))
+        ? halfRefund(getCpuSchedulerSlotUpgradeCost(cpu.schedulerSlots - 1))
         : [];
     },
     downgradeBlockedReason: getSchedulerSlotDowngradeBlockedReason,

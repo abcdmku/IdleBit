@@ -1,5 +1,8 @@
 export { BuilderScreen } from "./BuilderScreen";
-export { CustomSystemBuilder } from "./CustomSystemBuilder";
+export {
+  CustomSystemBuilder,
+  type CustomSystemBuilderDraft,
+} from "./CustomSystemBuilder";
 export { PremadeSystemList } from "./PremadeSystemList";
 export { RackStrip } from "./RackStrip";
 export { SystemRackPanel } from "./SystemRackPanel";

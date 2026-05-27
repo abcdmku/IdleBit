@@ -11,6 +11,7 @@ import {
   getFallbackRackSystem,
   getRackComponentWarnings,
   getRackData,
+  type CustomSystemBuilderDraft,
   type RackView,
 } from "./rack";
 import type { Dispatch } from "./uiActions";
@@ -67,6 +68,8 @@ export function HardwareBoard({
     : getFallbackRackSystem(visible);
 
   const [rackView, setRackView] = useState<RackView>("list");
+  const [customBuilderDraft, setCustomBuilderDraft] =
+    useState<CustomSystemBuilderDraft | null>(null);
 
   const builderUnlocked =
     rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
@@ -170,6 +173,8 @@ export function HardwareBoard({
           rack={rack}
           resources={visible.resources}
           systemDispatch={systemDispatch}
+          customBuilderDraft={customBuilderDraft}
+          onCustomBuilderDraftChange={setCustomBuilderDraft}
         />
       </div>
     );

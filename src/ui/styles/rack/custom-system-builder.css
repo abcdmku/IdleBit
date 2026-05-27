@@ -409,46 +409,14 @@
   accent-color: var(--cyan);
 }
 
-.custom-builder-cpu-package-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  gap: var(--s-1);
-  min-width: 0;
+.custom-builder-scheduler-match-toggle {
+  min-height: 22px;
+  padding: 2px var(--s-2);
+  border-color: rgba(184, 158, 255, 0.24);
 }
 
-.custom-builder-cpu-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  min-width: 0;
-  min-height: 26px;
-  padding: 4px var(--s-2);
-  border: 1px solid rgba(36, 231, 195, 0.18);
-  border-radius: var(--radius-sm);
-  background: rgba(4, 8, 7, 0.36);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.custom-builder-cpu-chip.active {
-  border-color: rgba(242, 194, 78, 0.62);
-  color: var(--amber);
-  background: rgba(242, 194, 78, 0.08);
-}
-
-.custom-builder-cpu-chip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.custom-builder-cpu-chip strong {
-  margin-left: auto;
-  color: var(--cyan);
+.custom-builder-scheduler-match-toggle input {
+  accent-color: var(--violet);
 }
 
 .custom-builder-system-preview .custom-builder-cpu-package .core-cache-row,
@@ -465,6 +433,7 @@
 
 .custom-builder-cpu-socket {
   min-width: 0;
+  cursor: pointer;
 }
 
 .custom-builder-cpu-socket.many-cores {
@@ -499,6 +468,64 @@
 
 .custom-builder-cpu-config {
   min-width: 0;
+  padding: var(--s-2);
+  gap: 0;
+}
+
+.custom-builder-cpu-config-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(154px, 1fr));
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.custom-builder-cpu-config .custom-builder-stepper {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.custom-builder-cpu-card-controls {
+  display: grid;
+  gap: var(--s-1);
+  min-width: 0;
+  margin-bottom: var(--s-2);
+}
+
+.custom-builder-cpu-card-scheduler {
+  min-width: 0;
+  padding: 0;
+}
+
+.custom-builder-cpu-card-scheduler .scheduler-header-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-2);
+}
+
+.custom-builder-cpu-card-scheduler .custom-builder-link-toggle {
+  justify-self: end;
+}
+
+.custom-builder-cpu-card-config {
+  padding: 0;
+}
+
+.custom-builder-cpu-card-config .custom-builder-cpu-config-strip {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.custom-builder-cpu-card-controls .custom-builder-stepper .upgrade-stepper-spec {
+  padding-inline: var(--s-2);
+}
+
+.custom-builder-system-preview .system-scheduler-section,
+.custom-builder-system-preview .custom-builder-cpu-scheduler {
+  gap: var(--s-2);
+  padding-block: var(--s-2);
+}
+
+.custom-builder-system-preview .custom-builder-cpu-scheduler .custom-builder-stepper {
+  justify-self: stretch;
+  min-inline-size: 124px;
 }
 
 .custom-builder-core-array.many-cores .core-grid {

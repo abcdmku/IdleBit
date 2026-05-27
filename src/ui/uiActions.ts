@@ -115,10 +115,23 @@ const toPositiveInteger = (value: string | undefined) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
 };
 
+const toNonNegativeInteger = (value: string | undefined) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : undefined;
+};
+
 const toPositiveIntegerList = (value: string | undefined) =>
   value
     ?.split(",")
     .map((item) => toPositiveInteger(item.trim()))
+    .filter((item): item is number => item !== undefined) ?? [];
+
+const toNonNegativeIntegerList = (value: string | undefined) =>
+  value
+    ?.split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => toNonNegativeInteger(item))
     .filter((item): item is number => item !== undefined) ?? [];
 
 const withSystem = <T extends { type: string }>(
@@ -203,18 +216,23 @@ export const toGameAction = (action: UiGameAction): GameAction => {
     const cpuPackageCacheSpeedLevels = toPositiveIntegerList(
       action.tierIds.cpuPackageCacheSpeedLevels,
     );
+    const cpuPackageSchedulerSlots = toNonNegativeIntegerList(
+      action.tierIds.cpuPackageSchedulerSlots,
+    );
     const cpuPackageConfigCount = Math.max(
       cpuPackageCount,
       cpuPackageCores.length,
       cpuPackageLevels.length,
       cpuPackageCacheLevels.length,
       cpuPackageCacheSpeedLevels.length,
+      cpuPackageSchedulerSlots.length,
     );
     const hasCpuPackageConfigs =
       cpuPackageCores.length > 0 ||
       cpuPackageLevels.length > 0 ||
       cpuPackageCacheLevels.length > 0 ||
-      cpuPackageCacheSpeedLevels.length > 0;
+      cpuPackageCacheSpeedLevels.length > 0 ||
+      cpuPackageSchedulerSlots.length > 0;
 
     return {
       type: "buyCustomMachine",
@@ -231,8 +249,10 @@ export const toGameAction = (action: UiGameAction): GameAction => {
               cpuLevel: cpuPackageLevels[index],
               cacheLevel: cpuPackageCacheLevels[index],
               cacheSpeedLevel: cpuPackageCacheSpeedLevels[index],
+              schedulerSlots: cpuPackageSchedulerSlots[index],
             }))
           : undefined,
+        cpuSchedulerSlots: toNonNegativeInteger(action.tierIds.cpuSchedulerSlots),
         ram: action.tierIds.ram ?? action.tierIds.memory ?? action.tierIds.ramModule ?? "",
         ramStickCount: toPositiveInteger(action.tierIds.ramSticks),
         ramLevel: toPositiveInteger(action.tierIds.ramLevel),

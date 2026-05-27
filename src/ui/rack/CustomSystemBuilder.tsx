@@ -33,7 +33,6 @@ import {
   formatWatts,
   type DisplayCost,
 } from "../format";
-import { QueuePreview } from "../hardware/QueuePreview";
 import { firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
@@ -56,9 +55,18 @@ interface CustomSystemBuilderProps {
   builder: UiCustomMachineBuilder | null;
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  draft?: CustomSystemBuilderDraft | null;
+  onDraftChange?: (draft: CustomSystemBuilderDraft) => void;
 }
 
 type BuilderBayRole = "scheduler" | "memory" | "cpu" | "power" | "other";
+
+export interface CustomSystemBuilderDraft {
+  groupsKey: string;
+  selections: Record<string, string>;
+  activeSlotId: string | null;
+  activeCpuPackageIndex: number;
+}
 
 interface BuilderGroupEntry {
   group: UiCustomMachineGroup;
@@ -282,6 +290,12 @@ const getSystemBuilderSelections = (
     getBoundedInteger(current.cpuPackages, 1, 1, BUILDER_MAX_CPUS),
   );
   next.cpuLinked = current.cpuLinked === "0" ? "0" : "1";
+  next.cpuSchedulerMatch = current.cpuSchedulerMatch === "0" ? "0" : "1";
+  next.cpuSchedulerSlots = String(
+    getBoundedInteger(current.cpuSchedulerSlots, 1, 0, BUILDER_MAX_CORES),
+  );
+  next.cpuPackageSchedulerSlots = current.cpuPackageSchedulerSlots ?? "";
+  next.cpuPackageSchedulerMatches = current.cpuPackageSchedulerMatches ?? "";
   next.cpuLevel = String(
     getBoundedInteger(current.cpuLevel, 1, 1, BUILDER_MAX_LEVEL),
   );
@@ -389,6 +403,14 @@ const getRamStickGridMetrics = (stickCount: number) => {
   return { columns, label: `${columns}x${rows}` };
 };
 
+const getRamChannelLabel = (stickCount: number) => {
+  const count = Math.max(1, stickCount);
+  if (count >= 8) return "oct channel";
+  if (count >= 4) return "quad channel";
+  if (count >= 2) return "dual channel";
+  return "single channel";
+};
+
 const parseIntegerList = (
   value: string | undefined,
   length: number,
@@ -406,6 +428,23 @@ const parseIntegerList = (
 };
 
 const serializeIntegerList = (values: number[]) => values.map(String).join(",");
+
+const parseBooleanList = (
+  value: string | undefined,
+  length: number,
+  fallback: (index: number) => boolean,
+) => {
+  const parts = value?.split(",") ?? [];
+
+  return Array.from({ length }, (_, index) => {
+    if (parts[index] === "0") return false;
+    if (parts[index] === "1") return true;
+    return fallback(index);
+  });
+};
+
+const serializeBooleanList = (values: boolean[]) =>
+  values.map((value) => (value ? "1" : "0")).join(",");
 
 const getBuilderCoreGridMetrics = (coreCount: number) => {
   const count = Math.max(1, coreCount);
@@ -442,6 +481,7 @@ function BuilderStepper({
   canIncrease,
   onDecrease,
   onIncrease,
+  disabledReason,
 }: {
   label: string;
   value: string;
@@ -450,6 +490,7 @@ function BuilderStepper({
   canIncrease: boolean;
   onDecrease: () => void;
   onIncrease: () => void;
+  disabledReason?: string;
 }) {
   return (
     <div className={`upgrade-stepper ${accent} custom-builder-stepper`}>
@@ -457,7 +498,7 @@ function BuilderStepper({
         type="button"
         className="upgrade-stepper-button minus"
         disabled={!canDecrease}
-        title={canDecrease ? `Decrease ${label}` : `${label}: Min`}
+        title={canDecrease ? `Decrease ${label}` : (disabledReason ?? `${label}: Min`)}
         onClick={onDecrease}
       >
         <Minus size={11} />
@@ -470,7 +511,7 @@ function BuilderStepper({
         type="button"
         className="upgrade-stepper-button plus"
         disabled={!canIncrease}
-        title={canIncrease ? `Increase ${label}` : `${label}: Max`}
+        title={canIncrease ? `Increase ${label}` : (disabledReason ?? `${label}: Max`)}
         onClick={onIncrease}
       >
         <Plus size={11} />
@@ -483,6 +524,8 @@ export function CustomSystemBuilder({
   builder,
   resources,
   dispatch,
+  draft = null,
+  onDraftChange,
 }: CustomSystemBuilderProps) {
   const groups = getBuilderGroups(builder);
   const groupsKey = groups
@@ -494,17 +537,20 @@ export function CustomSystemBuilder({
       return `${groupId}:${optionIds}`;
     })
     .join("|");
+  const draftForGroups = draft?.groupsKey === groupsKey ? draft : null;
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getSystemBuilderSelections(groups, {}),
+    getSystemBuilderSelections(groups, draftForGroups?.selections ?? {}),
   );
   const initialActiveSlot = groups[0]
     ? getBuilderGroupId(groups[0], 0)
     : null;
   const [activeSlotId, setActiveSlotId] = useState<string | null>(
-    initialActiveSlot,
+    draftForGroups?.activeSlotId ?? initialActiveSlot,
   );
   const [confirmingPurchase, setConfirmingPurchase] = useState(false);
-  const [activeCpuPackageIndex, setActiveCpuPackageIndex] = useState(0);
+  const [activeCpuPackageIndex, setActiveCpuPackageIndex] = useState(
+    draftForGroups?.activeCpuPackageIndex ?? 0,
+  );
 
   useEffect(() => {
     setSelections((current) => getSystemBuilderSelections(groups, current));
@@ -523,6 +569,24 @@ export function CustomSystemBuilder({
       setActiveSlotId(getBuilderGroupId(groups[0]!, 0));
     }
   }, [groupsKey, activeSlotId]);
+
+  useEffect(() => {
+    if (!onDraftChange || groups.length === 0) return;
+
+    onDraftChange({
+      groupsKey,
+      selections,
+      activeSlotId,
+      activeCpuPackageIndex,
+    });
+  }, [
+    activeCpuPackageIndex,
+    activeSlotId,
+    groups.length,
+    groupsKey,
+    onDraftChange,
+    selections,
+  ]);
 
   if (!builder || groups.length === 0) return null;
 
@@ -640,7 +704,7 @@ export function CustomSystemBuilder({
     1,
     BUILDER_MAX_LEVEL,
   );
-  const cpuPackageConfigs = Array.from({ length: cpuPackageCount }, (_, index) =>
+  const cpuPackageBaseConfigs = Array.from({ length: cpuPackageCount }, (_, index) =>
     cpuLinked
       ? linkedCpuConfig
       : {
@@ -651,9 +715,60 @@ export function CustomSystemBuilder({
             unlinkedCacheSpeedLevels[index] ?? linkedCpuConfig.cacheSpeedLevel,
         },
   );
-  const activeCpuConfig = cpuPackageConfigs[activeCpuIndex] ?? linkedCpuConfig;
-  const totalCores = cpuPackageConfigs.reduce(
+  const totalCores = cpuPackageBaseConfigs.reduce(
     (total, config) => total + config.coreCount,
+    0,
+  );
+  const linkedCpuSchedulerMatchesCores = selections.cpuSchedulerMatch !== "0";
+  const linkedCpuSchedulerSlots = getBoundedInteger(
+    selections.cpuSchedulerSlots,
+    linkedCpuConfig.coreCount,
+    0,
+    BUILDER_MAX_CORES,
+  );
+  const unlinkedSchedulerMatches = parseBooleanList(
+    selections.cpuPackageSchedulerMatches,
+    cpuPackageCount,
+    () => linkedCpuSchedulerMatchesCores,
+  );
+  const unlinkedSchedulerSlots = parseIntegerList(
+    selections.cpuPackageSchedulerSlots,
+    cpuPackageCount,
+    (index) =>
+      cpuPackageBaseConfigs[index]?.coreCount ?? linkedCpuConfig.coreCount,
+    0,
+    BUILDER_MAX_CORES,
+  );
+  const cpuPackageSchedulerMatches = cpuPackageBaseConfigs.map((_, index) =>
+    cpuLinked
+      ? linkedCpuSchedulerMatchesCores
+      : (unlinkedSchedulerMatches[index] ?? linkedCpuSchedulerMatchesCores),
+  );
+  const cpuPackageConfigs = cpuPackageBaseConfigs.map((config, index) => {
+    const matchesCores = cpuPackageSchedulerMatches[index] ?? true;
+    const manualSlots = cpuLinked
+      ? linkedCpuSchedulerSlots
+      : (unlinkedSchedulerSlots[index] ?? config.coreCount);
+
+    return {
+      ...config,
+      schedulerSlots: matchesCores ? config.coreCount : manualSlots,
+    };
+  });
+  const activeCpuConfig = cpuPackageConfigs[activeCpuIndex] ?? {
+    ...linkedCpuConfig,
+    schedulerSlots: linkedCpuSchedulerMatchesCores
+      ? linkedCpuConfig.coreCount
+      : linkedCpuSchedulerSlots,
+  };
+  const activeCpuSchedulerMatchesCores =
+    cpuPackageSchedulerMatches[activeCpuIndex] ?? linkedCpuSchedulerMatchesCores;
+  const activeCpuSchedulerSlots = Math.max(
+    0,
+    activeCpuConfig.schedulerSlots ?? activeCpuConfig.coreCount,
+  );
+  const totalCpuSchedulerSlots = cpuPackageConfigs.reduce(
+    (total, config) => total + Math.max(0, config.schedulerSlots),
     0,
   );
   const ramStickCount = getBoundedInteger(
@@ -699,6 +814,7 @@ export function CustomSystemBuilder({
           cacheLevel: activeCpuConfig.cacheLevel,
           cacheSpeedLevel: activeCpuConfig.cacheSpeedLevel,
           cpuPackageConfigs,
+          cpuSchedulerSlots: totalCpuSchedulerSlots,
           ram: selections[memoryEntry.groupId] ?? "",
           ramStickCount,
           ramLevel,
@@ -824,6 +940,10 @@ export function CustomSystemBuilder({
             cpuPackageLevels: "",
             cpuPackageCacheLevels: "",
             cpuPackageCacheSpeedLevels: "",
+            cpuSchedulerMatch: "1",
+            cpuSchedulerSlots: "1",
+            cpuPackageSchedulerSlots: "",
+            cpuPackageSchedulerMatches: "",
           }
         : {}),
       ...(role === "memory"
@@ -872,11 +992,75 @@ export function CustomSystemBuilder({
         cpuPackageCacheSpeedLevels: serializeIntegerList(
           cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
         ),
+        cpuSchedulerMatch: activeCpuSchedulerMatchesCores ? "1" : "0",
+        cpuSchedulerSlots: String(activeCpuSchedulerSlots),
+        cpuPackageSchedulerSlots: serializeIntegerList(
+          cpuPackageConfigs.map((config) => config.schedulerSlots),
+        ),
+        cpuPackageSchedulerMatches: serializeBooleanList(
+          cpuPackageSchedulerMatches,
+        ),
+      };
+    });
+  };
+
+  const setCpuSchedulerMatch = (packageIndex: number, matchesCores: boolean) => {
+    setConfirmingPurchase(false);
+    setSelections((current) => {
+      if (cpuLinked) {
+        return {
+          ...current,
+          cpuSchedulerMatch: matchesCores ? "1" : "0",
+          cpuSchedulerSlots: String(activeCpuSchedulerSlots),
+        };
+      }
+
+      const nextMatches = cpuPackageSchedulerMatches.map((value, index) =>
+        index === packageIndex ? matchesCores : value,
+      );
+      const nextSlots = cpuPackageConfigs.map((config) => config.schedulerSlots);
+
+      return {
+        ...current,
+        cpuPackageSchedulerMatches: serializeBooleanList(nextMatches),
+        cpuPackageSchedulerSlots: serializeIntegerList(nextSlots),
+      };
+    });
+  };
+
+  const updateCpuSchedulerSlots = (packageIndex: number, nextValue: number) => {
+    const value = Math.max(
+      0,
+      Math.min(BUILDER_MAX_CORES, Math.trunc(nextValue)),
+    );
+
+    setConfirmingPurchase(false);
+    setSelections((current) => {
+      if (cpuLinked) {
+        return {
+          ...current,
+          cpuSchedulerMatch: "0",
+          cpuSchedulerSlots: String(value),
+        };
+      }
+
+      const nextMatches = cpuPackageSchedulerMatches.map((matches, index) =>
+        index === packageIndex ? false : matches,
+      );
+      const nextSlots = cpuPackageConfigs.map((config, index) =>
+        index === packageIndex ? value : config.schedulerSlots,
+      );
+
+      return {
+        ...current,
+        cpuPackageSchedulerMatches: serializeBooleanList(nextMatches),
+        cpuPackageSchedulerSlots: serializeIntegerList(nextSlots),
       };
     });
   };
 
   const updateCpuPackageConfig = (
+    packageIndex: number,
     key:
       | "coreCount"
       | "cpuLevel"
@@ -904,7 +1088,7 @@ export function CustomSystemBuilder({
     setConfirmingPurchase(false);
     setSelections((current) => {
       const nextConfigs = cpuPackageConfigs.map((config, index) =>
-        index === activeCpuIndex ? { ...config, [key]: value } : config,
+        index === packageIndex ? { ...config, [key]: value } : config,
       );
 
       return {
@@ -1046,6 +1230,8 @@ export function CustomSystemBuilder({
     accent,
     min = 1,
     max = BUILDER_MAX_LEVEL,
+    locked = false,
+    lockedReason,
   }: {
     keyName: string;
     label: string;
@@ -1054,19 +1240,23 @@ export function CustomSystemBuilder({
     accent: "cyan" | "green" | "violet" | "amber";
     min?: number;
     max?: number;
+    locked?: boolean;
+    lockedReason?: string;
   }) => (
     <BuilderStepper
       label={label}
       value={display}
       accent={accent}
-      canDecrease={value > min}
-      canIncrease={value < max}
+      canDecrease={!locked && value > min}
+      canIncrease={!locked && value < max}
       onDecrease={() => setSelectionNumber(keyName, value - 1, min, max)}
       onIncrease={() => setSelectionNumber(keyName, value + 1, min, max)}
+      disabledReason={lockedReason}
     />
   );
 
   const renderCpuConfigStepper = ({
+    packageIndex = activeCpuIndex,
     configKey,
     label,
     value,
@@ -1075,6 +1265,7 @@ export function CustomSystemBuilder({
     min = 1,
     max = BUILDER_MAX_LEVEL,
   }: {
+    packageIndex?: number;
     configKey:
       | "coreCount"
       | "cpuLevel"
@@ -1093,9 +1284,110 @@ export function CustomSystemBuilder({
       accent={accent}
       canDecrease={value > min}
       canIncrease={value < max}
-      onDecrease={() => updateCpuPackageConfig(configKey, value - 1, min, max)}
-      onIncrease={() => updateCpuPackageConfig(configKey, value + 1, min, max)}
+      onDecrease={() =>
+        updateCpuPackageConfig(packageIndex, configKey, value - 1, min, max)
+      }
+      onIncrease={() =>
+        updateCpuPackageConfig(packageIndex, configKey, value + 1, min, max)
+      }
     />
+  );
+
+  const renderCpuSchedulerControls = ({
+    packageIndex,
+    slots,
+    matchesCores,
+    embedded = false,
+  }: {
+    packageIndex: number;
+    slots: number;
+    matchesCores: boolean;
+    embedded?: boolean;
+  }) => {
+    const slotStepper = (
+      <BuilderStepper
+        label={embedded ? "Sched Slots" : "Slots"}
+        value={formatNumber(slots)}
+        accent="violet"
+        canDecrease={!matchesCores && slots > 0}
+        canIncrease={!matchesCores && slots < BUILDER_MAX_CORES}
+        onDecrease={() => updateCpuSchedulerSlots(packageIndex, slots - 1)}
+        onIncrease={() => updateCpuSchedulerSlots(packageIndex, slots + 1)}
+        disabledReason="Match cores is on"
+      />
+    );
+    const matchToggle = (
+      <label className="custom-builder-link-toggle custom-builder-scheduler-match-toggle">
+        <input
+          type="checkbox"
+          checked={matchesCores}
+          onChange={(event) => {
+            setCpuSchedulerMatch(packageIndex, event.currentTarget.checked);
+          }}
+        />
+        <span>Match cores</span>
+      </label>
+    );
+
+    const controls = (
+      <div className="hw-section-header-row scheduler-header-row">
+        {embedded ? null : (
+          <button
+            type="button"
+            className="hw-section-header"
+            onClick={() => {
+              setActiveSlotId(cpuEntry?.groupId ?? null);
+              setActiveCpuPackageIndex(packageIndex);
+            }}
+          >
+            <ListTodo size={14} />
+            <span>Scheduler</span>
+          </button>
+        )}
+        {slotStepper}
+        {matchToggle}
+      </div>
+    );
+
+    return embedded ? (
+      <div className="custom-builder-cpu-scheduler custom-builder-cpu-card-scheduler">
+        {controls}
+      </div>
+    ) : (
+      <section className="hw-section scheduler-section custom-builder-cpu-scheduler">
+        {controls}
+      </section>
+    );
+  };
+
+  const renderCpuSpecControls = ({
+    packageIndex,
+    config,
+    clockHz,
+  }: {
+    packageIndex: number;
+    config: (typeof cpuPackageConfigs)[number];
+    clockHz: number;
+  }) => (
+    <div className="custom-builder-cpu-config-strip">
+      {renderCpuConfigStepper({
+        packageIndex,
+        configKey: "coreCount",
+        label: "Core",
+        value: config.coreCount,
+        display: formatNumber(config.coreCount),
+        accent: "cyan",
+        max: BUILDER_MAX_CORES,
+      })}
+      {renderCpuConfigStepper({
+        packageIndex,
+        configKey: "cpuLevel",
+        label: "Freq",
+        value: config.cpuLevel,
+        display: formatClock(clockHz),
+        accent: "cyan",
+      })}
+    </div>
   );
 
   const renderSchedulerSection = (entry: BuilderGroupEntry | null) => {
@@ -1126,21 +1418,12 @@ export function CustomSystemBuilder({
           </span>
         </div>
 
-        <QueuePreview
-          items={[]}
-          slotCapacity={slots}
-          ariaLabel="Custom system scheduler queue"
-          dispatch={dispatch}
-          emptyLabel={slots > 0 ? `${formatNumber(slots)} slots open` : "No slots"}
-          startSmall
-        />
-
         <div className="inline-upgrade-row custom-builder-upgrade-strip">
           {renderBuilderStepper({
             entry,
             metric: "schedulerSlots",
             label: "Slots",
-            value: `${formatNumber(slots)} slot${slots === 1 ? "" : "s"}`,
+            value: formatNumber(slots),
             accent: "violet",
           })}
         </div>
@@ -1152,6 +1435,7 @@ export function CustomSystemBuilder({
     if (!entry) return null;
     const selected = activeSlotId === entry.groupId;
     const stickBits = ramStickCount > 0 ? ramBits / ramStickCount : 0;
+    const ramChannelLabel = getRamChannelLabel(ramStickCount);
     const ramGrid = getRamStickGridMetrics(ramStickCount);
     const ramGridStyle = {
       "--ram-stick-grid-columns": ramGrid.columns,
@@ -1175,7 +1459,7 @@ export function CustomSystemBuilder({
             <MemoryStick size={14} />
             <span>RAM</span>
             <span className="hw-section-meta">
-              <strong>{formatBits(ramBits)}</strong> build / Eff{" "}
+              <strong>{formatBits(ramBits)}</strong> {ramChannelLabel} / Eff{" "}
               <strong>{ramEfficiencyLabel}</strong>
             </span>
           </button>
@@ -1195,11 +1479,6 @@ export function CustomSystemBuilder({
 
         {ramStickCount > 0 ? (
           <>
-            <div className="ram-pipeline-summary">
-              <span>Ch {Math.min(ramStickCount, 2)}/{Math.max(ramStickCount, 1)}</span>
-              <span>Write {formatClock(ramSpeed)}</span>
-            </div>
-
             <div
               className="ram-stick-grid"
               style={ramGridStyle}
@@ -1263,7 +1542,6 @@ export function CustomSystemBuilder({
     const selected = activeSlotId === entry.groupId;
     const manyCores =
       totalCores > 8 || cpuPackageConfigs.some((config) => config.coreCount > 8);
-    const cpuSchedulerSlots = Math.max(0, totalCores);
 
     return (
       <section
@@ -1318,96 +1596,28 @@ export function CustomSystemBuilder({
 
         {renderClockTierControls(entry)}
 
-        <div
-          className="custom-builder-cpu-package-strip"
-          aria-label="CPU packages"
-        >
-          {cpuPackageConfigs.map((config, packageIndex) => (
-            <button
-              key={`cpu-package-${packageIndex + 1}`}
-              type="button"
-              className={`custom-builder-cpu-chip ${
-                packageIndex === activeCpuIndex ? "active" : ""
-              }`}
-              onClick={() => {
-                setActiveSlotId(entry.groupId);
-                setActiveCpuPackageIndex(packageIndex);
-              }}
-              aria-pressed={packageIndex === activeCpuIndex}
-              title={`CPU ${packageIndex + 1}: ${formatNumber(config.coreCount)} core${
-                config.coreCount === 1 ? "" : "s"
-              } @ ${formatClock(getPackageClockHz(config.cpuLevel))}`}
-            >
-              <Cpu size={10} />
-              <span>CPU {packageIndex + 1}</span>
-              <strong>{formatNumber(config.coreCount)}</strong>
-            </button>
-          ))}
-        </div>
-
         <div className="cpu-package-body">
-          <section className="hw-section scheduler-section custom-builder-cpu-scheduler">
-            <div className="hw-section-header-row scheduler-header-row">
-              <button
-                type="button"
-                className="hw-section-header"
-                onClick={() => setActiveSlotId(entry.groupId)}
-              >
-                <ListTodo size={14} />
-                <span>Scheduler</span>
-              </button>
-              <span className="custom-builder-section-pill">
-                <strong>{formatNumber(cpuSchedulerSlots)}</strong> slots
-              </span>
-            </div>
-            <QueuePreview
-              items={[]}
-              slotCapacity={cpuSchedulerSlots}
-              ariaLabel="Custom CPU scheduler queue"
-              dispatch={dispatch}
-              emptyLabel={
-                cpuSchedulerSlots > 0
-                  ? `${formatNumber(cpuSchedulerSlots)} CPU slots open`
-                  : "No slots"
-              }
-              startSmall
-            />
-          </section>
+          {cpuLinked
+            ? renderCpuSchedulerControls({
+                packageIndex: activeCpuIndex,
+                slots: activeCpuSchedulerSlots,
+                matchesCores: activeCpuSchedulerMatchesCores,
+              })
+            : null}
 
           <div className={`core-cache-row ${manyCores ? "many-cores" : ""}`}>
-            <section className="core-array-section custom-builder-cpu-config">
-              <div className="core-array-header">
-                <span>{cpuLinked ? "Linked CPU specs" : `CPU ${activeCpuIndex + 1} specs`}</span>
-                <span className="core-array-efficiency">
-                  {cpuLinked
-                    ? `${formatNumber(activeCpuConfig.coreCount)} core${
-                        activeCpuConfig.coreCount === 1 ? "" : "s"
-                      } each`
-                    : `${formatNumber(activeCpuConfig.coreCount)} core${
-                        activeCpuConfig.coreCount === 1 ? "" : "s"
-                      }`}
-                </span>
-                <div className="core-array-header-controls" aria-label="Core count">
-                  {renderCpuConfigStepper({
-                    configKey: "coreCount",
-                    label: "Core",
-                    value: activeCpuConfig.coreCount,
-                    display: formatNumber(activeCpuConfig.coreCount),
-                    accent: "cyan",
-                    max: BUILDER_MAX_CORES,
-                  })}
-                </div>
-              </div>
-              <div className="core-control-strip custom-builder-upgrade-strip">
-                {renderCpuConfigStepper({
-                  configKey: "cpuLevel",
-                  label: "Core Freq",
-                  value: activeCpuConfig.cpuLevel,
-                  display: formatClock(cpuClockHz),
-                  accent: "cyan",
+            {cpuLinked ? (
+              <section
+                className="core-array-section custom-builder-cpu-config"
+                aria-label="Linked CPU specs"
+              >
+                {renderCpuSpecControls({
+                  packageIndex: activeCpuIndex,
+                  config: activeCpuConfig,
+                  clockHz: cpuClockHz,
                 })}
-              </div>
-            </section>
+              </section>
+            ) : null}
 
             <div
               className="custom-builder-cpu-socket-grid"
@@ -1434,6 +1644,10 @@ export function CustomSystemBuilder({
                     className={`core-array-section custom-builder-core-array custom-builder-cpu-socket ${
                       packageManyCores ? "many-cores" : ""
                     } ${packageSelected ? "selected" : ""}`}
+                    onClick={() => {
+                      setActiveSlotId(entry.groupId);
+                      setActiveCpuPackageIndex(packageIndex);
+                    }}
                   >
                     <div className="core-array-header">
                       <button
@@ -1453,6 +1667,28 @@ export function CustomSystemBuilder({
                         <strong>{formatNumber(packageEfficiency)}</strong>
                       </span>
                     </div>
+
+                    {!cpuLinked ? (
+                      <div
+                        className="custom-builder-cpu-card-controls"
+                        aria-label={`CPU ${packageIndex + 1} controls`}
+                      >
+                        {renderCpuSchedulerControls({
+                          packageIndex,
+                          slots: Math.max(0, config.schedulerSlots),
+                          matchesCores:
+                            cpuPackageSchedulerMatches[packageIndex] ?? true,
+                          embedded: true,
+                        })}
+                        <div className="custom-builder-cpu-config custom-builder-cpu-card-config">
+                          {renderCpuSpecControls({
+                            packageIndex,
+                            config,
+                            clockHz: packageClockHz,
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div
                       className={`core-grid ${packageCoreGrid.density}`}
@@ -1647,6 +1883,8 @@ export function CustomSystemBuilder({
                 cacheLevel: String(activeCpuConfig.cacheLevel),
                 cacheSpeedLevel: String(activeCpuConfig.cacheSpeedLevel),
                 cpuLinked: cpuLinked ? "1" : "0",
+                cpuSchedulerMatch: activeCpuSchedulerMatchesCores ? "1" : "0",
+                cpuSchedulerSlots: String(totalCpuSchedulerSlots),
                 cpuPackageCores: serializeIntegerList(
                   cpuPackageConfigs.map((config) => config.coreCount),
                 ),
@@ -1658,6 +1896,12 @@ export function CustomSystemBuilder({
                 ),
                 cpuPackageCacheSpeedLevels: serializeIntegerList(
                   cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
+                ),
+                cpuPackageSchedulerSlots: serializeIntegerList(
+                  cpuPackageConfigs.map((config) => config.schedulerSlots),
+                ),
+                cpuPackageSchedulerMatches: serializeBooleanList(
+                  cpuPackageSchedulerMatches,
                 ),
                 ramSticks: String(ramStickCount),
                 ramLevel: String(ramLevel),

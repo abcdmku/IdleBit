@@ -920,16 +920,24 @@ Hz/kHz/MHz/GHz/THz/PHz. After a tier is selected, the player configures the
 system through the same compact +/- upgrade-style controls used by the normal
 system view for CPU package count in the CPU header, core count, CPU
 frequency, cache capacity/frequency, RAM stick count, RAM capacity/frequency,
-scheduler slots, and PSU capacity. The builder must not impose a fixed low
-core-count ceiling; resources and PSU capacity are the meaningful limits.
-Builder PSU capacity uses the same level-by-level wattage and credit cost curve
-as the normal PSU Capacity upgrade.
+System Scheduler slots, per-CPU scheduler slots, and PSU capacity. Each CPU
+scheduler can match its CPU package's core count or be manually overridden from
+the selected CPU package. The RAM header should report the configured channel
+topology, such as single channel or dual channel, instead of a generic build
+label, and the builder-only RAM preview should omit runtime channel/write
+status strips. The builder must not impose a fixed low core-count ceiling;
+resources and PSU capacity are the meaningful limits. Builder PSU capacity uses
+the same level-by-level wattage and credit cost curve as the normal PSU Capacity
+upgrade.
 Multi-CPU previews should render each CPU as an individual CPU package/core
-array, not split one shared core grid across package labels. A `Link all CPUs`
-checkbox should keep package core count, CPU frequency, cache capacity, and
-cache frequency synchronized; when unlinked, the selected CPU package can carry
-its own specs through purchase. High-core previews should give core arrays the
-full CPU package width, use denser core tiles instead of squeezing beside
+array, not split one shared core grid across package labels. The builder should
+not add a separate CPU tab strip; clicking a CPU package card selects that
+package for editing. A `Link all CPUs` checkbox should keep package core count,
+CPU frequency, cache capacity, cache frequency, and CPU scheduler slots
+synchronized; shared scheduler/core/frequency controls stay outside CPU cards
+only while linked, and unlinked CPU packages show those controls inside each
+CPU card before purchase. High-core previews should give core arrays the full CPU
+package width, use denser core tiles instead of squeezing beside
 cache, wrap core tile text onto separate lines, and maintain a readable minimum
 tile size by adding rows instead of shrinking tiles indefinitely. Those
 modifiers must affect the preview, total buy price, and the purchased system,
@@ -945,7 +953,9 @@ show only the total buy price, and hold the review/confirm purchase action. It
 should validate costs before purchase, require explicit purchase confirmation,
 render the build as a regular system-board preview without runtime progress
 bars, allow risky PSU choices with warnings, then add exactly one owned-system
-rack slot.
+rack slot. Leaving Store for the rack or a system view and returning to Store
+should preserve the current custom-builder draft until the app state changes the
+available builder choices.
 
 ### Chunked Single-System Tasks
 

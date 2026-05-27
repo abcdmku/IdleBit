@@ -671,6 +671,15 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelector(".custom-builder-memory-tier-options button.active")
         ?.textContent,
     ).toBe("Hz");
+    expect(container.querySelector(".memory-section .ram-pipeline-summary")).toBeNull();
+    expect(container.querySelector(".memory-section .hw-section-meta")?.textContent).toContain(
+      "single channel",
+    );
+    expect(container.querySelector(".memory-section .hw-section-meta")?.textContent).not.toContain(
+      "build",
+    );
+    expect(container.querySelectorAll(".custom-builder-cpu-card-controls")).toHaveLength(0);
+    expect(container.querySelector(".core-cache-row > .custom-builder-cpu-config")).not.toBeNull();
 
     const cpuTierButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(
@@ -682,7 +691,7 @@ describe("HardwareBoard multi-system rack", () => {
     });
 
     const corePlus = container.querySelector<HTMLButtonElement>(
-      ".core-array-header-controls .upgrade-stepper-button.plus",
+      ".custom-builder-cpu-config .upgrade-stepper-button.plus",
     );
     act(() => corePlus?.click());
     act(() => corePlus?.click());
@@ -721,6 +730,9 @@ describe("HardwareBoard multi-system rack", () => {
     act(() => ramStickPlus?.click());
     act(() => ramStickPlus?.click());
     act(() => ramStickPlus?.click());
+    expect(container.querySelector(".memory-section .hw-section-meta")?.textContent).toContain(
+      "quad channel",
+    );
 
     const psuState = container.querySelector<HTMLElement>(".custom-builder-psu-state");
     expect(psuState?.textContent).toContain("Short");
@@ -800,12 +812,168 @@ describe("HardwareBoard multi-system rack", () => {
         cpuPackageLevels: "1",
         cpuPackageCacheLevels: "1",
         cpuPackageCacheSpeedLevels: "1",
+        cpuSchedulerMatch: "1",
+        cpuSchedulerSlots: "4",
+        cpuPackageSchedulerSlots: "4",
+        cpuPackageSchedulerMatches: "1",
         ramLevel: "37",
         ramSpeedLevel: "37",
         psuLevel: "13",
       },
       systemId: "beta",
     });
+  });
+
+  it("lets the builder CPU scheduler match cores or use manual slots", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".custom-builder-cpu-header-controls .upgrade-stepper-button.plus",
+        )
+        ?.click();
+    });
+    act(() => {
+      container
+        .querySelector<HTMLInputElement>(
+          ".custom-builder-cpu-header-controls .custom-builder-link-toggle input",
+        )
+        ?.click();
+    });
+    act(() => {
+      container
+        .querySelectorAll<HTMLElement>(".custom-builder-cpu-socket")[1]
+        ?.click();
+    });
+
+    const getSelectedSocket = () =>
+      container.querySelector<HTMLElement>(".custom-builder-cpu-socket.selected");
+    expect(
+      container.querySelector(".cpu-package-body > .custom-builder-cpu-scheduler"),
+    ).toBeNull();
+    expect(
+      container.querySelector(".core-cache-row > .custom-builder-cpu-config"),
+    ).toBeNull();
+    expect(container.querySelectorAll(".custom-builder-cpu-card-controls")).toHaveLength(2);
+    expect(
+      getSelectedSocket()?.querySelector(".custom-builder-cpu-card-scheduler")
+        ?.textContent,
+    ).toContain("Sched Slots");
+    expect(
+      getSelectedSocket()?.querySelector(
+        ".custom-builder-cpu-card-scheduler .hw-section-header",
+      ),
+    ).toBeNull();
+
+    const matchToggle = getSelectedSocket()?.querySelector<HTMLInputElement>(
+      ".custom-builder-scheduler-match-toggle input",
+    );
+    const schedulerPlus = getSelectedSocket()?.querySelector<HTMLButtonElement>(
+      ".custom-builder-cpu-scheduler .upgrade-stepper-button.plus",
+    );
+
+    expect(matchToggle?.checked).toBe(true);
+    expect(schedulerPlus?.disabled).toBe(true);
+
+    act(() => {
+      matchToggle?.click();
+    });
+    expect(matchToggle?.checked).toBe(false);
+    expect(schedulerPlus?.disabled).toBe(false);
+
+    act(() => schedulerPlus?.click());
+    act(() => schedulerPlus?.click());
+
+    expect(
+      getSelectedSocket()?.querySelector(".custom-builder-cpu-scheduler")
+        ?.textContent,
+    ).toContain("3");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyCustomSystem",
+      tierIds: expect.objectContaining({
+        cpuSchedulerMatch: "0",
+        cpuSchedulerSlots: "4",
+        cpuPackageSchedulerSlots: "1,3",
+        cpuPackageSchedulerMatches: "1,0",
+      }),
+      systemId: "beta",
+    });
+  });
+
+  it("keeps custom builder config after leaving and reopening the store", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    const corePlus = container.querySelector<HTMLButtonElement>(
+      ".custom-builder-cpu-config .upgrade-stepper-button.plus",
+    );
+    act(() => corePlus?.click());
+    act(() => corePlus?.click());
+
+    expect(
+      container.querySelector<HTMLElement>(
+        ".custom-builder-cpu-config .custom-builder-stepper-value",
+      )?.textContent,
+    ).toBe("3");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-strip-home")?.click();
+    });
+    expect(container.querySelector(".custom-system-builder")).toBeNull();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    expect(
+      container.querySelector<HTMLElement>(
+        ".custom-builder-cpu-config .custom-builder-stepper-value",
+      )?.textContent,
+    ).toBe("3");
   });
 
   it("allows custom builder cores past eight and shows RAM efficiency", () => {
@@ -831,18 +999,19 @@ describe("HardwareBoard multi-system rack", () => {
       act(() => {
         container
           .querySelector<HTMLButtonElement>(
-            ".core-array-header-controls .upgrade-stepper-button.plus",
+            ".custom-builder-cpu-config .upgrade-stepper-button.plus",
           )
           ?.click();
       });
     }
     const corePlus = container.querySelector<HTMLButtonElement>(
-      ".core-array-header-controls .upgrade-stepper-button.plus",
+      ".custom-builder-cpu-config .upgrade-stepper-button.plus",
     );
 
     expect(corePlus?.disabled).toBe(false);
     expect(
-      container.querySelector(".core-array-header .core-array-efficiency")?.textContent,
+      container.querySelector(".custom-builder-cpu-socket .core-array-efficiency")
+        ?.textContent,
     ).toContain("11 cores");
     expect(container.querySelector(".custom-builder-system-preview .core-cache-row")?.className).toContain(
       "many-cores",
@@ -899,7 +1068,10 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelectorAll(".custom-builder-system-preview .core-die"),
     ).toHaveLength(3);
     expect(
-      container.querySelectorAll(".custom-builder-cpu-package-strip .custom-builder-cpu-chip"),
+      container.querySelectorAll(".custom-builder-cpu-tabs .cpu-bank-tab"),
+    ).toHaveLength(0);
+    expect(
+      container.querySelectorAll(".custom-builder-cpu-socket"),
     ).toHaveLength(3);
 
     act(() => {
@@ -952,18 +1124,22 @@ describe("HardwareBoard multi-system rack", () => {
     });
     act(() => {
       container
-        .querySelector<HTMLInputElement>(".custom-builder-link-toggle input")
+        .querySelector<HTMLInputElement>(
+          ".custom-builder-cpu-header-controls .custom-builder-link-toggle input",
+        )
         ?.click();
     });
 
-    const cpuChips = container.querySelectorAll<HTMLButtonElement>(
-      ".custom-builder-cpu-package-strip .custom-builder-cpu-chip",
+    const initialSockets = container.querySelectorAll<HTMLElement>(
+      ".custom-builder-cpu-socket",
     );
-    act(() => cpuChips[1]?.click());
+    act(() => initialSockets[1]?.click());
+    expect(initialSockets[1]?.className).toContain("selected");
+    expect(container.querySelectorAll(".custom-builder-cpu-card-controls")).toHaveLength(2);
     act(() => {
-      container
-        .querySelector<HTMLButtonElement>(
-          ".custom-builder-cpu-config .core-array-header-controls .upgrade-stepper-button.plus",
+      initialSockets[1]
+        ?.querySelector<HTMLButtonElement>(
+          ".custom-builder-cpu-card-config .upgrade-stepper-button.plus",
         )
         ?.click();
     });

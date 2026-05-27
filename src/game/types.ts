@@ -513,6 +513,13 @@ export interface ComponentSkuDefinition {
   psuLevel?: number;
 }
 
+export interface MachineCpuPackageSelection {
+  coreCount?: number;
+  cpuLevel?: number;
+  cacheLevel?: number;
+  cacheSpeedLevel?: number;
+}
+
 export interface MachineComponentSelection {
   cpu: string;
   cpuPackageCount?: number;
@@ -520,6 +527,7 @@ export interface MachineComponentSelection {
   cpuLevel?: number;
   cacheLevel?: number;
   cacheSpeedLevel?: number;
+  cpuPackageConfigs?: MachineCpuPackageSelection[];
   ram: string;
   ramStickCount?: number;
   ramLevel?: number;

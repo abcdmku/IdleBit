@@ -104,6 +104,18 @@ const getSku = (
 ) =>
   getComponentSku(selection[key]);
 
+const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
+  const packageCount = Math.max(1, cpuPackageCount);
+  const total = Math.max(packageCount, coreCount);
+  const coresPerPackage = Math.max(1, Math.floor(total / packageCount));
+  const extraCores = total % packageCount;
+
+  return Array.from(
+    { length: packageCount },
+    (_, index) => coresPerPackage + (index < extraCores ? 1 : 0),
+  );
+};
+
 const createHardwareFromMachineSelection = (
   selection: MachineComponentSelection,
 ): GameState["hardware"] => {
@@ -113,29 +125,41 @@ const createHardwareFromMachineSelection = (
   const psu = getSku(selection, "psu");
   const cpuPackageCount = Math.max(
     1,
+    selection.cpuPackageConfigs?.length ?? 0,
     selection.cpuPackageCount ?? cpu.cpuPackageCount ?? 1,
-  );
-  const coreCount = Math.max(
-    cpuPackageCount,
-    selection.cpuCoreCount ?? (cpu.coreCount ?? 1) * cpuPackageCount,
-  );
-  const coresPerPackage = Math.max(1, Math.floor(coreCount / cpuPackageCount));
-  const extraCores = coreCount % cpuPackageCount;
-  const cacheLevel = Math.max(1, selection.cacheLevel ?? cpu.cacheLevel ?? 1);
-  const cacheSpeedLevel = Math.max(
-    1,
-    selection.cacheSpeedLevel ?? cpu.cacheSpeedLevel ?? 1,
   );
   const schedulerSlots = Math.max(0, scheduler.schedulerSlots ?? 0);
   const cpuTierId = cpu.cpuTierId ?? "hz";
-  const coreIds = Array.from({ length: coreCount }, (_, index) => index + 1);
-  const cpuLevel = Math.max(
+  const fallbackCoreCounts = distributeCoreCount(
+    selection.cpuCoreCount ?? (cpu.coreCount ?? 1) * cpuPackageCount,
+    cpuPackageCount,
+  );
+  const fallbackCpuLevel = Math.max(
     1,
     selection.cpuLevel ?? cpu.cpuLevel ?? cpu.clockLevel ?? 1,
   );
-  const coreClockLevels = Object.fromEntries(
-    coreIds.map((coreId) => [coreId, cpuLevel]),
-  ) as Record<number, number>;
+  const fallbackCacheLevel = Math.max(1, selection.cacheLevel ?? cpu.cacheLevel ?? 1);
+  const fallbackCacheSpeedLevel = Math.max(
+    1,
+    selection.cacheSpeedLevel ?? cpu.cacheSpeedLevel ?? 1,
+  );
+  const cpuPackageConfigs = Array.from({ length: cpuPackageCount }, (_, index) => {
+    const config = selection.cpuPackageConfigs?.[index];
+
+    return {
+      coreCount: Math.max(1, config?.coreCount ?? fallbackCoreCounts[index] ?? 1),
+      cpuLevel: Math.max(1, config?.cpuLevel ?? fallbackCpuLevel),
+      cacheLevel: Math.max(1, config?.cacheLevel ?? fallbackCacheLevel),
+      cacheSpeedLevel: Math.max(
+        1,
+        config?.cacheSpeedLevel ?? fallbackCacheSpeedLevel,
+      ),
+    };
+  });
+  const coreCount = cpuPackageConfigs.reduce(
+    (total, config) => total + config.coreCount,
+    0,
+  );
   const ramStickCount = Math.max(0, selection.ramStickCount ?? ram.ramStickCount ?? 0);
   const ramLevel = Math.max(1, selection.ramLevel ?? ram.ramLevel ?? 1);
   const ramSpeedLevel = Math.max(
@@ -147,24 +171,39 @@ const createHardwareFromMachineSelection = (
   );
   const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
   const psuLevel = Math.max(1, psu.psuLevel ?? 1);
-  const cpus = Array.from({ length: cpuPackageCount }, (_, index) => {
-    const start = index * coresPerPackage + Math.min(index, extraCores) + 1;
-    const count = coresPerPackage + (index < extraCores ? 1 : 0);
+  let nextCoreId = 1;
+  const coreClockLevels: Record<number, number> = {};
+  const cpus = cpuPackageConfigs.map((config, index) => {
+    const count = config.coreCount;
+    const start = nextCoreId;
+    nextCoreId += count;
     const packageCoreIds = Array.from(
       { length: count },
       (_, coreIndex) => start + coreIndex,
     );
+    packageCoreIds.forEach((coreId) => {
+      coreClockLevels[coreId] = config.cpuLevel;
+    });
 
     return createCpuHardwareState(index + 1, packageCoreIds, {
-      cacheLevel,
-      cacheSpeedLevel,
-      cacheBits: getCacheBits(cacheLevel),
-      cacheBytes: getCacheBytes(cacheLevel),
+      cacheLevel: config.cacheLevel,
+      cacheSpeedLevel: config.cacheSpeedLevel,
+      cacheBits: getCacheBits(config.cacheLevel),
+      cacheBytes: getCacheBytes(config.cacheLevel),
       schedulerSlots: Math.max(0, cpu.schedulerSlots ?? count),
       tierId: cpuTierId,
-      level: cpuLevel,
+      level: config.cpuLevel,
     });
   });
+  const cpuLevel = Math.max(1, ...cpuPackageConfigs.map((config) => config.cpuLevel));
+  const cacheLevel = Math.max(
+    1,
+    ...cpuPackageConfigs.map((config) => config.cacheLevel),
+  );
+  const cacheSpeedLevel = Math.max(
+    1,
+    ...cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
+  );
   const cpuSchedulerSlots = cpus.reduce(
     (total, cpuPackage) => total + cpuPackage.schedulerSlots,
     0,

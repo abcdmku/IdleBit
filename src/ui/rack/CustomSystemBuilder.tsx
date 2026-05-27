@@ -32,7 +32,6 @@ import {
   type DisplayCost,
 } from "../format";
 import { QueuePreview } from "../hardware/QueuePreview";
-import { getCoreGridMetrics } from "../hardware/coreGrid";
 import { firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
@@ -124,7 +123,8 @@ const scaleCosts = (costs: DisplayCost[], multiplier: number) =>
 const isPsuGroup = (groupId: string) =>
   groupId === "psu" || groupId === "powerSupply";
 const POWER_MATCH_EPSILON = 0.000000000001;
-const BUILDER_MAX_CORES = 8;
+const BUILDER_MAX_CORES = Number.MAX_SAFE_INTEGER;
+const BUILDER_MAX_CPUS = Number.MAX_SAFE_INTEGER;
 const BUILDER_MAX_RAM_STICKS = 8;
 const BUILDER_MAX_LEVEL = 36;
 
@@ -266,6 +266,10 @@ const getSystemBuilderSelections = (
   next.cpuCores = String(
     getBoundedInteger(current.cpuCores, 1, 1, BUILDER_MAX_CORES),
   );
+  next.cpuPackages = String(
+    getBoundedInteger(current.cpuPackages, 1, 1, BUILDER_MAX_CPUS),
+  );
+  next.cpuLinked = current.cpuLinked === "0" ? "0" : "1";
   next.cpuLevel = String(
     getBoundedInteger(current.cpuLevel, 1, 1, BUILDER_MAX_LEVEL),
   );
@@ -318,14 +322,6 @@ const getAdjacentBuilderOption = (
   return candidates[selectedIndex + direction] ?? null;
 };
 
-const getProjectedCpuEfficiency = (
-  cpuTier: UiCustomMachineTier | null,
-  cpuPackageCount: number,
-) =>
-  cpuTier?.cpuEfficiency === undefined
-    ? null
-    : cpuTier.cpuEfficiency * 0.75 ** Math.max(0, cpuPackageCount - 1);
-
 const getProjectedRunCostPerSecond = (watts: number) =>
   Math.round(watts * 1_000_000 * 1000) / 1000;
 
@@ -344,13 +340,21 @@ const getProjectedCacheWatts = (cacheLevel: number, cacheSpeedLevel: number) =>
     : 0.00000000000002 * Math.max(0, cacheLevel - 1) ** 1.18 +
       0.00000000000001 * Math.max(0, cacheSpeedLevel - 1) ** 1.16);
 
+const getProjectedCpuEfficiency = (
+  baseEfficiency: number,
+  cpuPackageCount: number,
+) => baseEfficiency * 0.75 ** Math.max(0, cpuPackageCount - 1);
+
+const getProjectedRamEfficiency = (ramSpeedLevel: number) =>
+  getRamTierLevelDefinition(ramSpeedLevel).efficiency;
+
 const getProjectedRamWatts = (
   stickCount: number,
   ramLevel: number,
   ramSpeedLevel: number,
   ramSpeedMt: number,
 ) => {
-  const stickEfficiency = getRamTierLevelDefinition(ramSpeedLevel).efficiency;
+  const stickEfficiency = getProjectedRamEfficiency(ramSpeedLevel);
   const activeDrawWatts =
     ((Math.max(1, ramSpeedMt) / stickEfficiency) * 0.1) / 1_000_000;
   const capacityDrawWatts =
@@ -371,6 +375,49 @@ const getRamStickGridMetrics = (stickCount: number) => {
   const columns = Math.min(6, Math.ceil(Math.sqrt(count)));
   const rows = Math.ceil(count / columns);
   return { columns, label: `${columns}x${rows}` };
+};
+
+const parseIntegerList = (
+  value: string | undefined,
+  length: number,
+  fallback: (index: number) => number,
+  min: number,
+  max: number,
+) => {
+  const parts = value?.split(",") ?? [];
+
+  return Array.from({ length }, (_, index) => {
+    const parsed = Number(parts[index]);
+    const raw = Number.isFinite(parsed) ? parsed : fallback(index);
+    return Math.max(min, Math.min(max, Math.trunc(raw)));
+  });
+};
+
+const serializeIntegerList = (values: number[]) => values.map(String).join(",");
+
+const getBuilderCoreGridMetrics = (coreCount: number) => {
+  const count = Math.max(1, coreCount);
+  let columns = 2;
+
+  if (count <= 4) {
+    columns = 2;
+  } else if (count <= 12) {
+    columns = 4;
+  } else if (count <= 24) {
+    columns = 6;
+  } else {
+    columns = 8;
+  }
+
+  const rows = Math.ceil(count / columns);
+  const density = columns >= 6 ? "dense" : columns >= 4 ? "compact" : "normal";
+
+  return {
+    rows,
+    columns,
+    density,
+    label: `${rows}x${columns}`,
+  };
 };
 
 const formatClockTierLabel = (tierId: ClockTierId) => CLOCK_TIER_LABELS[tierId];
@@ -445,6 +492,7 @@ export function CustomSystemBuilder({
     initialActiveSlot,
   );
   const [confirmingPurchase, setConfirmingPurchase] = useState(false);
+  const [activeCpuPackageIndex, setActiveCpuPackageIndex] = useState(0);
 
   useEffect(() => {
     setSelections((current) => getSystemBuilderSelections(groups, current));
@@ -516,6 +564,17 @@ export function CustomSystemBuilder({
     1,
     BUILDER_MAX_CORES,
   );
+  const cpuPackageCount = getBoundedInteger(
+    selections.cpuPackages,
+    Math.max(1, Math.floor(selectedCpuTier?.cpuPackageCount ?? 1)),
+    1,
+    BUILDER_MAX_CPUS,
+  );
+  const activeCpuIndex = Math.min(
+    Math.max(0, activeCpuPackageIndex),
+    Math.max(0, cpuPackageCount - 1),
+  );
+  const cpuLinked = selections.cpuLinked !== "0";
   const cpuLevel = getBoundedInteger(
     selections.cpuLevel,
     1,
@@ -533,6 +592,56 @@ export function CustomSystemBuilder({
     1,
     1,
     BUILDER_MAX_LEVEL,
+  );
+  const linkedCpuConfig = {
+    coreCount: cpuCoreCount,
+    cpuLevel,
+    cacheLevel,
+    cacheSpeedLevel,
+  };
+  const unlinkedCoreCounts = parseIntegerList(
+    selections.cpuPackageCores,
+    cpuPackageCount,
+    () => linkedCpuConfig.coreCount,
+    1,
+    BUILDER_MAX_CORES,
+  );
+  const unlinkedCpuLevels = parseIntegerList(
+    selections.cpuPackageLevels,
+    cpuPackageCount,
+    () => linkedCpuConfig.cpuLevel,
+    1,
+    BUILDER_MAX_LEVEL,
+  );
+  const unlinkedCacheLevels = parseIntegerList(
+    selections.cpuPackageCacheLevels,
+    cpuPackageCount,
+    () => linkedCpuConfig.cacheLevel,
+    1,
+    BUILDER_MAX_LEVEL,
+  );
+  const unlinkedCacheSpeedLevels = parseIntegerList(
+    selections.cpuPackageCacheSpeedLevels,
+    cpuPackageCount,
+    () => linkedCpuConfig.cacheSpeedLevel,
+    1,
+    BUILDER_MAX_LEVEL,
+  );
+  const cpuPackageConfigs = Array.from({ length: cpuPackageCount }, (_, index) =>
+    cpuLinked
+      ? linkedCpuConfig
+      : {
+          coreCount: unlinkedCoreCounts[index] ?? linkedCpuConfig.coreCount,
+          cpuLevel: unlinkedCpuLevels[index] ?? linkedCpuConfig.cpuLevel,
+          cacheLevel: unlinkedCacheLevels[index] ?? linkedCpuConfig.cacheLevel,
+          cacheSpeedLevel:
+            unlinkedCacheSpeedLevels[index] ?? linkedCpuConfig.cacheSpeedLevel,
+        },
+  );
+  const activeCpuConfig = cpuPackageConfigs[activeCpuIndex] ?? linkedCpuConfig;
+  const totalCores = cpuPackageConfigs.reduce(
+    (total, config) => total + config.coreCount,
+    0,
   );
   const ramStickCount = getBoundedInteger(
     selections.ramSticks,
@@ -564,11 +673,12 @@ export function CustomSystemBuilder({
     powerEntry
       ? {
           cpu: selections[cpuEntry.groupId] ?? "",
-          cpuPackageCount: 1,
-          cpuCoreCount,
-          cpuLevel,
-          cacheLevel,
-          cacheSpeedLevel,
+          cpuPackageCount,
+          cpuCoreCount: totalCores,
+          cpuLevel: activeCpuConfig.cpuLevel,
+          cacheLevel: activeCpuConfig.cacheLevel,
+          cacheSpeedLevel: activeCpuConfig.cacheSpeedLevel,
+          cpuPackageConfigs,
           ram: selections[memoryEntry.groupId] ?? "",
           ramStickCount,
           ramLevel,
@@ -583,10 +693,10 @@ export function CustomSystemBuilder({
           try {
             return getMachineSelectionCost(machineSelection);
           } catch {
-            return getBuildCosts(selectedEntries, cpuCoreCount, ramStickCount);
+            return getBuildCosts(selectedEntries, totalCores, ramStickCount);
           }
         })()
-      : getBuildCosts(selectedEntries, cpuCoreCount, ramStickCount);
+      : getBuildCosts(selectedEntries, totalCores, ramStickCount);
   const costs =
     getRecordCosts(builder).length > 0
       ? getRecordCosts(builder)
@@ -612,20 +722,30 @@ export function CustomSystemBuilder({
     builder.lockedReason ??
     (!canAffordBuild ? "Insufficient resources." : null) ??
     "Locked";
-  const totalCores = cpuCoreCount;
-  const cpuClockHz =
-    cpuClockTierId === null ? (selectedCpuTier?.clockHz ?? 0) : getCpuClockHz(cpuClockTierId, cpuLevel);
-  const cacheBits = getCacheBits(cacheLevel);
-  const cacheSpeedHz =
+  const getPackageClockHz = (level: number) =>
+    cpuClockTierId === null
+      ? (selectedCpuTier?.clockHz ?? 0)
+      : getCpuClockHz(cpuClockTierId, level);
+  const getPackageCacheSpeedHz = (level: number) =>
     cpuClockTierId === null
       ? (selectedCpuTier?.cacheSpeedHz ?? 0)
-      : getCpuClockHz(cpuClockTierId, cacheSpeedLevel);
-  const ramBits = getRamBits(ramLevel) * ramStickCount;
-  const ramSpeed = getRamSpeedMt(ramSpeedLevel);
-  const cpuEfficiency =
+      : getCpuClockHz(cpuClockTierId, level);
+  const getPackageBaseEfficiency = (level: number) =>
     cpuClockTierId === null
       ? (selectedCpuTier?.cpuEfficiency ?? 1)
-      : getCpuTierLevelDefinition(cpuClockTierId, cpuLevel).efficiency;
+      : getCpuTierLevelDefinition(cpuClockTierId, level).efficiency;
+  const cpuClockHz = getPackageClockHz(activeCpuConfig.cpuLevel);
+  const cacheBits = getCacheBits(activeCpuConfig.cacheLevel);
+  const cacheSpeedHz = getPackageCacheSpeedHz(activeCpuConfig.cacheSpeedLevel);
+  const ramBits = getRamBits(ramLevel) * ramStickCount;
+  const ramSpeed = getRamSpeedMt(ramSpeedLevel);
+  const baseCpuEfficiency = getPackageBaseEfficiency(activeCpuConfig.cpuLevel);
+  const cpuEfficiency = getProjectedCpuEfficiency(
+    baseCpuEfficiency,
+    cpuPackageCount,
+  );
+  const ramEfficiency = getProjectedRamEfficiency(ramSpeedLevel);
+  const ramEfficiencyLabel = formatNumber(ramEfficiency);
   const otherRequiredPowerWatts = selectedEntries.reduce(
     (total, { groupId, tier }) =>
       groupId === "cpu" ||
@@ -637,9 +757,23 @@ export function CustomSystemBuilder({
     0,
   );
   const requiredPowerWatts = roundPowerWatts(
-    getProjectedCpuWatts(totalCores, cpuClockHz, cpuEfficiency) +
-      getProjectedCacheWatts(cacheLevel, cacheSpeedLevel) +
+    cpuPackageConfigs.reduce((total, config) => {
+      const packageEfficiency = getProjectedCpuEfficiency(
+        getPackageBaseEfficiency(config.cpuLevel),
+        cpuPackageCount,
+      );
+      return (
+        total +
+        getProjectedCpuWatts(
+          config.coreCount,
+          getPackageClockHz(config.cpuLevel),
+          packageEfficiency,
+        ) +
+        getProjectedCacheWatts(config.cacheLevel, config.cacheSpeedLevel)
+      );
+    }, 0) +
       getProjectedRamWatts(ramStickCount, ramLevel, ramSpeedLevel, ramSpeed) +
+      Math.max(0, cpuPackageCount - 1) * 0.00000000000008 +
       otherRequiredPowerWatts,
   );
   const psuCapacityWatts =
@@ -650,7 +784,7 @@ export function CustomSystemBuilder({
     ) ?? 0;
   const powerMet = requiredPowerWatts <= psuCapacityWatts + POWER_MATCH_EPSILON;
   const powerLabel = powerMet ? "Met" : "Short";
-  const projectedEfficiency = getProjectedCpuEfficiency(selectedCpuTier, 1);
+  const projectedEfficiency = cpuEfficiency;
   const projectedRunCostPerSecond =
     getProjectedRunCostPerSecond(requiredPowerWatts);
 
@@ -666,6 +800,10 @@ export function CustomSystemBuilder({
             cpuLevel: "1",
             cacheLevel: "1",
             cacheSpeedLevel: "1",
+            cpuPackageCores: "",
+            cpuPackageLevels: "",
+            cpuPackageCacheLevels: "",
+            cpuPackageCacheSpeedLevels: "",
           }
         : {}),
       ...(role === "memory"
@@ -688,6 +826,83 @@ export function CustomSystemBuilder({
       ...current,
       [key]: String(Math.max(min, Math.min(max, Math.trunc(nextValue)))),
     }));
+  };
+
+  const setCpuLinked = (linked: boolean) => {
+    setConfirmingPurchase(false);
+    setSelections((current) => {
+      const activeConfig = cpuPackageConfigs[activeCpuIndex] ?? linkedCpuConfig;
+
+      return {
+        ...current,
+        cpuLinked: linked ? "1" : "0",
+        cpuCores: String(activeConfig.coreCount),
+        cpuLevel: String(activeConfig.cpuLevel),
+        cacheLevel: String(activeConfig.cacheLevel),
+        cacheSpeedLevel: String(activeConfig.cacheSpeedLevel),
+        cpuPackageCores: serializeIntegerList(
+          cpuPackageConfigs.map((config) => config.coreCount),
+        ),
+        cpuPackageLevels: serializeIntegerList(
+          cpuPackageConfigs.map((config) => config.cpuLevel),
+        ),
+        cpuPackageCacheLevels: serializeIntegerList(
+          cpuPackageConfigs.map((config) => config.cacheLevel),
+        ),
+        cpuPackageCacheSpeedLevels: serializeIntegerList(
+          cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
+        ),
+      };
+    });
+  };
+
+  const updateCpuPackageConfig = (
+    key:
+      | "coreCount"
+      | "cpuLevel"
+      | "cacheLevel"
+      | "cacheSpeedLevel",
+    nextValue: number,
+    min: number,
+    max: number,
+  ) => {
+    const value = Math.max(min, Math.min(max, Math.trunc(nextValue)));
+
+    if (cpuLinked) {
+      const keyName =
+        key === "coreCount"
+          ? "cpuCores"
+          : key === "cpuLevel"
+            ? "cpuLevel"
+            : key === "cacheLevel"
+              ? "cacheLevel"
+              : "cacheSpeedLevel";
+      setSelectionNumber(keyName, value, min, max);
+      return;
+    }
+
+    setConfirmingPurchase(false);
+    setSelections((current) => {
+      const nextConfigs = cpuPackageConfigs.map((config, index) =>
+        index === activeCpuIndex ? { ...config, [key]: value } : config,
+      );
+
+      return {
+        ...current,
+        cpuPackageCores: serializeIntegerList(
+          nextConfigs.map((config) => config.coreCount),
+        ),
+        cpuPackageLevels: serializeIntegerList(
+          nextConfigs.map((config) => config.cpuLevel),
+        ),
+        cpuPackageCacheLevels: serializeIntegerList(
+          nextConfigs.map((config) => config.cacheLevel),
+        ),
+        cpuPackageCacheSpeedLevels: serializeIntegerList(
+          nextConfigs.map((config) => config.cacheSpeedLevel),
+        ),
+      };
+    });
   };
 
   const renderClockTierControls = (entry: BuilderGroupEntry) => {
@@ -831,6 +1046,38 @@ export function CustomSystemBuilder({
     />
   );
 
+  const renderCpuConfigStepper = ({
+    configKey,
+    label,
+    value,
+    display,
+    accent,
+    min = 1,
+    max = BUILDER_MAX_LEVEL,
+  }: {
+    configKey:
+      | "coreCount"
+      | "cpuLevel"
+      | "cacheLevel"
+      | "cacheSpeedLevel";
+    label: string;
+    value: number;
+    display: string;
+    accent: "cyan" | "green";
+    min?: number;
+    max?: number;
+  }) => (
+    <BuilderStepper
+      label={label}
+      value={display}
+      accent={accent}
+      canDecrease={value > min}
+      canIncrease={value < max}
+      onDecrease={() => updateCpuPackageConfig(configKey, value - 1, min, max)}
+      onIncrease={() => updateCpuPackageConfig(configKey, value + 1, min, max)}
+    />
+  );
+
   const renderSchedulerSection = (entry: BuilderGroupEntry | null) => {
     if (!entry) return null;
     const slots = Math.max(0, entry.selectedTier?.schedulerSlots ?? 0);
@@ -908,7 +1155,8 @@ export function CustomSystemBuilder({
             <MemoryStick size={14} />
             <span>RAM</span>
             <span className="hw-section-meta">
-              <strong>{formatBits(ramBits)}</strong> build
+              <strong>{formatBits(ramBits)}</strong> build / Eff{" "}
+              <strong>{ramEfficiencyLabel}</strong>
             </span>
           </button>
           <div className="ram-header-controls" aria-label="RAM stick count">
@@ -942,7 +1190,7 @@ export function CustomSystemBuilder({
                   key={`ram-stick-${stickIndex + 1}`}
                   type="button"
                   className="ram-stick-module"
-                  title={`R${stickIndex + 1} - ${formatBits(stickBits)} - ${formatClock(ramSpeed)}`}
+                  title={`R${stickIndex + 1} - ${formatBits(stickBits)} - ${formatClock(ramSpeed)} - Eff ${ramEfficiencyLabel}`}
                   onClick={() => setActiveSlotId(entry.groupId)}
                 >
                   <span className="ram-stick-module-head">
@@ -951,6 +1199,9 @@ export function CustomSystemBuilder({
                       <span>{formatBits(stickBits)}</span>
                       <span className="ram-stick-foot-sep" aria-hidden="true">/</span>
                       <span>{formatClock(ramSpeed)}</span>
+                    </span>
+                    <span className="ram-stick-efficiency">
+                      Eff <strong>{ramEfficiencyLabel}</strong>
                     </span>
                     <span className="ram-stick-module-pct">0%</span>
                   </span>
@@ -990,16 +1241,15 @@ export function CustomSystemBuilder({
   const renderCpuSection = (entry: BuilderGroupEntry | null) => {
     if (!entry) return null;
     const selected = activeSlotId === entry.groupId;
-    const coreCount = Math.max(1, totalCores);
-    const coreGrid = getCoreGridMetrics(coreCount);
-    const coreGridStyle = {
-      "--core-grid-columns": coreGrid.columns,
-    } as CSSProperties;
+    const manyCores =
+      totalCores > 8 || cpuPackageConfigs.some((config) => config.coreCount > 8);
     const cpuSchedulerSlots = Math.max(0, totalCores);
 
     return (
       <section
-        className={`cpu-package ${selected ? "selected" : ""}`}
+        className={`cpu-package custom-builder-cpu-package ${
+          manyCores ? "many-cores" : ""
+        } ${selected ? "selected" : ""}`}
         data-slot={entry.groupId}
       >
         <div className="cpu-package-header-row">
@@ -1013,6 +1263,8 @@ export function CustomSystemBuilder({
             <Cpu size={14} />
             <span>CPU</span>
             <span className="cpu-package-meta">
+              <strong>{formatNumber(cpuPackageCount)}</strong> CPU
+              {cpuPackageCount === 1 ? "" : "s"} /{" "}
               Eff{" "}
               <strong>
                 {projectedEfficiency === null
@@ -1021,9 +1273,57 @@ export function CustomSystemBuilder({
               </strong>
             </span>
           </button>
+          <div
+            className="cpu-package-header-install custom-builder-cpu-header-controls"
+            aria-label="CPU count"
+          >
+            <label className="custom-builder-link-toggle">
+              <input
+                type="checkbox"
+                checked={cpuLinked}
+                onChange={(event) => setCpuLinked(event.currentTarget.checked)}
+              />
+              <span>Link all CPUs</span>
+            </label>
+            {renderModifierStepper({
+              keyName: "cpuPackages",
+              label: "CPU",
+              value: cpuPackageCount,
+              display: formatNumber(cpuPackageCount),
+              accent: "cyan",
+              max: BUILDER_MAX_CPUS,
+            })}
+          </div>
         </div>
 
         {renderClockTierControls(entry)}
+
+        <div
+          className="custom-builder-cpu-package-strip"
+          aria-label="CPU packages"
+        >
+          {cpuPackageConfigs.map((config, packageIndex) => (
+            <button
+              key={`cpu-package-${packageIndex + 1}`}
+              type="button"
+              className={`custom-builder-cpu-chip ${
+                packageIndex === activeCpuIndex ? "active" : ""
+              }`}
+              onClick={() => {
+                setActiveSlotId(entry.groupId);
+                setActiveCpuPackageIndex(packageIndex);
+              }}
+              aria-pressed={packageIndex === activeCpuIndex}
+              title={`CPU ${packageIndex + 1}: ${formatNumber(config.coreCount)} core${
+                config.coreCount === 1 ? "" : "s"
+              } @ ${formatClock(getPackageClockHz(config.cpuLevel))}`}
+            >
+              <Cpu size={10} />
+              <span>CPU {packageIndex + 1}</span>
+              <strong>{formatNumber(config.coreCount)}</strong>
+            </button>
+          ))}
+        </div>
 
         <div className="cpu-package-body">
           <section className="hw-section scheduler-section custom-builder-cpu-scheduler">
@@ -1054,67 +1354,125 @@ export function CustomSystemBuilder({
             />
           </section>
 
-          <div className="core-cache-row">
-            <section className="core-array-section">
+          <div className={`core-cache-row ${manyCores ? "many-cores" : ""}`}>
+            <section className="core-array-section custom-builder-cpu-config">
               <div className="core-array-header">
-                <span>Cores</span>
+                <span>{cpuLinked ? "Linked CPU specs" : `CPU ${activeCpuIndex + 1} specs`}</span>
                 <span className="core-array-efficiency">
-                  {formatNumber(totalCores)} core{totalCores === 1 ? "" : "s"}
+                  {cpuLinked
+                    ? `${formatNumber(activeCpuConfig.coreCount)} core${
+                        activeCpuConfig.coreCount === 1 ? "" : "s"
+                      } each`
+                    : `${formatNumber(activeCpuConfig.coreCount)} core${
+                        activeCpuConfig.coreCount === 1 ? "" : "s"
+                      }`}
                 </span>
                 <div className="core-array-header-controls" aria-label="Core count">
-                  {renderModifierStepper({
-                    keyName: "cpuCores",
+                  {renderCpuConfigStepper({
+                    configKey: "coreCount",
                     label: "Core",
-                    value: totalCores,
-                    display: formatNumber(totalCores),
+                    value: activeCpuConfig.coreCount,
+                    display: formatNumber(activeCpuConfig.coreCount),
                     accent: "cyan",
                     max: BUILDER_MAX_CORES,
                   })}
                 </div>
               </div>
-
-              <div
-                className={`core-grid ${coreGrid.density}`}
-                style={coreGridStyle}
-                data-grid={coreGrid.label}
-              >
-                {Array.from({ length: coreCount }, (_, coreIndex) => (
-                  <div
-                    key={`core-${coreIndex + 1}`}
-                    role="button"
-                    tabIndex={0}
-                    className="core-die"
-                    title={`C${coreIndex + 1} - ${formatClock(cpuClockHz)} - Idle`}
-                    onClick={() => setActiveSlotId(entry.groupId)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      setActiveSlotId(entry.groupId);
-                    }}
-                    aria-pressed={selected}
-                  >
-                    <span className="core-die-head">
-                      <span className="core-status-dot" aria-hidden="true" />
-                      <span className="core-label">C{coreIndex + 1}</span>
-                      <span className="core-clock">
-                        <strong>{formatClock(cpuClockHz)}</strong>
-                      </span>
-                    </span>
-                    <span className="core-work idle">Idle</span>
-                  </div>
-                ))}
-              </div>
-
               <div className="core-control-strip custom-builder-upgrade-strip">
-                {renderModifierStepper({
-                  keyName: "cpuLevel",
+                {renderCpuConfigStepper({
+                  configKey: "cpuLevel",
                   label: "Core Freq",
-                  value: cpuLevel,
+                  value: activeCpuConfig.cpuLevel,
                   display: formatClock(cpuClockHz),
                   accent: "cyan",
                 })}
               </div>
             </section>
+
+            <div
+              className="custom-builder-cpu-socket-grid"
+              aria-label="CPU core arrays"
+            >
+              {cpuPackageConfigs.map((config, packageIndex) => {
+                const packageSelected = packageIndex === activeCpuIndex;
+                const packageClockHz = getPackageClockHz(config.cpuLevel);
+                const packageEfficiency = getProjectedCpuEfficiency(
+                  getPackageBaseEfficiency(config.cpuLevel),
+                  cpuPackageCount,
+                );
+                const packageManyCores = config.coreCount > 8;
+                const packageCoreGrid = getBuilderCoreGridMetrics(
+                  config.coreCount,
+                );
+                const packageCoreGridStyle = {
+                  "--core-grid-columns": packageCoreGrid.columns,
+                } as CSSProperties;
+
+                return (
+                  <section
+                    key={`cpu-socket-${packageIndex + 1}`}
+                    className={`core-array-section custom-builder-core-array custom-builder-cpu-socket ${
+                      packageManyCores ? "many-cores" : ""
+                    } ${packageSelected ? "selected" : ""}`}
+                  >
+                    <div className="core-array-header">
+                      <button
+                        type="button"
+                        className="custom-builder-cpu-socket-title"
+                        onClick={() => {
+                          setActiveSlotId(entry.groupId);
+                          setActiveCpuPackageIndex(packageIndex);
+                        }}
+                        aria-pressed={packageSelected}
+                      >
+                        CPU {packageIndex + 1}
+                      </button>
+                      <span className="core-array-efficiency">
+                        {formatNumber(config.coreCount)} core
+                        {config.coreCount === 1 ? "" : "s"} / Eff{" "}
+                        <strong>{formatNumber(packageEfficiency)}</strong>
+                      </span>
+                    </div>
+
+                    <div
+                      className={`core-grid ${packageCoreGrid.density}`}
+                      style={packageCoreGridStyle}
+                      data-grid={packageCoreGrid.label}
+                    >
+                      {Array.from({ length: config.coreCount }, (_, coreIndex) => (
+                        <div
+                          key={`cpu-${packageIndex + 1}-core-${coreIndex + 1}`}
+                          role="button"
+                          tabIndex={0}
+                          className="core-die"
+                          title={`CPU ${packageIndex + 1} C${coreIndex + 1} - ${formatClock(packageClockHz)} - Idle`}
+                          onClick={() => {
+                            setActiveSlotId(entry.groupId);
+                            setActiveCpuPackageIndex(packageIndex);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            setActiveSlotId(entry.groupId);
+                            setActiveCpuPackageIndex(packageIndex);
+                          }}
+                          aria-pressed={packageSelected}
+                        >
+                          <span className="core-die-head">
+                            <span className="core-status-dot" aria-hidden="true" />
+                            <span className="core-label">C{coreIndex + 1}</span>
+                            <span className="core-clock">
+                              <strong>{formatClock(packageClockHz)}</strong>
+                            </span>
+                          </span>
+                          <span className="core-work idle">Idle</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
 
             <section className="hw-section cache-section">
               <button
@@ -1139,17 +1497,17 @@ export function CustomSystemBuilder({
                 </span>
               </div>
               <div className="core-control-strip cache-control-strip custom-builder-upgrade-strip">
-                {renderModifierStepper({
-                  keyName: "cacheLevel",
+                {renderCpuConfigStepper({
+                  configKey: "cacheLevel",
                   label: "Size",
-                  value: cacheLevel,
+                  value: activeCpuConfig.cacheLevel,
                   display: formatBits(cacheBits),
                   accent: "green",
                 })}
-                {renderModifierStepper({
-                  keyName: "cacheSpeedLevel",
+                {renderCpuConfigStepper({
+                  configKey: "cacheSpeedLevel",
                   label: "Freq",
-                  value: cacheSpeedLevel,
+                  value: activeCpuConfig.cacheSpeedLevel,
                   display: formatClock(cacheSpeedHz),
                   accent: "green",
                 })}
@@ -1263,11 +1621,24 @@ export function CustomSystemBuilder({
               type: "buyCustomSystem",
               tierIds: {
                 ...selections,
-                cpuPackages: "1",
+                cpuPackages: String(cpuPackageCount),
                 cpuCores: String(totalCores),
-                cpuLevel: String(cpuLevel),
-                cacheLevel: String(cacheLevel),
-                cacheSpeedLevel: String(cacheSpeedLevel),
+                cpuLevel: String(activeCpuConfig.cpuLevel),
+                cacheLevel: String(activeCpuConfig.cacheLevel),
+                cacheSpeedLevel: String(activeCpuConfig.cacheSpeedLevel),
+                cpuLinked: cpuLinked ? "1" : "0",
+                cpuPackageCores: serializeIntegerList(
+                  cpuPackageConfigs.map((config) => config.coreCount),
+                ),
+                cpuPackageLevels: serializeIntegerList(
+                  cpuPackageConfigs.map((config) => config.cpuLevel),
+                ),
+                cpuPackageCacheLevels: serializeIntegerList(
+                  cpuPackageConfigs.map((config) => config.cacheLevel),
+                ),
+                cpuPackageCacheSpeedLevels: serializeIntegerList(
+                  cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
+                ),
                 ramSticks: String(ramStickCount),
                 ramLevel: String(ramLevel),
                 ramSpeedLevel: String(ramSpeedLevel),

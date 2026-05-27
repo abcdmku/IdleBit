@@ -616,10 +616,23 @@ const scaleCosts = (costs: Cost[], multiplier: number) =>
     amount: cost.amount * multiplier,
   }));
 
+const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
+  const packageCount = Math.max(1, cpuPackageCount);
+  const total = Math.max(packageCount, coreCount);
+  const coresPerPackage = Math.max(1, Math.floor(total / packageCount));
+  const extraCores = total % packageCount;
+
+  return Array.from(
+    { length: packageCount },
+    (_, index) => coresPerPackage + (index < extraCores ? 1 : 0),
+  );
+};
+
 export const getMachineSelectionCost = (selection: MachineComponentSelection) => {
   const [cpu, ram, scheduler, psu] = getMachineComponentSkus(selection);
   const cpuPackageCount = Math.max(
     1,
+    selection.cpuPackageConfigs?.length ?? 0,
     getPositiveInteger(selection.cpuPackageCount, cpu.cpuPackageCount ?? 1),
   );
   const cpuTierId = cpu.cpuTierId ?? "hz";
@@ -635,37 +648,97 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
     1,
     getPositiveInteger(selection.cacheSpeedLevel, baseCacheSpeedLevel),
   );
+  const baseCoreCountPerPackage = Math.max(1, cpu.coreCount ?? 1);
+  const hasCpuPackageConfigs =
+    Array.isArray(selection.cpuPackageConfigs) &&
+    selection.cpuPackageConfigs.length > 0;
+  const fallbackCoreCounts = distributeCoreCount(
+    selection.cpuCoreCount ?? baseCoreCountPerPackage * cpuPackageCount,
+    cpuPackageCount,
+  );
+  const cpuPackageConfigs = Array.from({ length: cpuPackageCount }, (_, index) => {
+    const config = selection.cpuPackageConfigs?.[index];
+
+    return {
+      coreCount: Math.max(
+        1,
+        config?.coreCount ??
+          (hasCpuPackageConfigs ? baseCoreCountPerPackage : fallbackCoreCounts[index]) ??
+          baseCoreCountPerPackage,
+      ),
+      cpuLevel: Math.max(1, config?.cpuLevel ?? targetCpuLevel),
+      cacheLevel: Math.max(1, config?.cacheLevel ?? targetCacheLevel),
+      cacheSpeedLevel: Math.max(
+        1,
+        config?.cacheSpeedLevel ?? targetCacheSpeedLevel,
+      ),
+    };
+  });
   const baseCoreCount = Math.max(
     cpuPackageCount,
-    (cpu.coreCount ?? 1) * cpuPackageCount,
+    baseCoreCountPerPackage * cpuPackageCount,
   );
-  const targetCoreCount = Math.max(
-    cpuPackageCount,
-    getPositiveInteger(selection.cpuCoreCount, baseCoreCount),
-  );
-  const extraCoreCosts = Array.from(
-    { length: Math.max(0, targetCoreCount - baseCoreCount) },
-    (_, index) => baseCoreCount + index,
-  ).flatMap((currentCoreCount) =>
-    getCoreBuildCost(
-      cpuTierId,
-      targetCpuLevel,
-      targetCacheSpeedLevel,
-      Math.max(0, currentCoreCount - 1),
-    ),
-  );
-  const cpuLevelCosts = costLevels(baseCpuLevel, targetCpuLevel, (level) =>
-    scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
-  );
-  const cacheLevelCosts = costLevels(baseCacheLevel, targetCacheLevel, (level) =>
-    scaleCosts(cacheCapacityCosts(level - 1), cpuPackageCount),
-  );
-  const cacheSpeedCosts = costLevels(
-    baseCacheSpeedLevel,
-    targetCacheSpeedLevel,
-    (level) =>
-      scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
-  );
+  const targetCoreCount = hasCpuPackageConfigs
+    ? cpuPackageConfigs.reduce((total, config) => total + config.coreCount, 0)
+    : Math.max(
+        cpuPackageCount,
+        getPositiveInteger(selection.cpuCoreCount, baseCoreCount),
+      );
+  const extraCoreCosts = hasCpuPackageConfigs
+    ? cpuPackageConfigs.flatMap((config) =>
+        Array.from(
+          { length: Math.max(0, config.coreCount - baseCoreCountPerPackage) },
+          (_, index) => baseCoreCountPerPackage + index,
+        ).flatMap((currentCoreCount) =>
+          getCoreBuildCost(
+            cpuTierId,
+            config.cpuLevel,
+            config.cacheSpeedLevel,
+            Math.max(0, currentCoreCount - 1),
+          ),
+        ),
+      )
+    : Array.from(
+        { length: Math.max(0, targetCoreCount - baseCoreCount) },
+        (_, index) => baseCoreCount + index,
+      ).flatMap((currentCoreCount) =>
+        getCoreBuildCost(
+          cpuTierId,
+          targetCpuLevel,
+          targetCacheSpeedLevel,
+          Math.max(0, currentCoreCount - 1),
+        ),
+      );
+  const cpuLevelCosts = hasCpuPackageConfigs
+    ? cpuPackageConfigs.flatMap((config) =>
+        costLevels(baseCpuLevel, config.cpuLevel, (level) =>
+          scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), config.coreCount),
+        ),
+      )
+    : costLevels(baseCpuLevel, targetCpuLevel, (level) =>
+        scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
+      );
+  const cacheLevelCosts = hasCpuPackageConfigs
+    ? cpuPackageConfigs.flatMap((config) =>
+        costLevels(baseCacheLevel, config.cacheLevel, (level) =>
+          scaleCosts(cacheCapacityCosts(level - 1), 1),
+        ),
+      )
+    : costLevels(baseCacheLevel, targetCacheLevel, (level) =>
+        scaleCosts(cacheCapacityCosts(level - 1), cpuPackageCount),
+      );
+  const cacheSpeedCosts = hasCpuPackageConfigs
+    ? cpuPackageConfigs.flatMap((config) =>
+        costLevels(baseCacheSpeedLevel, config.cacheSpeedLevel, (level) =>
+          scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), config.coreCount),
+        ),
+      )
+    : costLevels(
+        baseCacheSpeedLevel,
+        targetCacheSpeedLevel,
+        (level) =>
+          scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
+      );
   const hasCustomRam =
     selection.ramStickCount !== undefined ||
     selection.ramLevel !== undefined ||

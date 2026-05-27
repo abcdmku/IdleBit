@@ -115,6 +115,12 @@ const toPositiveInteger = (value: string | undefined) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
 };
 
+const toPositiveIntegerList = (value: string | undefined) =>
+  value
+    ?.split(",")
+    .map((item) => toPositiveInteger(item.trim()))
+    .filter((item): item is number => item !== undefined) ?? [];
+
 const withSystem = <T extends { type: string }>(
   gameAction: T,
   action: { systemId?: string | number },
@@ -188,15 +194,45 @@ export const toGameAction = (action: UiGameAction): GameAction => {
   }
 
   if (action.type === "buyCustomSystem") {
+    const cpuPackageCount = toPositiveInteger(action.tierIds.cpuPackages) ?? 1;
+    const cpuPackageCores = toPositiveIntegerList(action.tierIds.cpuPackageCores);
+    const cpuPackageLevels = toPositiveIntegerList(action.tierIds.cpuPackageLevels);
+    const cpuPackageCacheLevels = toPositiveIntegerList(
+      action.tierIds.cpuPackageCacheLevels,
+    );
+    const cpuPackageCacheSpeedLevels = toPositiveIntegerList(
+      action.tierIds.cpuPackageCacheSpeedLevels,
+    );
+    const cpuPackageConfigCount = Math.max(
+      cpuPackageCount,
+      cpuPackageCores.length,
+      cpuPackageLevels.length,
+      cpuPackageCacheLevels.length,
+      cpuPackageCacheSpeedLevels.length,
+    );
+    const hasCpuPackageConfigs =
+      cpuPackageCores.length > 0 ||
+      cpuPackageLevels.length > 0 ||
+      cpuPackageCacheLevels.length > 0 ||
+      cpuPackageCacheSpeedLevels.length > 0;
+
     return {
       type: "buyCustomMachine",
       components: {
         cpu: action.tierIds.cpu ?? action.tierIds.cpuPackage ?? "",
-        cpuPackageCount: toPositiveInteger(action.tierIds.cpuPackages) ?? 1,
+        cpuPackageCount,
         cpuCoreCount: toPositiveInteger(action.tierIds.cpuCores),
         cpuLevel: toPositiveInteger(action.tierIds.cpuLevel),
         cacheLevel: toPositiveInteger(action.tierIds.cacheLevel),
         cacheSpeedLevel: toPositiveInteger(action.tierIds.cacheSpeedLevel),
+        cpuPackageConfigs: hasCpuPackageConfigs
+          ? Array.from({ length: cpuPackageConfigCount }, (_, index) => ({
+              coreCount: cpuPackageCores[index],
+              cpuLevel: cpuPackageLevels[index],
+              cacheLevel: cpuPackageCacheLevels[index],
+              cacheSpeedLevel: cpuPackageCacheSpeedLevels[index],
+            }))
+          : undefined,
         ram: action.tierIds.ram ?? action.tierIds.memory ?? action.tierIds.ramModule ?? "",
         ramStickCount: toPositiveInteger(action.tierIds.ramSticks),
         ramLevel: toPositiveInteger(action.tierIds.ramLevel),

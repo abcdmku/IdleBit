@@ -918,9 +918,20 @@ system configs, or a separate module picker. CPU and RAM expose a clear `Tier`
 header whose selectable values are only the clock-scale tiers:
 Hz/kHz/MHz/GHz/THz/PHz. After a tier is selected, the player configures the
 system through the same compact +/- upgrade-style controls used by the normal
-system view for core count, CPU frequency, cache capacity/frequency, RAM stick
-count, RAM capacity/frequency, scheduler slots, and PSU capacity. Those
-modifiers must affect the preview, total buy price, and the purchased system.
+system view for CPU package count in the CPU header, core count, CPU
+frequency, cache capacity/frequency, RAM stick count, RAM capacity/frequency,
+scheduler slots, and PSU capacity. The builder must not impose a fixed low
+core-count ceiling; resources and PSU capacity are the meaningful limits.
+Multi-CPU previews should render each CPU as an individual CPU package/core
+array, not split one shared core grid across package labels. A `Link all CPUs`
+checkbox should keep package core count, CPU frequency, cache capacity, and
+cache frequency synchronized; when unlinked, the selected CPU package can carry
+its own specs through purchase. High-core previews should give core arrays the
+full CPU package width, use denser core tiles instead of squeezing beside
+cache, wrap core tile text onto separate lines, and maintain a readable minimum
+tile size by adding rows instead of shrinking tiles indefinitely. Those
+modifiers must affect the preview, total buy price, and the purchased system,
+and the RAM view should show RAM efficiency alongside CPU efficiency.
 
 Catalog and builder CPU choices are research-gated by unlocked CPU tiers, and
 each CPU purchase path instantiates level-1 packages rather than copied package

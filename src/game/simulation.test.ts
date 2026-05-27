@@ -2182,6 +2182,75 @@ describe("IdleBit simulation", () => {
     ).toBe(true);
   });
 
+  it("keeps custom builder CPU packages as individual configured CPUs", () => {
+    let state = fund({
+      ...createInitialGameState(),
+      flags: {
+        ...createInitialGameState().flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
+      },
+    });
+    state = {
+      ...state,
+      resources: { credits: 1e18, data: 1e18 },
+    };
+    const components = {
+      cpu: "cpu-sip-core",
+      cpuPackageCount: 2,
+      cpuCoreCount: 5,
+      cpuPackageConfigs: [
+        {
+          coreCount: 2,
+          cpuLevel: 2,
+          cacheLevel: 3,
+          cacheSpeedLevel: 4,
+        },
+        {
+          coreCount: 3,
+          cpuLevel: 5,
+          cacheLevel: 6,
+          cacheSpeedLevel: 7,
+        },
+      ],
+      ram: "ram-khz-tier",
+      ramStickCount: 1,
+      ramLevel: getRamTierFirstGlobalLevel("khz"),
+      ramSpeedLevel: getRamTierFirstGlobalLevel("khz"),
+      scheduler: "scheduler-2-slot",
+      psu: "psu-compact",
+    };
+    const expectedCost = getMachineSelectionCost(components);
+
+    state = applyAction(state, {
+      type: "buyCustomMachine",
+      components,
+    });
+
+    const custom = state.systems.at(-1);
+    expect(custom?.purchaseCosts).toEqual(expectedCost);
+    expect(custom?.hardware.cpus).toHaveLength(2);
+    expect(custom?.hardware.cores).toBe(5);
+    expect(custom?.hardware.cpus[0]?.coreIds).toEqual([1, 2]);
+    expect(custom?.hardware.cpus[1]?.coreIds).toEqual([3, 4, 5]);
+    expect(custom?.hardware.cpus[0]?.level).toBe(2);
+    expect(custom?.hardware.cpus[1]?.level).toBe(5);
+    expect(custom?.hardware.cpus[0]?.cacheLevel).toBe(3);
+    expect(custom?.hardware.cpus[1]?.cacheLevel).toBe(6);
+    expect(custom?.hardware.cpus[0]?.cacheSpeedLevel).toBe(4);
+    expect(custom?.hardware.cpus[1]?.cacheSpeedLevel).toBe(7);
+    expect(custom?.hardware.coreClockLevels).toEqual({
+      1: 2,
+      2: 2,
+      3: 5,
+      4: 5,
+      5: 5,
+    });
+  });
+
   it("routes selected-system upgrades without mutating other rack systems", () => {
     let state = fund({
       ...createInitialGameState(),

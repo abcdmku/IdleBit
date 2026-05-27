@@ -774,9 +774,204 @@ describe("HardwareBoard multi-system rack", () => {
         ramTierLevel: "1",
         ramSpeedTierLevel: "1",
         cpuPackages: "1",
+        cpuLinked: "1",
+        cpuPackageCores: "4",
+        cpuPackageLevels: "1",
+        cpuPackageCacheLevels: "1",
+        cpuPackageCacheSpeedLevels: "1",
         ramLevel: "37",
         ramSpeedLevel: "37",
       },
+      systemId: "beta",
+    });
+  });
+
+  it("allows custom builder cores past eight and shows RAM efficiency", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    for (let index = 0; index < 10; index += 1) {
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            ".core-array-header-controls .upgrade-stepper-button.plus",
+          )
+          ?.click();
+      });
+    }
+    const corePlus = container.querySelector<HTMLButtonElement>(
+      ".core-array-header-controls .upgrade-stepper-button.plus",
+    );
+
+    expect(corePlus?.disabled).toBe(false);
+    expect(
+      container.querySelector(".core-array-header .core-array-efficiency")?.textContent,
+    ).toContain("11 cores");
+    expect(container.querySelector(".custom-builder-system-preview .core-cache-row")?.className).toContain(
+      "many-cores",
+    );
+    expect(
+      container
+        .querySelector<HTMLElement>(
+          ".custom-builder-system-preview .custom-builder-cpu-socket.many-cores .core-grid",
+        )
+        ?.style.getPropertyValue("--core-grid-columns"),
+    ).toBe("4");
+    expect(
+      container.querySelectorAll(".custom-builder-system-preview .core-die"),
+    ).toHaveLength(11);
+    expect(container.querySelector(".memory-section .hw-section-meta")?.textContent).toContain(
+      "Eff",
+    );
+    expect(container.querySelector(".memory-section .ram-stick-efficiency")?.textContent).toContain(
+      "Eff",
+    );
+  });
+
+  it("adds CPU packages from the builder CPU header", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    const cpuPlus = container.querySelector<HTMLButtonElement>(
+      ".custom-builder-cpu-header-controls .upgrade-stepper-button.plus",
+    );
+
+    act(() => cpuPlus?.click());
+    act(() => cpuPlus?.click());
+
+    expect(
+      container.querySelector(".custom-builder-cpu-package .cpu-package-meta")
+        ?.textContent,
+    ).toContain("3 CPUs");
+    expect(
+      container.querySelectorAll(".custom-builder-system-preview .core-die"),
+    ).toHaveLength(3);
+    expect(
+      container.querySelectorAll(".custom-builder-cpu-package-strip .custom-builder-cpu-chip"),
+    ).toHaveLength(3);
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyCustomSystem",
+      tierIds: expect.objectContaining({
+        cpuPackages: "3",
+        cpuCores: "3",
+        cpuPackageCores: "1,1,1",
+      }),
+      systemId: "beta",
+    });
+  });
+
+  it("can unlink CPU packages and edit the selected CPU independently", () => {
+    const visible = makeRackVisible();
+    const dispatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="system:beta::core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".custom-builder-cpu-header-controls .upgrade-stepper-button.plus",
+        )
+        ?.click();
+    });
+    act(() => {
+      container
+        .querySelector<HTMLInputElement>(".custom-builder-link-toggle input")
+        ?.click();
+    });
+
+    const cpuChips = container.querySelectorAll<HTMLButtonElement>(
+      ".custom-builder-cpu-package-strip .custom-builder-cpu-chip",
+    );
+    act(() => cpuChips[1]?.click());
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".custom-builder-cpu-config .core-array-header-controls .upgrade-stepper-button.plus",
+        )
+        ?.click();
+    });
+
+    const sockets = container.querySelectorAll<HTMLElement>(
+      ".custom-builder-cpu-socket",
+    );
+    expect(sockets).toHaveLength(2);
+    expect(sockets[0]?.querySelectorAll(".core-die")).toHaveLength(1);
+    expect(sockets[1]?.querySelectorAll(".core-die")).toHaveLength(2);
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>(
+        ".custom-system-builder-header .custom-builder-buy",
+      )?.click();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "buyCustomSystem",
+      tierIds: expect.objectContaining({
+        cpuLinked: "0",
+        cpuPackages: "2",
+        cpuCores: "3",
+        cpuPackageCores: "1,2",
+      }),
       systemId: "beta",
     });
   });

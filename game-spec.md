@@ -922,6 +922,8 @@ system view for CPU package count in the CPU header, core count, CPU
 frequency, cache capacity/frequency, RAM stick count, RAM capacity/frequency,
 scheduler slots, and PSU capacity. The builder must not impose a fixed low
 core-count ceiling; resources and PSU capacity are the meaningful limits.
+Builder PSU capacity uses the same level-by-level wattage and credit cost curve
+as the normal PSU Capacity upgrade.
 Multi-CPU previews should render each CPU as an individual CPU package/core
 array, not split one shared core grid across package labels. A `Link all CPUs`
 checkbox should keep package core count, CPU frequency, cache capacity, and

@@ -534,6 +534,7 @@ export interface MachineComponentSelection {
   ramSpeedLevel?: number;
   scheduler: string;
   psu: string;
+  psuLevel?: number;
 }
 
 export interface MachineTemplateDefinition {

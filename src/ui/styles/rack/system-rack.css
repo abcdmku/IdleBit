@@ -107,11 +107,20 @@
   text-transform: uppercase;
 }
 
-.rack-build-new:hover {
+.rack-build-new:hover:not(:disabled) {
   border-color: rgba(242, 194, 78, 0.75);
+  color: var(--amber);
   background:
     linear-gradient(180deg, rgba(242, 194, 78, 0.22), rgba(242, 194, 78, 0.08));
   box-shadow: 0 0 12px rgba(242, 194, 78, 0.18);
+}
+
+.rack-build-new:active:not(:disabled) {
+  border-color: rgba(242, 194, 78, 0.68);
+  color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.08), rgba(242, 194, 78, 0.18));
+  box-shadow: 0 0 8px rgba(242, 194, 78, 0.14);
 }
 
 .system-rack-slots {

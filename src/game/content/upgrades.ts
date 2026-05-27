@@ -44,6 +44,7 @@ import {
   getRamTierInstallCost,
   getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
+import { getPsuCapacityUpgradeCost } from "./psu";
 import {
   MEMORY_VOLTAGE_MAX_LEVEL,
   getMemoryVoltageCost,
@@ -129,10 +130,6 @@ const getRamInstallLevelForContext = (
 const coreCosts = (purchaseCount: number): Cost[] => [
   credits(140 * 2.05 ** purchaseCount),
   data(5 * 1.45 ** purchaseCount),
-];
-
-const psuCosts = (purchaseCount: number): Cost[] => [
-  credits(24 * 1.42 ** purchaseCount),
 ];
 
 const coolingCosts = (purchaseCount: number): Cost[] => [
@@ -1233,7 +1230,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     component: "psu",
     accent: "amber",
     requirement: () => true,
-    cost: (state) => psuCosts(Math.max(0, state.hardware.psuLevel - 1)),
+    cost: (state) => getPsuCapacityUpgradeCost(state.hardware.psuLevel + 1),
     buy: (state) => {
       const psuLevel = state.hardware.psuLevel + 1;
       return setHardware(state, {
@@ -1243,7 +1240,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
     refund: (state) =>
       state.hardware.psuLevel > 1
-        ? halfRefund(psuCosts(state.hardware.psuLevel - 2))
+        ? halfRefund(getPsuCapacityUpgradeCost(state.hardware.psuLevel))
         : [],
     downgrade: (state) => {
       if (state.hardware.psuLevel <= 1) return state;

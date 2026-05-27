@@ -170,7 +170,7 @@ const createHardwareFromMachineSelection = (
     createRamStickState(index + 1, ramLevel, ramSpeedLevel),
   );
   const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
-  const psuLevel = Math.max(1, psu.psuLevel ?? 1);
+  const psuLevel = Math.max(1, selection.psuLevel ?? psu.psuLevel ?? 1);
   let nextCoreId = 1;
   const coreClockLevels: Record<number, number> = {};
   const cpus = cpuPackageConfigs.map((config, index) => {

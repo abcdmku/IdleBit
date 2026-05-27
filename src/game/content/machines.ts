@@ -18,6 +18,7 @@ import {
   getRamTierLevelDefinition,
   getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
+import { getPsuCapacityBuildCost } from "./psu";
 
 type ComponentSkuTier = "starter" | "compile" | "render" | "workstation" | "server";
 type CatalogResearchId = Extract<
@@ -770,6 +771,15 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
         scaleCosts(getRamTierSpeedUpgradeCost(level), targetRamStickCount),
       )
     : [];
+  const hasCustomPsu = selection.psuLevel !== undefined;
+  const basePsuLevel = Math.max(1, psu.psuLevel ?? 1);
+  const targetPsuLevel = Math.max(
+    1,
+    getPositiveInteger(selection.psuLevel, basePsuLevel),
+  );
+  const psuCosts = hasCustomPsu
+    ? [...psu.cost, ...getPsuCapacityBuildCost(basePsuLevel, targetPsuLevel)]
+    : psu.cost;
 
   return combineCosts([
     ...scaleCosts(cpu.cost, cpuPackageCount),
@@ -781,6 +791,6 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
     ...ramCapacityCosts,
     ...ramSpeedCosts,
     ...scheduler.cost,
-    ...psu.cost,
+    ...psuCosts,
   ]);
 };

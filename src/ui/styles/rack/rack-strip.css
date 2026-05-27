@@ -215,10 +215,18 @@
   text-transform: uppercase;
 }
 
-.rack-strip-build:hover {
+.rack-strip-build:hover:not(:disabled) {
   border-color: rgba(242, 194, 78, 0.75);
+  color: var(--amber);
   background:
     linear-gradient(180deg, rgba(242, 194, 78, 0.2), rgba(242, 194, 78, 0.08));
+}
+
+.rack-strip-build:active:not(:disabled) {
+  border-color: rgba(242, 194, 78, 0.68);
+  color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 194, 78, 0.08), rgba(242, 194, 78, 0.18));
 }
 
 .rack-strip-build.selected {

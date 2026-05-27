@@ -6,10 +6,13 @@ import {
   deriveVisibleState,
   type VisibleState
 } from "../game";
+import { getPsuCapacityBuildCost } from "../game/content/psu";
+import { getPsuWatts } from "../game/progression";
 import {
   HardwareBoard,
   TaskBay
 } from "./HardwareBoard";
+import { formatWatts } from "./format";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -595,7 +598,10 @@ describe("HardwareBoard multi-system rack", () => {
   });
 
   it("opens a system-view custom builder without premade configs", () => {
-    const visible = makeRackVisible();
+    const visible = {
+      ...makeRackVisible(),
+      resources: { credits: 20_000, data: 1_000 },
+    };
     const dispatch = vi.fn();
 
     act(() => {
@@ -717,9 +723,24 @@ describe("HardwareBoard multi-system rack", () => {
     act(() => ramStickPlus?.click());
 
     const psuState = container.querySelector<HTMLElement>(".custom-builder-psu-state");
+    expect(psuState?.textContent).toContain("Short");
+    expect(container.querySelector(".custom-builder-system-preview .psu-section")?.textContent).toContain(
+      formatWatts(getPsuWatts(5)),
+    );
+    const psuPlus = container.querySelector<HTMLButtonElement>(
+      ".psu-section .upgrade-stepper-button.plus",
+    );
+    for (let index = 0; index < 8; index += 1) {
+      act(() => psuPlus?.click());
+    }
+
+    const psuUpgradeCost = getPsuCapacityBuildCost(5, 13).reduce(
+      (total, cost) => total + (cost.resource === "credits" ? cost.amount : 0),
+      0,
+    );
     expect(psuState?.textContent).toContain("Met");
     expect(container.querySelector(".custom-builder-system-preview .psu-section")?.textContent).toContain(
-      "24 W",
+      formatWatts(getPsuWatts(13)),
     );
     expect(container.querySelector(".custom-builder-system-preview .core-control-strip .upgrade-stepper")).not.toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .cache-control-strip .upgrade-stepper")).not.toBeNull();
@@ -739,7 +760,7 @@ describe("HardwareBoard multi-system rack", () => {
     expect(
       container.querySelector(".custom-system-builder-price .resource-token.credits strong")
         ?.textContent,
-    ).toBe("1040");
+    ).toBe(String(1040 + psuUpgradeCost));
     expect(
       container.querySelector(".custom-system-builder-price .resource-token.data strong")
         ?.textContent,
@@ -781,6 +802,7 @@ describe("HardwareBoard multi-system rack", () => {
         cpuPackageCacheSpeedLevels: "1",
         ramLevel: "37",
         ramSpeedLevel: "37",
+        psuLevel: "13",
       },
       systemId: "beta",
     });

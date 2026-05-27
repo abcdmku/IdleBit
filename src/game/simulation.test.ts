@@ -39,6 +39,7 @@ import {
   getRamTierFirstGlobalLevel,
   getRamTierLevelDefinition,
 } from "./content/ramTiers";
+import { getPsuCapacityBuildCost } from "./content/psu";
 import {
   allocateRamBlocksForOperation,
   getCacheLoadCycles,
@@ -1990,6 +1991,44 @@ describe("IdleBit simulation", () => {
 
     expect(cost).toEqual([{ resource: "credits", amount: 128_002 }]);
     expect(state.systems.at(-1)?.hardware.cpus).toHaveLength(4);
+    expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
+  });
+
+  it("prices custom PSU capacity with the normal PSU upgrade curve", () => {
+    const selection = {
+      cpu: "cpu-barebones-1",
+      ram: "ram-none",
+      scheduler: "scheduler-none",
+      psu: "psu-barebones",
+      psuLevel: 5,
+    } as const;
+    const cost = getMachineSelectionCost(selection);
+    const psuUpgradeCost = getPsuCapacityBuildCost(1, 5).reduce(
+      (total, item) => total + (item.resource === "credits" ? item.amount : 0),
+      0,
+    );
+    const before = 10_000;
+    const state = applyAction(
+      {
+        ...createInitialGameState(),
+        flags: {
+          ...createInitialGameState().flags,
+          systemCatalog: true,
+        },
+        resources: {
+          credits: before,
+          data: 0,
+        },
+      },
+      {
+        type: "buyCustomMachine",
+        components: selection,
+      },
+    );
+
+    expect(costAmount(cost, "credits")).toBe(10 + psuUpgradeCost);
+    expect(state.systems.at(-1)?.hardware.psuLevel).toBe(5);
+    expect(state.systems.at(-1)?.hardware.psuWatts).toBe(getPsuWatts(5));
     expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
   });
 

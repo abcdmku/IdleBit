@@ -19,9 +19,11 @@ import {
 import {
   getCacheBits,
   getCpuClockHz,
+  getPsuWatts,
   getRamBits,
   getRamSpeedMt,
 } from "../../game/progression";
+import { getPsuCapacityBuildCost } from "../../game/content/psu";
 import type { VisibleState } from "../../game";
 import {
   formatBits,
@@ -132,6 +134,7 @@ const getBuildCosts = (
   entries: Array<{ groupId: string; tier: UiCustomMachineTier }>,
   cpuCoreCount: number,
   ramStickCount: number,
+  psuLevel?: number,
 ) =>
   sumCosts(
     entries.map(({ groupId, tier }) => {
@@ -142,6 +145,15 @@ const getBuildCosts = (
       if (groupId === "ram" || groupId === "memory") {
         const baseStickCount = Math.max(1, Math.floor(tier.ramStickCount ?? 1));
         return scaleCosts(getRecordCosts(tier), ramStickCount / baseStickCount);
+      }
+      if (isPsuGroup(groupId)) {
+        const basePsuLevel = Math.max(1, Math.floor(tier.psuLevel ?? 1));
+        const targetPsuLevel = Math.max(1, psuLevel ?? basePsuLevel);
+
+        return [
+          ...getRecordCosts(tier),
+          ...getPsuCapacityBuildCost(basePsuLevel, targetPsuLevel),
+        ];
       }
       return getRecordCosts(tier);
     }),
@@ -550,6 +562,7 @@ export function CustomSystemBuilder({
     );
   const selectedTiers = selectedEntries.map((entry) => entry.tier);
   const selectedCpuTier = cpuEntry?.selectedTier ?? null;
+  const selectedPsuTier = powerEntry?.selectedTier ?? null;
   const cpuClockTierId =
     selectedCpuTier && cpuEntry
       ? getOptionClockTierId(cpuEntry, selectedCpuTier)
@@ -666,6 +679,13 @@ export function CustomSystemBuilder({
     : 1;
   const ramLevel = ramBaseGlobalLevel + ramTierLevel - 1;
   const ramSpeedLevel = ramBaseGlobalLevel + ramSpeedTierLevel - 1;
+  const basePsuLevel = Math.max(1, Math.floor(selectedPsuTier?.psuLevel ?? 1));
+  const psuLevel = getBoundedInteger(
+    selections.psuLevel,
+    basePsuLevel,
+    1,
+    BUILDER_MAX_LEVEL,
+  );
   const machineSelection =
     cpuEntry &&
     memoryEntry &&
@@ -685,6 +705,7 @@ export function CustomSystemBuilder({
           ramSpeedLevel,
           scheduler: selections[schedulerEntry.groupId] ?? "",
           psu: selections[powerEntry.groupId] ?? "",
+          psuLevel,
         }
       : null;
   const moduleCosts =
@@ -693,10 +714,10 @@ export function CustomSystemBuilder({
           try {
             return getMachineSelectionCost(machineSelection);
           } catch {
-            return getBuildCosts(selectedEntries, totalCores, ramStickCount);
+            return getBuildCosts(selectedEntries, totalCores, ramStickCount, psuLevel);
           }
         })()
-      : getBuildCosts(selectedEntries, totalCores, ramStickCount);
+      : getBuildCosts(selectedEntries, totalCores, ramStickCount, psuLevel);
   const costs =
     getRecordCosts(builder).length > 0
       ? getRecordCosts(builder)
@@ -776,12 +797,11 @@ export function CustomSystemBuilder({
       Math.max(0, cpuPackageCount - 1) * 0.00000000000008 +
       otherRequiredPowerWatts,
   );
-  const psuCapacityWatts =
-    firstNumber(
-      ...selectedEntries
-        .filter(({ groupId }) => isPsuGroup(groupId))
-        .flatMap(({ tier }) => [tier.psuWatts, tier.powerDeltaWatts]),
-    ) ?? 0;
+  const psuCapacityWatts = selectedPsuTier
+    ? selectedPsuTier.psuLevel !== undefined
+      ? getPsuWatts(psuLevel)
+      : (firstNumber(selectedPsuTier.psuWatts, selectedPsuTier.powerDeltaWatts) ?? 0)
+    : 0;
   const powerMet = requiredPowerWatts <= psuCapacityWatts + POWER_MATCH_EPSILON;
   const powerLabel = powerMet ? "Met" : "Short";
   const projectedEfficiency = cpuEfficiency;
@@ -1579,11 +1599,11 @@ export function CustomSystemBuilder({
           </div>
 
           <div className="inline-upgrade-row custom-builder-upgrade-strip">
-            {renderBuilderStepper({
-              entry,
-              metric: "psuCapacity",
+            {renderModifierStepper({
+              keyName: "psuLevel",
               label: "Capacity",
-              value: formatWatts(psuCapacityWatts),
+              value: psuLevel,
+              display: formatWatts(psuCapacityWatts),
               accent: "amber",
             })}
           </div>
@@ -1642,6 +1662,7 @@ export function CustomSystemBuilder({
                 ramSticks: String(ramStickCount),
                 ramLevel: String(ramLevel),
                 ramSpeedLevel: String(ramSpeedLevel),
+                psuLevel: String(psuLevel),
               },
             });
             setConfirmingPurchase(false);

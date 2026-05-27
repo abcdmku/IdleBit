@@ -875,7 +875,7 @@ describe("HardwareBoard multi-system rack", () => {
     expect(
       getSelectedSocket()?.querySelector(".custom-builder-cpu-card-scheduler")
         ?.textContent,
-    ).toContain("Sched Slots");
+    ).toContain("1 slot");
     expect(
       getSelectedSocket()?.querySelector(
         ".custom-builder-cpu-card-scheduler .hw-section-header",
@@ -885,17 +885,23 @@ describe("HardwareBoard multi-system rack", () => {
     const matchToggle = getSelectedSocket()?.querySelector<HTMLInputElement>(
       ".custom-builder-scheduler-match-toggle input",
     );
-    const schedulerPlus = getSelectedSocket()?.querySelector<HTMLButtonElement>(
-      ".custom-builder-cpu-scheduler .upgrade-stepper-button.plus",
-    );
+    const getSchedulerPlus = () =>
+      getSelectedSocket()?.querySelector<HTMLButtonElement>(
+        ".custom-builder-cpu-scheduler .upgrade-stepper-button.plus",
+      );
 
     expect(matchToggle?.checked).toBe(true);
-    expect(schedulerPlus?.disabled).toBe(true);
+    expect(getSchedulerPlus()).toBeNull();
 
     act(() => {
       matchToggle?.click();
     });
     expect(matchToggle?.checked).toBe(false);
+    expect(
+      getSelectedSocket()?.querySelector(".custom-builder-cpu-card-scheduler")
+        ?.textContent,
+    ).toContain("Sched Slots");
+    const schedulerPlus = getSchedulerPlus();
     expect(schedulerPlus?.disabled).toBe(false);
 
     act(() => schedulerPlus?.click());

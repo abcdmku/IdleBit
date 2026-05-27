@@ -1304,16 +1304,19 @@ export function CustomSystemBuilder({
     matchesCores: boolean;
     embedded?: boolean;
   }) => {
-    const slotStepper = (
+    const slotControl = matchesCores ? (
+      <span className="custom-builder-scheduler-slot-readout">
+        {formatNumber(slots)} slot{slots === 1 ? "" : "s"}
+      </span>
+    ) : (
       <BuilderStepper
         label={embedded ? "Sched Slots" : "Slots"}
         value={formatNumber(slots)}
         accent="violet"
-        canDecrease={!matchesCores && slots > 0}
-        canIncrease={!matchesCores && slots < BUILDER_MAX_CORES}
+        canDecrease={slots > 0}
+        canIncrease={slots < BUILDER_MAX_CORES}
         onDecrease={() => updateCpuSchedulerSlots(packageIndex, slots - 1)}
         onIncrease={() => updateCpuSchedulerSlots(packageIndex, slots + 1)}
-        disabledReason="Match cores is on"
       />
     );
     const matchToggle = (
@@ -1344,7 +1347,7 @@ export function CustomSystemBuilder({
             <span>Scheduler</span>
           </button>
         )}
-        {slotStepper}
+        {slotControl}
         {matchToggle}
       </div>
     );
@@ -1413,9 +1416,6 @@ export function CustomSystemBuilder({
             <ListTodo size={14} />
             <span>System Scheduler</span>
           </button>
-          <span className="custom-builder-section-pill">
-            <strong>{formatNumber(slots)}</strong> slots
-          </span>
         </div>
 
         <div className="inline-upgrade-row custom-builder-upgrade-strip">
@@ -1458,11 +1458,11 @@ export function CustomSystemBuilder({
           >
             <MemoryStick size={14} />
             <span>RAM</span>
-            <span className="hw-section-meta">
-              <strong>{formatBits(ramBits)}</strong> {ramChannelLabel} / Eff{" "}
-              <strong>{ramEfficiencyLabel}</strong>
-            </span>
           </button>
+          <span className="hw-section-meta custom-builder-ram-summary">
+            <strong>{formatBits(ramBits)}</strong> {ramChannelLabel} / Eff{" "}
+            <strong>{ramEfficiencyLabel}</strong>
+          </span>
           <div className="ram-header-controls" aria-label="RAM stick count">
             {renderModifierStepper({
               keyName: "ramSticks",

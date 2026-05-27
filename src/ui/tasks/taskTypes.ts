@@ -70,6 +70,11 @@ export interface UiTask {
   name: string;
   kind?: string;
   category?: string;
+  composition?: Array<{
+    taskId?: string;
+    count?: number;
+    mode?: "single" | "perWorkUnit" | string;
+  }>;
   operationCount?: number;
   operations?: number | UiTaskOperation[];
   opCount?: number;

@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { formatBits, formatNumber, formatResourceAmount } from "../format";
-import { ModuleMeter } from "../hardware/meters";
 import { clampMeter, firstBits, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import {
@@ -41,11 +40,16 @@ interface DagStage {
   id: string;
   index: number;
   name: string;
+  sourceTaskId?: string;
   isBarrier: boolean;
   operationIds: string[];
   operations: UiTaskOperation[];
   cacheBits: number;
+  cacheLoadBits: number;
+  cacheLoadOps: number;
   ramBits: number;
+  ramLoadBits: number;
+  ramLoadOps: number;
   cycles: number;
   operationCount: number;
   parallelOps: number;
@@ -72,6 +76,35 @@ const getStageOperationIds = (node: UiTaskGraphNode, operations: UiTaskOperation
 const countParallelOps = (operations: UiTaskOperation[]) =>
   operations.filter((operation) => operation.parallel).length;
 
+const getRecipeStepId = (node: UiTaskGraphNode) => {
+  const id = node.id ?? "";
+  const marker = ":recipe:";
+  const markerIndex = id.indexOf(marker);
+  return markerIndex >= 0 ? id.slice(markerIndex + marker.length) : null;
+};
+
+const getDagStepId = (node: UiTaskGraphNode) => {
+  const id = node.id ?? "";
+  for (const marker of [":cache:", ":ram:", ":execute:"]) {
+    const markerIndex = id.indexOf(marker);
+    if (markerIndex >= 0) return id.slice(markerIndex + marker.length);
+  }
+
+  return null;
+};
+
+const getRelatedDagNodes = (task: UiTask, node: UiTaskGraphNode) => {
+  const recipeStepId = getRecipeStepId(node);
+  if (!recipeStepId) return [];
+
+  return (task.dagNodes ?? []).filter(
+    (candidate) => getDagStepId(candidate) === recipeStepId,
+  );
+};
+
+const sumNodeOperationCounts = (nodes: UiTaskGraphNode[]) =>
+  nodes.reduce((total, node) => total + (firstNumber(node.operationCount) ?? 0), 0);
+
 function buildStages(task: UiTask): DagStage[] {
   const subtasks = task.subtasks ?? [];
   const sourceNodes: UiTaskGraphNode[] =
@@ -81,12 +114,30 @@ function buildStages(task: UiTask): DagStage[] {
 
   return sourceNodes.map((node, index) => {
     const operations = getStageOperations(node);
+    const relatedDagNodes = getRelatedDagNodes(task, node);
+    const cacheLoadNode =
+      relatedDagNodes.find((candidate) => candidate.kind === "cacheLoad") ??
+      (node.kind === "cacheLoad" ? node : null);
+    const ramLoadNode =
+      relatedDagNodes.find((candidate) => candidate.kind === "ramLoad") ??
+      (node.kind === "ramLoad" ? node : null);
+    const executeNode =
+      relatedDagNodes.find((candidate) => candidate.kind === "execute") ??
+      (node.kind === "execute" || node.kind === "recipe" ? node : null);
     const operationIds = getStageOperationIds(node, operations);
     const cacheBits = getNodeCacheBits(node);
+    const cacheLoadBits = cacheLoadNode ? getNodeCacheBits(cacheLoadNode) : 0;
+    const cacheLoadOps = firstNumber(cacheLoadNode?.operationCount) ?? 0;
     const ramBits = getNodeRamBits(node);
-    const cycles = firstNumber(node.cycles, node.requiredCycles) ?? 0;
+    const ramLoadBits = ramLoadNode ? getNodeRamBits(ramLoadNode) : 0;
+    const ramLoadOps = firstNumber(ramLoadNode?.operationCount) ?? 0;
+    const cycles =
+      firstNumber(executeNode?.cycles, executeNode?.requiredCycles, node.cycles, node.requiredCycles) ??
+      0;
+    const dagOperationCount = sumNodeOperationCounts(relatedDagNodes);
     const operationCount =
       firstNumber(
+        dagOperationCount > 0 ? dagOperationCount : undefined,
         node.operationCount,
         Array.isArray(node.operations) ? getOperationCountFromOperations(operations) : undefined,
       ) ?? operations.reduce((total, operation) => total + (operation.count ?? 1), 0);
@@ -96,11 +147,16 @@ function buildStages(task: UiTask): DagStage[] {
       id: node.id ?? `stage-${index}`,
       index: index + 1,
       name: node.sourceTaskName ?? node.name ?? `Stage ${index + 1}`,
+      sourceTaskId: node.sourceTaskId,
       isBarrier: detectBarrier(operations),
       operationIds,
       operations,
       cacheBits,
+      cacheLoadBits,
+      cacheLoadOps,
       ramBits,
+      ramLoadBits,
+      ramLoadOps,
       cycles,
       operationCount,
       parallelOps,
@@ -108,6 +164,33 @@ function buildStages(task: UiTask): DagStage[] {
     };
   });
 }
+
+const getStageWorkScale = (task: UiTask, stage: DagStage) => {
+  if (!isChunkedTask(task)) return 1;
+  const composition = task.composition?.find(
+    (entry) => entry.taskId === stage.sourceTaskId,
+  );
+
+  return composition?.mode === "perWorkUnit"
+    ? Math.max(1, task.workUnitCount ?? 1)
+    : 1;
+};
+
+const getPluralUnitName = (count: number, unitName: string) =>
+  `${unitName}${count === 1 ? "" : "s"}`;
+
+const formatScaledBits = (bits: number, scale: number) => ({
+  detail: scale > 1 ? `${formatBits(bits * scale)} total` : formatBits(bits),
+  hint: scale > 1 ? `${formatBits(bits)} each` : undefined,
+});
+
+const formatScaledCycles = (cycles: number, scale: number) => ({
+  detail:
+    scale > 1
+      ? `${formatNumber(cycles * scale)} cycles total`
+      : `${formatNumber(cycles)} cycles`,
+  hint: scale > 1 ? `${formatNumber(cycles)} cycles each` : undefined,
+});
 
 type StageRuntime = {
   active: boolean;
@@ -235,17 +318,17 @@ export function TaskDagModal({
         ),
       0,
     ) ?? 0;
-  const loadNote = activeTask
-    ? getActiveRuntimeLabel(activeTask)
-    : getTaskCacheBits(task) > 0 || (memoryUnlocked && getTaskRamBits(task) > 0)
-      ? "Load → Compute"
-      : "Direct";
   const coreNote =
     assignedCores.length > 0
       ? `Cores ${assignedCores.join(", ")}`
       : chunked
-        ? `${formatNumber(workUnitCount)} ${workUnitName}s`
+        ? `${formatNumber(workUnitCount)} ${getPluralUnitName(workUnitCount, workUnitName)}`
         : `${formatNumber(requiredCores)}x`;
+  const cacheNote = `${formatBits(getTaskCacheBits(task))} ${getFitLabel(task, visible, "cache")}`;
+  const ramNote =
+    reservedBits > 0
+      ? `${formatBits(reservedBits)} reserved`
+      : `${formatBits(getTaskRamBits(task))} ${getFitLabel(task, visible, "ram")}`;
   const payoutRewards = getTaskRewardCosts(task);
   const payoutNote: ReactNode =
     payoutRewards.length > 0 ? (
@@ -255,6 +338,7 @@ export function TaskDagModal({
     ) : (
       "None"
     );
+  const showProgress = Boolean(activeTask) || progress > 0;
   const activeStageIndex = stages.findIndex((stage) => {
     const runtime = getStageRuntime(stage, task, activeTask);
     return runtime.active;
@@ -285,25 +369,12 @@ export function TaskDagModal({
           </button>
         </div>
 
-        <div className="task-dag-summary" aria-label="Task runtime summary">
-          <DagSummaryTile label="Progress" value={formatPercent(progress)} meter={progress} />
-          <DagSummaryTile label="Load" value={loadNote} />
-          <DagSummaryTile label="Cores" value={coreNote} />
-          <DagSummaryTile label="Payout" value={payoutNote} />
-          <DagSummaryTile
-            label="Cache"
-            value={`${formatBits(getTaskCacheBits(task))} · ${getFitLabel(task, visible, "cache")}`}
-          />
-          {memoryUnlocked && (
-            <DagSummaryTile
-              label="RAM"
-              value={
-                reservedBits > 0
-                  ? `${formatBits(reservedBits)} reserved`
-                  : `${formatBits(getTaskRamBits(task))} · ${getFitLabel(task, visible, "ram")}`
-              }
-            />
-          )}
+        <div className="task-dag-summary" aria-label="Task facts">
+          {showProgress && <DagSummaryChip label="Progress" value={formatPercent(progress)} />}
+          <DagSummaryChip label="Cores" value={coreNote} />
+          <DagSummaryChip label="Cache" value={cacheNote} />
+          {memoryUnlocked && <DagSummaryChip label="RAM" value={ramNote} />}
+          {payoutRewards.length > 0 && <DagSummaryChip label="Payout" value={payoutNote} />}
         </div>
 
         <DagLegend memoryUnlocked={memoryUnlocked} chunked={chunked} />
@@ -318,7 +389,10 @@ export function TaskDagModal({
               label="Accept task"
               note={
                 chunked
-                  ? `Splits into ${formatNumber(workUnitCount)} ${workUnitName}${workUnitCount === 1 ? "" : "s"}`
+                  ? `Splits into ${formatNumber(workUnitCount)} ${getPluralUnitName(
+                      workUnitCount,
+                      workUnitName,
+                    )}`
                   : `${formatNumber(stages.length)} stage${stages.length === 1 ? "" : "s"}`
               }
             />
@@ -327,19 +401,18 @@ export function TaskDagModal({
               <li className="dag-empty">No pipeline detail available.</li>
             ) : (
               stages.map((stage, index) => {
-                const previousStage = stages[index - 1];
                 const runtime = getStageRuntime(stage, task, activeTask);
                 const isFuture = activeStageIndex >= 0 && index > activeStageIndex;
+                const stageWorkScale = getStageWorkScale(task, stage);
                 return (
                   <PipelineStage
                     key={stage.id}
                     stage={stage}
-                    previousStage={previousStage}
                     runtime={runtime}
                     memoryUnlocked={memoryUnlocked}
                     chunked={chunked}
-                    workUnitCount={workUnitCount}
                     workUnitName={workUnitName}
+                    stageWorkScale={stageWorkScale}
                     isFuture={isFuture}
                   />
                 );
@@ -361,21 +434,18 @@ function payoutLabel(rewards: ReturnType<typeof getTaskRewardCosts>) {
     .join(" · ");
 }
 
-function DagSummaryTile({
+function DagSummaryChip({
   label,
   value,
-  meter,
 }: {
   label: string;
   value: ReactNode;
-  meter?: number;
 }) {
   return (
-    <div className="dag-summary-tile">
+    <span className="dag-summary-chip">
       <span>{label}</span>
       <strong>{value}</strong>
-      {typeof meter === "number" && <ModuleMeter value={meter} />}
-    </div>
+    </span>
   );
 }
 
@@ -394,7 +464,7 @@ function DagLegend({
       </span>
       {memoryUnlocked && (
         <span className="dag-legend-chip phase-ram">
-          <HardDrive size={11} aria-hidden /> RAM stage
+          <HardDrive size={11} aria-hidden /> RAM load/held
         </span>
       )}
       <span className="dag-legend-chip phase-compute">
@@ -440,21 +510,19 @@ function PipelineCap({
 
 function PipelineStage({
   stage,
-  previousStage,
   runtime,
   memoryUnlocked,
   chunked,
-  workUnitCount,
   workUnitName,
+  stageWorkScale,
   isFuture,
 }: {
   stage: DagStage;
-  previousStage?: DagStage;
   runtime: StageRuntime;
   memoryUnlocked: boolean;
   chunked: boolean;
-  workUnitCount: number;
   workUnitName: string;
+  stageWorkScale: number;
   isFuture: boolean;
 }) {
   if (stage.isBarrier) {
@@ -477,7 +545,11 @@ function PipelineStage({
           <div className="dag-barrier-text">
             <span>Sync barrier</span>
             <strong>{stage.name}</strong>
-            <small>Waits for all parallel cores to finish before continuing.</small>
+            <small>
+              {chunked
+                ? "Waits for all chunk work to finish before continuing."
+                : "Waits for all parallel cores to finish before continuing."}
+            </small>
           </div>
           {runtime.active && (
             <span className="dag-barrier-state">
@@ -489,12 +561,31 @@ function PipelineStage({
     );
   }
 
-  const showCache = stage.cacheBits > 0;
-  const showRam = memoryUnlocked && stage.ramBits > 0;
+  const scalesAcrossChunks = stageWorkScale > 1;
+  const hasCacheLoad = stage.cacheLoadOps > 0 || stage.cacheLoadBits > 0;
+  const hasRamLoad = stage.ramLoadOps > 0 || stage.ramLoadBits > 0;
+  const showCache = hasCacheLoad || stage.cacheBits > 0;
+  const showRam = memoryUnlocked && (hasRamLoad || stage.ramBits > 0);
   const showCompute = stage.cycles > 0;
-  const chunkBadge = chunked && showCompute;
+  const chunkBadge = scalesAcrossChunks && stage.operationCount > 0;
   const parallelBadge = !chunked && stage.parallelOps > 0;
-  const carriedFromPrev = previousStage && previousStage.ramBits > 0 && stage.ramBits === 0;
+  const displayOperationCount = stage.operationCount * stageWorkScale;
+  const operationTagText = scalesAcrossChunks
+    ? `${formatNumber(displayOperationCount)} total ops`
+    : `${formatNumber(displayOperationCount)} ops`;
+  const operationTagTitle = scalesAcrossChunks
+    ? `${formatNumber(stage.operationCount)} ops each x ${formatNumber(stageWorkScale)}`
+    : undefined;
+  const cacheUnitBits = stage.cacheLoadBits > 0 ? stage.cacheLoadBits : stage.cacheBits;
+  const cacheDisplay = formatScaledBits(cacheUnitBits, stageWorkScale);
+  const ramUnitBits = hasRamLoad
+    ? stage.ramLoadBits > 0
+      ? stage.ramLoadBits
+      : stage.ramBits
+    : stage.ramBits;
+  const ramDisplay = formatScaledBits(ramUnitBits, stageWorkScale);
+  const computeDisplay = formatScaledCycles(stage.cycles, stageWorkScale);
+  const unitPlural = getPluralUnitName(stageWorkScale, workUnitName);
 
   return (
     <li
@@ -519,8 +610,11 @@ function PipelineStage({
           </div>
           <div className="dag-stage-tags">
             {chunkBadge && (
-              <span className="dag-tag chunk" title={`${workUnitCount} ${workUnitName}s spread across cores`}>
-                <Layers size={11} aria-hidden /> &times;{formatNumber(workUnitCount)}
+              <span
+                className="dag-tag chunk"
+                title={`${stageWorkScale} ${unitPlural} run this stage`}
+              >
+                <Layers size={11} aria-hidden /> &times;{formatNumber(stageWorkScale)}
               </span>
             )}
             {parallelBadge && (
@@ -528,9 +622,9 @@ function PipelineStage({
                 <Layers size={11} aria-hidden /> parallel
               </span>
             )}
-            {stage.operationCount > 0 && (
-              <span className="dag-tag ops">
-                {formatNumber(stage.operationCount)} ops
+            {displayOperationCount > 0 && (
+              <span className="dag-tag ops" title={operationTagTitle}>
+                {operationTagText}
               </span>
             )}
           </div>
@@ -542,9 +636,17 @@ function PipelineStage({
               kind="cache"
               icon={<Database size={12} aria-hidden />}
               label="Cache load"
-              detail={formatBits(stage.cacheBits)}
+              detail={cacheDisplay.detail}
+              hint={cacheDisplay.hint}
               isActive={runtime.active && runtime.phase === "cache"}
-              isDone={runtime.completed || (runtime.active && runtime.phase !== "cache" && runtime.phase !== null && runtime.phase !== "ram") || (runtime.active && runtime.phase === "ram")}
+              isDone={
+                runtime.completed ||
+                (runtime.active &&
+                  runtime.phase !== "cache" &&
+                  runtime.phase !== null &&
+                  runtime.phase !== "ram") ||
+                (runtime.active && runtime.phase === "ram")
+              }
             />
           ) : (
             <PhaseChip
@@ -560,9 +662,11 @@ function PipelineStage({
               <PhaseChip
                 kind="ram"
                 icon={<HardDrive size={12} aria-hidden />}
-                label={carriedFromPrev ? "RAM held" : "RAM stage"}
-                detail={formatBits(stage.ramBits)}
-                hint={carriedFromPrev ? "kept from previous stage" : undefined}
+                label={hasRamLoad ? "RAM load" : "RAM held"}
+                detail={ramDisplay.detail}
+                hint={hasRamLoad ? ramDisplay.hint : undefined}
+                title={!hasRamLoad ? "RAM remains reserved from the previous stage." : undefined}
+                detailMuted={!hasRamLoad}
                 isActive={runtime.active && runtime.phase === "ram"}
                 isDone={runtime.completed || (runtime.active && (runtime.phase === "compute"))}
               />
@@ -581,20 +685,27 @@ function PipelineStage({
               kind="compute"
               icon={<Cpu size={12} aria-hidden />}
               label="Compute"
-              detail={`${formatNumber(stage.cycles)} cycles`}
+              detail={computeDisplay.detail}
+              hint={computeDisplay.hint}
               isActive={runtime.active && runtime.phase === "compute"}
               isDone={runtime.completed}
             />
           )}
         </div>
 
-        {chunked && showCompute && (
-          <ChunkLanes count={workUnitCount} progress={runtime.completed ? 1 : runtime.active ? runtime.progress ?? 0 : 0} />
+        {scalesAcrossChunks && showCompute && (
+          <ChunkLanes
+            count={stageWorkScale}
+            progress={runtime.completed ? 1 : runtime.active ? runtime.progress ?? 0 : 0}
+          />
         )}
 
         {(runtime.active || runtime.progress !== null) && (
           <div className="dag-stage-progress" aria-label="Stage progress">
-            <span className="dag-stage-progress-fill" style={{ width: `${clampMeter(runtime.progress) * 100}%` }} />
+            <span
+              className="dag-stage-progress-fill"
+              style={{ width: `${clampMeter(runtime.progress) * 100}%` }}
+            />
           </div>
         )}
 
@@ -622,6 +733,8 @@ function PhaseChip({
   label,
   detail,
   hint,
+  title,
+  detailMuted,
   isActive,
   isDone,
   isMuted,
@@ -631,6 +744,8 @@ function PhaseChip({
   label: string;
   detail: string;
   hint?: string;
+  title?: string;
+  detailMuted?: boolean;
   isActive?: boolean;
   isDone?: boolean;
   isMuted?: boolean;
@@ -642,11 +757,13 @@ function PhaseChip({
         "dag-phase",
         `phase-${kind}`,
         isMuted ? "is-muted" : "",
+        detailMuted ? "has-muted-detail" : "",
         isActive ? "is-active" : "",
         isDone && !isActive ? "is-done" : "",
       ]
         .filter(Boolean)
         .join(" ")}
+      title={title}
     >
       <span className="dag-phase-icon">{icon}</span>
       <span className="dag-phase-text">

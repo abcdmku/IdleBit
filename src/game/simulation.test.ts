@@ -304,10 +304,17 @@ const getExpectedRamProfile = (task: TaskDefinition) => {
 };
 
 const getExpectedTaskOperationCount = (task: TaskDefinition) =>
-  (getExpectedCpuWork(task) +
-    getExpectedCacheLoadWork(task) +
-    getExpectedRamProfile(task).loadWork) *
-  task.workUnitCount;
+  task.coreScaling === "chunked"
+    ? task.subtasks.reduce((total, subtask) => {
+        const composition = task.composition.find(
+          (entry) => entry.taskId === subtask.sourceTaskId,
+        );
+        const scale = composition?.mode === "perWorkUnit" ? task.workUnitCount : 1;
+        return total + subtask.operationCount * scale;
+      }, 0)
+    : getExpectedCpuWork(task) +
+      getExpectedCacheLoadWork(task) +
+      getExpectedRamProfile(task).loadWork;
 
 const tickSeconds = (state: GameState, seconds: number) => {
   let nextState = state;
@@ -1212,6 +1219,10 @@ describe("IdleBit simulation", () => {
     expect(task.requiredCycles).toBe(60);
     expect(task.operationCount).toBe(332);
     expect(task.rewardCredits).toBe(332);
+    expect(task.subtasks.map((node) => [node.name, node.operationCount])).toEqual([
+      ["Stage checksum page", 288],
+      ["Fold checksum", 44],
+    ]);
     expect(ramLoadNodes).toHaveLength(1);
     expect(ramLoadNodes[0]?.operationCount).toBe(256);
     expect(task.dagNodes.map((node) => [node.kind, node.operationCount])).toEqual([
@@ -1223,6 +1234,29 @@ describe("IdleBit simulation", () => {
       ["execute", 36],
       ["complete", 0],
     ]);
+  });
+
+  it("scales only per-work-unit subtasks for chunked system tasks", () => {
+    const task = getTaskDefinition("compileCode");
+
+    expect(task.composition.map((entry) => [entry.taskId, entry.mode])).toEqual([
+      ["stageSourceTree", "perWorkUnit"],
+      ["compileUnits", "perWorkUnit"],
+      ["linkBarrier", "single"],
+      ["linkBinary", "single"],
+      ["writeArtifact", "single"],
+    ]);
+    expect(task.subtasks.map((node) => [node.sourceTaskId, node.operationCount])).toEqual([
+      ["stageSourceTree", 608],
+      ["compileUnits", 168],
+      ["linkBarrier", 0],
+      ["linkBinary", 648],
+      ["writeArtifact", 552],
+    ]);
+    expect(task.workUnitOperationCount).toBe(776);
+    expect(task.operationCount).toBe(13_616);
+    expect(task.requiredCycles).toBe(3_992);
+    expect(task.rewardCredits).toBe(task.operationCount);
   });
 
   it("sums write cache footprints while reusing overwrite footprints", () => {

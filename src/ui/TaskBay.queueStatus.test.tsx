@@ -290,6 +290,13 @@ describe("TaskBay queue and deadlock status", () => {
     expect(container.textContent).toContain("Link Barrier");
     expect(container.textContent).toContain("Link Binary");
     expect(container.textContent).toContain("Write Artifact");
+    expect(container.textContent).toContain("9,728 total ops");
+    expect(container.textContent).toContain("8.2 Kb total");
+    expect(container.textContent).toContain("512 b each");
+    expect(container.textContent).toContain("648 ops");
+    expect(container.textContent).toContain("RAM held");
+    expect(container.textContent).not.toContain("kept from previous stage");
+    expect(container.querySelector(".dag-phase.phase-ram.has-muted-detail")).not.toBeNull();
   });
 
   it("explains RAM-blocked system tasks already reserved by a CPU scheduler", () => {

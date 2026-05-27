@@ -1409,8 +1409,8 @@ const rawTasks: RawTask[] = [
     reveal: (state) => hasResearch(state, systemCatalogResearchId),
     requirement: (state) => hasResearch(state, systemCatalogResearchId),
     composition: [
-      compose("stageSourceTree"),
-      compose("compileUnits"),
+      compose("stageSourceTree", 1, "perWorkUnit"),
+      compose("compileUnits", 1, "perWorkUnit"),
       compose("linkBarrier"),
       compose("linkBinary"),
       compose("writeArtifact"),
@@ -1460,8 +1460,8 @@ const rawTasks: RawTask[] = [
     requirement: (state) =>
       hasResearch(state, systemCatalogResearchId) && hasCompleted(state, compileCodeTaskId),
     composition: [
-      compose("loadSceneTiles"),
-      compose("shadeTiles"),
+      compose("loadSceneTiles", 1, "perWorkUnit"),
+      compose("shadeTiles", 1, "perWorkUnit"),
       compose("compositeBarrier"),
       compose("compositeFrame"),
       compose("writeFrameBuffer"),
@@ -1511,9 +1511,9 @@ const rawTasks: RawTask[] = [
       hasResearch(state, customMachineAssemblyResearchId) &&
       hasCompleted(state, renderFrameTaskId),
     composition: [
-      compose("stageTestFixtures"),
-      compose("runRegressionCases"),
-      compose("compareResults"),
+      compose("stageTestFixtures", 1, "perWorkUnit"),
+      compose("runRegressionCases", 1, "perWorkUnit"),
+      compose("compareResults", 1, "perWorkUnit"),
       compose("reportBarrier"),
       compose("summarizeReport"),
       compose("writeReport"),
@@ -1869,6 +1869,111 @@ const deriveDagNodes = (
   return nodes;
 };
 
+const getDagNodeStepId = (taskId: TaskId, node: TaskSubtaskDefinition) => {
+  for (const kind of ["cache", "ram", "execute"] as const) {
+    const prefix = `${taskId}:${kind}:`;
+    if (node.id.startsWith(prefix)) return node.id.slice(prefix.length);
+  }
+
+  return null;
+};
+
+const applyDagOperationCountsToRecipeNodes = (
+  taskId: TaskId,
+  recipeNodes: TaskSubtaskDefinition[],
+  dagNodes: TaskSubtaskDefinition[],
+) =>
+  recipeNodes.map((node) => {
+    const recipeStepId = getRecipeStepId(taskId, node.id);
+    const relatedDagNodes = dagNodes.filter(
+      (candidate) => getDagNodeStepId(taskId, candidate) === recipeStepId,
+    );
+    const operationCount = relatedDagNodes
+      .reduce((total, candidate) => total + candidate.operationCount, 0);
+
+    return relatedDagNodes.length > 0 ? { ...node, operationCount } : node;
+  });
+
+const getRecipeNodeCompositionEntry = (
+  composition: TaskCompositionDefinition[],
+  node: TaskSubtaskDefinition,
+) =>
+  node.sourceTaskId
+    ? composition.find((entry) => entry.taskId === node.sourceTaskId)
+    : undefined;
+
+const getRecipeNodeWorkScale = (
+  coreScaling: TaskCoreScaling,
+  workUnitCount: number,
+  composition: TaskCompositionDefinition[],
+  node: TaskSubtaskDefinition,
+) => {
+  if (coreScaling !== "chunked") return 1;
+  return getRecipeNodeCompositionEntry(composition, node)?.mode === "perWorkUnit"
+    ? workUnitCount
+    : 1;
+};
+
+const getScaledOperationCount = (
+  coreScaling: TaskCoreScaling,
+  workUnitCount: number,
+  composition: TaskCompositionDefinition[],
+  nodes: TaskSubtaskDefinition[],
+) =>
+  nodes.reduce(
+    (total, node) =>
+      total +
+      node.operationCount *
+        getRecipeNodeWorkScale(coreScaling, workUnitCount, composition, node),
+    0,
+  );
+
+const getScaledRequiredCycles = (
+  coreScaling: TaskCoreScaling,
+  workUnitCount: number,
+  composition: TaskCompositionDefinition[],
+  nodes: TaskSubtaskDefinition[],
+) =>
+  nodes.reduce(
+    (total, node) =>
+      total +
+      node.cycles *
+        getRecipeNodeWorkScale(coreScaling, workUnitCount, composition, node),
+    0,
+  );
+
+const getPerWorkUnitOperationCount = (
+  coreScaling: TaskCoreScaling,
+  composition: TaskCompositionDefinition[],
+  nodes: TaskSubtaskDefinition[],
+) => {
+  if (coreScaling !== "chunked") {
+    return nodes.reduce((total, node) => total + node.operationCount, 0);
+  }
+
+  return nodes
+    .filter(
+      (node) => getRecipeNodeCompositionEntry(composition, node)?.mode === "perWorkUnit",
+    )
+    .reduce((total, node) => total + node.operationCount, 0);
+};
+
+const getPerWorkUnitCycles = (
+  coreScaling: TaskCoreScaling,
+  composition: TaskCompositionDefinition[],
+  nodes: TaskSubtaskDefinition[],
+) => {
+  if (coreScaling !== "chunked") {
+    return nodes.reduce((total, node) => total + node.cycles, 0);
+  }
+
+  return nodes
+    .filter(
+      (node) => getRecipeNodeCompositionEntry(composition, node)?.mode === "perWorkUnit",
+    )
+    .reduce((total, node) => total + node.cycles, 0);
+};
+
 const buildTaskDefinition = (id: TaskId): TaskDefinition => {
   const cached = definitionCache.get(id);
   if (cached) return cached;
@@ -1886,16 +1991,31 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     coreScaling === "chunked" ? Math.max(1, raw.workUnitCount ?? 1) : 1;
   const workUnitName = raw.workUnitName ?? "chunk";
   const summaryCoreCount = coreScaling === "chunked" ? 1 : parallelCoreCount;
-  const subtasks = deriveRecipeNodes(
+  const recipeNodes = deriveRecipeNodes(
     raw.id,
     raw.recipe,
     operations,
     summaryCoreCount,
   );
-  const dagNodes = deriveDagNodes(raw.id, raw.recipe, subtasks, summaryCoreCount);
+  const dagNodes = deriveDagNodes(raw.id, raw.recipe, recipeNodes, summaryCoreCount);
+  const subtasks = applyDagOperationCountsToRecipeNodes(
+    raw.id,
+    recipeNodes,
+    dagNodes,
+  );
   const summary = summarizeGraphNodes(dagNodes, summaryCoreCount);
-  const operationCount = summary.operationCount * workUnitCount;
-  const requiredCycles = summary.cycles * workUnitCount;
+  const operationCount = getScaledOperationCount(
+    coreScaling,
+    workUnitCount,
+    composition,
+    subtasks,
+  );
+  const requiredCycles = getScaledRequiredCycles(
+    coreScaling,
+    workUnitCount,
+    composition,
+    subtasks,
+  );
   const definition: TaskDefinition = {
     id: raw.id,
     name: raw.name,
@@ -1909,8 +2029,12 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     coreScaling,
     workUnitCount,
     workUnitName,
-    workUnitOperationCount: summary.operationCount,
-    workUnitCycles: summary.cycles,
+    workUnitOperationCount: getPerWorkUnitOperationCount(
+      coreScaling,
+      composition,
+      subtasks,
+    ),
+    workUnitCycles: getPerWorkUnitCycles(coreScaling, composition, subtasks),
     workUnitCacheNeedBits: summary.cacheBits,
     workUnitRamNeedBits: summary.ramBits,
     minCores: raw.minCores,

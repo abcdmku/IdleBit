@@ -78,36 +78,38 @@
 /* ---------- Top-level summary ---------- */
 
 .task-dag-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: var(--s-3);
-}
-
-.dag-summary-tile {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  min-height: 64px;
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  background: rgba(4, 7, 7, 0.4);
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
 }
 
-.dag-summary-tile span {
+.dag-summary-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: rgba(4, 7, 7, 0.36);
+}
+
+.dag-summary-chip > span {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  letter-spacing: var(--tracking-wide);
+  letter-spacing: var(--tracking-tight);
   text-transform: uppercase;
 }
 
-.dag-summary-tile strong {
+.dag-summary-chip > strong {
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--fs-md);
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .dag-payout {
@@ -424,11 +426,12 @@
 .dag-phase {
   position: relative;
   display: flex;
-  flex: 1 1 140px;
+  flex: 0 0 auto;
   min-width: 0;
   gap: var(--s-2);
-  align-items: flex-start;
-  padding: var(--s-2) var(--s-3);
+  align-items: center;
+  min-height: 30px;
+  padding: 4px var(--s-2);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   background: rgba(4, 7, 7, 0.5);
@@ -441,35 +444,19 @@
 
 /* Connector arrow between phases */
 .dag-phase + .dag-phase::before {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--s-2) * -1);
-  width: var(--s-2);
-  height: 1px;
-  background: linear-gradient(90deg, rgba(36, 231, 195, 0.32), rgba(36, 231, 195, 0));
-  transform: translateY(-50%);
-  content: "";
+  display: none;
 }
 
 .dag-phase + .dag-phase::after {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--s-2) * -1 + 1px);
-  width: 4px;
-  height: 4px;
-  border: 1px solid rgba(36, 231, 195, 0.36);
-  border-left: 0;
-  border-bottom: 0;
-  transform: translate(0, -50%) rotate(45deg);
-  content: "";
+  display: none;
 }
 
 .dag-phase-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -478,10 +465,13 @@
 }
 
 .dag-phase-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+  column-gap: var(--s-2);
+  row-gap: 0;
+  align-items: baseline;
   min-width: 0;
+  width: 100%;
 }
 
 .dag-phase-text > span {
@@ -498,12 +488,22 @@
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .dag-phase-text > small {
+  grid-column: 2;
   color: var(--muted-2);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.dag-phase.has-muted-detail .dag-phase-text > strong {
+  color: var(--muted-2);
+  font-weight: 600;
 }
 
 /* Phase color identity */

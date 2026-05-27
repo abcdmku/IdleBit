@@ -797,12 +797,13 @@ const getChildWorkKey = (
 const getSystemChildWorkUnits = (task: TaskDefinition): SystemChildWorkUnit[] => {
   if (!isSystemScheduledTask(task) || task.composition.length === 0) return [];
 
-  const workUnitIndexes = isChunkedTask(task)
-    ? Array.from({ length: task.workUnitCount }, (_, index) => index)
-    : [null];
+  return task.composition.flatMap((entry, compositionIndex) => {
+    const workUnitIndexes =
+      isChunkedTask(task) && entry.mode === "perWorkUnit"
+        ? Array.from({ length: task.workUnitCount }, (_, index) => index)
+        : [null];
 
-  return workUnitIndexes.flatMap((workUnitIndex) =>
-    task.composition.flatMap((entry, compositionIndex) =>
+    return workUnitIndexes.flatMap((workUnitIndex) =>
       Array.from({ length: Math.max(1, entry.count) }, (_, compositionRepeatIndex) => ({
         taskId: entry.taskId,
         compositionIndex,
@@ -810,8 +811,8 @@ const getSystemChildWorkUnits = (task: TaskDefinition): SystemChildWorkUnit[] =>
         workUnitIndex,
         key: getChildWorkKey(compositionIndex, compositionRepeatIndex, workUnitIndex),
       })),
-    ),
-  );
+    );
+  });
 };
 
 const getCompletedChildKeySet = (entry: TaskQueueEntry) =>
@@ -861,12 +862,16 @@ const getReadyChildWorkUnits = (
     if (completed.has(unit.key) || reserved.has(unit.key)) continue;
 
     const previousUnits = units.filter((candidate) => {
-      if (candidate.workUnitIndex !== unit.workUnitIndex) return false;
-      if (candidate.compositionIndex < unit.compositionIndex) return true;
-      return (
-        candidate.compositionIndex === unit.compositionIndex &&
-        candidate.compositionRepeatIndex < unit.compositionRepeatIndex
-      );
+      if (candidate.compositionIndex > unit.compositionIndex) return false;
+      if (candidate.compositionIndex === unit.compositionIndex) {
+        return (
+          candidate.workUnitIndex === unit.workUnitIndex &&
+          candidate.compositionRepeatIndex < unit.compositionRepeatIndex
+        );
+      }
+
+      if (unit.workUnitIndex === null || candidate.workUnitIndex === null) return true;
+      return candidate.workUnitIndex === unit.workUnitIndex;
     });
 
     if (previousUnits.every((candidate) => completed.has(candidate.key))) {

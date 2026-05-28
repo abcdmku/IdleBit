@@ -1,7 +1,12 @@
 /* ============ RAM STICK TILES ============ */
 
+.memory-section {
+  container-type: inline-size;
+}
+
 .ram-header-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-2);
   align-items: center;
   width: 100%;
@@ -9,14 +14,36 @@
 }
 
 .ram-header-row .hw-section-header {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  min-width: 0;
   width: auto;
+}
+
+.ram-header-used {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ram-header-used strong {
+  color: var(--text);
+  font-weight: 800;
 }
 
 .ram-header-controls {
   display: flex;
   flex: 0 1 210px;
   min-width: min(100%, 160px);
+  margin-left: auto;
 }
 
 .ram-header-controls .upgrade-stepper {
@@ -78,8 +105,13 @@
 /* ---------- Grid ---------- */
 
 .ram-stick-grid {
+  --ram-stick-grid-active-columns: var(--ram-stick-grid-columns, 2);
+  --ram-stick-min-width: 160px;
   display: grid;
-  grid-template-columns: repeat(var(--ram-stick-grid-columns, 2), minmax(92px, 1fr));
+  grid-template-columns: repeat(
+    var(--ram-stick-grid-active-columns),
+    minmax(min(100%, var(--ram-stick-min-width)), 1fr)
+  );
   gap: var(--s-1);
   min-width: 0;
   padding: var(--s-2);
@@ -237,6 +269,56 @@
   font-weight: 800;
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+}
+
+@container (max-width: 430px) {
+  .ram-stick-grid {
+    --ram-stick-grid-active-columns: 1;
+  }
+}
+
+@container (max-width: 340px) {
+  .ram-header-row {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .ram-header-row .hw-section-header {
+    grid-column: 1;
+    width: auto;
+  }
+
+  .ram-header-all-button {
+    grid-column: 2;
+    justify-self: start;
+    margin-left: 0;
+  }
+
+  .ram-header-used {
+    grid-column: 3;
+    min-width: 0;
+    align-self: center;
+    justify-self: end;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ram-header-row:not(.multi-stick) .ram-header-used {
+    grid-column: 2 / -1;
+  }
+
+  .ram-header-controls {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+
+  .ram-header-controls .upgrade-stepper {
+    width: 100%;
+  }
 }
 
 /* ---------- RAM install tier choices ---------- */

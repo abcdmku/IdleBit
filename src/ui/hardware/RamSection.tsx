@@ -158,16 +158,17 @@ export function RamSection({
         ramDeadlocked ? "deadlocked" : ""
       } ${cooldownActive ? "cooling-down" : ""}`}
     >
-      <div className="ram-header-row">
-        <button type="button" className="hw-section-header" onClick={onSelect}>
+      <div className={`ram-header-row ${stickCount > 1 ? "multi-stick" : ""}`}>
+        <button
+          type="button"
+          className="hw-section-header ram-title-button"
+          onClick={onSelect}
+        >
           <MemoryStick size={14} />
           <span>RAM</span>
           {shouldShowRamDeadlockPressure(visible.metrics.deadlockPressure) && (
             <DeadlockCountdown pressure={visible.metrics.deadlockPressure} compact />
           )}
-          <span className="hw-section-meta">
-            <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
-          </span>
         </button>
         {stickCount > 1 && (
           <button
@@ -182,6 +183,9 @@ export function RamSection({
             All
           </button>
         )}
+        <span className="hw-section-meta ram-header-used">
+          <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
+        </span>
         {ramUpgrade && (
           <div className="ram-header-controls" aria-label="RAM stick count">
             <UpgradeChip

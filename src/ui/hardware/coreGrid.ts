@@ -1,3 +1,5 @@
+import type { CoreGridDensity } from "./visibleState";
+
 export const getCoreGridMetrics = (coreCount: number) => {
   const count = Math.max(1, coreCount);
   let rows = 1;

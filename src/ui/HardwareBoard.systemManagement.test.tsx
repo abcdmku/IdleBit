@@ -1001,6 +1001,7 @@ describe("HardwareBoard second CPU system management", () => {
 
     expect(container.querySelector(".psu-section .power-state-chip")).toBeNull();
     expect(container.querySelector(".system-board.power-offline")).not.toBeNull();
+    expect(container.querySelector(".system-board.power-transitioning")).toBeNull();
     expect(updatedButtons[0]?.className).toContain("go");
     expect(updatedButtons[0]?.disabled).toBe(false);
     expect(updatedButtons[1]?.disabled).toBe(true);

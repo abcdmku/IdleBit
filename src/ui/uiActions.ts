@@ -258,8 +258,14 @@ export const toGameAction = (action: UiGameAction): GameAction => {
         ramLevel: toPositiveInteger(action.tierIds.ramLevel),
         ramSpeedLevel: toPositiveInteger(action.tierIds.ramSpeedLevel),
         scheduler: action.tierIds.scheduler ?? action.tierIds.schedulerBackplane ?? "",
-        psu: action.tierIds.psu ?? action.tierIds.powerSupply ?? "",
-        psuLevel: toPositiveInteger(action.tierIds.psuLevel),
+        psu:
+          action.tierIds.psu ??
+          action.tierIds.powerSupply ??
+          action.tierIds.power ??
+          "",
+        psuLevel: toPositiveInteger(
+          action.tierIds.psuLevel ?? action.tierIds.powerSupplyLevel,
+        ),
       },
     };
   }

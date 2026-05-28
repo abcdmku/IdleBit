@@ -8,11 +8,19 @@ export function SystemBoard({
   visible: VisibleState;
   children: ReactNode;
 }) {
-  const powerOffline =
-    visible.metrics.powerState === "off" || visible.metrics.powerState === "booting";
+  const powerOff = visible.metrics.powerState === "off";
+  const powerTransitioning = visible.metrics.powerState === "booting";
+  const className = [
+    "system-board",
+    `stage-${visible.stage}`,
+    powerOff || powerTransitioning ? "power-offline" : "",
+    powerTransitioning ? "power-transitioning" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className={`system-board stage-${visible.stage} ${powerOffline ? "power-offline" : ""}`}>
+    <div className={className}>
       <div className="system-board-flow">{children}</div>
     </div>
   );

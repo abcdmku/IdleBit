@@ -130,8 +130,15 @@ const scaleCosts = (costs: DisplayCost[], multiplier: number) =>
     amount: cost.amount * multiplier,
   }));
 
-const isPsuGroup = (groupId: string) =>
-  groupId === "psu" || groupId === "powerSupply";
+const isPsuGroup = (groupId: string) => {
+  const id = groupId.toLowerCase();
+  return (
+    id === "psu" ||
+    id === "powersupply" ||
+    id.includes("psu") ||
+    id.includes("power")
+  );
+};
 const POWER_MATCH_EPSILON = 0.000000000001;
 const BUILDER_MAX_CORES = Number.MAX_SAFE_INTEGER;
 const BUILDER_MAX_CPUS = Number.MAX_SAFE_INTEGER;

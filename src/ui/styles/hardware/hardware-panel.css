@@ -128,6 +128,13 @@
 .system-board.power-offline .system-scheduler-section .scheduler-header-row > :not(.system-shutdown-button) {
   filter: grayscale(0.92);
   opacity: 0.38;
+}
+
+.system-board.power-transitioning .system-board-flow > :not(.system-rail):not(.system-scheduler-section),
+.system-board.power-transitioning .system-rail > :not(.psu-section),
+.system-board.power-transitioning .psu-section > :not(.psu-header-row),
+.system-board.power-transitioning .system-scheduler-section > :not(.scheduler-header-row),
+.system-board.power-transitioning .system-scheduler-section .scheduler-header-row > :not(.system-shutdown-button) {
   pointer-events: none;
 }
 
@@ -141,12 +148,18 @@
 .system-board.power-offline .psu-header-row .hw-section-header {
   color: var(--muted);
   opacity: 0.48;
+}
+
+.system-board.power-transitioning .psu-header-row .hw-section-header {
   pointer-events: none;
 }
 
 .system-board.power-offline .psu-section .power-control-buttons,
 .system-board.power-offline .psu-section .power-control-buttons *,
-.system-board.power-offline .system-shutdown-button {
+.system-board.power-offline .system-shutdown-button,
+.system-board.power-transitioning .psu-section .power-control-buttons,
+.system-board.power-transitioning .psu-section .power-control-buttons *,
+.system-board.power-transitioning .system-shutdown-button {
   filter: none;
   opacity: 1;
   pointer-events: auto;

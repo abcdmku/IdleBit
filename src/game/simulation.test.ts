@@ -2067,6 +2067,37 @@ describe("IdleBit simulation", () => {
     expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
   });
 
+  it("keeps the selected store PSU base level when a custom payload has a stale lower level", () => {
+    const selection = {
+      cpu: "cpu-barebones-1",
+      ram: "ram-none",
+      scheduler: "scheduler-none",
+      psu: "psu-balanced",
+      psuLevel: 1,
+    } as const;
+    const before = 10_000;
+    const state = applyAction(
+      {
+        ...createInitialGameState(),
+        flags: {
+          ...createInitialGameState().flags,
+          systemCatalog: true,
+        },
+        resources: {
+          credits: before,
+          data: 0,
+        },
+      },
+      {
+        type: "buyCustomMachine",
+        components: selection,
+      },
+    );
+
+    expect(state.systems.at(-1)?.hardware.psuLevel).toBe(18);
+    expect(state.systems.at(-1)?.hardware.psuWatts).toBe(getPsuWatts(18));
+  });
+
   it("keeps catalog CPUs at package level 1 and offers only RAM tier modules", () => {
     const cpuModules = componentSkus.filter((module) => module.type === "cpu");
     const ramModules = componentSkus.filter((module) => module.type === "ram");

@@ -797,7 +797,7 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
   const hasCustomPsu = selection.psuLevel !== undefined;
   const basePsuLevel = Math.max(1, psu.psuLevel ?? 1);
   const targetPsuLevel = Math.max(
-    1,
+    basePsuLevel,
     getPositiveInteger(selection.psuLevel, basePsuLevel),
   );
   const psuCosts = hasCustomPsu

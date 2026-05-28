@@ -15,6 +15,12 @@ import {
   getGlobalBootloaderLevel,
 } from "../bootloader";
 import {
+  CLICK_RATE_MAX_LEVEL,
+  CLICK_RATE_UNLOCK_COST,
+  getClickRateLevel,
+  getClickRateUpgradeCost,
+} from "../clickRate";
+import {
   CPU_TIER_MAX_LEVEL,
   cpuTierDefinitions,
   getCStateUpgradeCost,
@@ -134,6 +140,17 @@ const getBootloaderResearchCost = (state: GameState) => {
   if (currentLevel >= BOOTLOADER_MAX_LEVEL) return [];
 
   return getBootloaderUpgradeCost(currentLevel + 1);
+};
+
+const getClickRateResearchCost = (state: GameState) => {
+  if (!hasResearch(state, "clickRateTuning")) {
+    return [credits(CLICK_RATE_UNLOCK_COST)];
+  }
+
+  const currentLevel = getClickRateLevel(state);
+  if (currentLevel >= CLICK_RATE_MAX_LEVEL) return [];
+
+  return getClickRateUpgradeCost(currentLevel + 1);
 };
 
 const requirement = (
@@ -259,6 +276,17 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: (state) => requirementsMet(state, getSchedulerWatchdogRequirements()),
     requirements: () => getSchedulerWatchdogRequirements(),
     cost: () => [credits(190), data(12)],
+  },
+  {
+    id: "clickRateTuning",
+    name: "Click Rate Tuning",
+    description: "Improves manual hold dispatch speed.",
+    grants: [],
+    reveal: (state) =>
+      hasResearch(state, "localScheduler") || hasResearch(state, "clickRateTuning"),
+    requirement: (state) => requirementsMet(state, getClickRateTuningRequirements()),
+    requirements: () => getClickRateTuningRequirements(),
+    cost: getClickRateResearchCost,
   },
   {
     id: "schedulerPolicies",
@@ -528,6 +556,12 @@ function getLocalSchedulerRequirements() {
 }
 
 function getSchedulerWatchdogRequirements() {
+  return [
+    researchRequirement("localScheduler", "Complete Local Scheduler research"),
+  ];
+}
+
+function getClickRateTuningRequirements() {
   return [
     researchRequirement("localScheduler", "Complete Local Scheduler research"),
   ];

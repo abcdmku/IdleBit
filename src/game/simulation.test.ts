@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyAction,
+  CLICK_RATE_MAX_LEVEL,
   createInitialGameState,
   createRackReadyGameState,
   DEV_RESOURCE_GRANT_AMOUNT,
   deriveVisibleState,
+  getClickRateHz,
+  getClickRateUpgradeCost,
   deserializeSave,
   RACK_READY_SEED_CREDITS,
   serializeSave,
@@ -1031,6 +1034,149 @@ describe("IdleBit simulation", () => {
     expect(
       visible.research.find((item) => item.id === "cStateControl")?.costs,
     ).toEqual(getCStateUpgradeCost(2));
+  });
+
+  it("unlocks and levels manual click rate tuning after Local Scheduler", () => {
+    let state = fund(unlockMultiCore());
+
+    expect(
+      deriveVisibleState(state).research.map((item) => item.id),
+    ).not.toContain("clickRateTuning");
+
+    state = buy(state, "core");
+    state = research(state, "localScheduler");
+
+    let visible = deriveVisibleState(state);
+    let clickRateResearch = visible.research.find(
+      (item) => item.id === "clickRateTuning",
+    );
+
+    expect(clickRateResearch).toEqual(
+      expect.objectContaining({
+        canBuy: true,
+        completed: false,
+        costs: [{ resource: "credits", amount: 500_000 }],
+      }),
+    );
+    expect(visible.input?.taskHoldRepeatMs).toBe(110);
+    expect(visible.input?.taskHoldRateHz).toBeCloseTo(1000 / 110);
+
+    state = research(state, "clickRateTuning");
+    visible = deriveVisibleState(state);
+    clickRateResearch = visible.research.find(
+      (item) => item.id === "clickRateTuning",
+    );
+
+    expect(state.research.completed).toContain("clickRateTuning");
+    expect(state.research.clickRateLevel ?? 0).toBe(0);
+    expect(clickRateResearch).toEqual(
+      expect.objectContaining({
+        actionLabel: "Level up",
+        completed: false,
+        costs: getClickRateUpgradeCost(1),
+      }),
+    );
+
+    state = research(state, "clickRateTuning");
+    visible = deriveVisibleState(state);
+
+    expect(state.research.clickRateLevel).toBe(1);
+    expect(visible.input).toEqual(
+      expect.objectContaining({
+        clickRateLevel: 1,
+        taskHoldRateHz: 10,
+        taskHoldRepeatMs: 100,
+        taskHoldMaxMs: 30_000,
+      }),
+    );
+    expect(
+      visible.research.find((item) => item.id === "clickRateTuning")?.costs,
+    ).toEqual([{ resource: "credits", amount: 140_000 }]);
+
+    state = research(state, "clickRateTuning");
+    visible = deriveVisibleState(state);
+
+    expect(state.research.clickRateLevel).toBe(2);
+    expect(visible.input?.taskHoldRateHz).toBe(12);
+    expect(
+      visible.research.find((item) => item.id === "clickRateTuning")?.costs,
+    ).toEqual([{ resource: "credits", amount: 196_000 }]);
+
+    while ((state.research.clickRateLevel ?? 0) < CLICK_RATE_MAX_LEVEL) {
+      state = research(state, "clickRateTuning");
+    }
+
+    visible = deriveVisibleState(state);
+    clickRateResearch = visible.research.find(
+      (item) => item.id === "clickRateTuning",
+    );
+
+    expect(state.research.clickRateLevel).toBe(CLICK_RATE_MAX_LEVEL);
+    expect(getClickRateHz(CLICK_RATE_MAX_LEVEL)).toBe(80);
+    expect(visible.input?.taskHoldRateHz).toBe(80);
+    expect(clickRateResearch).toEqual(
+      expect.objectContaining({
+        completed: true,
+        canBuy: false,
+        costs: [],
+      }),
+    );
+  });
+
+  it("normalizes click rate tuning levels from saves", () => {
+    const savedState: GameState = {
+      ...createInitialGameState(),
+      research: {
+        completed: ["clickRateTuning"],
+        clickRateLevel: 7,
+      },
+    };
+
+    const restored = deserializeSave(serializeSave(savedState));
+
+    expect(restored.research.clickRateLevel).toBe(7);
+    expect(deriveVisibleState(restored).input?.taskHoldRateHz).toBe(22);
+
+    const restoredMissing = deserializeSave(
+      JSON.stringify({
+        version: 6,
+        state: {
+          ...savedState,
+          research: {
+            completed: ["clickRateTuning"],
+          },
+        },
+      }),
+    );
+    const restoredClamped = deserializeSave(
+      JSON.stringify({
+        version: 6,
+        state: {
+          ...savedState,
+          research: {
+            completed: ["clickRateTuning"],
+            clickRateLevel: 99,
+          },
+        },
+      }),
+    );
+    const restoredInvalid = deserializeSave(
+      JSON.stringify({
+        version: 6,
+        state: {
+          ...savedState,
+          research: {
+            completed: ["clickRateTuning"],
+            clickRateLevel: "fast",
+          },
+        },
+      }),
+    );
+
+    expect(restoredMissing.research.clickRateLevel).toBe(0);
+    expect(restoredInvalid.research.clickRateLevel).toBe(0);
+    expect(restoredClamped.research.clickRateLevel).toBe(CLICK_RATE_MAX_LEVEL);
+    expect(deriveVisibleState(restoredClamped).input?.taskHoldRateHz).toBe(80);
   });
 
   it("reveals grouped starter tasks and research", () => {

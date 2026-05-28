@@ -7,6 +7,8 @@ import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCacheStateBits, toCacheSegment } from "./cacheData";
+import { getCoreGridMetrics } from "./coreGrid";
+import { getCoreSegmentColor, getProgressStyle } from "./meters";
 import { getQueueDisplayItems } from "./queueData";
 import type { UiQueueDisplayItem } from "./visibleState";
 
@@ -59,6 +61,12 @@ function CpuSummaryCard({
   const summaryQueueColumns = getCompactSchedulerColumnCount(compactSlotCount);
   const deadlocked = socket.deadlocked;
   const efficiencyLabel = formatNumber(socket.efficiency);
+  const coreGrid = getCoreGridMetrics(totalCores);
+  const coreGridStyle = {
+    "--core-grid-columns": coreGrid.columns,
+    "--core-grid-tablet-columns": Math.min(coreGrid.columns, 6),
+    "--core-grid-mobile-columns": Math.min(coreGrid.columns, 4),
+  } as CSSProperties;
 
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -180,17 +188,36 @@ function CpuSummaryCard({
         </div>
       )}
 
-      <div className="cpu-summary-cores-grid" aria-label="Per-core frequency">
+      <div
+        className={`core-grid ${coreGrid.density} cpu-summary-cores-grid`}
+        style={coreGridStyle}
+        data-grid={coreGrid.label}
+        aria-label="Per-core frequency"
+      >
         {socket.cores.map((core) => {
-          const running = !!getCoreActiveTask(core);
+          const active = getCoreActiveTask(core);
+          const running = !!active;
           const coreLabel = getSocketCoreLabel(socket, core.id);
+          const progress =
+            active?.coreProgress?.find((operation) => operation.coreId === core.id)
+              ?.progress ?? 0;
+          const coreStyle = active
+            ? ({
+                "--core-status-color": getCoreSegmentColor(core.id, 0.94),
+                "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
+              } as CSSProperties)
+            : undefined;
+
           return (
             <button
               key={core.id}
               type="button"
-              className={`cpu-summary-core-cell ${running ? "running" : "idle"} ${
+              className={`core-die cpu-summary-core-cell ${
+                running ? "running" : "idle"
+              } ${
                 core.deadlocked ? "deadlocked" : ""
               }`}
+              style={coreStyle}
               onClick={(event) => {
                 event.stopPropagation();
                 onSelectCore(core.id);
@@ -198,9 +225,14 @@ function CpuSummaryCard({
               title={`${coreLabel} - ${formatClock(core.clockHz)}`}
               aria-label={`Select ${coreLabel} on ${socket.label}`}
             >
-              <span className="cpu-summary-core-tag">{coreLabel}</span>
-              <span className="cpu-summary-core-clock">
-                {formatClock(core.clockHz)}
+              <span className="core-die-head">
+                <span className="core-label cpu-summary-core-tag">{coreLabel}</span>
+                <span className="core-clock cpu-summary-core-clock">
+                  <strong>{formatClock(core.clockHz)}</strong>
+                </span>
+              </span>
+              <span className="die-progress" aria-hidden="true">
+                <span className="progress-fill" style={getProgressStyle(progress)} />
               </span>
             </button>
           );

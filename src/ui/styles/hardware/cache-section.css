@@ -1,5 +1,9 @@
 /* ============ CACHE / RAM stat header row ============ */
 
+.cache-section {
+  container-type: inline-size;
+}
+
 .cache-stat-row {
   display: flex;
   gap: var(--s-4);
@@ -69,4 +73,47 @@
   flex: 1 1 auto;
   width: 100%;
   min-height: 48px;
+}
+
+@container (max-width: 360px) {
+  .cache-stat-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    gap: var(--s-2);
+    align-items: start;
+  }
+
+  .cache-stat-row .stat {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .cache-stat-row .stat small,
+  .cache-stat-row .stat strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cache-stat-row .cache-capacity-stat {
+    flex: 1 1 auto;
+  }
+
+  .cache-stat-row .cache-capacity-stat strong,
+  .cache-stat-row .cache-frequency-stat strong {
+    inline-size: auto;
+    max-inline-size: 100%;
+  }
+
+  .cache-stat-row .cache-capacity-stat strong {
+    text-align: left;
+  }
+
+  .cache-stat-row .cache-frequency-stat {
+    margin-left: 0;
+    justify-content: end;
+  }
 }

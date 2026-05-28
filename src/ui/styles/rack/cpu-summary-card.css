@@ -1,4 +1,5 @@
 .cpu-summary-card {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -108,72 +109,54 @@
 }
 
 .cpu-summary-cores-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
-  gap: 3px;
   width: 100%;
   margin: 0;
   padding: 0;
-  list-style: none;
 }
 
-.cpu-summary-core-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  min-width: 0;
-  padding: 3px 2px;
-  border: 1px solid rgba(120, 220, 200, 0.16);
-  border-radius: 3px;
-  background: rgba(120, 220, 200, 0.05);
-  color: var(--muted);
-  cursor: pointer;
+.cpu-summary-card .cpu-summary-cores-grid.core-grid {
+  gap: var(--s-1);
+}
+
+.cpu-summary-card .cpu-summary-core-cell.core-die {
+  min-height: 34px;
+  padding: var(--s-1);
   font: inherit;
-  text-align: center;
+  text-align: left;
 }
 
-.cpu-summary-core-cell:hover,
-.cpu-summary-core-cell:focus-visible {
-  border-color: var(--cyan);
-  color: var(--text);
-  outline: none;
+.cpu-summary-card .cpu-summary-core-cell .core-die-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "label"
+    "clock";
+  gap: 1px;
+  min-height: 0;
+  align-items: start;
 }
 
-.cpu-summary-core-cell.running {
-  border-color: rgba(115, 240, 92, 0.5);
-  background: rgba(115, 240, 92, 0.1);
-  color: var(--text);
-  box-shadow: 0 0 8px rgba(115, 240, 92, 0.18);
+.cpu-summary-card .cpu-summary-core-tag {
+  grid-area: label;
+  font-size: var(--fs-2xs);
+  line-height: 1.05;
 }
 
-.cpu-summary-core-cell.deadlocked,
-.cpu-summary-card.deadlocked .cpu-summary-core-cell.running {
-  border-color: rgba(255, 110, 110, 0.55);
-  background: rgba(255, 110, 110, 0.12);
+.cpu-summary-card .cpu-summary-core-clock {
+  grid-area: clock;
+  max-width: 100%;
+  margin-left: 0;
+  line-height: 1.05;
+}
+
+.cpu-summary-card .cpu-summary-core-clock strong {
+  font-size: var(--fs-2xs);
+}
+
+.cpu-summary-card.deadlocked .cpu-summary-core-cell:not(.deadlocked) {
+  border-color: rgba(255, 110, 110, 0.36);
+}
+
+.cpu-summary-card.deadlocked .cpu-summary-core-cell:not(.deadlocked) .core-label {
   color: var(--rose);
-  box-shadow: 0 0 8px rgba(255, 110, 110, 0.22);
-}
-
-.cpu-summary-core-tag {
-  font-family: var(--font-display);
-  font-size: 0.52rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cyan);
-}
-
-.cpu-summary-core-cell.deadlocked .cpu-summary-core-tag,
-.cpu-summary-card.deadlocked .cpu-summary-core-tag {
-  color: var(--rose);
-}
-
-.cpu-summary-core-clock {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  white-space: nowrap;
 }

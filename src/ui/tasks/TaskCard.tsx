@@ -21,6 +21,8 @@ interface TaskCardProps {
   onRun: () => void;
   onInspect: () => void;
   memoryUnlocked: boolean;
+  holdRepeatMs: number;
+  holdMaxMs: number;
   pinned?: boolean;
   onTogglePin?: () => void;
 }
@@ -34,6 +36,8 @@ export function TaskCard({
   onRun,
   onInspect,
   memoryUnlocked,
+  holdRepeatMs,
+  holdMaxMs,
   pinned = false,
   onTogglePin,
 }: TaskCardProps) {
@@ -155,6 +159,8 @@ export function TaskCard({
         className={`task-run-button ${isBlocked ? "blocked" : ""}`}
         disabled={disabled}
         onPress={onRun}
+        repeatMs={holdRepeatMs}
+        maxHoldMs={holdMaxMs}
         title={buttonLabel}
       >
         {!isBlocked && <Play size={11} />}

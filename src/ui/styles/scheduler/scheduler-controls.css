@@ -1,10 +1,12 @@
 .scheduler-controls {
   display: inline-flex;
+  flex-wrap: wrap;
   flex: 0 1 auto;
   grid-column: 3;
   gap: 4px;
   align-items: center;
   min-width: 0;
+  max-width: 100%;
   justify-self: end;
   justify-content: flex-end;
 }
@@ -46,6 +48,7 @@
 
 .scheduler-control {
   display: inline-flex;
+  flex: 1 1 104px;
   gap: 5px;
   align-items: center;
   min-width: 0;
@@ -59,12 +62,17 @@
   font-family: var(--font-mono);
   font-size: 0.54rem;
   letter-spacing: 0;
+  overflow: hidden;
 }
 
 .scheduler-control > span {
   flex: 0 0 auto;
+  min-width: 0;
   color: var(--violet);
   text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scheduler-control select {
@@ -79,6 +87,8 @@
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.58rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .scheduler-control select:hover:not(:disabled),
@@ -88,6 +98,7 @@
 }
 
 .scheduler-control.checkbox {
+  flex: 0 1 auto;
   justify-content: center;
 }
 
@@ -178,4 +189,51 @@
   height: 100%;
   border-radius: inherit;
   background: var(--rose);
+}
+
+@container (max-width: 560px) {
+  .scheduler-header-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-rows: min-content;
+    row-gap: var(--s-2);
+    column-gap: var(--s-2);
+  }
+
+  .scheduler-header-row > .hw-section-header {
+    grid-column: 1;
+    grid-row: 1;
+    overflow: hidden;
+  }
+
+  .system-shutdown-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .scheduler-header-row > .scheduler-watchdog-status {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    justify-self: stretch;
+  }
+
+  .scheduler-controls {
+    display: grid;
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-self: stretch;
+    justify-content: stretch;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  }
+
+  .scheduler-control {
+    width: 100%;
+    max-width: none;
+  }
+
+  .scheduler-control select {
+    width: 100%;
+    max-width: none;
+  }
 }

@@ -1,4 +1,9 @@
 import { getBootSeconds, getBootloaderReducedSeconds } from "./bootloader";
+import {
+  CLICK_RATE_MAX_LEVEL,
+  getClickRateLevel,
+  getClickRateUpgradeCost,
+} from "./clickRate";
 import { getResearchDefinition, researchDefinitions } from "./content/research";
 import {
   getComponentSku,
@@ -4320,6 +4325,27 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
     return pullQueue(updateProgressionFlags(bought));
   }
 
+  if (researchId === "clickRateTuning" && completed) {
+    const currentLevel = getClickRateLevel(state);
+    const upgradeCosts = getClickRateUpgradeCost(currentLevel + 1);
+
+    if (
+      currentLevel >= CLICK_RATE_MAX_LEVEL ||
+      !canAfford(state, upgradeCosts)
+    ) {
+      return state;
+    }
+
+    const bought = {
+      ...spend(state, upgradeCosts),
+      research: {
+        ...state.research,
+        clickRateLevel: currentLevel + 1,
+      },
+    };
+    return pullQueue(updateProgressionFlags(bought));
+  }
+
   if (
     completed ||
     !research.requirement(state) ||
@@ -4331,6 +4357,7 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
   const bought = {
     ...spend(state, costs),
     research: {
+      ...state.research,
       completed: [...state.research.completed, researchId],
     },
   };

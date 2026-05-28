@@ -87,6 +87,7 @@ export type ResearchId =
   | "bootloader"
   | "ramControl"
   | "systemBus"
+  | "clickRateTuning"
   | "cronScheduler"
   | "systemCatalog"
   | "customMachineAssembly"
@@ -658,6 +659,7 @@ export interface CpuHardwareState {
 
 export interface ResearchState {
   completed: ResearchId[];
+  clickRateLevel?: number;
 }
 
 export interface ReliabilityState {
@@ -1205,6 +1207,13 @@ export interface VisibleHardwareMetrics {
   cacheResidency: CacheResidencySegment[];
 }
 
+export interface VisibleInputConfig {
+  clickRateLevel: number;
+  taskHoldRateHz: number;
+  taskHoldRepeatMs: number;
+  taskHoldMaxMs: number;
+}
+
 export interface VisibleState {
   stage: StageId;
   stageLabel: string;
@@ -1214,6 +1223,7 @@ export interface VisibleState {
   selectedSystem: VisibleSystemSummary;
   machineBuilder: VisibleMachineBuilder;
   hardware: HardwareState;
+  input?: VisibleInputConfig;
   metrics: VisibleHardwareMetrics;
   flags: GameFlags;
   research: VisibleResearch[];

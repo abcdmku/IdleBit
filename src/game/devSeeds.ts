@@ -193,6 +193,7 @@ export const createRackReadyGameState = (): GameState => {
         "cpuTierThz",
         "cpuTierPhz",
       ] satisfies ResearchId[],
+      clickRateLevel: 0,
     },
     completedTasks: {
       fetchBit: 3,

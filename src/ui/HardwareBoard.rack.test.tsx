@@ -757,6 +757,8 @@ describe("HardwareBoard multi-system rack", () => {
     expect(container.querySelector(".custom-builder-system-preview .core-control-strip .upgrade-stepper")).not.toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .cache-control-strip .upgrade-stepper")).not.toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .rack-gauge-bar")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .core-status-dot")).toBeNull();
+    expect(container.querySelector(".custom-builder-system-preview .core-die .die-progress")).not.toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .progress-fill")).toBeNull();
     expect(container.querySelector(".custom-system-module-picker")).toBeNull();
     expect(container.querySelector(".custom-system-summary")).toBeNull();

@@ -2,6 +2,7 @@ import {
   BOOTLOADER_MAX_LEVEL,
   getBootloaderLevelFromHardware,
 } from "./bootloader";
+import { getClickRateLevelFromResearch } from "./clickRate";
 import {
   bitsToBytes,
   createCoreSchedulers,
@@ -97,6 +98,7 @@ const validResearchIds = [
   "bootloader",
   "ramControl",
   "systemBus",
+  "clickRateTuning",
   "cronScheduler",
   "systemCatalog",
   "customMachineAssembly",
@@ -470,6 +472,7 @@ const normalizeState = (state: LegacyState): GameState => {
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
   );
+  const clickRateLevel = getClickRateLevelFromResearch(state.research);
   const normalizedCronSchedules = normalizeCronSchedules(state.cron?.schedules);
   const cronScheduleSlots = Math.max(
     0,
@@ -613,6 +616,7 @@ const normalizeState = (state: LegacyState): GameState => {
     deadlockProcessLockout: state.deadlockProcessLockout ?? false,
     research: {
       completed: researchCompleted,
+      clickRateLevel,
     },
     reliability: {
       ...fresh.reliability,

@@ -594,6 +594,7 @@ export const createInitialGameState = (): GameState => {
     cron: firstSystem.cron,
     research: {
       completed: [],
+      clickRateLevel: 0,
     },
     reliability: {
       lastEvent: null,

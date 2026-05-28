@@ -6,8 +6,8 @@ import {
   type ReactNode,
 } from "react";
 
-const HOLD_REPEAT_MS = 110;
-const HOLD_REPEAT_MAX_MS = 10_000;
+const DEFAULT_HOLD_REPEAT_MS = 110;
+const DEFAULT_HOLD_REPEAT_MAX_MS = 30_000;
 
 type PressRepeatButtonProps = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
@@ -23,11 +23,15 @@ type PressRepeatButtonProps = Omit<
 > & {
   children: ReactNode;
   onPress: () => void;
+  repeatMs?: number;
+  maxHoldMs?: number;
 };
 
 export function PressRepeatButton({
   children,
   disabled = false,
+  repeatMs = DEFAULT_HOLD_REPEAT_MS,
+  maxHoldMs = DEFAULT_HOLD_REPEAT_MAX_MS,
   onPress,
   type = "button",
   ...props
@@ -137,8 +141,14 @@ export function PressRepeatButton({
     press();
     stopRepeat();
     bindReleaseListeners(event.currentTarget);
-    intervalRef.current = window.setInterval(press, HOLD_REPEAT_MS);
-    timeoutRef.current = window.setTimeout(clearRepeatTimers, HOLD_REPEAT_MAX_MS);
+    intervalRef.current = window.setInterval(
+      press,
+      Math.max(1, repeatMs),
+    );
+    timeoutRef.current = window.setTimeout(
+      clearRepeatTimers,
+      Math.max(1, maxHoldMs),
+    );
   };
 
   const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {

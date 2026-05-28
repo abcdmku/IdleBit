@@ -38,8 +38,12 @@ export function CoreArraySection({
 }) {
   const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
   const grid = getCoreGridMetrics(socket.cores.length);
+  const tabletColumns = Math.min(grid.columns, 6);
+  const mobileColumns = Math.min(grid.columns, 4);
   const gridStyle = {
     "--core-grid-columns": grid.columns,
+    "--core-grid-tablet-columns": tabletColumns,
+    "--core-grid-mobile-columns": mobileColumns,
   } as CSSProperties;
   const selectedClockUpgrade = socket.allCoreClockUpgrade;
   const cooldownActive = deadlockPressure
@@ -179,7 +183,6 @@ function CoreDie({
       }`}
     >
       <span className="core-die-head">
-        <span className="core-status-dot" aria-hidden="true" />
         <span className="core-label">{coreLabel}</span>
         <span className="core-clock">
           <strong>{formatClock(core.clockHz)}</strong>

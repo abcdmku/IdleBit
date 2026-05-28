@@ -50,6 +50,8 @@ export function TaskBay({
   );
   const inspectedTask = tasks.find((task) => task.id === inspectedTaskId) ?? null;
   const memoryUnlocked = hasSystemMemory(visible);
+  const holdRepeatMs = visible.input?.taskHoldRepeatMs ?? 110;
+  const holdMaxMs = visible.input?.taskHoldMaxMs ?? 30_000;
   const groupedTasks = taskGroups
     .map((group) => ({
       ...group,
@@ -144,6 +146,8 @@ export function TaskBay({
                         onRun={() => runTask(task)}
                         onInspect={() => setInspectedTaskId(task.id)}
                         memoryUnlocked={memoryUnlocked}
+                        holdRepeatMs={holdRepeatMs}
+                        holdMaxMs={holdMaxMs}
                         pinned={pinnedTaskIds.includes(task.id)}
                         onTogglePin={
                           onTogglePinnedTask

@@ -26,7 +26,10 @@
 
 .hw-section.cpu-section       { border-color: rgba(36, 231, 195, 0.22); }
 .hw-section.cache-section     { border-color: rgba(115, 240, 92, 0.22); }
-.hw-section.scheduler-section { border-color: rgba(184, 158, 255, 0.22); }
+.hw-section.scheduler-section {
+  container-type: inline-size;
+  border-color: rgba(184, 158, 255, 0.22);
+}
 .hw-section.memory-section    { border-color: rgba(115, 240, 92, 0.22); }
 .hw-section.psu-section       { border-color: rgba(242, 194, 78, 0.22); }
 .hw-section.thermal-section   { border-color: rgba(36, 231, 195, 0.22); }

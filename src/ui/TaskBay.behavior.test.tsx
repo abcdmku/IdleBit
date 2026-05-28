@@ -8,6 +8,7 @@ import {
 } from "../game";
 import {
   HardwareBoard,
+  PinnedTaskBar,
   ResearchPanel,
   TaskBay
 } from "./HardwareBoard";
@@ -205,7 +206,7 @@ describe("TaskBay task and research behavior", () => {
     }
   });
 
-  it("caps held task retriggers after ten seconds", () => {
+  it("caps held task retriggers after thirty seconds", () => {
     vi.useFakeTimers();
 
     try {
@@ -242,18 +243,126 @@ describe("TaskBay task and research behavior", () => {
 
       act(() => {
         button?.dispatchEvent(makePointerEvent("pointerdown"));
-        vi.advanceTimersByTime(12_000);
+        vi.advanceTimersByTime(31_000);
       });
 
       const countAtCap = dispatch.mock.calls.length;
 
-      expect(countAtCap).toBeGreaterThan(80);
+      expect(countAtCap).toBeGreaterThan(250);
 
       act(() => {
         vi.advanceTimersByTime(1_000);
       });
 
       expect(dispatch).toHaveBeenCalledTimes(countAtCap);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses visible click-rate cadence for held task buttons", () => {
+    vi.useFakeTimers();
+
+    try {
+      const base = deriveVisibleState(createInitialGameState());
+      const dispatch = vi.fn();
+      const visible: VisibleState = {
+        ...base,
+        flags: {
+          ...base.flags,
+          basicQueue: true,
+        },
+        input: {
+          clickRateLevel: 11,
+          taskHoldRateHz: 30,
+          taskHoldRepeatMs: 50,
+          taskHoldMaxMs: 30_000,
+        },
+        tasks: base.tasks.map((task) =>
+          task.id === "fetchBit"
+            ? {
+              ...task,
+              canQueue: true,
+              queueBlockedReason: null,
+            }
+            : task,
+        ),
+      };
+
+      act(() => {
+        root.render(
+          <TaskBay
+            visible={visible}
+            selectedComponent="scheduler:1"
+            dispatch={dispatch}
+          />,
+        );
+      });
+
+      const button = container.querySelector<HTMLButtonElement>(".task-run-button");
+
+      act(() => {
+        button?.dispatchEvent(makePointerEvent("pointerdown"));
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses visible click-rate cadence for pinned task buttons", () => {
+    vi.useFakeTimers();
+
+    try {
+      const base = deriveVisibleState(createInitialGameState());
+      const dispatch = vi.fn();
+      const visible: VisibleState = {
+        ...base,
+        flags: {
+          ...base.flags,
+          basicQueue: true,
+        },
+        input: {
+          clickRateLevel: 11,
+          taskHoldRateHz: 30,
+          taskHoldRepeatMs: 50,
+          taskHoldMaxMs: 30_000,
+        },
+        tasks: base.tasks.map((task) =>
+          task.id === "fetchBit"
+            ? {
+              ...task,
+              canQueue: true,
+              queueBlockedReason: null,
+            }
+            : task,
+        ),
+      };
+
+      act(() => {
+        root.render(
+          <PinnedTaskBar
+            visible={visible}
+            pinnedTaskIds={["fetchBit"]}
+            onUnpinTask={() => undefined}
+            onClearPinnedTasks={() => undefined}
+            dispatch={dispatch}
+            selectedComponent="scheduler:1"
+          />,
+        );
+      });
+
+      const button =
+        container.querySelector<HTMLButtonElement>(".pinned-task-action");
+
+      act(() => {
+        button?.dispatchEvent(makePointerEvent("pointerdown"));
+        vi.advanceTimersByTime(150);
+      });
+
+      expect(dispatch).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }

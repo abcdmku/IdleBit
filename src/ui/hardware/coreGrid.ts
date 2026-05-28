@@ -1,5 +1,3 @@
-import type { CoreGridDensity } from "./visibleState";
-
 export const getCoreGridMetrics = (coreCount: number) => {
   const count = Math.max(1, coreCount);
   let rows = 1;
@@ -15,31 +13,31 @@ export const getCoreGridMetrics = (coreCount: number) => {
     rows = 2;
     columns = 4;
   } else if (count <= 12) {
-    rows = 2;
-    columns = 6;
+    rows = 3;
+    columns = 4;
   } else if (count <= 16) {
-    rows = 2;
-    columns = 8;
+    rows = 4;
+    columns = 4;
   } else if (count <= 24) {
-    rows = 2;
-    columns = 12;
+    rows = Math.ceil(count / 8);
+    columns = 8;
   } else if (count <= 32) {
-    rows = 2;
-    columns = 16;
+    rows = Math.ceil(count / 8);
+    columns = 8;
   } else {
-    rows = Math.ceil(count / 16);
-    columns = 16;
+    rows = Math.ceil(count / 8);
+    columns = 8;
   }
 
   const density: CoreGridDensity =
-    columns >= 12 ? "dense" : columns >= 4 ? "compact" : "normal";
+    columns >= 6 ? "dense" : columns >= 4 ? "compact" : "normal";
 
   return {
     rows,
     columns,
     density,
     label: `${rows}x${columns}`,
-    fullWidth: columns >= 12,
+    fullWidth: columns >= 6,
   };
 };
 

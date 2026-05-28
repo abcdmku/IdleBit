@@ -3,6 +3,11 @@ import {
   BOOTLOADER_MAX_LEVEL,
   getGlobalBootloaderLevel,
 } from "./bootloader";
+import {
+  CLICK_RATE_MAX_LEVEL,
+  getClickRateLevel,
+  getVisibleInputConfig,
+} from "./clickRate";
 import { getGlobalCStateLevel } from "./cState";
 import {
   CPU_TIER_MAX_LEVEL,
@@ -1430,6 +1435,15 @@ const isBootloaderLevelUpResearch = (
   completed &&
   getGlobalBootloaderLevel(state) < BOOTLOADER_MAX_LEVEL;
 
+const isClickRateLevelUpResearch = (
+  state: GameState,
+  researchId: string,
+  completed: boolean,
+) =>
+  researchId === "clickRateTuning" &&
+  completed &&
+  getClickRateLevel(state) < CLICK_RATE_MAX_LEVEL;
+
 const getVisibleResearch = (state: GameState) =>
   researchDefinitions
     .filter(
@@ -1456,8 +1470,16 @@ const getVisibleResearch = (state: GameState) =>
         research.id,
         savedCompleted,
       );
+      const clickRateLevelUp = isClickRateLevelUpResearch(
+        state,
+        research.id,
+        savedCompleted,
+      );
       const repeatableLevelUp =
-        cStateLevelUp || memoryVoltageLevelUp || bootloaderLevelUp;
+        cStateLevelUp ||
+        memoryVoltageLevelUp ||
+        bootloaderLevelUp ||
+        clickRateLevelUp;
       const completed = savedCompleted && !repeatableLevelUp;
       const canAffordResearch = canAfford(state, costs);
       const requirements = repeatableLevelUp
@@ -1876,6 +1898,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     selectedSystem,
     machineBuilder,
     hardware: syncedState.hardware,
+    input: getVisibleInputConfig(syncedState),
     metrics: {
       cpuSockets: getCpuSockets(syncedState, activeTasks, activeJobs, cacheResidency),
       activeCoreCount: busyCoreIds.size,

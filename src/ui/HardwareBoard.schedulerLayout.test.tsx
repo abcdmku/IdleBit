@@ -498,7 +498,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(cpuPackage?.querySelector(".core-array-efficiency")).toBeNull();
   });
 
-  it("uses a dense core array that can scale to two dozen cores", () => {
+  it("uses a dense stacked core array that can scale to two dozen cores", () => {
     const base = deriveVisibleState(createInitialGameState());
     const baseSocket = base.metrics.cpuSockets[0]!;
     const baseCore = baseSocket.cores[0]!;
@@ -547,8 +547,10 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     const schedulerCacheRow = container.querySelector(".scheduler-cache-row");
 
     expect(grid).not.toBeNull();
-    expect(grid?.dataset.grid).toBe("2x12");
-    expect(grid?.style.getPropertyValue("--core-grid-columns")).toBe("12");
+    expect(grid?.dataset.grid).toBe("3x8");
+    expect(grid?.style.getPropertyValue("--core-grid-columns")).toBe("8");
+    expect(grid?.style.getPropertyValue("--core-grid-tablet-columns")).toBe("6");
+    expect(grid?.style.getPropertyValue("--core-grid-mobile-columns")).toBe("4");
     expect(container.querySelectorAll(".core-die")).toHaveLength(24);
     expect(schedulerCacheRow?.querySelector(".scheduler-section")).not.toBeNull();
     expect(schedulerCacheRow?.querySelector(".cache-section")).not.toBeNull();
@@ -556,6 +558,63 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(
       container.querySelector(".core-array-section .upgrade-stepper")?.textContent,
     ).toContain("Core Freq");
+  });
+
+  it("stacks ten-core arrays instead of widening inside the narrow cache row", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const baseSocket = base.metrics.cpuSockets[0]!;
+    const baseCore = baseSocket.cores[0]!;
+    const cores = Array.from({ length: 10 }, (_, index) => ({
+      ...baseCore,
+      id: index + 1,
+      label: `Core ${index + 1}`,
+      scheduler: {
+        ...baseCore.scheduler,
+        localQueue: [],
+      },
+    }));
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+      },
+      hardware: {
+        ...base.hardware,
+        cores: 10,
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...baseSocket,
+            cores,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const coreCacheRow = container.querySelector(".core-cache-row");
+    const grid = coreCacheRow?.querySelector<HTMLElement>(".core-grid.compact");
+
+    expect(grid?.dataset.grid).toBe("3x4");
+    expect(grid?.style.getPropertyValue("--core-grid-columns")).toBe("4");
+    expect(coreCacheRow?.querySelector(".core-array-section")).not.toBeNull();
+    expect(coreCacheRow?.querySelector(".cache-section")).not.toBeNull();
+    expect(container.querySelector(".scheduler-cache-row")).toBeNull();
+    expect(container.querySelector(".core-status-dot")).toBeNull();
+    expect(container.querySelectorAll(".core-die .die-progress")).toHaveLength(10);
   });
 
   it("selects all cores and dispatches grouped clock +/- actions", () => {
@@ -703,11 +762,11 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       [1, "1x2", "2", "normal"],
       [4, "2x2", "2", "normal"],
       [8, "2x4", "4", "compact"],
-      [12, "2x6", "6", "compact"],
-      [16, "2x8", "8", "compact"],
-      [24, "2x12", "12", "dense"],
-      [32, "2x16", "16", "dense"],
-      [48, "3x16", "16", "dense"],
+      [12, "3x4", "4", "compact"],
+      [16, "4x4", "4", "compact"],
+      [24, "3x8", "8", "dense"],
+      [32, "4x8", "8", "dense"],
+      [48, "6x8", "8", "dense"],
     ] as const;
 
     for (const [coreCount, layout, columns, density] of cases) {

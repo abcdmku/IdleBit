@@ -26,6 +26,11 @@ export {
 } from "./simulation";
 export { deriveVisibleState } from "./selectors";
 export { deserializeSave, serializeSave } from "./save";
+export {
+  CLICK_RATE_MAX_LEVEL,
+  getClickRateHz,
+  getClickRateUpgradeCost,
+} from "./clickRate";
 export type {
   ActiveCoreOperation,
   ActiveTask,
@@ -61,6 +66,7 @@ export type {
   VisibleCronState,
   VisibleCronTaskOption,
   VisibleJob,
+  VisibleInputConfig,
   VisibleMachineBuilder,
   VisibleMachineTemplate,
   VisibleRamInstallOption,

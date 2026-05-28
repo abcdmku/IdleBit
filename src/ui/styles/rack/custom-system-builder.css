@@ -419,7 +419,6 @@
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-.custom-builder-system-preview .die-progress,
 .custom-builder-system-preview .queue-slot-progress,
 .custom-builder-system-preview .psu-load-meter,
 .custom-builder-system-preview .ram-stick-module-meter,
@@ -688,12 +687,7 @@
 }
 
 .custom-builder-core-array.many-cores .core-grid {
-  --core-cell-min: 72px;
   overflow-x: hidden;
-}
-
-.custom-builder-core-array.many-cores .core-grid.dense {
-  --core-cell-min: 68px;
 }
 
 .custom-builder-core-array.many-cores .core-die {
@@ -719,12 +713,6 @@
   margin-left: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
-}
-
-.custom-builder-core-array.many-cores .core-status-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
 }
 
 .custom-builder-core-array.many-cores .core-work {

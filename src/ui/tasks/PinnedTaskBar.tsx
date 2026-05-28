@@ -45,6 +45,8 @@ export function PinnedTaskBar({
 
   if (pinned.length === 0) return null;
 
+  const holdRepeatMs = visible.input?.taskHoldRepeatMs ?? 110;
+  const holdMaxMs = visible.input?.taskHoldMaxMs ?? 30_000;
   const { mode: routeMode, selectedCore: routeSelectedCore } = resolveTaskRoute(
     visible,
     selectedComponent,
@@ -137,6 +139,8 @@ export function PinnedTaskBar({
                   onPress={() =>
                     dispatchRunTask(task, visible, selectedComponent, dispatch)
                   }
+                  repeatMs={holdRepeatMs}
+                  maxHoldMs={holdMaxMs}
                   title={buttonLabel}
                 >
                   {!disabledReason && <Play size={10} />}

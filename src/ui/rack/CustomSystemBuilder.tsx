@@ -35,6 +35,7 @@ import {
 } from "../format";
 import { firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
+import type { CoreGridDensity } from "../hardware/visibleState";
 import type { Dispatch } from "../uiActions";
 import {
   getBuilderGroupId,
@@ -468,7 +469,8 @@ const getBuilderCoreGridMetrics = (coreCount: number) => {
   }
 
   const rows = Math.ceil(count / columns);
-  const density = columns >= 6 ? "dense" : columns >= 4 ? "compact" : "normal";
+  const density: CoreGridDensity =
+    columns >= 6 ? "dense" : columns >= 4 ? "compact" : "normal";
 
   return {
     rows,
@@ -1641,8 +1643,12 @@ export function CustomSystemBuilder({
                 const packageCoreGrid = getBuilderCoreGridMetrics(
                   config.coreCount,
                 );
+                const packageTabletColumns = Math.min(packageCoreGrid.columns, 6);
+                const packageMobileColumns = Math.min(packageCoreGrid.columns, 4);
                 const packageCoreGridStyle = {
                   "--core-grid-columns": packageCoreGrid.columns,
+                  "--core-grid-tablet-columns": packageTabletColumns,
+                  "--core-grid-mobile-columns": packageMobileColumns,
                 } as CSSProperties;
 
                 return (
@@ -1722,13 +1728,13 @@ export function CustomSystemBuilder({
                           aria-pressed={packageSelected}
                         >
                           <span className="core-die-head">
-                            <span className="core-status-dot" aria-hidden="true" />
                             <span className="core-label">C{coreIndex + 1}</span>
                             <span className="core-clock">
                               <strong>{formatClock(packageClockHz)}</strong>
                             </span>
                           </span>
                           <span className="core-work idle">Idle</span>
+                          <span className="die-progress" aria-hidden="true" />
                         </div>
                       ))}
                     </div>

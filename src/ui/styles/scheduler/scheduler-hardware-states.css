@@ -44,7 +44,7 @@
 
 .power-transition-label strong {
   min-width: 0;
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -55,7 +55,7 @@
 
 .power-transition-time {
   color: var(--text);
-  font-size: 0.64rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -101,7 +101,7 @@
 .locked-system-note {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -138,14 +138,14 @@
   flex-wrap: wrap;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .install-hardware-copy strong {
   color: var(--text);
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
 }
 
 .install-hardware-button {
@@ -159,7 +159,7 @@
   background: rgba(242, 194, 78, 0.09);
   color: var(--amber);
   font-family: var(--font-display);
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -196,7 +196,7 @@
 
 .efficiency-readouts small {
   color: var(--muted);
-  font-size: 0.56rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

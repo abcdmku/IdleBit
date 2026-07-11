@@ -24,7 +24,12 @@ import {
   getRamSpeedMt,
 } from "../../game/progression";
 import { getPsuCapacityBuildCost } from "../../game/content/psu";
-import type { VisibleState } from "../../game";
+import { projectExactCosts } from "../../game/economy";
+import {
+  projectMachineSelection,
+  type MachinePowerProjection,
+  type VisibleState,
+} from "../../game";
 import {
   formatBits,
   formatClock,
@@ -37,6 +42,10 @@ import { firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { CoreGridDensity } from "../hardware/visibleState";
 import type { Dispatch } from "../uiActions";
+import {
+  BuilderProjectionReadout,
+  type FleetComputeBaseline,
+} from "./BuilderProjectionReadout";
 import {
   getBuilderGroupId,
   getBuilderGroupLabel,
@@ -51,6 +60,7 @@ import type {
   UiCustomMachineGroup,
   UiCustomMachineTier,
 } from "./types";
+import { V1_HARDWARE_LIMITS } from "../../game/hardwareLimits";
 
 interface CustomSystemBuilderProps {
   builder: UiCustomMachineBuilder | null;
@@ -58,6 +68,7 @@ interface CustomSystemBuilderProps {
   dispatch: Dispatch;
   draft?: CustomSystemBuilderDraft | null;
   onDraftChange?: (draft: CustomSystemBuilderDraft) => void;
+  fleetBaseline: FleetComputeBaseline | null;
 }
 
 type BuilderBayRole = "scheduler" | "memory" | "cpu" | "power" | "other";
@@ -79,7 +90,7 @@ interface BuilderGroupEntry {
   selectedTier: UiCustomMachineTier | null;
 }
 
-type ClockTierId = "hz" | "khz" | "mhz" | "ghz" | "thz" | "phz";
+type ClockTierId = "hz" | "khz" | "mhz" | "ghz";
 
 type BuilderStepMetric =
   | "cpuFreq"
@@ -101,8 +112,6 @@ const CLOCK_TIER_ORDER: ClockTierId[] = [
   "khz",
   "mhz",
   "ghz",
-  "thz",
-  "phz",
 ];
 
 const CLOCK_TIER_LABELS: Record<ClockTierId, string> = {
@@ -110,8 +119,6 @@ const CLOCK_TIER_LABELS: Record<ClockTierId, string> = {
   khz: "kHz",
   mhz: "MHz",
   ghz: "GHz",
-  thz: "THz",
-  phz: "PHz",
 };
 
 const normalizeClockTierId = (value: unknown): ClockTierId | null => {
@@ -121,7 +128,7 @@ const normalizeClockTierId = (value: unknown): ClockTierId | null => {
   const direct = CLOCK_TIER_ORDER.find((tier) => tier === text);
   if (direct) return direct;
 
-  const match = text.match(/(?:^|[^a-z])(phz|thz|ghz|mhz|khz|hz)(?:[^a-z]|$)/);
+  const match = text.match(/(?:^|[^a-z])(ghz|mhz|khz|hz)(?:[^a-z]|$)/);
   return match ? (match[1] as ClockTierId) : null;
 };
 
@@ -141,10 +148,11 @@ const isPsuGroup = (groupId: string) => {
   );
 };
 const POWER_MATCH_EPSILON = 0.000000000001;
-const BUILDER_MAX_CORES = Number.MAX_SAFE_INTEGER;
-const BUILDER_MAX_CPUS = Number.MAX_SAFE_INTEGER;
-const BUILDER_MAX_RAM_STICKS = 8;
-const BUILDER_MAX_LEVEL = 36;
+const BUILDER_MAX_CORES = V1_HARDWARE_LIMITS.coresPerCpu;
+const BUILDER_MAX_CPUS = V1_HARDWARE_LIMITS.cpuPackages;
+const BUILDER_MAX_RAM_STICKS = V1_HARDWARE_LIMITS.ramSticks;
+const BUILDER_MAX_LEVEL = V1_HARDWARE_LIMITS.cpuLevel;
+const BUILDER_MAX_PSU_LEVEL = V1_HARDWARE_LIMITS.psuLevel;
 
 const getBuildCosts = (
   entries: Array<{ groupId: string; tier: UiCustomMachineTier }>,
@@ -168,7 +176,9 @@ const getBuildCosts = (
 
         return [
           ...getRecordCosts(tier),
-          ...getPsuCapacityBuildCost(basePsuLevel, targetPsuLevel),
+          ...projectExactCosts(
+            getPsuCapacityBuildCost(basePsuLevel, targetPsuLevel),
+          ),
         ];
       }
       return getRecordCosts(tier);
@@ -535,6 +545,7 @@ export function CustomSystemBuilder({
   dispatch,
   draft = null,
   onDraftChange,
+  fleetBaseline,
 }: CustomSystemBuilderProps) {
   const groups = getBuilderGroups(builder);
   const groupsKey = groups
@@ -808,7 +819,7 @@ export function CustomSystemBuilder({
     selections.psuLevel,
     basePsuLevel,
     1,
-    BUILDER_MAX_LEVEL,
+    BUILDER_MAX_PSU_LEVEL,
   );
   const machineSelection =
     cpuEntry &&
@@ -837,7 +848,7 @@ export function CustomSystemBuilder({
     machineSelection !== null
       ? (() => {
           try {
-            return getMachineSelectionCost(machineSelection);
+            return projectExactCosts(getMachineSelectionCost(machineSelection));
           } catch {
             return getBuildCosts(selectedEntries, totalCores, ramStickCount, psuLevel);
           }
@@ -892,6 +903,21 @@ export function CustomSystemBuilder({
   );
   const ramEfficiency = getProjectedRamEfficiency(ramSpeedLevel);
   const ramEfficiencyLabel = formatNumber(ramEfficiency);
+  const projectedComputePerSecond = cpuPackageConfigs.reduce(
+    (total, config) =>
+      total + config.coreCount * Math.max(0, getPackageClockHz(config.cpuLevel)),
+    0,
+  );
+  const machinePowerProjection: MachinePowerProjection | null =
+    machineSelection === null
+      ? null
+      : (() => {
+          try {
+            return projectMachineSelection(machineSelection);
+          } catch {
+            return null;
+          }
+        })();
   const otherRequiredPowerWatts = selectedEntries.reduce(
     (total, { groupId, tier }) =>
       groupId === "cpu" ||
@@ -902,7 +928,7 @@ export function CustomSystemBuilder({
         : total + (tier.powerDeltaWatts ?? 0),
     0,
   );
-  const requiredPowerWatts = roundPowerWatts(
+  const componentEstimatedPowerWatts = roundPowerWatts(
     cpuPackageConfigs.reduce((total, config) => {
       const packageEfficiency = getProjectedCpuEfficiency(
         getPackageBaseEfficiency(config.cpuLevel),
@@ -922,15 +948,23 @@ export function CustomSystemBuilder({
       Math.max(0, cpuPackageCount - 1) * 0.00000000000008 +
       otherRequiredPowerWatts,
   );
-  const psuCapacityWatts = selectedPsuTier
-    ? selectedPsuTier.psuLevel !== undefined
-      ? getPsuWatts(psuLevel)
-      : (firstNumber(selectedPsuTier.psuWatts, selectedPsuTier.powerDeltaWatts) ?? 0)
-    : 0;
+  const requiredPowerWatts =
+    machinePowerProjection?.peakWatts ?? componentEstimatedPowerWatts;
+  const psuCapacityWatts =
+    machinePowerProjection?.psuCapacityWatts ??
+    (selectedPsuTier
+      ? selectedPsuTier.psuLevel !== undefined
+        ? getPsuWatts(psuLevel)
+        : (firstNumber(
+            selectedPsuTier.psuWatts,
+            selectedPsuTier.powerDeltaWatts,
+          ) ?? 0)
+      : 0);
   const powerMet = requiredPowerWatts <= psuCapacityWatts + POWER_MATCH_EPSILON;
   const powerLabel = powerMet ? "Met" : "Short";
   const projectedEfficiency = cpuEfficiency;
   const projectedRunCostPerSecond =
+    machinePowerProjection?.powerCostPerSecond ??
     getProjectedRunCostPerSecond(requiredPowerWatts);
 
   const chooseTier = (groupId: string, tierId: string) => {
@@ -1854,6 +1888,7 @@ export function CustomSystemBuilder({
               value: psuLevel,
               display: formatWatts(psuCapacityWatts),
               accent: "amber",
+              max: BUILDER_MAX_PSU_LEVEL,
             })}
           </div>
         </section>
@@ -1934,6 +1969,14 @@ export function CustomSystemBuilder({
               : blockedReason}
           </span>
         </button>
+        <BuilderProjectionReadout
+          computePerSecond={
+            projectedComputePerSecond > 0 ? projectedComputePerSecond : null
+          }
+          power={machinePowerProjection}
+          baseline={fleetBaseline}
+          label="Advanced build projections"
+        />
       </header>
 
       <div className="custom-builder-system-preview system-board">

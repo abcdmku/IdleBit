@@ -2,6 +2,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  amount,
+  exactResourceBag,
   type VisibleState
 } from "../game";
 import { formatWatts } from "./format";
@@ -14,6 +16,7 @@ const reactActEnvironment = globalThis as typeof globalThis & {
 const makeVisibleState = (data: number, credits: number) =>
   ({
     resources: { data, credits },
+    exactResources: exactResourceBag(credits, data),
     activeTasks: [],
     queue: [],
   }) as unknown as VisibleState;
@@ -57,7 +60,34 @@ describe("ResourceHud", () => {
     ).toEqual(["credits", "data"]);
   });
 
-  it("keeps reset inside the HUD settings menu", () => {
+  it("renders exact balances beyond the JavaScript number range", () => {
+    const hugeCredits = `1${"0".repeat(309)}`;
+    const exactVisible = makeVisibleState(0, 0);
+    exactVisible.exactResources = {
+      credits: amount(hugeCredits),
+      data: amount(`${hugeCredits}1`),
+    };
+
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={exactVisible}
+          onReset={() => undefined}
+          animateResourceGains={false}
+        />,
+      );
+    });
+
+    const credits = container.querySelector(".resource-readout.credits strong");
+    const data = container.querySelector(".resource-readout.data strong");
+
+    expect(credits?.textContent).toBe("1e309");
+    expect(credits?.getAttribute("title")).toBe(`${hugeCredits} credits`);
+    expect(data?.textContent).toBe("1…001e310");
+    expect(data?.getAttribute("title")).toBe(`${hugeCredits}1 data`);
+  });
+
+  it("requires confirmation before resetting from the HUD settings menu", () => {
     const onReset = vi.fn();
 
     act(() => {
@@ -77,7 +107,7 @@ describe("ResourceHud", () => {
     });
 
     const resetButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Reset dev save"]',
+      'button[aria-label="Reset save"]',
     );
 
     expect(resetButton?.textContent).toContain("Reset save");
@@ -86,10 +116,63 @@ describe("ResourceHud", () => {
       resetButton?.click();
     });
 
-    expect(onReset).toHaveBeenCalledOnce();
+    expect(onReset).not.toHaveBeenCalled();
     expect(
-      container.querySelector('button[aria-label="Reset dev save"]'),
+      container.querySelector('button[aria-label="Reset save"]'),
     ).toBeNull();
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="alertdialog"][aria-labelledby="reset-save-title"]',
+    );
+    const cancelButton = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    ).find((button) => button.textContent?.includes("Cancel"));
+    const confirmButton = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    ).find((button) => button.textContent?.includes("Reset progress"));
+
+    expect(dialog).not.toBeNull();
+    expect(document.activeElement).toBe(cancelButton);
+
+    act(() => {
+      confirmButton?.click();
+    });
+
+    expect(onReset).toHaveBeenCalledOnce();
+    expect(document.querySelector("#reset-save-title")).toBeNull();
+  });
+
+  it("cancels reset confirmation with Escape", () => {
+    const onReset = vi.fn();
+
+    act(() => {
+      root.render(
+        <ResourceHud
+          visible={makeVisibleState(12, 34)}
+          onReset={onReset}
+          animateResourceGains={false}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".resource-settings-button")?.click();
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reset save"]')
+        ?.click();
+    });
+
+    expect(document.querySelector("#reset-save-title")).not.toBeNull();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+    });
+
+    expect(onReset).not.toHaveBeenCalled();
+    expect(document.querySelector("#reset-save-title")).toBeNull();
   });
 
   it("animates earned resources after resource effects are armed", () => {
@@ -146,9 +229,8 @@ describe("ResourceHud", () => {
     expect(container.querySelector(".resource-gain-flyout")).toBeNull();
   });
 
-  it("grants the clicked dev resource on shift-clicking resource readouts", () => {
+  it("keeps resource readouts as ordinary controls in development builds", () => {
     const onSelectResource = vi.fn();
-    const onGrantDevResource = vi.fn();
 
     act(() => {
       root.render(
@@ -157,7 +239,6 @@ describe("ResourceHud", () => {
           onReset={() => undefined}
           animateResourceGains={false}
           onSelectResource={onSelectResource}
-          onGrantDevResource={onGrantDevResource}
         />,
       );
     });
@@ -177,15 +258,14 @@ describe("ResourceHud", () => {
       );
     });
 
-    expect(onGrantDevResource).toHaveBeenNthCalledWith(1, "credits");
-    expect(onGrantDevResource).toHaveBeenNthCalledWith(2, "data");
-    expect(onSelectResource).not.toHaveBeenCalled();
+    expect(onSelectResource).toHaveBeenNthCalledWith(1, "credits");
+    expect(onSelectResource).toHaveBeenNthCalledWith(2, "data");
 
     act(() => {
       dataReadout?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(onSelectResource).toHaveBeenCalledWith("data");
+    expect(onSelectResource).toHaveBeenCalledTimes(3);
   });
 
   it("opens HUD settings for hardware purchases and screen wake toggles", () => {
@@ -239,4 +319,3 @@ describe("power formatting", () => {
     expect(formatWatts(4_200)).toBe("4.2 kW");
   });
 });
-

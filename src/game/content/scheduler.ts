@@ -1,18 +1,19 @@
 import type { Cost } from "../types";
-
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
-
-const data = (amount: number): Cost => ({
-  resource: "data",
-  amount: Math.round(amount),
-});
+import { roundedGrowthCost } from "../exactCosts";
 
 export const getCpuSchedulerSlotUpgradeCost = (slotCount: number): Cost[] => [
-  credits(72 * 1.85 ** Math.max(0, Math.trunc(slotCount))),
-  data(5 * 1.42 ** Math.max(0, Math.trunc(slotCount))),
+  roundedGrowthCost(
+    "credits",
+    "72",
+    "1.85",
+    Math.max(0, Math.trunc(slotCount)),
+  ),
+  roundedGrowthCost(
+    "data",
+    "2",
+    "1.25",
+    Math.max(0, Math.trunc(slotCount)),
+  ),
 ];
 
 export const getCpuSchedulerSlotBuildCost = (

@@ -80,7 +80,7 @@ describe("TaskBay task and research behavior", () => {
       ".task-route-combo-select",
     );
 
-    expect(container.textContent).not.toContain("Auto");
+    expect(routeSelect?.textContent).not.toContain("Auto");
     expect(
       Array.from(routeSelect?.options ?? []).map((option) => option.textContent),
     ).toEqual(["C1", "CPU 1"]);
@@ -125,7 +125,10 @@ describe("TaskBay task and research behavior", () => {
 
     expect(button?.disabled).toBe(true);
     expect(button?.textContent).toContain("Cache capacity too low.");
-    expect(meta?.textContent).toContain("ops");
+    // Chips carry their unit through the aria-label, not sr-only text.
+    expect(
+      meta?.querySelector(".meta-chip.ops")?.getAttribute("aria-label"),
+    ).toContain("operations");
     expect(taskCard?.querySelector(".task-card-head .resource-token.credits")).not.toBeNull();
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
   });
@@ -419,11 +422,33 @@ describe("TaskBay task and research behavior", () => {
       .find((card) => card.textContent?.includes("Compile Code"))
       ?.querySelector(".task-meta-line");
 
-    expect(fetchMeta?.textContent).not.toContain("1 cores");
-    expect(busMeta?.textContent).toContain("2 cores");
+    // Core-count chips expose the requirement through the aria-label.
+    expect(fetchMeta?.querySelector('[aria-label="1 cores required"]')).toBeNull();
+    expect(
+      busMeta?.querySelector('.meta-chip[aria-label="2 cores required"]'),
+    ).not.toBeNull();
     expect(compileMeta?.textContent).toContain("16");
     expect(compileMeta?.textContent).not.toContain("Inf");
     expect(compileMeta?.querySelector(".meta-chip.chunked svg")).not.toBeNull();
+  });
+
+  it("keeps detailed start projections out of stable task cards", () => {
+    const visible = deriveVisibleState(createInitialGameState());
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".task-start-projection")).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Inspect Fetch Bit"]'),
+    ).not.toBeNull();
   });
 
   it("keeps research costs and compute-task payouts visible while button text shows blockers", () => {
@@ -459,6 +484,7 @@ describe("TaskBay task and research behavior", () => {
               requiredCores: 2,
               rewardCredits: 80,
               rewardData: 4,
+              firstCompletionData: 4,
               cacheNeedBits: 4,
               canStart: false,
               canQueue: false,
@@ -483,17 +509,25 @@ describe("TaskBay task and research behavior", () => {
       compute?.querySelector<HTMLButtonElement>(".research-compute-button");
     const computeMeta = compute?.querySelector(".task-meta-line");
 
-    expect(container.querySelector(".research-description")?.textContent).toBe(
-      "Coordinate more than one core.",
-    );
+    // The description sentence lives in the card's title tooltip now.
+    expect(
+      container.querySelector(".research-action")?.getAttribute("title"),
+    ).toBe("Coordinate more than one core.");
+    expect(container.querySelector(".research-description")).toBeNull();
     expect(buyButton?.disabled).toBe(true);
     expect(buyButton?.textContent).toContain("Needs Parallelism Benchmark.");
     expect(container.querySelector(".research-cost-line .resource-token.data")).not.toBeNull();
     expect(computeButton?.disabled).toBe(true);
     expect(computeButton?.textContent).toContain("Core clock level 3 required.");
-    expect(computeMeta?.textContent).toContain("80");
-    expect(computeMeta?.textContent).toContain("2 cores");
-    expect(computeMeta?.textContent).toContain("cache 4 b");
+    // Compressed meta keeps full wording in chip aria-labels.
+    expect(computeMeta?.querySelector(".meta-chip.ops")?.textContent).toContain("80");
+    expect(
+      computeMeta?.querySelector('.meta-chip[aria-label="2 cores required"]'),
+    ).not.toBeNull();
+    expect(
+      computeMeta?.querySelector('.meta-chip[aria-label="Cache 4 b"]'),
+    ).not.toBeNull();
+    expect(computeMeta?.querySelector(".task-recipe-bar")).not.toBeNull();
     expect(computeMeta?.querySelector(".resource-token.credits")).not.toBeNull();
     expect(computeMeta?.querySelector(".resource-token.data")).not.toBeNull();
   });
@@ -528,9 +562,11 @@ describe("TaskBay task and research behavior", () => {
 
     expect(buyButton?.disabled).toBe(false);
     expect(buyButton?.textContent).toContain("Level up");
-    expect(container.querySelector(".research-description")?.textContent).toBe(
-      "Reduce idle CPU draw.",
-    );
+    // The description sentence lives in the card's title tooltip now.
+    expect(
+      container.querySelector(".research-action")?.getAttribute("title"),
+    ).toBe("Reduce idle CPU draw.");
+    expect(container.querySelector(".research-description")).toBeNull();
   });
 
   it("shows the system scheduler surface and routes system tasks through it", () => {
@@ -620,7 +656,7 @@ describe("TaskBay task and research behavior", () => {
     ).toBeNull();
     expect(
       container.querySelector(".system-scheduler-section .queue-empty")?.textContent,
-    ).toBe("4 slots open");
+    ).toBe("4 open");
     expect(container.querySelector(".memory-section")).not.toBeNull();
     expect(
       container

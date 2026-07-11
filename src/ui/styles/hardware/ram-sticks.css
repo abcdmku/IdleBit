@@ -19,26 +19,6 @@
   width: auto;
 }
 
-.ram-header-used {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
-  min-width: 0;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: var(--tracking-tight);
-  text-transform: none;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ram-header-used strong {
-  color: var(--text);
-  font-weight: 800;
-}
-
 .ram-header-controls {
   display: flex;
   flex: 0 1 210px;
@@ -79,27 +59,9 @@
   content: "";
 }
 
-.ram-pipeline-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  min-width: 0;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-variant-numeric: tabular-nums;
-  text-transform: uppercase;
-}
-
-.ram-pipeline-summary span {
-  min-width: 0;
-  padding: 1px var(--s-2);
-  border: 1px solid rgba(115, 240, 92, 0.18);
-  border-radius: var(--radius-sm);
-  background: rgba(115, 240, 92, 0.05);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* CH / WRITE / USED stat tiles replace the old text chip summary. */
+.memory-section > .stat-tile-row {
+  align-items: start;
 }
 
 /* ---------- Grid ---------- */
@@ -163,7 +125,7 @@
 
 .ram-stick-module-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) max-content max-content;
+  grid-template-columns: auto minmax(0, 1fr) max-content;
   align-items: baseline;
   gap: var(--s-1);
   min-width: 0;
@@ -218,17 +180,6 @@
   color: var(--text);
   font-weight: 800;
 }
-
-.ram-stick-module-pct {
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
-
-.ram-stick-module.active .ram-stick-module-pct { color: var(--green); }
-.ram-stick-module.ram-stick-state-load  .ram-stick-module-pct { color: var(--amber); }
-.ram-stick-module.ram-stick-state-stage .ram-stick-module-pct { color: var(--cyan); }
 
 /* ---------- Meter ---------- */
 
@@ -293,20 +244,6 @@
     grid-column: 2;
     justify-self: start;
     margin-left: 0;
-  }
-
-  .ram-header-used {
-    grid-column: 3;
-    min-width: 0;
-    align-self: center;
-    justify-self: end;
-    text-align: right;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .ram-header-row:not(.multi-stick) .ram-header-used {
-    grid-column: 2 / -1;
   }
 
   .ram-header-controls {

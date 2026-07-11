@@ -26,12 +26,35 @@
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   cursor: pointer;
   transition: border-color 120ms linear, background 120ms linear, color 120ms linear;
+}
+
+.power-control-buttons .idle-power-policy-control {
+  display: inline-grid;
+  grid-template-columns: auto 3ch;
+  align-items: center;
+  gap: 3px;
+  width: 82px;
+  min-width: 82px;
+  max-width: 82px;
+  padding-inline: 7px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idle-power-policy-control strong {
+  width: 3ch;
+  color: var(--cyan);
+  text-align: left;
+}
+
+.idle-power-policy-control[aria-pressed="true"] strong {
+  color: var(--amber);
 }
 
 .power-control-buttons button:hover:not(:disabled) {

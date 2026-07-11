@@ -141,7 +141,6 @@ export function PinnedTaskBar({
                   }
                   repeatMs={holdRepeatMs}
                   maxHoldMs={holdMaxMs}
-                  title={buttonLabel}
                 >
                   {!disabledReason && <Play size={10} />}
                   <span>{buttonLabel}</span>

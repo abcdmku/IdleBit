@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { formatNumber } from "../format";
+import { SmoothFill } from "../SmoothProgress";
 import { formatPercent } from "./rackFormatting";
 import { getRackPipIndexes, getRackQueueGridMetrics } from "./rackMetrics";
 import type { RackQueueDisplayItem } from "./types";
@@ -19,6 +20,9 @@ export function RackQueueBay({ items, slotCount }: RackQueueBayProps) {
       title={`${items.length} queued or active scheduler entries across ${slotCount} queue slots`}
       aria-label={`${items.length} queued or active scheduler entries across ${slotCount} queue slots`}
     >
+      <span className="rack-component-bay-caption" aria-hidden="true">
+        Queue
+      </span>
       <span className="rack-component-bay-viz">
         <span
           className={`rack-queue-slots rack-system-queue-slots ${queueMetrics.density}`}
@@ -50,22 +54,26 @@ export function RackQueueBay({ items, slotCount }: RackQueueBayProps) {
                     ? `${item.name}: ${formatPercent(item.progress)} - ${item.waitingReason}`
                     : `Slot ${slotIndex + 1}: open`
                 }
-                style={
-                  {
-                    "--rack-queue-progress": `${(item?.progress ?? 0) * 100}%`,
-                  } as CSSProperties
-                }
-              />
+              >
+                <SmoothFill
+                  className="rack-queue-slot-fill"
+                  value={item?.progress ?? 0}
+                  orientation="vertical"
+                  snapKey={`${item?.id ?? "empty"}:${state}`}
+                />
+              </span>
             );
           })}
         </span>
       </span>
       <span className="rack-gauge-strip rack-gauge-strip--queue">
-        <span
-          className="rack-gauge-bar"
-          style={{ "--rack-gauge-fill": fill } as CSSProperties}
-          aria-hidden="true"
-        />
+        <span className="rack-gauge-bar" aria-hidden="true">
+          <SmoothFill
+            className="rack-gauge-bar-fill"
+            value={fill}
+            snapOnDecrease={false}
+          />
+        </span>
         <span className="rack-gauge-value">
           {formatNumber(items.length)}/{formatNumber(slotCount)}
         </span>

@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Activity, CheckCircle2, Play, Plus } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { ModuleMeter } from "../hardware/meters";
-import { ResourceCost } from "../ResourceTokens";
+import { ExactResourceCost, ResourceCost } from "../ResourceTokens";
+import { StatTile, StatTileRow } from "../StatTile";
 import type { Dispatch } from "../uiActions";
+import { formatBufferDuration } from "../work/workFormat";
 import { TaskMetaLine } from "./TaskMetaLine";
 import {
   getResearch,
@@ -18,9 +20,11 @@ import type { UiResearch, UiResearchComputeTask } from "./taskTypes";
 export function ResearchPanel({
   visible,
   dispatch,
+  mutationsDisabled = false,
 }: {
   visible: VisibleState;
   dispatch: Dispatch;
+  mutationsDisabled?: boolean;
 }) {
   const research = getResearch(visible);
   const [hideCompleted, setHideCompleted] = useState(true);
@@ -28,6 +32,8 @@ export function ResearchPanel({
     ? research.filter((item) => !isResearchPurchased(item))
     : research;
   const openCount = research.filter((item) => !isResearchPurchased(item)).length;
+  const bufferUpgrade = visible.automationBuffer.nextUpgrade;
+  const showBufferUpgrade = bufferUpgrade?.unlocked === true;
 
   return (
     <>
@@ -45,7 +51,7 @@ export function ResearchPanel({
         </label>
       </div>
       <div className="panel-body">
-        {visibleResearch.length === 0 ? (
+        {visibleResearch.length === 0 && !showBufferUpgrade ? (
           <div className="research-empty">
             {research.length > 0 && hideCompleted ? "No open research" : "Nothing to research"}
           </div>
@@ -60,8 +66,73 @@ export function ResearchPanel({
             />
           ))
         )}
+        {showBufferUpgrade && bufferUpgrade && (
+          <AutomationBufferAction
+            upgrade={bufferUpgrade}
+            exactResources={visible.exactResources}
+            mutationsDisabled={mutationsDisabled}
+            dispatch={dispatch}
+          />
+        )}
       </div>
     </>
+  );
+}
+
+function AutomationBufferAction({
+  upgrade,
+  exactResources,
+  mutationsDisabled,
+  dispatch,
+}: {
+  upgrade: NonNullable<VisibleState["automationBuffer"]["nextUpgrade"]>;
+  exactResources: VisibleState["exactResources"];
+  mutationsDisabled: boolean;
+  dispatch: Dispatch;
+}) {
+  const canBuy = !mutationsDisabled && upgrade.unlocked && upgrade.canAfford;
+  const buyLabel = mutationsDisabled
+    ? "Wait for offline processing"
+    : (upgrade.blockedReason ?? "Buy");
+  const coverage = formatBufferDuration(upgrade.maxOfflineMs);
+  return (
+    <article
+      className="research-action amber automation-buffer-action"
+      title={`${coverage} offline coverage`}
+    >
+      <div className={`research-action-main ${canBuy ? "" : "blocked"}`}>
+        <span className="research-copy">
+          <strong>Automation Buffer · {upgrade.name}</strong>
+          <StatTileRow dense>
+            <StatTile
+              label="offline"
+              value={coverage}
+              accent="amber"
+              title={`${coverage} offline coverage`}
+            />
+          </StatTileRow>
+          <em className="research-cost-line">
+            <ExactResourceCost
+              costs={upgrade.costs}
+              resources={exactResources}
+              compact
+            />
+          </em>
+        </span>
+        <button
+          type="button"
+          className={`research-buy-button ${canBuy ? "" : "blocked"}`}
+          disabled={!canBuy}
+          onClick={() =>
+            dispatch({ type: "purchaseAutomationBuffer", levelId: upgrade.id })
+          }
+          title={buyLabel}
+        >
+          {canBuy && <Plus size={12} />}
+          <span>{canBuy ? "Buy" : buyLabel}</span>
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -79,6 +150,17 @@ const getResearchRequirementTag = (kind: string | undefined) => {
   if (kind === "hardware") return "HW";
   if (kind === "task") return "Task";
   return "Req";
+};
+
+/** Visible requirement caption is 1-2 words; full wording stays in title/aria.
+ * The ✓/tag glyph already says met/kind, so leading verbs and the trailing
+ * "research" qualifier are dropped before truncating. */
+const shortRequirementLabel = (label: string) => {
+  const trimmed = label
+    .trim()
+    .replace(/^(complete|run|finish)\s+/i, "")
+    .replace(/\s+research$/i, "");
+  return trimmed.split(/\s+/).slice(0, 2).join(" ");
 };
 
 const isResearchComputeComplete = (task: UiResearchComputeTask) =>
@@ -127,13 +209,11 @@ function ResearchAction({
       className={`research-action ${research.accent ?? "violet"} ${
         purchased ? "purchased" : ""
       }`}
+      title={description.length > 0 ? description : undefined}
     >
       <div className={`research-action-main ${!canBuy && !purchased ? "blocked" : ""}`}>
         <span className="research-copy">
           <strong>{research.name}</strong>
-          {description.length > 0 && (
-            <span className="research-description">{description}</span>
-          )}
           <em className="research-cost-line">
             {purchased ? (
               "Built"
@@ -164,9 +244,11 @@ function ResearchAction({
             <span
               className={`research-requirement ${item.met ? "met" : "open"}`}
               key={item.id}
+              title={item.label}
+              aria-label={`${item.met ? "Met" : "Open"}: ${item.label}`}
             >
               <b>{item.met ? "✓" : getResearchRequirementTag(item.kind)}</b>
-              <small>{item.label}</small>
+              <small>{shortRequirementLabel(item.label)}</small>
             </span>
           ))}
         </div>
@@ -200,7 +282,7 @@ function ResearchAction({
               >
                 <span className="research-compute-copy">
                   <strong>{task.name}</strong>
-                  <TaskMetaLine task={task} memoryUnlocked={memoryUnlocked} />
+                  <TaskMetaLine task={task} memoryUnlocked={memoryUnlocked} showRewards />
                   {(active || completed) && (
                     <ModuleMeter value={completed ? 1 : task.progress ?? 0} />
                   )}

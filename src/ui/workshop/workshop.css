@@ -1,0 +1,443 @@
+.workshop-panel {
+  gap: var(--s-4);
+  border-color: rgba(184, 158, 255, 0.32);
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(184, 158, 255, 0.08), transparent 58%),
+    var(--panel);
+}
+
+.workshop-header,
+.workshop-heading,
+.workshop-status,
+.workshop-subhead,
+.workshop-option header,
+.workshop-installed-device header,
+.workshop-evidence,
+.workshop-evidence-items {
+  display: flex;
+  align-items: center;
+}
+
+.workshop-header,
+.workshop-subhead,
+.workshop-option header,
+.workshop-installed-device header,
+.workshop-evidence {
+  justify-content: space-between;
+}
+
+.workshop-header {
+  gap: var(--s-3);
+}
+
+.workshop-heading {
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--violet);
+}
+
+.workshop-heading h2,
+.workshop-subhead h3,
+.workshop-option h4,
+.workshop-installed-device h4 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.workshop-heading h2 {
+  color: var(--text);
+  font-size: var(--fs-md);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.workshop-panel .eyebrow,
+.workshop-kind-label {
+  display: block;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.workshop-status {
+  flex: 0 0 auto;
+  gap: var(--s-1);
+  min-height: 32px;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  background: rgba(36, 231, 195, 0.06);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.workshop-status span { color: var(--muted); }
+.workshop-panel.thermal-warm .workshop-status { color: var(--amber); border-color: rgba(242, 194, 78, 0.35); }
+.workshop-panel.thermal-hot .workshop-status,
+.workshop-panel.thermal-critical .workshop-status { color: var(--rose); border-color: var(--line-danger); }
+
+.workshop-thermal-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+
+.workshop-thermal-strip > div {
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.workshop-thermal-strip dt {
+  display: flex;
+  gap: var(--s-1);
+  align-items: center;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.workshop-thermal-strip dd {
+  margin-top: var(--s-1);
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-thermal-strip dd small {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.workshop-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+
+.workshop-tabs button {
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--s-2) var(--s-3);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workshop-tabs button[aria-selected="true"] {
+  border-color: rgba(184, 158, 255, 0.5);
+  color: var(--violet);
+  background: rgba(184, 158, 255, 0.09);
+}
+
+.workshop-tab-lock {
+  padding: 1px var(--s-1);
+  border-radius: var(--radius-pill);
+  background: rgba(113, 142, 135, 0.12);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.workshop-view,
+.workshop-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.workshop-control-group + .workshop-control-group {
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+.workshop-subhead {
+  gap: var(--s-3);
+}
+
+.workshop-subhead h3 {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.workshop-lock-chip,
+.workshop-slot-chip,
+.workshop-state-chip,
+.workshop-throughput-chip {
+  flex: 0 0 auto;
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.18);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+}
+
+.workshop-state-chip {
+  border-color: rgba(36, 231, 195, 0.35);
+  color: var(--cyan);
+}
+
+.workshop-state-chip.placeholder,
+.workshop-blocker.placeholder {
+  visibility: hidden;
+}
+
+.workshop-option-grid,
+.workshop-installed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--s-2);
+}
+
+.workshop-option,
+.workshop-installed-device {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(5, 12, 11, 0.7);
+}
+
+.workshop-option.selected,
+.workshop-installed-device.active {
+  border-color: rgba(36, 231, 195, 0.35);
+  background: rgba(36, 231, 195, 0.045);
+}
+
+.workshop-option header,
+.workshop-installed-device header {
+  gap: var(--s-2);
+  align-items: flex-start;
+}
+
+.workshop-option h4,
+.workshop-installed-device h4 {
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+
+.workshop-option > p,
+.workshop-installed-device > p,
+.workshop-empty-state {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.workshop-inline-metrics,
+.workshop-projection,
+.workshop-device-metrics {
+  display: grid;
+  gap: var(--s-1) var(--s-2);
+}
+
+.workshop-inline-metrics,
+.workshop-projection { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workshop-projection { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workshop-device-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.workshop-inline-metrics div,
+.workshop-projection div,
+.workshop-device-metrics div {
+  min-width: 0;
+}
+
+.workshop-inline-metrics dt,
+.workshop-projection dt,
+.workshop-device-metrics dt {
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workshop-inline-metrics dd,
+.workshop-projection dd,
+.workshop-device-metrics dd {
+  margin-top: 2px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+}
+
+.workshop-projection dd { color: var(--violet); }
+.workshop-role-line strong { color: var(--text); }
+
+.workshop-cost-line {
+  min-height: 22px;
+  margin-top: auto;
+}
+
+.workshop-action-button,
+.workshop-remove-button {
+  min-height: 44px;
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+.workshop-action-button:not(:disabled) {
+  border-color: rgba(184, 158, 255, 0.42);
+  color: var(--violet);
+}
+
+.workshop-remove-button {
+  margin-top: auto;
+  color: var(--rose);
+}
+
+.workshop-blocker {
+  min-height: 2.5em;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.25;
+}
+
+.workshop-storage-reward {
+  margin: 0;
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.workshop-storage-progress {
+  --meter-fill-background: linear-gradient(90deg, var(--violet), var(--cyan));
+  width: 100%;
+  min-height: 10px;
+}
+
+.workshop-route-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workshop-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.45fr);
+  gap: var(--s-3);
+  align-items: center;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--cyan);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.workshop-route.cpu { border-left-color: var(--amber); }
+.workshop-route.blocked { border-left-color: var(--rose); }
+
+.workshop-route > div,
+.workshop-route-target {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workshop-route strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-route span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.workshop-route-target { text-align: right; }
+.workshop-route.cpu .workshop-route-target strong { color: var(--amber); }
+.workshop-route.blocked .workshop-route-target strong { color: var(--rose); }
+
+.workshop-evidence {
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+.workshop-evidence-items {
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+
+.workshop-evidence-items span {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.workshop-evidence-items span.done {
+  border-color: rgba(115, 240, 92, 0.35);
+  color: var(--green);
+}
+
+.workshop-evidence > strong {
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  text-align: right;
+}
+
+.workshop-evidence.complete > strong { color: var(--green); }
+
+@media (max-width: 760px) {
+  .workshop-panel { padding: var(--s-3); }
+  .workshop-header,
+  .workshop-subhead,
+  .workshop-evidence { align-items: flex-start; flex-direction: column; }
+  .workshop-status { width: 100%; justify-content: center; }
+  .workshop-thermal-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workshop-option-grid,
+  .workshop-installed-grid { grid-template-columns: minmax(0, 1fr); }
+  .workshop-tabs button { min-height: 48px; padding-inline: var(--s-1); font-size: var(--fs-2xs); }
+  .workshop-device-metrics { grid-template-columns: minmax(0, 1fr); }
+  .workshop-tabs { grid-template-columns: minmax(0, 1fr); }
+  .workshop-route { grid-template-columns: minmax(0, 1fr); }
+  .workshop-route-target { text-align: left; }
+  .workshop-evidence > strong { text-align: left; }
+}
+
+@media (max-width: 360px) {
+  .workshop-thermal-strip { grid-template-columns: minmax(0, 1fr); }
+  .workshop-tabs { grid-template-columns: minmax(0, 1fr); }
+}

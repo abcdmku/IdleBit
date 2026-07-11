@@ -161,7 +161,7 @@ export const firstScreenTaskVisible = {
 
 export const rackReadyTaskVisible = {
   ...firstScreenTaskVisible,
-  stageLabel: "Rack",
+  stageLabel: "Fleet",
   flags: {
     basicQueue: true,
     scheduler: true,

@@ -30,11 +30,10 @@
   border-radius: 3px;
 }
 
-.rack-queue-slot-pip::before {
-  content: "";
+.rack-queue-slot-fill {
   position: absolute;
-  inset: auto 0 0;
-  height: var(--rack-queue-progress, 0%);
+  inset: 0;
+  height: 100%;
   background: var(--rack-queue-fill);
   box-shadow: 0 0 5px currentColor;
 }
@@ -46,8 +45,8 @@
 }
 
 /* In nano/micro tiers, drop the progress fill — state color carries the signal */
-.rack-queue-slots.micro .rack-queue-slot-pip::before,
-.rack-queue-slots.nano .rack-queue-slot-pip::before {
+.rack-queue-slots.micro .rack-queue-slot-fill,
+.rack-queue-slots.nano .rack-queue-slot-fill {
   display: none;
 }
 

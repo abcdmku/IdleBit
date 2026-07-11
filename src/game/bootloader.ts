@@ -1,18 +1,14 @@
 import type { Cost, GameState, HardwareState } from "./types";
+import { roundedGrowthCost } from "./exactCosts";
 
 export const BOOTLOADER_MAX_LEVEL = 36;
-export const BOOTLOADER_UNLOCK_COST = 100_000;
-export const BOOTLOADER_FIRST_LEVEL_COST = 10_000;
-export const BOOTLOADER_COST_MULTIPLIER = 1.2;
+export const BOOTLOADER_UNLOCK_COST = "100000";
+export const BOOTLOADER_FIRST_LEVEL_COST = "10000";
+export const BOOTLOADER_COST_MULTIPLIER = "1.2";
 export const DEFAULT_BOOT_SECONDS = 10;
 export const BOOTLOADER_LEVEL_ONE_SECONDS = 9.2;
 export const BOOTLOADER_SECONDS_PER_LEVEL = 0.26;
 export const BOOTLOADER_MIN_SECONDS = 0.1;
-
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
 
 export const getBootloaderLevelFromHardware = (hardware: Partial<HardwareState>) =>
   Math.max(
@@ -40,9 +36,11 @@ export const withGlobalBootloaderLevel = (
 });
 
 export const getBootloaderUpgradeCost = (targetLevel: number): Cost[] => [
-  credits(
-    BOOTLOADER_FIRST_LEVEL_COST *
-      BOOTLOADER_COST_MULTIPLIER ** Math.max(0, targetLevel - 1),
+  roundedGrowthCost(
+    "credits",
+    BOOTLOADER_FIRST_LEVEL_COST,
+    BOOTLOADER_COST_MULTIPLIER,
+    Math.max(0, Math.trunc(targetLevel) - 1),
   ),
 ];
 

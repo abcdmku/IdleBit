@@ -1,5 +1,6 @@
 import { ListTodo, Pause, Play } from "lucide-react";
 import type { VisibleState, VisibleUpgrade } from "../../game";
+import { StatTile, StatTileRow } from "../StatTile";
 import type { UiTask } from "../tasks/taskTypes";
 import type { Dispatch } from "../uiActions";
 import { HardwareInstallSection, LockedSystemSection } from "./HardwareInstallSection";
@@ -40,7 +41,7 @@ export function CronAutomationSection({
       <LockedSystemSection
         className="scheduler-section cron-section"
         Icon={ListTodo}
-        title="System Automation"
+        title="CRON"
         note="Research CRON Scheduler"
         selected={selected}
         onSelect={onSelect}
@@ -56,7 +57,7 @@ export function CronAutomationSection({
       <HardwareInstallSection
         className="scheduler-section cron-section"
         Icon={ListTodo}
-        title="System Automation"
+        title="CRON"
         note="Install first CRON job slot"
         upgrade={scheduleUpgrade}
         selected={selected}
@@ -81,11 +82,32 @@ export function CronAutomationSection({
       <div className="hw-section-header-row cron-header-row">
         <button type="button" className="hw-section-header" onClick={onSelect}>
           <ListTodo size={14} />
-          <span>System Automation</span>
-          <span className="hw-section-meta">
-            <strong>{activeCount}</strong>/{schedules.length} active
-          </span>
+          <span>CRON</span>
         </button>
+        <StatTileRow dense>
+          <StatTile
+            label="Active"
+            value={`${activeCount}/${schedules.length}`}
+            accent="violet"
+            meter={schedules.length > 0 ? activeCount / schedules.length : 0}
+            title={`${activeCount} of ${schedules.length} CRON schedules active`}
+          />
+          <StatTile
+            label="Min"
+            value={formatCronInterval(baseMinimumSeconds)}
+            accent="violet"
+            title={`Smallest interval CRON can schedule: ${formatCronInterval(baseMinimumSeconds)}`}
+          />
+        </StatTileRow>
+        {minUpgrade && (
+          <UpgradeStepper
+            upgrade={minUpgrade}
+            dispatch={dispatch}
+            label="Min interval"
+            className="cron-min-stepper"
+            resources={visible.resources}
+          />
+        )}
       </div>
 
       <div className="cron-schedule-list" aria-label="CRON schedules">
@@ -99,24 +121,6 @@ export function CronAutomationSection({
             dispatch={dispatch}
           />
         ))}
-      </div>
-
-      <div className="cron-floor-row">
-        <span
-          className="cron-floor-inline"
-          title="Smallest interval CRON can schedule"
-        >
-          Min {formatCronInterval(baseMinimumSeconds)}
-        </span>
-        {minUpgrade && (
-          <UpgradeStepper
-            upgrade={minUpgrade}
-            dispatch={dispatch}
-            label="Min interval"
-            className="cron-min-stepper"
-            resources={visible.resources}
-          />
-        )}
       </div>
     </section>
   );
@@ -278,7 +282,7 @@ function CronScheduleRow({
       </div>
 
       <div className="cron-next" aria-label="Next CRON job">
-        <small>Next job</small>
+        <small>Next</small>
         <strong>{getCronCountdownLabel(schedule)}</strong>
       </div>
     </div>

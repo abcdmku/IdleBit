@@ -78,8 +78,8 @@
 .resource-token.credits { --resource-color: var(--amber); }
 .resource-token.data    { --resource-color: var(--cyan); }
 .resource-token.dimmed {
-  --resource-color: rgba(140, 169, 164, 0.66);
-  opacity: 0.52;
+  --resource-color: #9bb1ac;
+  opacity: 1;
 }
 
 .resource-token strong {
@@ -129,8 +129,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   padding: 0;
 }
 

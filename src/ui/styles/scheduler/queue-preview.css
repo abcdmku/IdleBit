@@ -43,7 +43,7 @@
   border-radius: 4px;
   background: rgba(184, 158, 255, 0.04);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   line-height: 1.15;
@@ -76,7 +76,7 @@
 }
 
 .queue-preview-list.compact .queue-slot-cell {
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   padding: 2px 5px 4px;
 }
 
@@ -85,7 +85,7 @@
   grid-template-columns: 13px minmax(0, 1fr) auto;
   gap: 0 3px;
   padding: 1px 3px 3px;
-  font-size: 0.52rem;
+  font-size: var(--fs-2xs);
   letter-spacing: -0.02em;
 }
 
@@ -136,7 +136,7 @@
   align-self: center;
   justify-self: center;
   color: var(--violet);
-  font-size: 0.54rem;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   text-align: center;
   opacity: 0.78;
@@ -144,7 +144,7 @@
 
 .queue-preview-list.dense .queue-slot-index,
 .queue-preview-list.micro .queue-slot-index {
-  font-size: 0.48rem;
+  font-size: var(--fs-2xs);
 }
 
 .queue-slot-cell.active .queue-slot-index { color: var(--green); }
@@ -179,7 +179,7 @@
   grid-area: reason;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.54rem;
+  font-size: var(--fs-2xs);
   font-weight: 400;
   letter-spacing: 0;
   overflow: hidden;
@@ -197,39 +197,6 @@
 
 .queue-slot-cell.active .queue-slot-state { color: var(--green); opacity: 0.75; }
 .queue-slot-cell.deadlocked .queue-slot-state { color: var(--rose); opacity: 0.9; }
-
-/* ---------- System blocked summary ---------- */
-
-.system-scheduler-blocked-reasons {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px;
-  align-items: center;
-  min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid rgba(242, 194, 78, 0.28);
-  border-radius: 4px;
-  background: rgba(242, 194, 78, 0.055);
-  color: var(--amber);
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-.system-scheduler-blocked-reasons strong {
-  font-size: 0.52rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.system-scheduler-blocked-reasons span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* ---------- Cancel button ---------- */
 
@@ -329,7 +296,7 @@
   background: rgba(184, 158, 255, 0.025);
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-2xs);
   font-style: italic;
 }
 

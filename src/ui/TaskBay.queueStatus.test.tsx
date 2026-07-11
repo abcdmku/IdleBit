@@ -15,6 +15,7 @@ import {
   TaskBay
 } from "./HardwareBoard";
 import { TaskDagModal } from "./tasks/TaskDagModal";
+import { formatBits, formatNumber } from "./format";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -195,11 +196,10 @@ describe("TaskBay queue and deadlock status", () => {
 
     expect(systemStatus).toBe("Waiting for CPU cache.");
     expect(cpuStatus).toBe("Waiting for CPU cache.");
-    const blockedSummary = container.querySelector(
-      ".system-scheduler-blocked-reasons",
-    )?.textContent;
-    expect(blockedSummary).toContain("Blocked");
-    expect(blockedSummary).toContain("Waiting for CPU cache.");
+    // Per-slot reasons are the single source; no aggregate blocked summary.
+    expect(
+      container.querySelector(".system-scheduler-blocked-reasons"),
+    ).toBeNull();
     expect(container.textContent).not.toContain("System scheduler slots full.");
   });
 
@@ -255,7 +255,7 @@ describe("TaskBay queue and deadlock status", () => {
     const compileCode = visible.tasks.find((task) => task.id === "compileCode");
 
     if (!tinyChecksum || !compileCode) {
-      throw new Error("Expected rack-ready tasks to include DAG-covered system tasks.");
+      throw new Error("Expected Fleet-ready tasks to include DAG-covered system tasks.");
     }
 
     act(() => {
@@ -290,13 +290,62 @@ describe("TaskBay queue and deadlock status", () => {
     expect(container.textContent).toContain("Link Barrier");
     expect(container.textContent).toContain("Link Binary");
     expect(container.textContent).toContain("Write Artifact");
-    expect(container.textContent).toContain("9,728 total ops");
-    expect(container.textContent).toContain("8.2 Kb total");
-    expect(container.textContent).toContain("512 b each");
-    expect(container.textContent).toContain("648 ops");
+    const stagedSource = compileCode.subtasks.find(
+      (stage) => stage.sourceTaskId === "stageSourceTree",
+    );
+    const workUnitCount = compileCode.workUnitCount ?? 1;
+    if (!stagedSource) throw new Error("Expected the Stage Source Tree DAG node.");
+    const stagedSourceOperations = stagedSource.operations.reduce(
+      (total, operation) => total + operation.count,
+      0,
+    );
+    expect(container.textContent).toContain(
+      `${formatNumber(stagedSourceOperations * workUnitCount)} total ops`,
+    );
+    expect(container.textContent).toContain(
+      `${formatBits(stagedSource.ramBits * workUnitCount)} total`,
+    );
+    expect(container.textContent).toContain(`${formatBits(stagedSource.ramBits)} each`);
+    expect(container.textContent).toContain("1 op");
     expect(container.textContent).toContain("RAM held");
     expect(container.textContent).not.toContain("kept from previous stage");
     expect(container.querySelector(".dag-phase.phase-ram.has-muted-detail")).not.toBeNull();
+  });
+
+  it("focuses and closes task DAG dialogs with Escape", () => {
+    const visible = deriveVisibleState(createRackReadyGameState());
+    const task = visible.tasks.find((candidate) => candidate.id === "tinyChecksum");
+    const onClose = vi.fn();
+
+    if (!task) throw new Error("Expected the Tiny Checksum task.");
+
+    act(() => {
+      root.render(
+        <TaskDagModal
+          task={task}
+          visible={visible}
+          activeTask={null}
+          onClose={onClose}
+          memoryUnlocked
+        />,
+      );
+    });
+
+    expect(document.activeElement).toBe(
+      container.querySelector<HTMLButtonElement>(".task-dag-close"),
+    );
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("explains RAM-blocked system tasks already reserved by a CPU scheduler", () => {
@@ -389,11 +438,10 @@ describe("TaskBay queue and deadlock status", () => {
 
     expect(systemStatus).toBe("Waiting for RAM.");
     expect(cpuStatus).toBe("Waiting for RAM.");
-    const blockedSummary = container.querySelector(
-      ".system-scheduler-blocked-reasons",
-    )?.textContent;
-    expect(blockedSummary).toContain("Blocked");
-    expect(blockedSummary).toContain("Waiting for RAM.");
+    // Per-slot reasons are the single source; no aggregate blocked summary.
+    expect(
+      container.querySelector(".system-scheduler-blocked-reasons"),
+    ).toBeNull();
     expect(container.textContent).not.toContain("Waiting for CPU scheduler dispatch.");
   });
 

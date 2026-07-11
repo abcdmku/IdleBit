@@ -3,5 +3,8 @@ node_modules
 dist
 dist-electron
 storybook-static
+release
+playwright-report
+test-results
 idlebit-*-smoke.png
 .claude

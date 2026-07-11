@@ -8,6 +8,7 @@ import type {
 } from "../../game";
 import { formatBits, formatClock, formatCost, formatNumber } from "../format";
 import { ResourceCost } from "../ResourceTokens";
+import { StatTile, StatTileRow } from "../StatTile";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, DeadlockHelpCaption, shouldShowRamDeadlockPressure } from "./DeadlockHelp";
 import {
@@ -30,6 +31,13 @@ export interface RamReservation {
   reservedBits: number;
   loadingBits: number;
 }
+
+/** "420 Hz" -> ["420", "Hz"] so tiles can print the unit as a small suffix. */
+const splitValueUnit = (label: string): [string, string | undefined] => {
+  const index = label.lastIndexOf(" ");
+  if (index === -1) return [label, undefined];
+  return [label.slice(0, index), label.slice(index + 1)];
+};
 
 const getRamPrimaryState = (segments: RamSegment[]) => {
   if (segments.some((segment) => segment.state === "loading")) return "Load";
@@ -152,6 +160,15 @@ export function RamSection({
   const ramGridStyle = {
     "--ram-stick-grid-columns": ramGrid.columns,
   } as CSSProperties;
+  const memory = visible.metrics.memory;
+  const writeLabel = formatClock(memory.effectiveBandwidthBps);
+  const [writeValue, writeUnit] = splitValueUnit(writeLabel);
+  const ramCapacityBits = ramSlots.reduce(
+    (total, slot) => total + slot.sizeBits,
+    0,
+  );
+  const usedLabel = formatBits(visible.metrics.ramUsedBits);
+  const [usedValue, usedUnit] = splitValueUnit(usedLabel);
   return (
     <section
       className={`hw-section memory-section ${tone} ${selected ? "selected" : ""} ${
@@ -183,9 +200,6 @@ export function RamSection({
             All
           </button>
         )}
-        <span className="hw-section-meta ram-header-used">
-          <strong>{formatBits(visible.metrics.ramUsedBits)}</strong> used
-        </span>
         {ramUpgrade && (
           <div className="ram-header-controls" aria-label="RAM stick count">
             <UpgradeChip
@@ -208,15 +222,37 @@ export function RamSection({
         />
       )}
 
-      <div className="ram-pipeline-summary">
-        <span title={visible.metrics.memory.channelBlockedReason ?? undefined}>
-          Ch {visible.metrics.memory.activeChannelCount}/
-          {visible.metrics.memory.maxChannelCount}
-        </span>
-        <span>
-          Write {formatClock(visible.metrics.memory.effectiveBandwidthBps)}
-        </span>
-      </div>
+      <StatTileRow dense>
+        <StatTile
+          label="CH"
+          value={`${memory.activeChannelCount}/${memory.maxChannelCount}`}
+          accent="green"
+          meter={
+            memory.maxChannelCount > 0
+              ? memory.activeChannelCount / memory.maxChannelCount
+              : 0
+          }
+          title={
+            memory.channelBlockedReason ??
+            `Memory channels ${memory.activeChannelCount}/${memory.maxChannelCount}`
+          }
+        />
+        <StatTile
+          label="Write"
+          value={writeValue}
+          unit={writeUnit}
+          accent="green"
+          title={`Write bandwidth ${writeLabel}`}
+        />
+        <StatTile
+          label="Used"
+          value={usedValue}
+          unit={usedUnit}
+          accent="green"
+          meter={ramCapacityBits > 0 ? visible.metrics.ramUsedBits / ramCapacityBits : 0}
+          title={`RAM used ${usedLabel} of ${formatBits(ramCapacityBits)}`}
+        />
+      </StatTileRow>
 
       <div
         className="ram-stick-grid"
@@ -301,7 +337,6 @@ function RamInstallSection({
       <div className="install-hardware-body ram-install-hardware-body">
         <span className="install-hardware-copy">
           <strong>Install first RAM stick</strong>
-          <span>Choose tier</span>
         </span>
         <RamInstallTierControls
           options={options}
@@ -387,8 +422,6 @@ function RamStickCard({
 }) {
   const state = getRamPrimaryState(segments);
   const capacity = Math.max(slot.sizeBits, 1);
-  const used = Math.min(slot.usedBits, capacity);
-  const pct = Math.round((used / capacity) * 100);
   const active = slot.usedBits > 0;
   const stateClass = state.toLowerCase();
   const efficiencyLabel =
@@ -418,7 +451,6 @@ function RamStickCard({
             Eff <strong>{efficiencyLabel}</strong>
           </span>
         )}
-        <span className="ram-stick-module-pct">{pct}%</span>
       </span>
       <span className="ram-stick-module-meter" aria-hidden="true">
         {segments.length > 0 ? (

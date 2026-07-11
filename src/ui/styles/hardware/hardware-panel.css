@@ -24,15 +24,16 @@
     box-shadow var(--dur-1) var(--ease);
 }
 
-.hw-section.cpu-section       { border-color: rgba(36, 231, 195, 0.22); }
-.hw-section.cache-section     { border-color: rgba(115, 240, 92, 0.22); }
+.hw-section.cpu-section       { border-color: rgba(36, 231, 195, 0.22); --meter-accent: var(--cyan); }
+.hw-section.cache-section     { border-color: rgba(115, 240, 92, 0.22); --meter-accent: var(--green); }
 .hw-section.scheduler-section {
   container-type: inline-size;
   border-color: rgba(184, 158, 255, 0.22);
+  --meter-accent: var(--violet);
 }
-.hw-section.memory-section    { border-color: rgba(115, 240, 92, 0.22); }
-.hw-section.psu-section       { border-color: rgba(242, 194, 78, 0.22); }
-.hw-section.thermal-section   { border-color: rgba(36, 231, 195, 0.22); }
+.hw-section.memory-section    { border-color: rgba(115, 240, 92, 0.22); --meter-accent: var(--green); }
+.hw-section.psu-section       { border-color: rgba(242, 194, 78, 0.22); --meter-accent: var(--amber); }
+.hw-section.thermal-section   { border-color: rgba(36, 231, 195, 0.22); --meter-accent: var(--cyan); }
 
 .hw-section.deadlocked {
   border-color: var(--line-danger);
@@ -82,7 +83,7 @@
 
 .scheduler-header-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
 }
 
@@ -98,9 +99,9 @@
   background: transparent;
   color: var(--cyan);
   font-family: var(--font-display);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-title);
   font-weight: 800;
-  letter-spacing: var(--tracking-loose);
+  letter-spacing: var(--tracking-mid);
   text-transform: uppercase;
 }
 
@@ -128,16 +129,21 @@
 .system-board.power-offline .system-rail > :not(.psu-section),
 .system-board.power-offline .psu-section > :not(.psu-header-row),
 .system-board.power-offline .system-scheduler-section > :not(.scheduler-header-row),
-.system-board.power-offline .system-scheduler-section .scheduler-header-row > :not(.system-shutdown-button) {
+.system-board.power-offline .system-scheduler-section .scheduler-header-row > * {
   filter: grayscale(0.92);
-  opacity: 0.38;
+  opacity: 1;
+}
+
+.system-board.power-offline .hw-section {
+  border-color: var(--line-muted);
+  box-shadow: inset 0 0 0 1px rgba(113, 142, 135, 0.05);
 }
 
 .system-board.power-transitioning .system-board-flow > :not(.system-rail):not(.system-scheduler-section),
 .system-board.power-transitioning .system-rail > :not(.psu-section),
 .system-board.power-transitioning .psu-section > :not(.psu-header-row),
 .system-board.power-transitioning .system-scheduler-section > :not(.scheduler-header-row),
-.system-board.power-transitioning .system-scheduler-section .scheduler-header-row > :not(.system-shutdown-button) {
+.system-board.power-transitioning .system-scheduler-section .scheduler-header-row > * {
   pointer-events: none;
 }
 
@@ -150,7 +156,7 @@
 
 .system-board.power-offline .psu-header-row .hw-section-header {
   color: var(--muted);
-  opacity: 0.48;
+  opacity: 1;
 }
 
 .system-board.power-transitioning .psu-header-row .hw-section-header {
@@ -159,10 +165,8 @@
 
 .system-board.power-offline .psu-section .power-control-buttons,
 .system-board.power-offline .psu-section .power-control-buttons *,
-.system-board.power-offline .system-shutdown-button,
 .system-board.power-transitioning .psu-section .power-control-buttons,
-.system-board.power-transitioning .psu-section .power-control-buttons *,
-.system-board.power-transitioning .system-shutdown-button {
+.system-board.power-transitioning .psu-section .power-control-buttons * {
   filter: none;
   opacity: 1;
   pointer-events: auto;
@@ -170,9 +174,9 @@
 
 .hw-section-header .hw-section-meta {
   margin-left: auto;
-  color: var(--muted);
+  color: var(--text-caption);
   font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-caption);
   font-weight: 600;
   letter-spacing: var(--tracking-tight);
   text-transform: none;
@@ -180,6 +184,7 @@
 }
 
 .hw-section-header .hw-section-meta strong {
-  color: var(--text);
-  font-weight: 800;
+  color: var(--text-value);
+  font-size: var(--fs-value);
+  font-weight: 700;
 }

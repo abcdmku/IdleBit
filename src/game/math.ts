@@ -1,10 +1,26 @@
 import { getTaskDefinition } from "./content/tasks";
+import {
+  ZERO_AMOUNT,
+  amount,
+  amountCompare,
+  amountMultiply,
+  amountToSafeNumber,
+  type Amount,
+} from "./amount";
 import { getCStateIdleMultiplier } from "./content/cpuTiers";
+import { getOverclockPresetDefinition } from "./content/cooling";
 import {
   getMemoryVoltageIdleMultiplier,
   getRamStickEfficiency,
 } from "./content/ramTuning";
 import { getGlobalCStateLevel } from "./cState";
+import {
+  deriveWorkshopThermalSnapshot,
+  getThermalStatusThroughputModifierBps,
+  getWorkshopAcceleratorRoutes,
+  isWorkshopThermalVisible,
+  projectWorkshopSystemPower,
+} from "./workshop";
 import {
   bitsToBytes,
   getCpuClockHz,
@@ -13,6 +29,7 @@ import {
   getCpuHardware,
   getCoreClockHz,
   getCoreClockLevel,
+  isPsuManagementUnlocked,
   STARTER_PSU_WATTS,
 } from "./progression";
 import type {
@@ -102,14 +119,14 @@ const getRuntimeOperationCacheBits = (
   if (loaded || !isCacheLoadingRuntime(runtime)) return operation.cacheBits;
 
   const writeProgress = getCacheProgress(
-    runtime.remainingLoadCycles,
+    amountToSafeNumber(runtime.remainingLoadCycles),
     getCacheLoadCycles(state, operation),
   );
   if (!operation.memoryAction) return operation.cacheBits * writeProgress;
 
   const issueProgress = getCacheProgress(
-    runtime.remainingCycles,
-    runtime.totalCycles,
+    amountToSafeNumber(runtime.remainingCycles),
+    amountToSafeNumber(runtime.totalCycles),
   );
   return operation.cacheBits * issueProgress;
 };
@@ -577,24 +594,30 @@ export const allocateRamBlocksForOperation = (
   return remainingBits <= 0 ? { blocks, channelCount: usedChannelCount } : null;
 };
 
-export const getRamBlockLoadDeltasForOperationTick = (
+export const getRamBlockLoadRatesForOperation = (
   state: GameState,
   operation: ActiveCoreOperation,
-  deltaSeconds: number,
 ) => {
   const operationRates =
     getRamWriteRateAllocations(state).get(getRamWriteOperationKey(operation)) ??
     new Map<string, number>();
 
-  return (operation.ramBlocks ?? []).map((block) => {
-    const currentBudget =
-      (operationRates.get(getRamWriteBlockKey(operation, block)) ?? 0) *
-      deltaSeconds;
-    const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
-    const loadedBits = Math.min(remainingBits, currentBudget);
-    return loadedBits;
-  });
+  return (operation.ramBlocks ?? []).map(
+    (block) => operationRates.get(getRamWriteBlockKey(operation, block)) ?? 0,
+  );
 };
+
+export const getRamBlockLoadDeltasForOperationTick = (
+  state: GameState,
+  operation: ActiveCoreOperation,
+  deltaSeconds: number,
+) =>
+  getRamBlockLoadRatesForOperation(state, operation).map((rate, index) => {
+    const block = operation.ramBlocks[index]!;
+    const currentBudget = rate * deltaSeconds;
+    const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
+    return Math.min(remainingBits, currentBudget);
+  });
 
 const getRamWriteOperationKey = (operation: ActiveCoreOperation) =>
   [
@@ -617,16 +640,21 @@ export const getRamWriteBlockKey = (
   ].join(":");
 
 const getActiveRamLoadBlocks = (operation: ActiveCoreOperation) =>
-  (operation.ramBlocks ?? []).filter(
-    (block) => block.loadedBits < block.lengthBits,
-  );
+  amountCompare(operation.remainingLoadCycles, ZERO_AMOUNT) > 0
+    ? operation.ramBlocks ?? []
+    : [];
 
 const getCurrentRamWriteBlocks = (operation: ActiveCoreOperation) => {
   const blocksByChannel = new Map<number, RamBlockAllocation>();
+  const blocks = operation.ramBlocks ?? [];
+  const incompleteBlocks = blocks.filter(
+    (block) => block.loadedBits < block.lengthBits,
+  );
 
-  for (const block of operation.ramBlocks ?? []) {
-    if (block.loadedBits >= block.lengthBits) continue;
-
+  // Aggregate batches reuse their bounded physical allocation after its first
+  // pass. Prefer unfinished blocks for the resident working set, then continue
+  // streaming through that same allocation without creating logical-unit events.
+  for (const block of incompleteBlocks.length > 0 ? incompleteBlocks : blocks) {
     const channelIndex = block.channelIndex ?? 0;
     if (!blocksByChannel.has(channelIndex)) {
       blocksByChannel.set(channelIndex, block);
@@ -706,17 +734,26 @@ const getRamWriteRateAllocations = (state: GameState) => {
         total + Math.max(0, block.lengthBits - block.loadedBits),
       0,
     );
-    if (totalRemainingBits <= 0) continue;
+    const reusingResidentAllocation = totalRemainingBits <= 0;
+    const totalRequestedBits = reusingResidentAllocation
+      ? blocks.reduce((total, block) => total + block.lengthBits, 0)
+      : totalRemainingBits;
+    if (totalRequestedBits <= 0) continue;
 
     const operationKey = getRamWriteOperationKey(operation);
     const operationRates = new Map<string, number>();
-    const coreWriteRate = Math.max(0, getCoreClockHz(state, operation.coreId));
+    const coreWriteRate = Math.max(
+      0,
+      getEffectiveCoreClockHz(state, operation.coreId),
+    );
 
     for (const block of blocks) {
       const channelIndex = block.channelIndex ?? 0;
-      const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
+      const remainingBits = reusingResidentAllocation
+        ? block.lengthBits
+        : Math.max(0, block.lengthBits - block.loadedBits);
       const requestedRate =
-        coreWriteRate * (remainingBits / totalRemainingBits);
+        coreWriteRate * (remainingBits / totalRequestedBits);
       const blockKey = getRamWriteBlockKey(operation, block);
 
       operationRates.set(blockKey, requestedRate);
@@ -848,7 +885,10 @@ export const getRamLoadCyclesForOperationTick = (
   }
 
   let remainingSeconds = Math.max(0, deltaSeconds);
-  let remainingLoadCycles = Math.max(0, operation.remainingLoadCycles);
+  let remainingLoadCycles = Math.max(
+    0,
+    amountToSafeNumber(operation.remainingLoadCycles),
+  );
   let bitOffset = getRamBitOffsetForOperation(state, task, operation);
   let loadCycles = 0;
 
@@ -928,15 +968,55 @@ export const getEffectiveClock = (
   state: GameState,
   task: TaskDefinition,
   coreId = 1,
-) => getCoreClockHz(state, coreId) * getCacheMultiplier(state, task);
+) => getEffectiveCoreClockHz(state, coreId) * getCacheMultiplier(state, task);
+
+const scaleRateByBps = (rate: number, bps: number) =>
+  rate * (Math.max(0, Math.trunc(bps)) / 10_000);
+
+export const getEffectiveCoreClockHz = (
+  state: GameState,
+  coreId = 1,
+) => {
+  const overclock = getOverclockPresetDefinition(
+    state.workshop.overclockPresetId,
+  );
+  const thermalBps = isWorkshopThermalVisible(state)
+    ? getThermalStatusThroughputModifierBps(
+        deriveWorkshopThermalSnapshot(
+          state,
+          getBaseHardwareDrawWatts(state),
+        ).status,
+      )
+    : 10_000;
+  return scaleRateByBps(
+    scaleRateByBps(getCoreClockHz(state, coreId), overclock.clockMultiplierBps),
+    thermalBps,
+  );
+};
+
+const getOperationAcceleratorMultiplierBps = (
+  state: GameState,
+  operation: TaskOperationDefinition,
+  coreId: number,
+) => {
+  if (!operation.acceleratorClass) return 10_000;
+  const route = getWorkshopAcceleratorRoutes(state).find(
+    (candidate) =>
+      candidate.coreId === coreId && candidate.operationId === operation.id,
+  );
+  return route?.throughputMultiplierBps ?? 10_000;
+};
 
 export const getOperationEffectiveClock = (
   state: GameState,
   operation: TaskOperationDefinition,
   coreId = 1,
 ) =>
-  getCoreClockHz(state, coreId) *
-  getOperationCacheMultiplier(state, operation, coreId);
+  scaleRateByBps(
+    getEffectiveCoreClockHz(state, coreId) *
+      getOperationCacheMultiplier(state, operation, coreId),
+    getOperationAcceleratorMultiplierBps(state, operation, coreId),
+  );
 
 export const getCacheLoadCyclesForBits = (_state: GameState, cacheBits: number) => {
   if (cacheBits <= 0) return 0;
@@ -991,7 +1071,7 @@ const isCacheLoadOperationActive = (
 ) =>
   operation.status === "loadingCache" &&
   definition.cacheBits > 0 &&
-  operation.remainingLoadCycles > 0;
+  amountCompare(operation.remainingLoadCycles, ZERO_AMOUNT) > 0;
 
 const getActiveCacheLoadOperations = (
   state: GameState,
@@ -1037,7 +1117,7 @@ const getCacheWriteRequestedRate = (
   definition: TaskOperationDefinition,
 ) =>
   definition.memoryAction
-    ? Math.max(0, getCoreClockHz(state, operation.coreId))
+    ? Math.max(0, getEffectiveCoreClockHz(state, operation.coreId))
     : Math.max(0, getCacheLoadRate(state, operation.coreId));
 
 export const getCacheLoadRateForOperationTick = (
@@ -1107,7 +1187,7 @@ export const estimateTaskSeconds = (
     const cpuSeconds =
       operation.cycles /
       (operation.memoryAction
-        ? getCoreClockHz(state, coreId)
+        ? getEffectiveCoreClockHz(state, coreId)
         : getOperationEffectiveClock(state, operation, coreId));
     const cacheSeconds =
       getCacheLoadCycles(state, operation) / getCacheLoadRate(state, coreId);
@@ -1200,10 +1280,9 @@ const getActiveRamWriteStickIds = (state: GameState) =>
   new Set(
     state.activeTasks.flatMap((task) =>
       task.coreOperations.flatMap((operation) =>
-        operation.status === "loadingRam"
-          ? (operation.ramBlocks ?? [])
-              .filter((block) => block.loadedBits < block.lengthBits)
-              .map((block) => block.stickId)
+        operation.status === "loadingRam" &&
+        amountCompare(operation.remainingLoadCycles, ZERO_AMOUNT) > 0
+          ? (operation.ramBlocks ?? []).map((block) => block.stickId)
           : [],
       ),
     ),
@@ -1227,15 +1306,20 @@ export const getActiveOperationDefinition = (
   ];
 };
 
-export const getHardwareDrawWatts = (state: GameState) => {
+export const getBaseHardwareDrawWatts = (state: GameState) => {
   const socketCount = Math.max(1, state.hardware.cpus.length);
   const boardWatts = state.flags.systemStats ? 0.00000000000008 : 0;
   const socketWatts = Math.max(0, socketCount - 1) * 0.00000000000008;
   const activeCoreIds = new Set(
-    state.activeTasks
-      .flatMap((task) => task.coreOperations)
-      .filter((operation) => activeOperationPowerMultiplier(operation) > 0)
-      .map((operation) => operation.coreId),
+    [
+      ...state.activeTasks
+        .flatMap((task) => task.coreOperations)
+        .filter((operation) => activeOperationPowerMultiplier(operation) > 0)
+        .map((operation) => operation.coreId),
+      ...(state.liveOperations.systemId === state.selectedSystemId
+        ? state.liveOperations.allocatedCoreIds
+        : []),
+    ],
   );
   const cStateLevel = getGlobalCStateLevel(state);
   const idleMultiplier =
@@ -1279,22 +1363,26 @@ export const getHardwareDrawWatts = (state: GameState) => {
 
     return sum + drawWatts + capacityDrawWatts;
   }, 0);
-  const coolingWatts =
-    state.hardware.coolingLevel <= 0
-      ? 0
-      : 0.00000000000008 * state.hardware.coolingLevel ** 1.12;
   const rawDraw =
     boardWatts +
     socketWatts +
     cpuWatts +
     cacheWatts +
     ramWatts +
-    coolingWatts +
     getCronQueueSpikeWatts(state);
   const draw = (rawDraw / getPowerEfficiency(state)) * getPowerStateDrawMultiplier(state);
 
   return roundPowerWatts(draw);
 };
+
+export const getHardwareDrawWattsExact = (state: GameState): Amount =>
+  projectWorkshopSystemPower(
+    state,
+    amount(getBaseHardwareDrawWatts(state)),
+  ).totalPowerWatts;
+
+export const getHardwareDrawWatts = (state: GameState) =>
+  roundPowerWatts(amountToSafeNumber(getHardwareDrawWattsExact(state)));
 
 export const getPsuCapacityWatts = (state: GameState) =>
   state.hardware.psuWatts > 0 ? state.hardware.psuWatts : STARTER_PSU_WATTS;
@@ -1317,8 +1405,15 @@ export const getPowerReliability = (state: GameState) => {
 export const getBilledPowerWatts = (state: GameState) =>
   getHardwareDrawWatts(state);
 
+export const getPowerCostPerSecondExact = (state: GameState) =>
+  isPsuManagementUnlocked(state)
+    ? amountMultiply(getHardwareDrawWattsExact(state), 1_000_000)
+    : ZERO_AMOUNT;
+
 export const getPowerCostPerSecond = (state: GameState) =>
-  roundThousandth(getBilledPowerWatts(state) * 1_000_000);
+  isPsuManagementUnlocked(state)
+    ? roundThousandth(amountToSafeNumber(getPowerCostPerSecondExact(state)))
+    : 0;
 
 export const getReservedMemoryBytes = (state: GameState) =>
   bitsToBytes(getReservedMemoryBits(state));

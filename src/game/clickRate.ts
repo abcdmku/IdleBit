@@ -1,16 +1,15 @@
 import type { Cost, GameState, ResearchState } from "./types";
+import { amount, amountMultiply, amountRound } from "./amount";
+import { roundedCost } from "./exactCosts";
 
 export const CLICK_RATE_MAX_LEVEL = 36;
-export const CLICK_RATE_UNLOCK_COST = 500_000;
-export const CLICK_RATE_FIRST_LEVEL_COST = 100_000;
-export const CLICK_RATE_COST_MULTIPLIER = 1.4;
+export const CLICK_RATE_UNLOCK_COST = "500000";
+export const CLICK_RATE_FIRST_LEVEL_COST = "100000";
+export const CLICK_RATE_COST_MULTIPLIER = "1.4";
 export const DEFAULT_TASK_HOLD_REPEAT_MS = 110;
 export const TASK_HOLD_MAX_MS = 30_000;
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: string | number): Cost => roundedCost("credits", value);
 
 export const getClickRateLevelFromResearch = (
   research: Partial<ResearchState> | undefined,
@@ -32,10 +31,10 @@ export const getClickRateLevel = (state: GameState) =>
 export const getClickRateUpgradeCost = (targetLevel: number): Cost[] => {
   if (targetLevel <= 0 || targetLevel > CLICK_RATE_MAX_LEVEL) return [];
 
-  let cost = CLICK_RATE_FIRST_LEVEL_COST;
+  let cost = amount(CLICK_RATE_FIRST_LEVEL_COST);
 
   for (let currentLevel = 2; currentLevel <= targetLevel; currentLevel += 1) {
-    cost = Math.round(cost * CLICK_RATE_COST_MULTIPLIER);
+    cost = amountRound(amountMultiply(cost, CLICK_RATE_COST_MULTIPLIER));
   }
 
   return [credits(cost)];

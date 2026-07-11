@@ -1,4 +1,4 @@
-import type { VisibleState } from "../../game";
+import type { MachinePowerProjection, VisibleState } from "../../game";
 import type { DisplayCost } from "../format";
 
 export type RackView = "list" | "detail" | "builder";
@@ -84,7 +84,16 @@ export interface UiSystemPreset {
   cacheBytes?: number;
   components?: Partial<
     Record<"cpu" | "ram" | "memory" | "scheduler" | "psu" | "powerSupply", string>
-  >;
+  > & {
+    cpuPackageCount?: number;
+    cpuCoreCount?: number;
+    cpuLevel?: number;
+    cpuPackageConfigs?: Array<{
+      coreCount?: number;
+      cpuLevel?: number;
+    }>;
+  };
+  projection?: MachinePowerProjection;
   actionType?: string;
 }
 

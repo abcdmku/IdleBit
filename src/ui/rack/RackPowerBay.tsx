@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react";
-import { formatNumber, formatWatts } from "../format";
+import { formatWatts } from "../format";
+import { SmoothFill } from "../SmoothProgress";
 import { formatPowerRate } from "./rackFormatting";
 
 interface RackPowerBayProps {
@@ -8,19 +8,6 @@ interface RackPowerBayProps {
   powerCostPerSecond: number;
   issue: boolean;
 }
-
-const formatCapChip = (watts: number) => {
-  if (watts <= 0) return null;
-  if (watts >= 1_000_000) {
-    const value = watts / 1_000_000;
-    return `${value >= 100 ? Math.round(value) : Number(value.toFixed(value >= 10 ? 0 : 1))}MW`;
-  }
-  if (watts >= 1_000) {
-    const value = watts / 1_000;
-    return `${value >= 100 ? Math.round(value) : Number(value.toFixed(value >= 10 ? 0 : 1))}kW`;
-  }
-  return `${formatNumber(watts)}W`;
-};
 
 export function RackPowerBay({
   drawWatts,
@@ -46,7 +33,6 @@ export function RackPowerBay({
       ? `, ${formatPowerRate(powerCostPerSecond)} credits per second`
       : ""
   }`;
-  const capChip = formatCapChip(capWatts);
 
   return (
     <span
@@ -56,30 +42,30 @@ export function RackPowerBay({
       title={title}
       aria-label={title}
     >
+      <span className="rack-component-bay-caption" aria-hidden="true">
+        PSU
+      </span>
       <span className="rack-component-bay-viz">
         <span
           className={`rack-power-column ${overload ? "overload" : ""}`}
           aria-hidden="true"
         >
-          <span
+          <SmoothFill
             className="rack-power-column-fill"
-            style={{ "--rack-power-fill": fill } as CSSProperties}
+            value={fill}
+            orientation="vertical"
+            snapKey={`${heatZone}:${issue}`}
+            snapOnDecrease={false}
           />
           <span className="rack-power-column-threshold" aria-hidden="true" />
         </span>
       </span>
-      <span className="rack-gauge-strip rack-gauge-strip--power">
+      {/* The column fill + heat-zone color IS the readout; exact watts and
+          the cost rate live in the bay tooltip and the header net rate. */}
+      <span className="rack-gauge-strip rack-gauge-strip--queue">
         <span className="rack-gauge-value rack-component-power-value">
-          {formatWatts(drawWatts)}
+          {Math.round(ratio * 100)}%
         </span>
-        {capChip && (
-          <span className="rack-gauge-chip rack-component-power-value">{capChip}</span>
-        )}
-        {powerCostPerSecond > 0 && (
-          <span className="rack-gauge-chip rack-gauge-chip--rate rack-component-rate">
-            -{formatPowerRate(powerCostPerSecond)} cr/s
-          </span>
-        )}
       </span>
     </span>
   );

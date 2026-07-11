@@ -1,0 +1,740 @@
+/* Header + tabs read as one compact strip: shallow header padding,
+   tab heights aligned to the small-control height (24px). */
+.work-panel-header { padding: var(--s-2) var(--s-4); }
+
+.work-panel-body {
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+}
+
+.mobile-current-objective { display: none; }
+
+.automation-buffer-panel {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid rgba(36, 231, 195, 0.3);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(36, 231, 195, 0.08), transparent 58%),
+    var(--tile);
+}
+
+.automation-buffer-panel > header {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.automation-buffer-heading {
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  min-width: 0;
+  color: var(--cyan);
+}
+
+.automation-buffer-heading > span {
+  display: grid;
+  min-width: 0;
+}
+
+.automation-buffer-heading small,
+.automation-buffer-upgrade small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.automation-buffer-heading strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-mid);
+  text-transform: uppercase;
+}
+
+.automation-buffer-level,
+.automation-buffer-maximum {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.automation-buffer-panel > p {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-buffer-upgrade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--s-2);
+  align-items: center;
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--line-soft);
+}
+
+.automation-buffer-upgrade > span {
+  display: grid;
+  min-width: 0;
+}
+
+.automation-buffer-upgrade > span strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-buffer-upgrade .resource-cost { white-space: nowrap; }
+
+.automation-buffer-upgrade button {
+  min-height: 30px;
+  padding-inline: var(--s-3);
+  border-color: var(--line-hot);
+  color: var(--cyan);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.automation-buffer-upgrade > small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--amber);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.departure-forecast {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid rgba(184, 158, 255, 0.34);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(184, 158, 255, 0.09), transparent 58%),
+    var(--tile);
+}
+
+.departure-forecast header {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.departure-forecast header span {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  color: var(--violet);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+/* Reserved single-line pause slot: geometry is identical with and without a
+   projected blocker, so only color/border change (no layout shift). */
+.departure-forecast-pause {
+  overflow: hidden;
+  /* border-box: one text line + padding + border, even when empty. */
+  min-height: calc(1.35em + (2 * var(--s-2)) + 2px);
+  padding: var(--s-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-1);
+  flex: 0 0 auto;
+}
+
+/* Four tabs share ~300px: labels win, icons go. */
+.work-view-tabs button > svg { display: none; }
+
+.work-view-tabs button {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  padding: 2px var(--s-1);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-view-tabs button.active {
+  border-color: var(--line-hot);
+  color: var(--cyan);
+  background: var(--cyan-soft);
+}
+
+.work-view-panel {
+  display: block;
+  min-height: 0;
+  border-radius: var(--radius-sm);
+}
+
+.work-view-panel:focus-visible {
+  outline: 1px solid var(--line-hot);
+  outline-offset: 3px;
+}
+
+.work-card-list,
+.work-contracts-view,
+.work-jobs-content {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.work-card {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--tile);
+}
+
+/* Sections that hold exactly one permanent card render flat, not as tiles. */
+.work-card.standing-order,
+.work-card.live-operations-card {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.work-card.current,
+.work-card.active {
+  border-color: var(--line-hot);
+  background: var(--cyan-soft);
+}
+
+.work-card.completed { opacity: 0.76; }
+
+.work-card > header {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.work-card > header span {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+.work-card > header b {
+  flex: 0 0 auto;
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+}
+
+.work-card > p,
+.work-card > small,
+.work-view-empty,
+.work-view-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+}
+
+.work-view-note { color: var(--muted-2); }
+
+.work-blocked-reason {
+  padding: var(--s-2);
+  border: 1px solid var(--line-warn);
+  border-radius: var(--radius-sm);
+  color: var(--amber) !important;
+  background: var(--amber-soft);
+}
+
+.work-card-meta,
+.work-card-system,
+.work-card-ledger,
+.work-contract-actions,
+.work-view-toolbar,
+.work-resource-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.work-card-meta,
+.work-card-system {
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.work-card-ledger { justify-content: space-between; }
+
+.work-card .smooth-progress {
+  width: 100%;
+  height: 5px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  background: rgba(120, 220, 200, 0.1);
+  overflow: hidden;
+}
+
+
+.work-combined-view,
+.work-jobs-view {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.work-running-rail > h3 {
+  margin: 0 0 0.4rem;
+  color: var(--cyan);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.system-work-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(54, 222, 194, 0.24);
+  border-radius: 6px;
+  background: rgba(8, 34, 31, 0.46);
+  padding: 0.55rem 0.65rem;
+  height: 3.35rem;
+  min-height: 3.35rem;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.system-work-summary > header,
+.system-work-summary-item,
+.system-work-summary-item > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.system-work-summary > header {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  color: var(--cyan);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.system-work-summary-list {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.35rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.system-work-summary-item {
+  flex: 0 0 min(24rem, 100%);
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.system-work-summary-item.idle {
+  flex: 1 1 auto;
+  color: var(--muted);
+}
+
+/* Headerless lane for fleet cards: the card supplies all context, the lane
+   only answers "what is this box running right now?". Fixed height. */
+.system-work-summary.compact {
+  height: 1.6rem;
+  min-height: 1.6rem;
+  padding: 0.3rem 0.5rem;
+}
+
+/* Idle reads as an unlit lane, not a sentence; the header meta says IDLE. */
+.system-work-idle-track {
+  display: block;
+  flex: 1 1 auto;
+  height: 0.35rem;
+  border-radius: var(--radius-pill);
+  background: var(--meter-track, rgba(231, 245, 238, 0.07));
+}
+
+.system-work-summary-item > span:first-child {
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.system-work-summary-item b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-work-summary-item small { color: var(--muted); }
+.system-work-summary-item .smooth-progress { width: 4.5rem; height: 0.35rem; }
+
+.work-resource-summary {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.work-card-system select,
+.work-field select {
+  max-width: 100%;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+}
+
+.work-primary-action {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  border-color: var(--line-hot);
+  color: var(--cyan);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+}
+
+.work-contracts-view > h3 {
+  margin: var(--s-2) 0 0;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.work-view-toolbar {
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.work-view-toolbar button,
+.work-contract-actions button {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  min-height: 28px;
+  padding-inline: var(--s-3);
+  font-size: var(--fs-2xs);
+}
+
+.work-contract-actions { justify-content: flex-end; }
+
+/* Live Ops status strip (renders only once a system is configured). */
+.live-operations-status {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(5, 11, 10, 0.9);
+}
+
+.live-operations-status .stat-tile-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-operations-batch {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- contract payoff row: rewards + rate multiple + context ---------- */
+
+.work-contract-payoff {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  min-height: 18px;
+}
+
+.work-rate-chip {
+  flex: 0 0 auto;
+  padding: 1px var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-rate-chip.is-gain {
+  border-color: rgba(115, 240, 92, 0.35);
+  color: var(--green);
+  background: rgba(115, 240, 92, 0.07);
+}
+
+.work-rate-chip.is-drain {
+  border-color: rgba(255, 111, 145, 0.35);
+  color: var(--rose);
+  background: rgba(255, 111, 145, 0.06);
+}
+
+.work-contract-system {
+  overflow: hidden;
+  margin-left: auto;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.work-contract-when {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  align-items: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-contract-when.is-novel { color: var(--violet); }
+
+/* ---------- chapter quest trail ---------- */
+
+.work-mission-steps {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.work-mission-step {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  min-width: 0;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--radius-sm);
+  color: var(--muted-2);
+}
+
+.work-mission-step.current {
+  border: 1px solid rgba(36, 231, 195, 0.3);
+  color: var(--text);
+  background: rgba(36, 231, 195, 0.05);
+}
+
+.work-mission-pip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1px solid var(--line-soft);
+  border-radius: 50%;
+  color: var(--muted-2);
+}
+
+.work-mission-step.completed .work-mission-pip {
+  border-color: rgba(115, 240, 92, 0.45);
+  color: var(--green);
+}
+
+.work-mission-step.current .work-mission-pip {
+  border-color: var(--line-hot);
+  color: var(--cyan);
+}
+
+.work-mission-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.work-mission-name {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.work-mission-step.completed .work-mission-name {
+  color: var(--muted-2);
+  font-weight: 600;
+}
+
+.work-mission-copy small {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+}
+
+.work-mission-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px var(--s-2);
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  background: var(--cyan-soft);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: var(--tracking-mid);
+  text-transform: uppercase;
+}
+
+.work-field {
+  display: grid;
+  gap: var(--s-1);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+}
+
+.live-operations-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+
+.live-operations-progress {
+  display: grid;
+  gap: var(--s-1);
+}
+
+.live-operations-actions button {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  justify-content: center;
+}
+
+.work-jobs-content { gap: var(--s-2); }
+
+.work-jobs-content .task-group:first-child { margin-top: 0; }
+
+@media (max-width: 760px) {
+  .work-panel-body {
+    padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--s-4));
+  }
+
+  .mobile-current-objective {
+    display: grid;
+    gap: 2px;
+    /* Fixed reserved height: objective text changes must never reflow. */
+    height: 38px;
+    padding: var(--s-1) var(--s-3);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    background: var(--tile);
+    overflow: hidden;
+  }
+
+  .mobile-current-objective small,
+  .mobile-current-objective strong {
+    overflow: hidden;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-current-objective small {
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-size: var(--fs-2xs);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .mobile-current-objective strong {
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--fs-xs);
+  }
+
+  .automation-buffer-upgrade {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .automation-buffer-upgrade .resource-cost { grid-column: 1; }
+  .automation-buffer-upgrade button { grid-column: 2; grid-row: 1 / span 2; }
+
+  .work-view-tabs button,
+  .work-view-toolbar button,
+  .work-contract-actions button,
+  .work-primary-action,
+  .work-field select,
+  .work-card-system select {
+    min-height: 44px;
+  }
+
+  .live-operations-actions button {
+    min-height: 44px;
+  }
+
+  .automation-buffer-upgrade button { min-height: 44px; }
+}
+
+@media (max-width: 420px) {
+  .work-view-tabs button { font-size: 0.66rem; }
+  .live-operations-fields { grid-template-columns: 1fr; }
+}

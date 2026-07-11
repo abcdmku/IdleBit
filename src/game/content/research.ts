@@ -15,12 +15,6 @@ import {
   getGlobalBootloaderLevel,
 } from "../bootloader";
 import {
-  CLICK_RATE_MAX_LEVEL,
-  CLICK_RATE_UNLOCK_COST,
-  getClickRateLevel,
-  getClickRateUpgradeCost,
-} from "../clickRate";
-import {
   CPU_TIER_MAX_LEVEL,
   cpuTierDefinitions,
   getCStateUpgradeCost,
@@ -31,20 +25,33 @@ import {
   MEMORY_VOLTAGE_MAX_LEVEL,
   getMemoryVoltageCost,
 } from "./ramTuning";
+import { getCampaignChapterIndex } from "../campaign";
+import type { AmountInput } from "../amount";
+import { roundedCost } from "../exactCosts";
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: AmountInput): Cost => roundedCost("credits", value);
 
-const data = (amount: number): Cost => ({
-  resource: "data",
-  amount: Math.round(amount),
-});
+const data = (value: AmountInput): Cost => roundedCost("data", value);
 
 const hasCompleted = (state: GameState, taskId: TaskId) =>
   (state.completedTasks[taskId] ?? state.completedJobs[taskId] ?? 0) > 0 ||
   state.completedBenchmarks.includes(taskId);
+
+const thermalStatusRank = {
+  off: 0,
+  nominal: 1,
+  warm: 2,
+  hot: 3,
+  critical: 4,
+} as const;
+
+const hasObservedHeat = (state: GameState) =>
+  state.systems.some(
+    (system) =>
+      thermalStatusRank[
+        system.workshop?.highestObservedThermalStatus ?? "nominal"
+      ] >= thermalStatusRank.warm,
+  );
 
 export const hasResearch = (state: GameState, id: ResearchId) =>
   state.research.completed.includes(id);
@@ -77,7 +84,7 @@ const getPreviousCpuTier = (tierId: CpuTierId) => {
 
 const getCpuTierResearchCost = (tierId: CpuTierId) => {
   const previousTier = getPreviousCpuTier(tierId);
-  return previousTier?.nextTierResearchCost ?? 0;
+  return previousTier?.nextTierResearchCost ?? "0";
 };
 
 const hasPreviousCpuTierResearch = (state: GameState, tierId: CpuTierId) => {
@@ -142,17 +149,6 @@ const getBootloaderResearchCost = (state: GameState) => {
   return getBootloaderUpgradeCost(currentLevel + 1);
 };
 
-const getClickRateResearchCost = (state: GameState) => {
-  if (!hasResearch(state, "clickRateTuning")) {
-    return [credits(CLICK_RATE_UNLOCK_COST)];
-  }
-
-  const currentLevel = getClickRateLevel(state);
-  if (currentLevel >= CLICK_RATE_MAX_LEVEL) return [];
-
-  return getClickRateUpgradeCost(currentLevel + 1);
-};
-
 const requirement = (
   id: string,
   label: string,
@@ -179,6 +175,15 @@ const hardwareRequirement = (
   label: string,
   met: (state: GameState) => boolean,
 ) => requirement(`hardware:${id}`, label, "hardware", met);
+
+const campaignRequirement = (
+  chapterId: GameState["campaign"]["currentChapterId"],
+  label: string,
+) =>
+  requirement(`campaign:${chapterId}`, label, "research", (state) =>
+    getCampaignChapterIndex(state.campaign.currentChapterId) >=
+    getCampaignChapterIndex(chapterId),
+  );
 
 const requirementsMet = (
   state: GameState,
@@ -224,7 +229,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getByteOperationsRequirements()),
     requirements: () => getByteOperationsRequirements(),
-    cost: () => [credits(8), data(2)],
+    cost: () => [credits(8)],
   },
   {
     id: "cacheMapping",
@@ -234,7 +239,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getCacheMappingRequirements()),
     requirements: () => getCacheMappingRequirements(),
-    cost: () => [credits(6), data(4)],
+    cost: () => [credits(6), data(2)],
   },
   {
     id: "benchmarkHarness",
@@ -244,7 +249,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: hasDecodeLogic,
     requirement: (state) => requirementsMet(state, getBenchmarkHarnessRequirements()),
     requirements: () => getBenchmarkHarnessRequirements(),
-    cost: () => [credits(42), data(4)],
+    cost: () => [credits(28), data(1)],
   },
   {
     id: "multiCore",
@@ -255,7 +260,9 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: (state) => requirementsMet(state, getMultiCoreRequirements()),
     requirements: () => getMultiCoreRequirements(),
     computeTaskIds: ["microBenchmark", "parallelismBenchmark"],
-    cost: () => [credits(96), data(8)],
+    // Early credit costs are tuned to a Jobs-only opening: the retired
+    // Bootstrap Benchmark project no longer subsidizes this ladder.
+    cost: () => [credits(56), data(6)],
   },
   {
     id: "localScheduler",
@@ -265,7 +272,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "multiCore"),
     requirement: (state) => requirementsMet(state, getLocalSchedulerRequirements()),
     requirements: () => getLocalSchedulerRequirements(),
-    cost: () => [credits(140), data(10)],
+    cost: () => [credits(80), data(6)],
   },
   {
     id: "schedulerWatchdog",
@@ -280,13 +287,12 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "clickRateTuning",
     name: "Click Rate Tuning",
-    description: "Improves manual hold dispatch speed.",
+    description: "Legacy save marker; hold-repeat is an accessibility default.",
     grants: [],
-    reveal: (state) =>
-      hasResearch(state, "localScheduler") || hasResearch(state, "clickRateTuning"),
-    requirement: (state) => requirementsMet(state, getClickRateTuningRequirements()),
-    requirements: () => getClickRateTuningRequirements(),
-    cost: getClickRateResearchCost,
+    reveal: () => false,
+    requirement: () => false,
+    requirements: () => [],
+    cost: () => [],
   },
   {
     id: "schedulerPolicies",
@@ -306,7 +312,19 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getSystemSchedulerRequirements()),
     requirements: () => getSystemSchedulerRequirements(),
-    cost: () => [credits(320), data(16)],
+    cost: () => [credits(320), data(8)],
+  },
+  {
+    id: "psuManagement",
+    name: "PSU Management",
+    description:
+      "Ends the onboarding power subsidy and enables metered billing and PSU failure controls.",
+    grants: ["psuManagement"],
+    reveal: (state) => hasCompleted(state, "powerTelemetry"),
+    requirement: (state) =>
+      requirementsMet(state, getPsuManagementRequirements()),
+    requirements: () => getPsuManagementRequirements(),
+    cost: () => [credits(300), data(2)],
   },
   {
     id: "bootloader",
@@ -327,7 +345,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getRamControlRequirements()),
     requirements: () => getRamControlRequirements(),
-    cost: () => [credits(260), data(18)],
+    cost: () => [credits(260), data(3)],
   },
   {
     id: "systemBus",
@@ -338,7 +356,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: (state) => requirementsMet(state, getSystemBusRequirements()),
     requirements: () => getSystemBusRequirements(),
     computeTaskIds: ["multiCoreBenchmark"],
-    cost: () => [credits(520), data(24)],
+    cost: () => [credits(520), data(10)],
   },
   {
     id: "dualChannelRam",
@@ -381,7 +399,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
     requirements: () => getSecondCpuInstalledRequirements(),
-    cost: () => [credits(360), data(28)],
+    cost: () => [credits(360), data(10)],
   },
   {
     id: systemCatalogResearchId,
@@ -391,7 +409,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "systemBus") || state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSystemCatalogRequirements()),
     requirements: () => getSystemCatalogRequirements(),
-    cost: () => [credits(680), data(36)],
+    cost: () => [credits(680), data(18)],
   },
   {
     id: customMachineAssemblyResearchId,
@@ -403,6 +421,84 @@ export const researchDefinitions: ResearchDefinition[] = [
       requirementsMet(state, getCustomMachineAssemblyRequirements()),
     requirements: () => getCustomMachineAssemblyRequirements(),
     cost: () => [credits(980), data(54)],
+  },
+  {
+    id: "thermalControl",
+    name: "Thermal Control",
+    description: "Adds cooling installation and overclock presets.",
+    grants: ["cooling"],
+    reveal: (state) => hasCompleted(state, "thermalProbe"),
+    requirement: (state) =>
+      requirementsMet(state, getThermalControlRequirements()),
+    requirements: () => getThermalControlRequirements(),
+    cost: () => [credits(5_000), data(24)],
+  },
+  {
+    id: "specializedCompute",
+    name: "Specialized Compute",
+    description: "Adds GPU and NPU expansion devices and routed workloads.",
+    grants: ["specializedCompute"],
+    reveal: (state) => hasResearch(state, "thermalControl"),
+    requirement: (state) =>
+      requirementsMet(state, getSpecializedComputeRequirements()),
+    requirements: () => getSpecializedComputeRequirements(),
+    cost: () => [credits(25_000), data(40)],
+  },
+  {
+    id: "clusterControllerResearch",
+    name: "Cluster Control",
+    description:
+      "Unlocks purchase of the 48-hour Cluster Controller Automation Buffer.",
+    grants: [],
+    reveal: (state) =>
+      getCampaignChapterIndex(state.campaign.currentChapterId) >=
+      getCampaignChapterIndex("localFabric"),
+    requirement: (state) =>
+      requirementsMet(state, getClusterControllerResearchRequirements()),
+    requirements: () => getClusterControllerResearchRequirements(),
+    cost: () => [credits(250_000), data(100)],
+  },
+  {
+    id: "rackControllerResearch",
+    name: "Rack Operations",
+    description:
+      "Unlocks purchase of the 72-hour Rack Controller Automation Buffer.",
+    grants: [],
+    reveal: (state) =>
+      getCampaignChapterIndex(state.campaign.currentChapterId) >=
+      getCampaignChapterIndex("rackAndFacility"),
+    requirement: (state) =>
+      requirementsMet(state, getRackControllerResearchRequirements()),
+    requirements: () => getRackControllerResearchRequirements(),
+    cost: () => [credits(750_000), data(400)],
+  },
+  {
+    id: "dataCenterNocResearch",
+    name: "Data Center Operations",
+    description:
+      "Unlocks purchase of the 120-hour Data Center NOC Automation Buffer.",
+    grants: [],
+    reveal: (state) =>
+      getCampaignChapterIndex(state.campaign.currentChapterId) >=
+      getCampaignChapterIndex("resilientCloud"),
+    requirement: (state) =>
+      requirementsMet(state, getDataCenterNocResearchRequirements()),
+    requirements: () => getDataCenterNocResearchRequirements(),
+    cost: () => [credits(1_500_000), data(1_500)],
+  },
+  {
+    id: "globalSchedulerResearch",
+    name: "Global Scheduling",
+    description:
+      "Unlocks purchase of the seven-day Global Scheduler Automation Buffer.",
+    grants: [],
+    reveal: (state) =>
+      getCampaignChapterIndex(state.campaign.currentChapterId) >=
+      getCampaignChapterIndex("planetaryCommons"),
+    requirement: (state) =>
+      requirementsMet(state, getGlobalSchedulerResearchRequirements()),
+    requirements: () => getGlobalSchedulerResearchRequirements(),
+    cost: () => [credits(10_000_000), data(100_000)],
   },
   {
     id: "cpuTierKhz",
@@ -436,28 +532,6 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: (state) => cpuTierResearchMet(state, "ghz"),
     requirements: () => cpuTierResearchRequirement("ghz"),
     cost: () => [credits(getCpuTierResearchCost("ghz"))],
-  },
-  {
-    id: "cpuTierThz",
-    name: "THz CPU Research",
-    description: "Unlocks THz CPU and RAM tiers.",
-    grants: [],
-    reveal: (state) =>
-      hasCpuTierUnlocked(state, "thz") || hasPreviousCpuTierResearch(state, "thz"),
-    requirement: (state) => cpuTierResearchMet(state, "thz"),
-    requirements: () => cpuTierResearchRequirement("thz"),
-    cost: () => [credits(getCpuTierResearchCost("thz"))],
-  },
-  {
-    id: "cpuTierPhz",
-    name: "PHz CPU Research",
-    description: "Unlocks PHz CPU and RAM tiers.",
-    grants: [],
-    reveal: (state) =>
-      hasCpuTierUnlocked(state, "phz") || hasPreviousCpuTierResearch(state, "phz"),
-    requirement: (state) => cpuTierResearchMet(state, "phz"),
-    requirements: () => cpuTierResearchRequirement("phz"),
-    cost: () => [credits(getCpuTierResearchCost("phz"))],
   },
   {
     id: "cStateControl",
@@ -561,12 +635,6 @@ function getSchedulerWatchdogRequirements() {
   ];
 }
 
-function getClickRateTuningRequirements() {
-  return [
-    researchRequirement("localScheduler", "Complete Local Scheduler research"),
-  ];
-}
-
 function getSchedulerPolicyRequirements() {
   return [
     researchRequirement("schedulerWatchdog", "Complete Scheduler Watchdog research"),
@@ -650,6 +718,13 @@ function getSystemCatalogRequirements() {
   ];
 }
 
+function getPsuManagementRequirements() {
+  return [
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
+    taskRequirement("powerTelemetry", "Complete Power Telemetry"),
+  ];
+}
+
 function getCustomMachineAssemblyRequirements() {
   return [
     researchRequirement(systemCatalogResearchId, "Complete System Catalog research"),
@@ -658,6 +733,64 @@ function getCustomMachineAssemblyRequirements() {
       "Own 2 systems or complete Compile Code",
       "hardware",
       (state) => (state.systems?.length ?? 1) >= 2 || hasCompleted(state, compileCodeTaskId),
+    ),
+  ];
+}
+
+function getThermalControlRequirements() {
+  return [
+    researchRequirement(
+      systemCatalogResearchId,
+      "Complete System Catalog research",
+    ),
+    taskRequirement("thermalProbe", "Complete Thermal Probe"),
+    hardwareRequirement(
+      "observed-workshop-heat",
+      "Observe warm or hotter sustained load",
+      hasObservedHeat,
+    ),
+  ];
+}
+
+function getSpecializedComputeRequirements() {
+  return [
+    researchRequirement("thermalControl", "Complete Thermal Control research"),
+  ];
+}
+
+function getClusterControllerResearchRequirements() {
+  return [
+    campaignRequirement("localFabric", "Reach Local Fabric"),
+    researchRequirement("systemCatalog", "Complete System Catalog research"),
+  ];
+}
+
+function getRackControllerResearchRequirements() {
+  return [
+    campaignRequirement("rackAndFacility", "Reach Rack and Facility"),
+    researchRequirement(
+      "clusterControllerResearch",
+      "Complete Cluster Control research",
+    ),
+  ];
+}
+
+function getDataCenterNocResearchRequirements() {
+  return [
+    campaignRequirement("resilientCloud", "Reach Resilient Cloud"),
+    researchRequirement(
+      "rackControllerResearch",
+      "Complete Rack Operations research",
+    ),
+  ];
+}
+
+function getGlobalSchedulerResearchRequirements() {
+  return [
+    campaignRequirement("planetaryCommons", "Reach Planetary Commons"),
+    researchRequirement(
+      "dataCenterNocResearch",
+      "Complete Data Center Operations research",
     ),
   ];
 }

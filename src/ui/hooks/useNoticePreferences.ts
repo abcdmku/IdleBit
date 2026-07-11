@@ -102,6 +102,11 @@ export function useNoticePreferences({
     void persistUiPreference(CREDIT_FAILURE_MODAL_SEEN_KEY, true);
   }, []);
 
+  const resetNoticePreferences = useCallback(async () => {
+    applySnapshot(defaultNoticePreferences);
+    await resetNoticePreferenceStorage();
+  }, [applySnapshot]);
+
   return {
     ready,
     deadlockHelpSeen,
@@ -114,5 +119,6 @@ export function useNoticePreferences({
     dismissPsuFailureHelp,
     dismissPsuFailureModal,
     dismissCreditFailurePopup,
+    resetNoticePreferences,
   };
 }

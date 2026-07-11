@@ -396,7 +396,7 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(container.querySelector(".scheduler-slot")).toBeNull();
     expect(grid).toBeNull();
     expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(0);
-    expect(container.querySelector(".queue-empty")?.textContent).toBe("3 slots open");
+    expect(container.querySelector(".queue-empty")?.textContent).toBe("3 open");
   });
 
   it("renders deadlocked hardware red with the first-time help caption", () => {

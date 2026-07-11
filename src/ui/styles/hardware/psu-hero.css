@@ -1,17 +1,17 @@
-/* ---------- Hero: draw/capacity + billing ---------- */
+/* ---------- Hero: draw/capacity fraction + load meter + cr/s cost ---------- */
 
 .psu-hero {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  gap: var(--s-3);
   min-width: 0;
-  padding: 6px 9px;
-  border: 1px solid rgba(120, 220, 200, 0.10);
-  border-radius: var(--radius-sm);
-  background: rgba(4, 8, 7, 0.32);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.psu-hero .psu-load-meter {
+  flex: 1 1 auto;
+  min-width: 42px;
 }
 
 .psu-hero-stat {
@@ -35,15 +35,15 @@
 .psu-hero-capacity {
   display: inline-flex;
   align-items: baseline;
-  color: var(--muted);
-  font-size: 0.74rem;
+  color: var(--text-caption);
+  font-size: var(--fs-caption);
   font-weight: 500;
   letter-spacing: 0.01em;
 }
 
 .psu-hero-divider {
   color: var(--muted-2);
-  margin: 0 5px;
+  margin: 0 var(--s-2);
   font-weight: 500;
 }
 
@@ -61,11 +61,11 @@
 }
 
 .psu-hero-cost-unit {
-  color: var(--muted);
-  font-size: 0.6rem;
+  color: var(--text-caption);
+  font-size: var(--fs-caption);
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+  text-transform: none;
 }
 
 .psu-section.warn .psu-hero-draw { color: var(--amber); }
@@ -73,3 +73,15 @@
 .psu-section.power-off .psu-hero-draw,
 .psu-section.power-off .psu-hero-cost { color: var(--muted); }
 .psu-section.power-off .psu-hero { opacity: 0.65; }
+
+/* ---------- PSU stat tiles (DRAW / COST) ----------
+   Tone recolors values only — geometry never moves on state changes. */
+
+.psu-section > .stat-tile-row { align-items: start; }
+
+.psu-section .stat-tile.is-amber .stat-tile-value { color: var(--amber); }
+.psu-section.warn .stat-tile:first-child .stat-tile-value { color: var(--amber); }
+.psu-section.critical .stat-tile:first-child .stat-tile-value { color: var(--rose); }
+
+.psu-section.power-off .stat-tile .stat-tile-value { color: var(--muted); }
+.psu-section.power-off > .stat-tile-row { opacity: 0.65; }

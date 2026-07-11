@@ -108,7 +108,7 @@ export const RackWithSelectedSystem: Story = {
       <SystemRack>
         <div className="system-rack-header">
           <span className="system-rack-title">
-            Systems
+            Fleet
             <small>{rackReadyVisible.systems.length} online</small>
           </span>
         </div>

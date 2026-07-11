@@ -16,20 +16,26 @@
   display: inline-flex;
   gap: var(--s-1);
   align-items: center;
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  letter-spacing: var(--tracking-wide);
+  color: var(--text-caption);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--tracking-tight);
   text-transform: uppercase;
   font-weight: 700;
 }
 
 .status-tile strong {
-  color: var(--text);
-  font-size: var(--fs-md);
-  font-weight: 800;
+  color: var(--text-value);
+  font-size: var(--fs-value);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .status-tile.good     { border-color: rgba(115, 240, 92, 0.32); }
 .status-tile.warn     { border-color: rgba(242, 194, 78, 0.5); }
 .status-tile.critical { border-color: rgba(255, 111, 145, 0.55); }
+
+/* Thermal STRESS stat tile: tone shifts color only — geometry stays fixed. */
+.thermal-section.warn .stat-tile { --stat-accent: var(--amber); }
+.thermal-section.warn .stat-tile .stat-tile-value { color: var(--amber); }
+.thermal-section.critical .stat-tile { --stat-accent: var(--rose); }
+.thermal-section.critical .stat-tile .stat-tile-value { color: var(--rose); }

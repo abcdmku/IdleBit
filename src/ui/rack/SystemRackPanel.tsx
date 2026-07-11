@@ -1,8 +1,8 @@
-import { useRef, type TouchEvent } from "react";
 import { Server, Store } from "lucide-react";
 import type { VisibleState } from "../../game";
 import { SystemRack } from "../MotherboardLayout";
 import {
+  getSelectedSystemComponent,
   scopeSelectionToSystem,
   type SelectedComponent,
 } from "../workbenchData";
@@ -15,8 +15,6 @@ import type {
   RackQueueDisplayItem,
   UiRackData,
 } from "./types";
-
-const RACK_DOUBLE_TAP_MS = 360;
 
 interface SystemRackPanelProps {
   rack: UiRackData;
@@ -38,19 +36,29 @@ export function SystemRackPanel({
   activeSystemId,
   onOpenSystem,
   onOpenBuilder,
-  selection: _selection,
+  selection,
   onSelectComponent,
   dispatch,
   getComponentWarnings,
   getSystemQueueDisplayItems,
 }: SystemRackPanelProps) {
-  const lastTapRef = useRef<{ systemId: string; time: number } | null>(null);
   const builderUnlocked =
     rack.presets.length > 0 || getBuilderGroups(rack.customBuilder).length > 0;
 
   const selectSystemScheduler = (systemId: string) => {
     dispatch({ type: "selectSystem", systemId });
     onSelectComponent(scopeSelectionToSystem(systemId, "scheduler"));
+  };
+
+  const openSystemDetail = (systemId: string) => {
+    dispatch({ type: "selectSystem", systemId });
+    onSelectComponent(
+      scopeSelectionToSystem(
+        systemId,
+        getSelectedSystemComponent(selection) ?? "core:1",
+      ),
+    );
+    onOpenSystem(systemId);
   };
 
   const toggleRackPower = (systemId: string, status: string) => {
@@ -63,26 +71,6 @@ export function SystemRackPanel({
       systemId,
     });
 
-    if (systemId !== activeSystemId) {
-      dispatch({ type: "selectSystem", systemId: activeSystemId });
-    }
-  };
-
-  const handleRackTouchEnd = (
-    event: TouchEvent<HTMLButtonElement>,
-    systemId: string,
-  ) => {
-    const now = event.timeStamp;
-    const lastTap = lastTapRef.current;
-    lastTapRef.current = { systemId, time: now };
-
-    if (
-      lastTap?.systemId === systemId &&
-      now - lastTap.time <= RACK_DOUBLE_TAP_MS
-    ) {
-      onOpenSystem(systemId);
-      lastTapRef.current = null;
-    }
   };
 
   return (
@@ -90,9 +78,9 @@ export function SystemRackPanel({
       <div className="system-rack-header">
         <span className="system-rack-title">
           <Server size={15} />
-          <span>Rack</span>
+          <span>Fleet</span>
           <small>
-            {rack.systems.length} unit{rack.systems.length === 1 ? "" : "s"}
+            {rack.systems.length} system{rack.systems.length === 1 ? "" : "s"}
           </small>
         </span>
         {builderUnlocked && (
@@ -100,10 +88,11 @@ export function SystemRackPanel({
             type="button"
             className="rack-build-new"
             onClick={onOpenBuilder}
-            title="Open the system store"
+            title="Build or buy a fleet system"
+            aria-label="Build or buy a fleet system"
           >
             <Store size={13} />
-            <span>Store</span>
+            <span>Build</span>
           </button>
         )}
       </div>
@@ -116,9 +105,8 @@ export function SystemRackPanel({
             index={index}
             selected={system.id === activeSystemId}
             onTogglePower={() => toggleRackPower(system.id, system.status)}
-            onOpenDetail={() => onOpenSystem(system.id)}
+            onOpenDetail={() => openSystemDetail(system.id)}
             onSelectScheduler={() => selectSystemScheduler(system.id)}
-            onTouchEnd={(event) => handleRackTouchEnd(event, system.id)}
             getComponentWarnings={getComponentWarnings}
             getSystemQueueDisplayItems={getSystemQueueDisplayItems}
           />

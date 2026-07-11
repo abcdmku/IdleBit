@@ -3,12 +3,14 @@ import { Cpu, HardDrive, LayoutGrid, ListTodo, Rows3 } from "lucide-react";
 import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatBits, formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
+import { SmoothFill } from "../SmoothProgress";
 import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCacheStateBits, toCacheSegment } from "./cacheData";
+import { formatClockTick, formatFraction } from "./display";
 import { getCoreGridMetrics } from "./coreGrid";
-import { getCoreSegmentColor, getProgressStyle } from "./meters";
+import { getCoreSegmentColor } from "./meters";
 import { getQueueDisplayItems } from "./queueData";
 import type { UiQueueDisplayItem } from "./visibleState";
 
@@ -53,12 +55,12 @@ function CpuSummaryCard({
   const queueCapacity = Math.max(socket.schedulerSlots ?? 0, 0);
   const queueCount = socket.queuedCount ?? 0;
   const queueItems = schedulerVisible ? getQueueDisplayItems(visible, socket) : [];
-  const compactSlotCount = Math.min(
-    Math.max(queueItems.length, queueCapacity),
-    16,
-  );
-  const hiddenQueueCount = Math.max(0, queueItems.length - compactSlotCount);
-  const summaryQueueColumns = getCompactSchedulerColumnCount(compactSlotCount);
+  const filledQueueItems = queueItems.slice(0, 16);
+  const hiddenQueueCount = Math.max(0, queueItems.length - filledQueueItems.length);
+  const openQueueCount = Math.max(0, queueCapacity - queueItems.length);
+  const renderedSlotCount =
+    filledQueueItems.length + (openQueueCount > 0 ? 1 : 0);
+  const summaryQueueColumns = getCompactSchedulerColumnCount(renderedSlotCount);
   const deadlocked = socket.deadlocked;
   const efficiencyLabel = formatNumber(socket.efficiency);
   const coreGrid = getCoreGridMetrics(totalCores);
@@ -119,9 +121,8 @@ function CpuSummaryCard({
       {schedulerVisible && (
         <div className="cpu-summary-scheduler" aria-label="Scheduler queue">
           <div className="cpu-summary-scheduler-head">
-            <span className="cpu-summary-scheduler-label">
+            <span className="cpu-summary-scheduler-label" title="Scheduler queue">
               <ListTodo size={9} />
-              <span>Sched</span>
               <strong>
                 {queueCount}
                 {queueCapacity > 0 ? `/${queueCapacity}` : ""}
@@ -133,9 +134,9 @@ function CpuSummaryCard({
               </span>
             )}
           </div>
-          {compactSlotCount > 0 ? (
+          {renderedSlotCount > 0 ? (
             <ul
-              className={`cpu-summary-queue slots-${compactSlotCount}`}
+              className={`cpu-summary-queue slots-${renderedSlotCount}`}
               style={
                 summaryQueueColumns
                   ? ({
@@ -144,25 +145,7 @@ function CpuSummaryCard({
                   : undefined
               }
             >
-              {Array.from({ length: compactSlotCount }, (_, index) => {
-                const item = queueItems[index];
-                if (!item) {
-                  return (
-                    <li
-                      key={`open-${socket.id}-${index}`}
-                      className="cpu-summary-queue-slot empty"
-                      title={`Slot ${index + 1}: open`}
-                    >
-                      <span className="cpu-summary-queue-index">
-                        {index + 1}
-                      </span>
-                      <span className="cpu-summary-queue-state" title="Open">
-                        Open
-                      </span>
-                    </li>
-                  );
-                }
-
+              {filledQueueItems.map((item, index) => {
                 const state = getCompactSchedulerItemState(item);
                 return (
                   <li
@@ -181,6 +164,19 @@ function CpuSummaryCard({
                   </li>
                 );
               })}
+              {openQueueCount > 0 && (
+                <li
+                  key={`open-${socket.id}`}
+                  className="cpu-summary-queue-slot empty cpu-summary-queue-open"
+                  title={`${openQueueCount} open slot${
+                    openQueueCount === 1 ? "" : "s"
+                  }`}
+                >
+                  <span className="cpu-summary-queue-state">
+                    {openQueueCount} open
+                  </span>
+                </li>
+              )}
             </ul>
           ) : (
             <span className="cpu-summary-queue-empty">No queue</span>
@@ -228,11 +224,11 @@ function CpuSummaryCard({
               <span className="core-die-head">
                 <span className="core-label cpu-summary-core-tag">{coreLabel}</span>
                 <span className="core-clock cpu-summary-core-clock">
-                  <strong>{formatClock(core.clockHz)}</strong>
+                  <strong>{formatClockTick(core.clockHz)}</strong>
                 </span>
               </span>
-              <span className="die-progress" aria-hidden="true">
-                <span className="progress-fill" style={getProgressStyle(progress)} />
+              <span className="smooth-progress die-progress" aria-hidden="true">
+                <SmoothFill value={progress} />
               </span>
             </button>
           );
@@ -243,11 +239,10 @@ function CpuSummaryCard({
         className={`cpu-summary-cache ${cacheDeadlocked ? "deadlocked" : ""}`}
         aria-label="Cache"
       >
-        <span className="cpu-summary-cache-label">
+        <span className="cpu-summary-cache-label" title="Cache used / capacity">
           <HardDrive size={9} />
-          <span>Cache</span>
           <strong>
-            {formatBits(cacheUsed)}/{formatBits(cacheCapacity)}
+            {formatFraction(formatBits(cacheUsed), formatBits(cacheCapacity))}
           </strong>
         </span>
         <span className="cpu-summary-cache-bar" aria-hidden="true">
@@ -377,20 +372,20 @@ export function CpuBank({
             className={`cpu-bank-toggle-btn ${view === "array" ? "active" : ""}`}
             onClick={() => onChangeView("array")}
             aria-pressed={view === "array"}
+            aria-label="Array view"
             title="Array view"
           >
             <LayoutGrid size={12} />
-            <span>Array</span>
           </button>
           <button
             type="button"
             className={`cpu-bank-toggle-btn ${view === "tabs" ? "active" : ""}`}
             onClick={() => onChangeView("tabs")}
             aria-pressed={view === "tabs"}
+            aria-label="Tabbed view"
             title="Tabbed view"
           >
             <Rows3 size={12} />
-            <span>Tabs</span>
           </button>
         </div>
       </header>

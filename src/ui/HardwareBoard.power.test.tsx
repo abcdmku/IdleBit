@@ -90,23 +90,94 @@ describe("HardwareBoard power telemetry", () => {
     expect(psuSection?.textContent).toContain("PSU");
     expect(psuSection?.textContent).toContain("Boot");
     expect(psuSection?.textContent).toContain("Kill");
-    expect(psuSection?.textContent).toContain("420 uW");
-    expect(psuSection?.textContent).toContain(formatWatts(capacityWatts));
+    // Draw / capacity fraction prints the shared watt unit once; the DRAW
+    // stat tile keeps the full wording in its tooltip/aria-label.
+    expect(psuSection?.textContent).toContain("420");
+    expect(psuSection?.textContent).not.toContain("420 uW");
+    const drawTile = psuSection?.querySelector('.stat-tile[title^="Power draw"]');
+    expect(drawTile).not.toBeNull();
+    expect(drawTile?.getAttribute("title")).toContain(formatWatts(capacityWatts));
+    expect(drawTile?.querySelector(".stat-tile-meter")).not.toBeNull();
     expect(psuSection?.textContent).not.toContain("grace");
     expect(psuSection?.textContent).not.toContain("stress");
     expect(psuSection?.textContent).not.toContain("headroom");
     expect(psuSection?.textContent).not.toContain("efficiency");
     expect(psuSection?.textContent).toContain("cr/s");
-    expect(psuSection?.textContent).toContain("PSU Capacity");
+    expect(psuSection?.textContent).toContain("Capacity");
+    expect(psuSection?.textContent).not.toContain("PSU Capacity");
     expect(psuSection?.textContent).not.toContain("Research PSU Management");
     expect(psuSection?.querySelector(".resource-token.data")).toBeNull();
     const buttons = Array.from(
       psuSection?.querySelectorAll<HTMLButtonElement>(".power-control-buttons button") ?? [],
     );
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(3);
     expect(psuSection?.querySelector(".power-state-chip")).toBeNull();
     expect(buttons[0]?.disabled).toBe(true);
     expect(buttons[1]?.disabled).toBe(false);
+  });
+
+  it("toggles the compact idle power policy without changing its control shape", () => {
+    const dispatch = vi.fn();
+    const initial = deriveVisibleState(createInitialGameState());
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={initial}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const control = container.querySelector<HTMLButtonElement>(
+      ".idle-power-policy-control",
+    )!;
+    expect(control.textContent).toBe("Idle:low");
+    expect(control.getAttribute("aria-pressed")).toBe("false");
+    expect(control.getAttribute("aria-label")).toContain("low power");
+
+    act(() => control.click());
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setIdlePowerPolicy",
+      policy: "shutdown-when-idle",
+    });
+
+    const idleOff = {
+      ...initial,
+      metrics: {
+        ...initial.metrics,
+        idlePowerPolicy: "shutdown-when-idle",
+      },
+    } as VisibleState;
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={idleOff}
+          dispatch={dispatch}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const updatedControl = container.querySelector<HTMLButtonElement>(
+      ".idle-power-policy-control",
+    )!;
+    expect(updatedControl).toBe(control);
+    expect(updatedControl.textContent).toBe("Idle:off");
+    expect(updatedControl.getAttribute("aria-pressed")).toBe("true");
+    expect(updatedControl.getAttribute("aria-label")).toContain(
+      "shutdown when idle",
+    );
+
+    act(() => updatedControl.click());
+    expect(dispatch).toHaveBeenLastCalledWith({
+      type: "setIdlePowerPolicy",
+      policy: "low-power",
+    });
   });
 
   it("shows overload failure pressure only when the PSU is over capacity", () => {
@@ -133,6 +204,16 @@ describe("HardwareBoard power telemetry", () => {
     act(() => {
       root.render(
         <HardwareBoard
+          visible={initial}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+    act(() => {
+      root.render(
+        <HardwareBoard
           visible={visible}
           dispatch={() => undefined}
           selectedComponent={null}
@@ -148,6 +229,10 @@ describe("HardwareBoard power telemetry", () => {
     expect(psuSection?.className).toContain("overloaded");
     expect(headerWarning).not.toBeNull();
     expect(headerWarning?.className).toContain("flashing");
+    // The DRAW stat tile shifts to the rose accent while overloaded.
+    const drawTile = psuSection?.querySelector('.stat-tile[title^="Power draw"]');
+    expect(drawTile?.className).toContain("is-rose");
+    expect(drawTile?.querySelector(".stat-tile-meter")).not.toBeNull();
     expect(psuSection?.querySelector(".psu-overload-row")).toBeNull();
     expect(psuSection?.textContent).not.toContain("headroom");
     expect(psuSection?.textContent).not.toContain("efficiency");
@@ -182,8 +267,8 @@ describe("HardwareBoard power telemetry", () => {
     const headerWarning = psuSection?.querySelector(".psu-header-warning");
 
     expect(psuSection?.textContent).toContain("7s to cutoff");
-    expect(psuSection?.textContent).toContain("credits");
-    expect(psuSection?.querySelector(".psu-meta-credit-warning")).not.toBeNull();
+    // The header warning is the single home for the credit countdown.
+    expect(psuSection?.querySelector(".psu-meta-credit-warning")).toBeNull();
     expect(headerWarning).not.toBeNull();
     expect(headerWarning?.className).toContain("flashing");
   });

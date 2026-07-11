@@ -1,0 +1,84 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Balance tooling tests
+        run: npm run test:balance
+
+      - name: Generate balance evidence
+        run: npm run balance:csv
+
+      - name: Verify generated balance evidence is current
+        run: test -z "$(git status --porcelain --untracked-files=all -- docs/balance/generated)"
+
+      - name: Strict typecheck
+        run: npm run typecheck
+
+      - name: Build web and Electron
+        run: npm run build
+
+      - name: Build Storybook
+        run: npm run storybook:build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser flows, responsive layouts, and accessibility
+        run: npm run test:e2e
+
+      - name: Electron launch, persistence bridge, and close handshake
+        run: xvfb-run -a npm run test:e2e:electron
+
+      - name: Package Electron directory
+        run: npm run electron:package -- --linux
+
+  package-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Electron persistence
+        run: npm exec vitest run electron/persistenceStore.test.ts
+
+      - name: Package Windows Electron directory
+        run: npm run electron:package -- --win

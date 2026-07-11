@@ -1,6 +1,302 @@
+import type { Amount, ExactCost, ExactResourceBag } from "./amount";
+import type {
+  ClusterWorkloadDefinitionId,
+  InfrastructureState,
+  NetworkSkuId,
+  ReplicaFaultDomain,
+  ServerSkuId,
+  StorageSkuId,
+  VisibleInfrastructureState,
+} from "./infrastructureTypes";
+import type { Xoshiro128State } from "./rng";
+import type {
+  FacilityTemplateId,
+  RackTemplateId,
+} from "./facilityDefinitions";
+import type {
+  CloudSlaDefinitionId,
+  CloudState,
+} from "./cloudTypes";
+import type { VisibleCloudState } from "./cloudSelectors";
+import type { RoutingEdge } from "./routing";
+import type {
+  AcceleratorKind,
+  AcceleratorSkuId,
+  AcceleratorWorkloadClass,
+} from "./content/accelerators";
+import type {
+  OverclockPresetId,
+  WorkshopCoolingTierId,
+} from "./content/cooling";
+import type { InstalledAccelerator } from "./accelerators";
+import type { ThermalState, ThermalStatus } from "./thermal";
+import type { CapacityWorkRuntime } from "./capacityWork";
+import type { WorkValueMultiplier } from "./workValue";
+
 export type ResourceId = "credits" | "data";
 
-export type CpuTierId = "hz" | "khz" | "mhz" | "ghz" | "thz" | "phz";
+export type CampaignChapterId =
+  | "bootstrapNode"
+  | "coherentMachine"
+  | "workshopFleet"
+  | "localFabric"
+  | "rackAndFacility"
+  | "resilientCloud"
+  | "planetaryCommons";
+
+export type SideArcId = "archivist" | "openFoundry" | "gridRelief";
+export type FinaleCharterId = "resilience" | "efficiency" | "openCompute";
+export type ContractKind = "sustained" | "burst";
+export type ContractTemplateId =
+  | "ledgerAudit"
+  | "compileBatch"
+  | "gridForecast"
+  | "renderBurst"
+  | "queueRecovery"
+  | "replicaSurvey";
+export type ProjectId =
+  | "schedulerIntegration"
+  | "archivist"
+  | "openFoundry"
+  | "gridRelief";
+
+export interface CampaignObjectiveDefinition {
+  id: string;
+  chapterId: CampaignChapterId;
+  name: string;
+  description: string;
+  transmission: string;
+  requirement: (state: GameState) => boolean;
+  blockedReason: (state: GameState) => string | null;
+}
+
+export interface CampaignChapterDefinition {
+  id: CampaignChapterId;
+  index: number;
+  name: string;
+  description: string;
+  objectiveIds: string[];
+}
+
+export interface CampaignState {
+  currentChapterId: CampaignChapterId;
+  currentObjectiveId: string | null;
+  completedChapterIds: CampaignChapterId[];
+  completedObjectiveIds: string[];
+  unlockedTransmissionIds: string[];
+  sideArcsCompleted: SideArcId[];
+  finaleCharterId: FinaleCharterId | null;
+  postgameUnlocked: boolean;
+}
+
+export interface ContractOfferState {
+  id: string;
+  templateId: ContractTemplateId;
+  kind: ContractKind;
+  name: string;
+  description: string;
+  systemId: number;
+  /** Legacy/UI projection only; productive progress never consumes time units. */
+  workRequiredMs: number;
+  /** Legacy aggregate compatibility projection. */
+  workRequiredBits?: Amount;
+  workRecipe?: import("./hardwareWork").HardwareWorkRecipe;
+  /** Exact frozen work settled by this offer; defaults to the recipe total. */
+  paidWorkUnits?: Amount;
+  /** Named, frozen managed-offer premium applied to one Credit per work unit. */
+  workValueMultiplier?: WorkValueMultiplier;
+  /** @deprecated Legacy save field migrated into workValueMultiplier. */
+  workValueMultiplierBps?: number;
+  expiresAtMs: number;
+  rewards: ExactResourceBag;
+  novel: boolean;
+}
+
+export interface ActiveContractState extends ContractOfferState {
+  acceptedAtMs: number;
+  /** Legacy/UI completion projection derived from the hardware-work cursor. */
+  workCompletedMs: number;
+  workCompletedBits?: Amount;
+  /** Exact completed recipe units; one means the frozen hardware path ran once. */
+  workCompletedUnits?: Amount;
+  /** Authoritative ordered-path cursor. */
+  workStageIndex?: number;
+  /** Exact work consumed within the current recipe stage. */
+  workStageCompleted?: Amount;
+}
+
+export interface ContractMarketState {
+  elapsedMs: number;
+  offers: ContractOfferState[];
+  active: ActiveContractState[];
+  completedContractIds: string[];
+  completedTemplateIds: ContractTemplateId[];
+  completedRewards: Record<string, ExactResourceBag>;
+  declinedContractIds: string[];
+  nextContractId: number;
+  refreshCount: number;
+  nextRefreshAtMs: number;
+}
+
+export interface ProjectProgressState {
+  projectId: ProjectId;
+  phaseIndex: number;
+  /** Exact unit-rate work completed across the current ordered recipe. */
+  phaseWorkCompleted?: Amount;
+  phaseStageIndex?: number;
+  phaseStageWorkCompleted?: Amount;
+  /** Baseline-equivalent projection retained for save/UI compatibility. */
+  phaseProgressMs: number;
+  active: boolean;
+  completed: boolean;
+  systemId: number | null;
+}
+
+export interface ProjectsState {
+  progress: Partial<Record<ProjectId, ProjectProgressState>>;
+  completedProjectIds: ProjectId[];
+}
+
+export type AutomationBufferLevelId =
+  | "startingNode"
+  | "localScheduler"
+  | "cronRuntime"
+  | "systemScheduler"
+  | "fleetOrchestrator"
+  | "clusterController"
+  | "rackController"
+  | "dataCenterNoc"
+  | "globalScheduler";
+
+export type AdvanceMode = "foreground" | "offline";
+
+export interface AutomationBufferDefinition {
+  id: AutomationBufferLevelId;
+  name: string;
+  maxOfflineMs: number;
+  capability: string;
+  requiredChapter: CampaignChapterId;
+  requiredResearchId: ResearchId | null;
+  costs: ExactCost[];
+  renewsStandingOrders: boolean;
+}
+
+export interface AutomationBufferState {
+  ownedLevelId: AutomationBufferLevelId;
+  departureLevelId: AutomationBufferLevelId;
+  offlineProcessedMs: number;
+}
+
+export interface StandingOrderState {
+  taskId: TaskId | null;
+  systemId: number | null;
+  enabled: boolean;
+  renewalCount: number;
+}
+
+/** Serializable foreground-only idle-capacity lane. */
+export interface LiveOperationsState {
+  systemId: number | null;
+  maxCoreCount: number;
+  enabled: boolean;
+  activeTaskId: LiveOperationsTaskId;
+  runtime: CapacityWorkRuntime | null;
+  /** Transient physical allocation; save loading always clears it. */
+  allocatedCoreIds: number[];
+  completions: Partial<Record<LiveOperationsTaskId, number>>;
+  rewardCreditsEarned: Partial<Record<LiveOperationsTaskId, Amount>>;
+  dataEarned: Partial<Record<LiveOperationsTaskId, Amount>>;
+  workCyclesCompleted: Partial<Record<LiveOperationsTaskId, Amount>>;
+}
+
+export interface GameTimeState {
+  lastSavedAtMs: number | null;
+  departedAtMs: number | null;
+}
+
+export interface DestructiveEventCounts {
+  psuOverload: number;
+  unpaidBill: number;
+  deadlockWipe: number;
+}
+
+export interface AdvanceReport {
+  mode: AdvanceMode;
+  elapsedMs: number;
+  simulatedMs: number;
+  overflowMs: number;
+  productiveMs: number;
+  pausedMs: number;
+  bufferLevelId: AutomationBufferLevelId;
+  bufferCapacityMs: number;
+  standingOrderRenewals: number;
+  creditsEarned: Amount;
+  creditsSpent: Amount;
+  dataEarned: Amount;
+  dataSpent: Amount;
+  destructiveEvents: DestructiveEventCounts;
+  safelyAvoidedDestructiveEvents: DestructiveEventCounts;
+  completedWork: Partial<Record<TaskId, number>>;
+  completedClusterWork?: Partial<Record<ClusterWorkloadDefinitionId, number>>;
+  completedCloudSlas?: Partial<Record<CloudSlaDefinitionId, number>>;
+  completionEvents?: Array<{
+    source: "task" | "standing-order" | "live-operations";
+    instanceId: string;
+    workId: TaskId;
+    name: string;
+    completionCount: number;
+    workCycles: Amount;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  } | {
+    source: "cluster";
+    instanceId: string;
+    workId: ClusterWorkloadDefinitionId;
+    clusterId: string;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  } | {
+    source: "cloud";
+    instanceId: string;
+    workId: CloudSlaDefinitionId;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  } | {
+    source: "contract";
+    instanceId: string;
+    workId: ContractTemplateId;
+    name: string;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  } | {
+    source: "project";
+    instanceId: string;
+    workId: ProjectId;
+    phaseId: string;
+    name: string;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  } | {
+    source: "workshop-storage";
+    instanceId: string;
+    workId: WorkshopStorageWorkloadId;
+    name: string;
+    completionCount: number;
+    creditsEarned: Amount;
+    dataEarned: Amount;
+  }>;
+  blockers: string[];
+}
+
+export interface AdvanceResult {
+  state: GameState;
+  /** Report for this call only; balance/telemetry consumers must use this. */
+  intervalReport: AdvanceReport;
+  /** Departure-cumulative offline report used by the return-summary UI. */
+  report: AdvanceReport;
+}
+
+export type CpuTierId = "hz" | "khz" | "mhz" | "ghz";
 
 export type StageId =
   | "primitiveCpu"
@@ -8,7 +304,7 @@ export type StageId =
   | "multiCore"
   | "scheduler"
   | "systemReveal"
-  | "rack";
+  | "fleet";
 
 export type TaskId =
   | "fetchBit"
@@ -52,6 +348,9 @@ export type TaskId =
   | "reportBarrier"
   | "summarizeReport"
   | "writeReport"
+  | "loadInferenceModel"
+  | "runInferenceBatch"
+  | "writeInferenceResults"
   | "scatterShards"
   | "decodeShards"
   | "hashShards"
@@ -65,10 +364,18 @@ export type TaskId =
   | "shardReconcile"
   | "compileCode"
   | "renderFrame"
+  | "inferenceBatch"
   | "regressionTest"
   | "microBenchmark"
   | "parallelismBenchmark"
-  | "multiCoreBenchmark";
+  | "multiCoreBenchmark"
+  | "workstationBenchmark"
+  | "liveQueueTriage"
+  | "liveCanaryValidation";
+
+export type LiveOperationsTaskId =
+  | "liveQueueTriage"
+  | "liveCanaryValidation";
 
 export type JobId = TaskId;
 
@@ -93,11 +400,14 @@ export type ResearchId =
   | "customMachineAssembly"
   | "psuManagement"
   | "thermalControl"
+  | "specializedCompute"
+  | "clusterControllerResearch"
+  | "rackControllerResearch"
+  | "dataCenterNocResearch"
+  | "globalSchedulerResearch"
   | "cpuTierKhz"
   | "cpuTierMhz"
   | "cpuTierGhz"
-  | "cpuTierThz"
-  | "cpuTierPhz"
   | "cStateControl"
   | "dualChannelRam"
   | "quadChannelRam"
@@ -154,6 +464,7 @@ export type UnlockId =
   | "customMachineAssembly"
   | "psuManagement"
   | "cooling"
+  | "specializedCompute"
   | "cStateControl"
   | "dualChannelRam"
   | "quadChannelRam"
@@ -205,6 +516,10 @@ export type SchedulerKillPolicy =
 
 export type PowerStateId = "on" | "shuttingDown" | "off" | "booting";
 export type PowerFailureReason = "psuOverload" | "unpaidBill";
+export type IdlePowerPolicy = "low-power" | "shutdown-when-idle";
+
+/** Absent means player/CRON initiated work; only the engine can renew this origin. */
+export type WorkOrigin = "standing-order";
 
 export type CronIntervalMode = "seconds" | "minutes";
 
@@ -237,7 +552,11 @@ export interface ResourceBag {
   data: number;
 }
 
-export interface Cost {
+/** Legacy name retained as an alias; all authoritative costs are ExactCost. */
+export type Cost = ExactCost;
+
+/** Bounded projection of an exact economy cost for renderer-only math. */
+export interface VisibleCost {
   resource: ResourceId;
   amount: number;
 }
@@ -256,6 +575,11 @@ export interface TaskOperationDefinition {
   cacheBytes: number;
   ramBytes: number;
   parallel: boolean;
+  acceleratorClass?: AcceleratorWorkloadClass | null;
+  acceleratorModelMemoryBits?: number;
+  acceleratorBatchSize?: number;
+  acceleratorMinimumComputeOperationsPerSecond?: number;
+  acceleratorPreferredKind?: AcceleratorKind | null;
 }
 
 export type TaskSubtaskKind =
@@ -277,6 +601,7 @@ export interface TaskSubtaskDefinition {
   dependsOn: string[];
   operationIds: string[];
   operations: TaskOperationDefinition[];
+  /** Safe/clamped compatibility projection for selectors and bounded kernels. */
   operationCount: number;
   subtasks: TaskSubtaskDefinition[];
   cycles: number;
@@ -292,6 +617,13 @@ export interface TaskCompositionDefinition {
   mode: "single" | "perWorkUnit";
 }
 
+export interface AggregateTaskBatchDefinition {
+  /** Authored data/work volume: repeats the complete per-unit hardware recipe. */
+  workUnitMultiplier: number;
+  /** Hard v1 bound; aggregate work never creates one runtime event per unit. */
+  maximumMultiplier: number;
+}
+
 export interface TaskDefinition {
   id: TaskId;
   name: string;
@@ -302,23 +634,45 @@ export interface TaskDefinition {
   operations: TaskOperationDefinition[];
   subtasks: TaskSubtaskDefinition[];
   dagNodes: TaskSubtaskDefinition[];
+  /** Authored operation invocations; never includes cycles or transfer bits. */
   operationCount: number;
+  /** Exact authored invocation total; numeric operationCount is its safe projection. */
+  operationCountExact: Amount;
+  /** Runtime-aligned paid work; concurrent memory issue/cache transfer counts once. */
+  paidWorkUnits: number;
+  paidWorkUnitsExact: Amount;
+  /** Safe/clamped compatibility projection; rewardCreditsExact is authoritative. */
   rewardCredits: number;
+  rewardCreditsExact: Amount;
+  aggregateBatch: AggregateTaskBatchDefinition | null;
+  /** Safe/clamped compatibility projection; rewardDataExact is authoritative. */
   rewardData: number;
+  rewardDataExact: Amount;
+  firstCompletionData: number;
+  firstCompletionDataExact: Amount;
+  repeatRewardData: number;
+  repeatRewardDataExact: Amount;
   parallelizable: boolean;
   repeatable: boolean;
   coreScaling: TaskCoreScaling;
   workUnitCount: number;
   workUnitName: string;
+  /** Bounded physical-kernel projection. */
   workUnitOperationCount: number;
+  workUnitOperationCountExact: Amount;
+  /** Safe/clamped physical-kernel projection. */
   workUnitCycles: number;
+  workUnitCyclesExact: Amount;
   workUnitCacheNeedBits: number;
   workUnitRamNeedBits: number;
   minCores: number;
   maxCores?: number;
   reveal: (state: GameState) => boolean;
   requirement: (state: GameState) => boolean;
+  /** Safe/clamped compatibility projection; requiredCyclesExact is authoritative. */
   requiredCycles: number;
+  /** Authoritative logical work total for economy/save/runtime state. */
+  requiredCyclesExact: Amount;
   cacheNeedBits: number;
   ramNeedBits: number;
   cacheNeedBytes: number;
@@ -388,10 +742,10 @@ export interface ActiveCoreOperation {
   operationName: string | null;
   status: OperationRuntimeStatus;
   memoryState: MemoryRuntimeState;
-  remainingCycles: number;
-  totalCycles: number;
-  remainingLoadCycles: number;
-  totalLoadCycles: number;
+  remainingCycles: Amount;
+  totalCycles: Amount;
+  remainingLoadCycles: Amount;
+  totalLoadCycles: Amount;
   memoryReservedBits: number;
   memoryReservedBytes: number;
   ramBlocks: RamBlockAllocation[];
@@ -410,6 +764,7 @@ export interface ActiveTask {
   parentQueueEntryId?: string | null;
   parentTaskId?: TaskId | null;
   childTaskId?: TaskId | null;
+  workOrigin?: WorkOrigin;
   schedulerQueued: boolean;
   coreId: number;
   assignedCoreIds: number[];
@@ -418,8 +773,12 @@ export interface ActiveTask {
   workUnitsCompleted?: number;
   workUnitsPending?: number[];
   coreOperations: ActiveCoreOperation[];
-  remainingCycles: number;
-  totalCycles: number;
+  acceleratorKindsUsed?: AcceleratorKind[];
+  batchMultiplier?: number;
+  projectedRewardCredits?: Amount;
+  projectedWorkCycles?: Amount;
+  remainingCycles: Amount;
+  totalCycles: Amount;
 }
 
 export type ActiveJob = ActiveTask;
@@ -449,17 +808,23 @@ export interface TaskQueueEntry {
   parentQueueEntryId?: string | null;
   childTaskId?: TaskId | null;
   childTaskName?: string | null;
+  workOrigin?: WorkOrigin;
   compositionIndex?: number | null;
   compositionRepeatIndex?: number | null;
   workUnitIndex?: number | null;
   childWorkKey?: string | null;
   completedChildKeys?: string[];
+  acceleratorKindsUsed?: AcceleratorKind[];
+  batchMultiplier?: number;
+  projectedRewardCredits?: Amount;
+  projectedWorkCycles?: Amount;
   totalChildCount?: number;
   target: "cpu" | "system";
 }
 
 export interface PowerRuntimeState {
   state: PowerStateId;
+  idlePolicy: IdlePowerPolicy;
   transitionSeconds: number;
   transitionTotalSeconds?: number;
   bootstrapGraceSeconds: number;
@@ -547,11 +912,49 @@ export interface MachineTemplateDefinition {
   components: MachineComponentSelection;
 }
 
+export interface MachinePowerProjection {
+  idleWatts: number;
+  peakWatts: number;
+  psuCapacityWatts: number;
+  idlePsuLoad: number;
+  peakPsuLoad: number;
+  powerCostPerSecond: number;
+  safe: boolean;
+}
+
+export interface WorkshopSpecializationEvidence {
+  gpuRenderCompletions: number;
+  npuInferenceCompletions: number;
+}
+
+export type WorkshopStorageWorkloadId = "artifactStaging";
+
+export interface WorkshopStorageWorkloadState {
+  definitionId: WorkshopStorageWorkloadId;
+  runtime: CapacityWorkRuntime;
+  operatingCreditsSpent: Amount;
+}
+
+export interface WorkshopSystemState {
+  thermal: ThermalState;
+  highestObservedThermalStatus: ThermalStatus;
+  coolingTierId: WorkshopCoolingTierId;
+  overclockPresetId: OverclockPresetId;
+  expansionSlots: number;
+  accelerators: InstalledAccelerator[];
+  nextAcceleratorId: number;
+  storageSkuId: StorageSkuId;
+  activeStorageWorkload: WorkshopStorageWorkloadState | null;
+  completedStorageWorkloads: number;
+  evidence: WorkshopSpecializationEvidence;
+}
+
 export interface SystemState {
   id: number;
   name: string;
   templateId: string | null;
   hardware: HardwareState;
+  workshop: WorkshopSystemState;
   power: PowerRuntimeState;
   cron: CronRuntimeState;
   activeTasks: ActiveTask[];
@@ -585,6 +988,7 @@ export interface GameFlags {
   customMachineAssembly: boolean;
   psuManagement: boolean;
   cooling: boolean;
+  specializedCompute: boolean;
   cStateControl: boolean;
   dualChannelRam: boolean;
   quadChannelRam: boolean;
@@ -693,9 +1097,22 @@ export interface RamResidencySegment {
 }
 
 export interface GameState {
-  version: 6;
+  version: 7;
   tick: number;
+  advanceRemainderMs: number;
   nextInstanceId: number;
+  exactResources: ExactResourceBag;
+  rng: Xoshiro128State;
+  time: GameTimeState;
+  campaign: CampaignState;
+  contracts: ContractMarketState;
+  projects: ProjectsState;
+  infrastructure: InfrastructureState;
+  cloud: CloudState;
+  automationBuffer: AutomationBufferState;
+  standingOrder: StandingOrderState;
+  liveOperations: LiveOperationsState;
+  lastAdvanceReport: AdvanceReport | null;
   selectedSystemId: number;
   rack: RackState;
   systems: SystemState[];
@@ -705,6 +1122,7 @@ export interface GameState {
   deadlockProcessLockout: boolean;
   resources: ResourceBag;
   hardware: HardwareState;
+  workshop: WorkshopSystemState;
   flags: GameFlags;
   power: PowerRuntimeState;
   cron: CronRuntimeState;
@@ -712,6 +1130,14 @@ export interface GameState {
   reliability: ReliabilityState;
   completedTasks: Partial<Record<TaskId, number>>;
   completedJobs: Partial<Record<JobId, number>>;
+  /** Cumulative exact task economics; report deltas preserve aggregate batches. */
+  taskRewardCreditsEarned: Partial<Record<TaskId, Amount>>;
+  taskWorkCyclesCompleted: Partial<Record<TaskId, Amount>>;
+  /** Cumulative provenance totals used to split standing work from other tasks. */
+  standingTaskCompletions: Partial<Record<TaskId, number>>;
+  standingTaskRewardCreditsEarned: Partial<Record<TaskId, Amount>>;
+  standingTaskDataEarned: Partial<Record<TaskId, Amount>>;
+  standingTaskWorkCyclesCompleted: Partial<Record<TaskId, Amount>>;
   completedBenchmarks: TaskId[];
   activeTasks: ActiveTask[];
   activeJobs: ActiveJob[];
@@ -724,7 +1150,6 @@ export interface GameState {
 
 export type GameAction =
   | { type: "startTask"; taskId: TaskId; systemId?: number }
-  | { type: "grantDevResource"; resource: ResourceId }
   | { type: "startTaskOnCore"; taskId: TaskId; coreId: number; systemId?: number }
   | { type: "queueTask"; taskId: TaskId; cpuId?: number; systemId?: number }
   | {
@@ -740,6 +1165,11 @@ export type GameAction =
   | { type: "requestPowerOff"; systemId?: number }
   | { type: "requestPowerOn"; systemId?: number }
   | { type: "requestPowerKill"; systemId?: number }
+  | {
+      type: "setIdlePowerPolicy";
+      policy: IdlePowerPolicy;
+      systemId?: number;
+    }
   | { type: "acknowledgePowerFailure" }
   | { type: "selectSystem"; systemId: number }
   | { type: "buyMachineTemplate"; templateId: string }
@@ -777,6 +1207,43 @@ export type GameAction =
     }
   | { type: "buyResearch"; researchId: ResearchId }
   | {
+      type: "installCoolingTier";
+      tierId: WorkshopCoolingTierId;
+      systemId?: number;
+    }
+  | {
+      type: "setOverclockPreset";
+      presetId: OverclockPresetId;
+      systemId?: number;
+    }
+  | {
+      type: "installAccelerator";
+      skuId: AcceleratorSkuId;
+      slotId?: number;
+      systemId?: number;
+    }
+  | {
+      type: "removeAccelerator";
+      deviceId: string;
+      systemId?: number;
+    }
+  | {
+      type: "installWorkshopStorage";
+      skuId: StorageSkuId;
+      systemId?: number;
+    }
+  | {
+      type: "installLocalNetwork";
+      skuId: NetworkSkuId;
+      systemId?: number;
+    }
+  | {
+      type: "startWorkshopStorageWorkload";
+      workloadId: WorkshopStorageWorkloadId;
+      systemId?: number;
+    }
+  | { type: "cancelWorkshopStorageWorkload"; systemId?: number }
+  | {
       type: "buyUpgrade";
       upgradeId: UpgradeId;
       coreId?: number;
@@ -803,7 +1270,99 @@ export type GameAction =
   | { type: "startJob"; jobId: JobId; systemId?: number }
   | { type: "startJobOnCore"; jobId: JobId; coreId: number; systemId?: number }
   | { type: "queueJob"; jobId: JobId; cpuId?: number; systemId?: number }
-  | { type: "setAutoRepeat"; jobId: JobId | null };
+  | { type: "setAutoRepeat"; jobId: JobId | null }
+  | { type: "purchaseAutomationBuffer"; levelId: AutomationBufferLevelId }
+  | { type: "recordDeparture"; timestampMs: number }
+  | { type: "recordSave"; timestampMs: number }
+  | {
+      type: "setStandingOrder";
+      taskId: TaskId | null;
+      systemId?: number;
+    }
+  | { type: "setStandingOrderEnabled"; enabled: boolean }
+  | {
+      type: "configureLiveOperations";
+      systemId: number;
+      maxCoreCount: number;
+    }
+  | { type: "setLiveOperationsEnabled"; enabled: boolean }
+  | { type: "refreshContractMarket" }
+  | { type: "acceptContract"; contractId: string }
+  | { type: "declineContract"; contractId: string }
+  | { type: "completeContract"; contractId: string }
+  | { type: "startProjectPhase"; projectId: ProjectId; systemId?: number }
+  | { type: "selectFinaleCharter"; charterId: FinaleCharterId }
+  | { type: "setSystemManaged"; systemId: number; managed: boolean }
+  | {
+      type: "purchaseAggregateServerBatch";
+      skuId: ServerSkuId;
+      count: number;
+      storageSkuId?: StorageSkuId;
+      networkSkuId?: NetworkSkuId;
+    }
+  | {
+      type: "commissionCluster";
+      name: string;
+      nodeIds: string[];
+      defaultWeight?: number;
+      reserveHeadroomBps?: number;
+      replicaFaultDomain?: ReplicaFaultDomain;
+    }
+  | { type: "setClusterNodes"; clusterId: string; nodeIds: string[] }
+  | {
+      type: "setClusterPolicy";
+      clusterId: string;
+      defaultWeight?: number;
+      reserveHeadroomBps?: number;
+      replicaFaultDomain?: ReplicaFaultDomain;
+    }
+  | {
+      type: "startClusterWorkload";
+      clusterId: string;
+      definitionId: ClusterWorkloadDefinitionId;
+      weight?: number;
+    }
+  | { type: "cancelClusterWorkload"; workloadId: string }
+  | { type: "setClusterWorkloadWeight"; workloadId: string; weight: number }
+  | {
+      type: "commissionFacility";
+      templateId: FacilityTemplateId;
+      name?: string;
+    }
+  | {
+      type: "commissionFacilityRack";
+      facilityId: string;
+      templateId: RackTemplateId;
+      name?: string;
+    }
+  | {
+      type: "placeFleetNodeInRack";
+      facilityId: string;
+      rackId: string;
+      nodeId: string;
+    }
+  | { type: "removeFleetNodeFromRack"; nodeId: string }
+  | { type: "commissionCloudRegion"; name: string }
+  | {
+      type: "commissionCloudZone";
+      regionId: string;
+      facilityId: string;
+      name?: string;
+      baseLatencyMs?: number;
+      faultDomainId?: string;
+    }
+  | { type: "placeCloudReplica"; zoneId: string }
+  | { type: "setCloudRegionalDemand"; regionId: string; demand: Amount }
+  | { type: "setCloudRoutingLinks"; links: RoutingEdge[] }
+  | {
+      type: "setCloudFailoverPolicy";
+      automaticFailover: boolean;
+      delayMs?: number;
+    }
+  | { type: "requestCloudFailover" }
+  | { type: "drawCloudIncident"; optIn: boolean; windowMs: number }
+  | { type: "startCloudSla"; definitionId: CloudSlaDefinitionId }
+  | { type: "startPlanetaryFinale" };
 
 export interface VisibleOperation {
   id: string;
@@ -818,6 +1377,11 @@ export interface VisibleOperation {
   cacheBytes: number;
   ramBytes: number;
   parallel: boolean;
+  acceleratorClass: AcceleratorWorkloadClass | null;
+  acceleratorModelMemoryBits: number;
+  acceleratorBatchSize: number;
+  acceleratorMinimumComputeOperationsPerSecond: number;
+  acceleratorPreferredKind: AcceleratorKind | null;
 }
 
 export interface VisibleTaskSubtask {
@@ -838,6 +1402,23 @@ export interface VisibleTaskSubtask {
   ramBytes: number;
 }
 
+export interface VisibleTaskProjection {
+  durationMs: number;
+  baseDurationMs?: number;
+  batchMultiplier?: number;
+  logicalWorkUnitCount?: number;
+  paidWorkUnits?: Amount;
+  rewardCredits?: Amount;
+  energyCostCredits: Amount;
+  netRewardCredits: Amount;
+  creditRunwayMs: number | null;
+  creditRunwayCovered: boolean;
+  bufferCovered: boolean;
+  cacheFits: boolean;
+  ramFits: boolean;
+  pauseReason: string | null;
+}
+
 export interface VisibleTask {
   id: TaskId;
   name: string;
@@ -846,12 +1427,17 @@ export interface VisibleTask {
   visibility: TaskVisibility;
   composition: TaskCompositionDefinition[];
   rewardCredits: number;
+  /** Exact Data the next completion will settle (zero after first-only reward). */
   rewardData: number;
+  firstCompletionData: number;
+  repeatRewardData: number;
+  completionCount: number;
   cacheNeedBits: number;
   ramNeedBits: number;
   cacheNeedBytes: number;
   ramNeedBytes: number;
   operationCount: number;
+  paidWorkUnits: number;
   operations: VisibleOperation[];
   subtaskCount: number;
   subtasks: VisibleTaskSubtask[];
@@ -865,6 +1451,7 @@ export interface VisibleTask {
   canQueue: boolean;
   blockedReason: string | null;
   queueBlockedReason: string | null;
+  projection: VisibleTaskProjection;
 }
 
 export interface VisibleJob extends VisibleTask {
@@ -876,8 +1463,8 @@ export interface VisibleUpgrade {
   name: string;
   component: HardwareComponentId;
   accent: UpgradeDefinition["accent"];
-  costs: Cost[];
-  refunds: Cost[];
+  costs: VisibleCost[];
+  refunds: VisibleCost[];
   powerDeltaWatts?: number | null;
   canAfford: boolean;
   canDowngrade: boolean;
@@ -901,7 +1488,7 @@ export interface VisibleResearch {
   name: string;
   description: string;
   grants: UnlockId[];
-  costs: Cost[];
+  costs: VisibleCost[];
   canAfford: boolean;
   canBuy: boolean;
   completed: boolean;
@@ -925,6 +1512,8 @@ export interface VisibleResearchComputeTask {
   operationCount: number;
   rewardCredits: number;
   rewardData: number;
+  firstCompletionData: number;
+  repeatRewardData: number;
   cacheNeedBits: number;
   ramNeedBits: number;
   requiredCores: number;
@@ -935,6 +1524,8 @@ export interface VisibleResearchComputeTask {
   completed: boolean;
   active: boolean;
   progress: number;
+  /** Exact hardware/economy projection used by balance and research UI adapters. */
+  projection: VisibleTaskProjection;
 }
 
 export interface VisibleCoreTaskProgress {
@@ -970,6 +1561,8 @@ export interface VisibleActiveTask {
   name: string;
   coreId: number;
   assignedCoreIds: number[];
+  batchMultiplier?: number;
+  projectedRewardCredits?: Amount;
   progress: number;
   status: OperationRuntimeStatus;
   memoryState: MemoryRuntimeState;
@@ -1120,6 +1713,7 @@ export interface VisibleSystemSummary {
   templateId: string | null;
   selected: boolean;
   powerState: PowerStateId;
+  idlePowerPolicy: IdlePowerPolicy;
   coreCount: number;
   activeTaskCount: number;
   queueCount: number;
@@ -1127,8 +1721,10 @@ export interface VisibleSystemSummary {
   drawWatts: number;
   ramBits: number;
   ramUsedBits: number;
-  purchaseCosts: Cost[];
-  sellRefund: Cost[];
+  thermalStatus: ThermalStatus;
+  acceleratorCount: number;
+  purchaseCosts: VisibleCost[];
+  sellRefund: VisibleCost[];
 }
 
 export interface VisibleRackState {
@@ -1140,7 +1736,9 @@ export interface VisibleRackState {
   unlocked?: boolean;
 }
 
-export interface VisibleComponentSku extends ComponentSkuDefinition {
+export interface VisibleComponentSku
+  extends Omit<ComponentSkuDefinition, "cost"> {
+  cost: VisibleCost[];
   canAfford: boolean;
   tierName?: string;
   clockHz?: number;
@@ -1155,13 +1753,20 @@ export interface VisibleComponentSku extends ComponentSkuDefinition {
   powerDeltaWatts?: number;
 }
 
-export interface VisibleMachineTemplate extends MachineTemplateDefinition {
-  cost: Cost[];
+export interface VisibleMachineTemplate
+  extends Omit<MachineTemplateDefinition, "cost"> {
+  cost: VisibleCost[];
   canAfford: boolean;
+  canBuy: boolean;
+  blockedReason: string | null;
+  projection: MachinePowerProjection;
 }
 
 export interface VisibleMachineBuilder {
   unlocked: boolean;
+  advancedUnlocked: boolean;
+  canBuy: boolean;
+  blockedReason: string | null;
   templates: VisibleMachineTemplate[];
   components: {
     cpu: VisibleComponentSku[];
@@ -1197,14 +1802,174 @@ export interface VisibleHardwareMetrics {
   ramEfficiency: number;
   cpuEfficiency: number;
   coolingReliabilityBonus: number;
+  thermalStress: number | null;
+  thermalStatus: ThermalStatus;
+  thermalThroughputModifierBps: number;
+  thermalGeneratedHeatWatts: Amount;
+  thermalSustainedHeatWatts: Amount;
+  coolingCapacityWatts: Amount;
+  coolingPowerWatts: Amount;
   powerCostPerSecond: number;
   powerState: PowerStateId;
+  idlePowerPolicy: IdlePowerPolicy;
   powerTransitionSeconds: number;
   powerTransitionTotalSeconds?: number;
   powerBootstrapGraceSeconds: number;
   powerUnpaidShutdownWarningSeconds: number;
   powerOverloadFailure: VisiblePowerOverloadFailure;
   cacheResidency: CacheResidencySegment[];
+}
+
+export interface VisibleWorkshopCoolingTier {
+  id: WorkshopCoolingTierId;
+  name: string;
+  description: string;
+  level: number;
+  capacityWatts: Amount;
+  powerDrawWatts: Amount;
+  costs: ExactCost[];
+  installed: boolean;
+  canInstall: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleWorkshopOverclockPreset {
+  id: OverclockPresetId;
+  name: string;
+  description: string;
+  clockMultiplierBps: number;
+  powerMultiplierBps: number;
+  heatMultiplierBps: number;
+  selected: boolean;
+  canSelect: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleWorkshopAcceleratorSku {
+  id: AcceleratorSkuId;
+  kind: AcceleratorKind;
+  name: string;
+  description: string;
+  supportedWorkloadClasses: readonly AcceleratorWorkloadClass[];
+  expansionSlots: number;
+  deviceMemoryBits: Amount;
+  minimumBatchSize: Amount;
+  computeOperationsPerSecond: Amount;
+  throughputMultiplierBps: number;
+  idlePowerWatts: Amount;
+  activePowerWatts: Amount;
+  idleHeatWatts: Amount;
+  activeHeatWatts: Amount;
+  costs: ExactCost[];
+  canInstall: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleWorkshopAccelerator extends InstalledAccelerator {
+  kind: AcceleratorKind;
+  name: string;
+  expansionSlots: number;
+  active: boolean;
+}
+
+export interface VisibleWorkshopRoute {
+  workloadId: string;
+  taskInstanceId: string;
+  taskId: TaskId;
+  coreId: number;
+  operationId: string;
+  workloadClass: AcceleratorWorkloadClass;
+  target: "accelerator" | "cpu" | "blocked";
+  deviceId: string | null;
+  skuId: AcceleratorSkuId | null;
+  acceleratorKind: AcceleratorKind | null;
+  fallbackReason: string | null;
+}
+
+export interface VisibleWorkshopStorageSku {
+  id: StorageSkuId;
+  name: string;
+  description: string;
+  capacityBits: Amount;
+  readBitsPerSecond: Amount;
+  writeBitsPerSecond: Amount;
+  idlePowerWatts: Amount;
+  peakPowerWatts: Amount;
+  idleHeatWatts: Amount;
+  peakHeatWatts: Amount;
+  costs: ExactCost[];
+  installed: boolean;
+  canInstall: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleWorkshopNetworkSku {
+  id: NetworkSkuId;
+  name: string;
+  description: string;
+  ingressBitsPerSecond: Amount;
+  egressBitsPerSecond: Amount;
+  idlePowerWatts: Amount;
+  peakPowerWatts: Amount;
+  costs: ExactCost[];
+  installed: boolean;
+  canInstall: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleWorkshopStorageWorkload {
+  id: WorkshopStorageWorkloadId;
+  name: string;
+  description: string;
+  storageRequiredBits: Amount;
+  readBits: Amount;
+  writeBits: Amount;
+  paidWorkUnits: Amount;
+  workValueMultiplier: WorkValueMultiplier;
+  rewards: ExactResourceBag;
+  active: boolean;
+  completedCount: number;
+  progressBps: number;
+  canStart: boolean;
+  blockedReason: string | null;
+  projection: {
+    durationMs: Amount | null;
+    operatingCostCredits: Amount | null;
+    netRewardCredits: Amount | null;
+    bufferCovered: boolean;
+    pauseReason: string | null;
+  };
+}
+
+export interface VisibleWorkshopState {
+  thermalVisible: boolean;
+  thermalControlsUnlocked: boolean;
+  specializedComputeUnlocked: boolean;
+  thermalStatus: ThermalStatus;
+  thermalStressBps: number;
+  thermalThroughputModifierBps: number;
+  generatedHeatWatts: Amount;
+  sustainedHeatWatts: Amount;
+  coolingCapacityWatts: Amount;
+  coolingPowerWatts: Amount;
+  highestObservedThermalStatus: ThermalStatus;
+  coolingTierId: WorkshopCoolingTierId;
+  overclockPresetId: OverclockPresetId;
+  coolingTiers: VisibleWorkshopCoolingTier[];
+  overclockPresets: VisibleWorkshopOverclockPreset[];
+  expansionSlots: number;
+  accelerators: VisibleWorkshopAccelerator[];
+  acceleratorSkus: VisibleWorkshopAcceleratorSku[];
+  routes: VisibleWorkshopRoute[];
+  storageUnlocked: boolean;
+  storageSkuId: StorageSkuId;
+  storageSkus: VisibleWorkshopStorageSku[];
+  networkUnlocked: boolean;
+  networkSkuId: NetworkSkuId;
+  networkSkus: VisibleWorkshopNetworkSku[];
+  storageWorkload: VisibleWorkshopStorageWorkload;
+  evidence: WorkshopSpecializationEvidence;
+  specializationComplete: boolean;
 }
 
 export interface VisibleInputConfig {
@@ -1214,15 +1979,266 @@ export interface VisibleInputConfig {
   taskHoldMaxMs: number;
 }
 
+export interface VisibleAutomationBufferUpgrade {
+  id: AutomationBufferLevelId;
+  name: string;
+  maxOfflineMs: number;
+  costs: ExactCost[];
+  unlocked: boolean;
+  canAfford: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleAutomationBuffer {
+  ownedLevelId: AutomationBufferLevelId;
+  maxOfflineMs: number;
+  departureLevelId: AutomationBufferLevelId;
+  departureMaxOfflineMs: number;
+  offlineProcessedMs: number;
+  remainingOfflineMs: number;
+  nextUpgrade: VisibleAutomationBufferUpgrade | null;
+}
+
+export interface VisibleCampaignChapter {
+  id: CampaignChapterId;
+  index: number;
+  name: string;
+  description: string;
+  completed: boolean;
+}
+
+export interface VisibleMission {
+  id: string;
+  chapterId: CampaignChapterId;
+  name: string;
+  description: string;
+  transmission: string;
+  completed: boolean;
+  current: boolean;
+  blockedReason: string | null;
+}
+
+/** Per-lane authored work totals so cards can show what a job consumes. */
+export interface VisibleWorkMixStage {
+  resource:
+    | "cache"
+    | "ram"
+    | "compute"
+    | "storageRead"
+    | "storageWrite"
+    | "networkIngress"
+    | "networkEgress";
+  work: Amount;
+}
+
+export interface VisibleContract {
+  id: string;
+  templateId: ContractTemplateId;
+  kind: ContractKind;
+  name: string;
+  description: string;
+  systemId: number;
+  workRequiredMs: number;
+  workCompletedMs: number;
+  workRequiredBits?: Amount;
+  workCompletedBits?: Amount;
+  paidWorkUnits?: Amount;
+  workValueMultiplier?: WorkValueMultiplier;
+  remainingMs: number;
+  expiresAtMs: number | null;
+  rewards: ExactResourceBag;
+  novel: boolean;
+  accepted: boolean;
+  valuePerHourCredits: Amount;
+  expiresInMs: number | null;
+  operatingCostCredits: Amount;
+  netRewardCredits: Amount;
+  creditRunwayCovered: boolean;
+  bufferCovered: boolean;
+  canAccept: boolean;
+  projectedPauseReason: string | null;
+  workMix?: VisibleWorkMixStage[];
+  valueMultiplierVsStandingOrderBps?: number | null;
+  offerPremiumBps?: Amount;
+  /** @deprecated Compatibility projection for balance tooling. */
+  authoredWorkValueMultiplierBps?: number | null;
+}
+
+export interface VisibleContractMarket {
+  elapsedMs: number;
+  canRefresh: boolean;
+  refreshAvailableInMs: number;
+  refreshBlockedReason: string | null;
+  standingOrderTaskName: string;
+  standingOrderValuePerHourCredits: Amount;
+}
+
+/** Work-surface reveal gates; all progression logic stays in src/game. */
+export interface VisibleWorkViews {
+  campaign: boolean;
+  market: boolean;
+  automation: boolean;
+}
+
+export interface VisibleProjectPhase {
+  id: string;
+  name: string;
+  durationMs: number;
+  costs: ExactCost[];
+  rewards: ExactResourceBag;
+  paidWorkUnits?: Amount;
+  workValueMultiplier?: WorkValueMultiplier;
+  workMix?: VisibleWorkMixStage[];
+}
+
+export interface VisibleProjectSystemProjection {
+  systemId: number;
+  durationMs: number;
+  remainingMs: number;
+  projectionBlockedReason: string | null;
+  canStartPhase: boolean;
+  startBlockedReason: string | null;
+}
+
+export interface VisibleProject {
+  id: ProjectId;
+  name: string;
+  description: string;
+  sideArcId: SideArcId | null;
+  currentPhase: VisibleProjectPhase | null;
+  phaseIndex: number;
+  phaseProgressMs: number;
+  remainingMs: number;
+  /** Why the assigned system cannot currently project the remaining recipe. */
+  projectionBlockedReason?: string | null;
+  /** Target-specific projection and start validation for each available system. */
+  systemProjections?: VisibleProjectSystemProjection[];
+  active: boolean;
+  completed: boolean;
+  canStartPhase: boolean;
+  blockedReason: string | null;
+}
+
+export interface VisibleStandingOrderWork {
+  taskId: TaskId | null;
+  name: string;
+  enabled: boolean;
+  systemId: number | null;
+  renewalCount: number;
+}
+
+export type ActiveWorkKind =
+  | "project"
+  | "contract"
+  | "standingOrder"
+  | "job"
+  | "clusterWorkload"
+  | "facilityWorkload"
+  | "workshopStorage"
+  | "cloud"
+  | "sla"
+  | "finale";
+
+export interface VisibleActiveWork {
+  id: string;
+  kind: ActiveWorkKind;
+  name: string;
+  progress: number;
+  remainingMs: number | null;
+  systemId: number | null;
+}
+
+export interface VisibleDeparturePowerPolicy {
+  systemId: number;
+  name: string;
+  powerState: PowerStateId;
+  drawWatts: number;
+  psuStress: number;
+}
+
+export interface VisibleDepartureForecast {
+  coverageMs: number;
+  timedActiveCount: number;
+  fittingActiveCount: number;
+  unknownDurationCount: number;
+  renewalSupported: boolean;
+  renewalEnabled: boolean;
+  renewalTaskName: string | null;
+  aggregateOperatingCostPerSecond: Amount;
+  creditRunwayMs: number | null;
+  projectedPauseReason: string | null;
+  safePowerPolicy: "pause-before-unsafe";
+  powerPolicies: VisibleDeparturePowerPolicy[];
+}
+
+export interface VisibleWorkState {
+  missions: VisibleMission[];
+  projects: VisibleProject[];
+  contracts: VisibleContract[];
+  contractMarket: VisibleContractMarket;
+  standingOrders: VisibleStandingOrderWork[];
+  jobs: VisibleJob[];
+  activeWork: VisibleActiveWork[];
+  departureForecast: VisibleDepartureForecast;
+}
+
+export interface VisibleLiveOperations {
+  unlocked: boolean;
+  enabled: boolean;
+  canConfigure: boolean;
+  systemId: number | null;
+  maxCoreCount: number;
+  maximumCoreCount: number;
+  workMix: [
+    { id: TaskId; name: string },
+    { id: TaskId; name: string },
+  ];
+  activeTaskId: TaskId | null;
+  activeTaskName: string | null;
+  nextTaskName: string;
+  allocatedCoreCount: number;
+  progress: number;
+  remainingMs: number | null;
+  projectedDurationMs: number | null;
+  projectedPowerWatts: string;
+  projectedOperatingCostCredits: Amount;
+  projectedRewardCredits: Amount;
+  projectedNetRewardCredits: Amount;
+  projectedMarginBps: number | null;
+  blockedReason: string | null;
+  offlineBehavior: string;
+}
+
 export interface VisibleState {
   stage: StageId;
   stageLabel: string;
   resources: ResourceBag;
+  exactResources: ExactResourceBag;
+  infrastructure: VisibleInfrastructureState;
+  cloud: VisibleCloudState;
+  automationBuffer: VisibleAutomationBuffer;
+  standingOrder: StandingOrderState;
+  liveOperations: VisibleLiveOperations;
+  offlineReport: AdvanceReport | null;
+  campaign: CampaignState;
+  currentChapter: VisibleCampaignChapter;
+  currentObjective: VisibleMission | null;
+  bottleneck: string;
+  missions: VisibleMission[];
+  projects: VisibleProject[];
+  contracts: VisibleContract[];
+  contractMarket: VisibleContractMarket;
+  workViews: VisibleWorkViews;
+  standingOrders: VisibleStandingOrderWork[];
+  activeWork: VisibleActiveWork[];
+  departureForecast: VisibleDepartureForecast;
+  work: VisibleWorkState;
   rack: VisibleRackState;
   systems: VisibleSystemSummary[];
   selectedSystem: VisibleSystemSummary;
   machineBuilder: VisibleMachineBuilder;
   hardware: HardwareState;
+  workshop: VisibleWorkshopState;
   input?: VisibleInputConfig;
   metrics: VisibleHardwareMetrics;
   flags: GameFlags;

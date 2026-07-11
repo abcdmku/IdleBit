@@ -1,12 +1,226 @@
 # IdleBit
 
+> **Current pre-live target:** the Long-Form Planetary Campaign below supersedes
+> older “current phase,” “out of scope,” click-rate progression, and missed
+> offline-tick language elsewhere in this document. The later sections remain
+> the detailed mechanic reference unless they conflict with this target.
+
+## 0. Long-Form Planetary Campaign
+
+IdleBit is an active-hybrid idle game that supports three valid engagement
+levels without login streaks, claim buttons, hidden active multipliers, or a
+mandatory prestige reset.
+
+| Profile | Expected play | Planetary completion target |
+|---|---|---:|
+| Full idle | Return as the owned Automation Buffer approaches capacity, buy safe upgrades, and leave a standing order | 32–52 weeks |
+| Regular check-ins | Play 5–20 minutes on most days, choose stronger contracts, and resolve bottlenecks | 16–26 weeks |
+| Engaged | Add occasional 30–90 minute optimization sessions | 12–18 weeks |
+
+Regular play should sustain 1.8–2.2× the post-CRON progression velocity of
+full idle through better contract selection, timely upgrades, routing, and
+less unused capacity—not an arbitrary login bonus. A near-perfect optimizer
+must not normally finish in under roughly ten weeks. Offline work should supply
+75–90% of regular post-CRON output.
+
+Live Operations is a foreground-only managed workload lane unlocked with the
+System Scheduler. It uses configured spare Fleet cores for alternating queue
+triage and canary validation contracts, scales rewards with actual compute,
+and charges the same power, thermal, and operating-cost systems as ordinary
+work. It never advances or allocates cores during offline catch-up; unfinished
+progress is retained for the next foreground session. Its internal workload
+IDs cannot be dispatched through the public action API.
+
+### Automation Buffer
+
+The player-facing Automation Buffer caps simulated time away. The capacity
+owned at departure is authoritative; purchasing a larger buffer after return
+never recovers overflow. Time beyond the cap creates neither progress nor loss.
+
+| Unlock | Maximum offline processing | Capability |
+|---|---:|---|
+| Starting node | 0 | Closing freezes simulation |
+| Local Scheduler | 2 hours | Completes the existing finite queue only |
+| CRON Runtime | 8 hours | Renews one standing work order |
+| System Scheduler | 12 hours | Runs system policies and projects |
+| Fleet Orchestrator | 24 hours | Supports daily unattended Fleet work |
+| Cluster Controller | 48 hours | Maintains distributed workloads |
+| Rack Controller | 72 hours | Supports three-day infrastructure runs |
+| Data Center NOC | 120 hours | Supports five-day facility operations |
+| Global Scheduler | 168 hours | Final seven-day offline window |
+
+Research reveals each level and the player purchases it with Credits and Data.
+Buffer capacity increases convenience and planning horizon, never production
+rate. Offline simulation automatically collects deterministic rewards, bills
+only productive automated work, and safely pauses affected infrastructure for
+queue exhaustion, insufficient runway, overload risk, or unmet policy. Seeded
+incidents cannot create unforecast destructive losses while absent.
+
+The late gates are explicit research/purchase pairs: Cluster Control
+(250,000 Credits / 100 Data), Rack Operations (750,000 / 400), Data Center
+Operations (1,500,000 / 1,500), and Global Scheduling (10,000,000 / 100,000)
+unlock their corresponding separately priced buffer purchases.
+
+A return report records elapsed, simulated, overflow, productive and paused
+time, completed work, earnings, expenses, buffer utilization, blockers, and the
+next buffer upgrade.
+
+### Campaign chapters
+
+1. **Bootstrap Node:** bits, bytes, cache, first benchmark, and initial queue.
+2. **Coherent Machine:** multicore, RAM, CPU/System schedulers, second CPU, and CRON.
+3. **Workshop Fleet:** named systems, cooling, overclocking, storage, and GPU/NPU specialization.
+4. **Local Fabric:** networking, shared queues, sharding, replication, and cluster scheduling.
+5. **Rack and Facility:** server chassis, true racks, facility power/cooling/uplinks, and data centers.
+6. **Resilient Cloud:** SLA contracts, availability zones, failover, latency, and coverage.
+7. **Planetary Commons:** regions, global routing, the planetary finale, and endless postgame contracts.
+
+The current player-facing “rack” of PCs is **Fleet**. “Rack” is reserved for
+server infrastructure. Physical CPUs stop at plausible GHz tiers; larger
+scales use aggregate throughput.
+
+Work is presented as Missions, Projects, Contracts, Standing Orders, Jobs, and
+Active Work. Repeatable work primarily earns Credits. Data comes from first
+completions, benchmarks, discoveries, projects, and novel contracts. Standing
+orders provide safe baseline progression at about 45–60% of a well-managed
+configuration; refreshed contracts offer roughly 1.5–2.5× effective value.
+Base repeatable payout is one Credit per exact paid hardware-work unit. Each
+sequential cache/RAM/storage/network bit or CPU cycle contributes one unit;
+when a memory operation issues CPU work concurrently with the same cache
+transfer, their shared slice is one unit rather than a double charge. Projects,
+managed services, storage proofs, cluster work, and Cloud SLAs apply only
+explicitly named, frozen value multipliers to that ledger. Faster hardware
+completes the same work sooner without silently shrinking its gross payout.
+
+No gate requires more than ten identical manual completions. Manual dispatch
+falls below 10% of player actions after Local Scheduler. Hold-repeat is an
+accessibility setting, not a purchasable progression path. Deep sessions reward
+system design, forecasting, benchmarking, and routing—not click speed.
+
+### Runtime and save invariants
+
+- `advanceGame(state, elapsedMs, mode)` is the pure deterministic entry point
+  for foreground, chunked, and offline simulation.
+- Long intervals advance across event boundaries and can run in a Web Worker;
+  tests retain a synchronous path.
+- Resources, costs, rewards, work quantities, and aggregate throughput use a
+  normalized string-backed `Amount` calculated with `decimal.js`.
+- V1 physical state is explicitly bounded: at most 16 fully simulated named
+  Fleet systems, 8 CPU packages per system, 64 cores
+  and 64 CPU queue slots per package, 24 system queue slots, 32 RAM sticks,
+  and finite upgrade ladders. A maximum Advanced build therefore has 512
+  physical cores; larger values are aggregate infrastructure throughput.
+- Save-v7 is a clean pre-live reset with exact amounts, Automation Buffer,
+  campaign state, deterministic `xoshiro128**` RNG state, departure capacity,
+  and timestamps.
+- The headless balance runner uses only public actions and visible state, emits
+  CSV evidence, and profiles full-idle, regular, engaged, and optimizer play.
+- All progression, offline, economy, incident, placement, routing, and SLA
+  rules live in `src/game`; UI, browser, Electron, and workers are adapters.
+
+### Implemented vertical model
+
+- **Opening and Fleet:** finite first-completion Data replaces Bit Flip farming;
+  physical core clocks stop at 6 GHz; up to 16 systems are named, fully
+  simulated Fleet entries before growth moves into aggregate infrastructure; preset
+  and Advanced builds expose model-owned duration, throughput, power,
+  operating-cost, profitability, fit, and comparison projections.
+- **Workshop:** per-system saved thermal state drives heat accumulation,
+  throttling, five cooling states (including no cooling), and four overclock
+  presets. Saved Local SSD/NVMe staging uses exact CapacityWork runtime,
+  throughput, fit, power, heat, and reward projections. GPU/NPU modules have
+  slots, device memory, fitted workload classes, contention, power/heat,
+  explicit routing, and an optional CPU fallback.
+- **Local Fabric:** capacity profiles aggregate inspected systems, while public
+  workload actions use multi-resource best-fit placement, weighted-fair shares,
+  network/storage staging, replication, and transfer/compute/barrier/reduce/
+  commit DAG phases. Each named system gains a Local-Fabric-gated NIC bay;
+  network stages run only on the ingress/egress rate of the NIC installed on
+  the system that owns the work.
+- **Rack and Facility:** server batches consume exact rack units; rack/facility
+  templates and purchases validate exact costs atomically. Work integrates
+  compute, memory, storage, power, cooling, uplink, 30% reserve, operating
+  billing, runway, utilization, headroom, and safe-pause reasons.
+- **Cloud and Planetary:** saved zones, regions, replicas, routes, explicit
+  delayed failover, opt-in seeded incidents, time-integrated SLA windows,
+  quorum, p95 latency, min-cost routing, exact rewards, a three-phase finale,
+  swappable postgame charters, and renewable postgame contracts advance in the
+  same deterministic event engine.
+- **Optional horizontal arcs:** The Archivist unlocks rack/zone replica-domain
+  policy, Open Foundry unlocks advanced GPU/NPU modules, and Grid Relief cuts
+  productive facility operating cost by exactly 20%. All remain completable
+  but none is a mainline campaign gate. The Cloud three-phase finale is the
+  single planetary finale.
+- **Command deck:** Work opens with playable Jobs only. Campaign and
+  Automation reveal with System Scheduler research (projects are background
+  system workloads; Live Operations anchors Automation), the Contract Market
+  with CRON Scheduler research (contracts model unattended client workloads),
+  and Standing Orders inside Automation at CRON; legacy saves keep views whose
+  content already exists. Until Campaign reveals, the chapter objective and its
+  actionable blocked reason stay in the topbar/mobile objective chip, and
+  buffer levels remain R&D-column purchase cards while Automation shows only
+  buffer status and the departure forecast. Each era funds the next: task
+  first-completions fund research through System Scheduler, projects and Live
+  Ops fund System Bus/second CPU/CRON, and contracts fund Fleet expansion.
+  Active projects, contracts, standing orders, and jobs
+  also appear directly on the system executing them; whole-world work remains
+  a summary rather than a substitute for hardware ownership. Before starting or
+  leaving, selectors expose exact net value, duration, energy/operating cost,
+  resource fit, runway, Automation Buffer coverage, renewal behavior, power
+  policy, and projected pause reason.
+
+### Spatial stability invariant
+
+Starting, queueing, completing, pausing, canceling, or failing work must never
+shift surrounding controls, cards, menus, or hardware. Runtime status updates
+inside reserved fixed-height regions. Additional work scrolls within those
+regions; it does not insert panels above the player's current target. Task cards
+keep the same geometry across ready, blocked, queued, and active states. Detailed
+projections live in Inspect or an explicit disclosure instead of appearing and
+disappearing inside the card.
+
+### Hardware-derived timing invariant
+
+Every simulated duration emerges from explicit work quantities divided by the
+throughput of the hardware lanes that process them. One bit through a 1 Hz
+transfer lane takes exactly one second, and one CPU cycle on a 1 Hz compute
+lane likewise takes one second. More complex jobs take longer because
+their data traverses more cache, CPU, RAM, storage, network, accelerator, and
+distributed stages—not because the UI or engine assigns an arbitrary timer.
+Content authors declare the work volume directly; the engine never derives it
+backward from a target duration. Faster hardware finishes the same frozen work
+sooner. Fixed clocks are reserved for explicitly named deadlines, offer expiry,
+service observation windows, and physical control/failover latency.
+
+The opening Fetch Bit recipe is exactly two operations: fetch one bit, then
+latch it. At the starter 1 Hz cache and CPU rates it takes two seconds. Bit Flip
+is exactly three operations—read, mutate, and write—so it is strictly slower on
+identical hardware.
+Cards count those real operation invocations; DAG chips report transferred bits
+and CPU cycles as separate physical quantities.
+
+Progress bars interpolate visually between exact 500 ms simulation snapshots.
+The interpolation never advances game state or changes numeric/ARIA truth;
+batch resets snap instead of animating backward, and reduced-motion mode snaps
+all meters.
+
+### Long-form verification gates
+
+Delta-invariance, every buffer boundary and price, save round trips, departure
+snapshot behavior, overflow, standing-order renewal, exact amounts,
+deterministic RNG, safe pauses, distributed barriers, facility headroom, SLA
+windows, failover, and regional routing require automated coverage. Balance CI
+fails when profile pacing or the 1.8–2.2× check-in ratio drifts, a buffer misses
+its chapter, a workload is unprofitable, one job dominates progression,
+absence causes destructive loss, or full-idle play becomes stranded.
+
 ## 1. Product Summary
 
 IdleBit is an incremental systems-building game where the player starts with a primitive single-core CPU and eventually scales into server racks, data centers, availability zones, regions, and planetary compute.
 
 The core gameplay loop remains consistent at every scale:
 
-**Accept jobs → process work → earn credits/data → buy upgrades → unlock larger jobs and larger infrastructure.**
+**Accept jobs → process hardware-owned work → earn work-derived Credits and milestone Data → buy upgrades → unlock larger jobs and larger infrastructure.**
 
 Player-facing jobs are implemented as **tasks**. A task is composed from lower-level operations such as CPU operations, cache fills, RAM staging, and later storage/network transfer. The UI can keep short job labels, but the simulation should reason about the operation queues that make each task run.
 
@@ -106,9 +320,9 @@ The player should not manually manage early-game objects forever.
 
 The player should always manage the newest interesting layer, not every layer at once.
 
-Broad auto-repeat stays tightly scoped. Early automation should teach scheduling and queues before hiding task choice. The first timer automation is CRON v1 at the second-CPU/system stage: it repeats only visible repeatable system tasks after CRON Scheduler research, never hidden tasks, research benchmarks, or normal CPU task progression.
+Broad automation stays progression-gated. Early scheduling teaches finite queues before CRON introduces one renewable standing order; later schedulers add policies, projects, and routing without automating major player choices.
 
-Manual task dispatch remains a player input path. Holding a task button can repeat the same manual action for up to 30 seconds, but this is not automation and does not fire while released. Click Rate Tuning appears after Local Scheduler, unlocks for 500,000 credits, then stays in research as a repeatable `Level up` item for levels 1-36. Level 1 costs 100,000 credits, each later level costs the previous rounded tier price multiplied by 1.4, and the hold cadence becomes 10 Hz at level 1 plus 2 Hz per level through 80 Hz at level 36. Level 0 keeps the default 110 ms hold repeat.
+Manual task dispatch remains a player input path. Holding a task button may repeat the same manual action as an accessibility setting, but click speed and purchasable Click Rate Tuning are not progression. No gate requires more than ten identical manual completions, and manual dispatch becomes less than 10% of actions after Local Scheduler.
 
 ---
 
@@ -215,17 +429,17 @@ Tasks do not require power directly. Power draw comes from the hardware doing th
 At system scale:
 
 - The PSU is a system reliability component, not a per-task requirement.
-- The PSU is visible from the first screen so power is part of the opening earn-vs-idle balance.
+- The PSU is visible from the first screen so draw, capacity, and safe headroom are learned before billing can fail.
 - Basic PSU wattage upgrades are cheap and purchasable with credits from the first screen so the player can buy headroom before deeper management research.
-- Power billing is paid over time from actual draw. There is no free threshold; even tiny powered-on systems accrue a small bill once the player has credits.
+- Onboarding power is subsidized. PSU Management appears after System Scheduler and Power Telemetry; purchasing it ends the subsidy and enables metered billing, unpaid cutoff, and destructive overload failure only after the player has seen countermeasures.
 - CPU draw is micro-watt based: active core draw is `clockHz / efficiency / 1_000_000` W, idle cores use the same draw until C-State Control is researched, and purchased C-State levels multiply idle draw down from there.
 - RAM draw is micro-watt based: each stick's active write draw is about `clockHz / efficiency * 0.1`, so memory remains roughly one tenth of equivalent CPU draw at the same clock. Memory Voltage Modifier levels reduce idle RAM draw only and do not change active write bandwidth.
-- The starter PSU capacity is `10 uW`; power billing is `1 credit/sec` per `1 uW`, so the starter `0.1 uW` draw bills `0.1 cr/s`.
-- PSU capacity progression is `10 uW * 1.7^(level - 1)`. The existing credits-only PSU upgrade cost curve stays in place until a PSU sheet replaces it.
-- If power billing reaches 0 credits, the PSU shows a 10-second unpaid-credit cutoff warning instead of allowing negative credits. If the warning expires before credits are earned or the system finishes shutting down, the system performs an emergency shutdown. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
+- The starter PSU capacity is `10 uW`. After PSU Management, billing is `1 credit/sec` per `1 uW`, so the starter `0.1 uW` draw projects `0.1 cr/s`; before the gate, its billed rate is zero.
+- PSU capacity progression is `10 uW * 1.7^(level - 1)`. Target-level capacity upgrade cost begins at 24 Credits and grows by 1.32.
+- After PSU Management, if billing reaches 0 credits, the PSU shows a 10-second unpaid-credit cutoff warning instead of allowing negative credits. If the warning expires before credits are earned or the system finishes shutting down, the system performs an emergency shutdown. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
 - Powering on from 0 credits grants a short bootstrap grace window with no billing, enough to run starter work and recover.
-- If hardware draw approaches PSU capacity, stress increases and efficiency drops.
-- If hardware draw exceeds PSU capacity, overload failure pressure begins filling in the PSU header while the whole PSU module flashes red. It reaches failure in about 10 seconds just above 100% load and fills faster the farther draw exceeds capacity; the failure instantly cuts power, shows a short explanatory popup the first time, uses a red topbar badge for later trips, and clears active/queued work.
+- If hardware draw approaches PSU capacity, stress increases and unsafe new starts are blocked.
+- Before PSU Management, an already-running unsafe workload pauses without destructive loss. After the gate, overload failure pressure fills in the PSU header while the whole PSU module flashes red. It reaches failure in about 10 seconds just above 100% load and fills faster the farther draw exceeds capacity; the failure instantly cuts power, shows a short explanatory popup the first time, uses a red topbar badge for later trips, and clears active/queued work.
 - Dense cores and additional CPUs increase draw nonlinearly. Packing more compute into one system should be powerful but harder to cool and power reliably.
 - A system has four power states: `on`, `shuttingDown`, `off`, and `booting`.
 - `off` systems grey out hardware except power/start controls, block work starts, scheduler dispatch, CRON runs, and power billing.
@@ -290,7 +504,7 @@ Each task can define:
 
 | Field | Meaning |
 |---|---|
-| Required CPU operations | Amount of CPU/compute work needed |
+| Authored operations | Number of real operation invocations in the recipe; CPU cycles and transferred bits remain separate |
 | Required memory | RAM or memory capacity needed for active/intermediate work |
 | Cache operation queue | CPU operations that must be loaded into cache before execution |
 | Cache fill size | How much cache capacity must be available before cache-required operations can run |
@@ -299,8 +513,8 @@ Each task can define:
 | Memory intensity | How much RAM load speed/bandwidth matters |
 | Parallelizable | Whether the job can be split across cores/systems |
 | Hardware stress | Derived from the active hardware executing the task, not a direct task requirement |
-| Reward credits | Main payout |
-| Reward data | Progression payout |
+| Credit value policy | Exact overlap-aware paid hardware work, optionally multiplied by an explicitly named frozen premium |
+| First-completion Data | Hand-authored progression payout that settles once, then disappears from the next-completion projection |
 | SLA requirement | Optional uptime target |
 | Latency requirement | Optional max latency target |
 | Coverage requirement | Optional geographic/service coverage target |
@@ -320,7 +534,7 @@ The operation pipeline is:
 5. RAM stages larger active work and intermediate results.
 6. Storage later stages large inactive inputs/outputs before they can move into RAM/cache.
 7. The scheduler assigns ready operations to cores or later systems.
-8. Child completion updates the parent entry; completion pays credits/data once, at the parent task layer, after every required child stage or chunk work unit finishes.
+8. Child completion updates the parent entry; completion settles work-derived Credits and any still-pending first-completion Data once, at the parent task layer, after every required child stage or chunk work unit finishes.
 
 Cache stores CPU operation queues. If the next operation requires cache and the cache queue is empty or incomplete, the task waits for cache load instead of running with a simple speed penalty.
 
@@ -330,7 +544,7 @@ Players should be able to cancel active tasks and pending queued tasks. Cancelin
 
 Tasks should be authored and surfaced as concise player goals, but the simulation should infer a small directed acyclic graph of internal work from each task definition. The graph is not player-authored; it is derived from task requirements so future UI can explain why a task is waiting without exposing every operation as a separate job.
 
-Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors. The player-facing operation count is the paid work total: CPU execution cycles plus cache load bits plus RAM staging bits.
+Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors. The player-facing operation count is the number of authored operation invocations. CPU cycles, cache/RAM transfer bits, and the overlap-aware paid-work total are separate physical quantities; none may be added together and mislabeled as operations.
 
 Task operations should follow a small authoring pattern:
 
@@ -340,13 +554,13 @@ Task operations should follow a small authoring pattern:
 - Task-level cache provisioning sums distinct read and write footprints, so reading 8 b and writing 8 b needs 16 b total; overwrite reuses that footprint and only needs the overwritten size.
 - Parallel cache-backed operations provision their per-core footprint across the required cores.
 - Cache residency and the cache meter should preserve completed read/write footprints until the task completes, while overwrite updates the existing footprint instead of adding another segment. The cache UI should show fixed-height Buffer and Ready lanes. Load and Ready are the same committed cache lane; total committed cache is Buffer plus Ready.
-- Counted memory operations use that total touched cache footprint once for cache fill; operation count affects CPU cycles and rewards, not a second cache-size multiplier.
+- Counted memory operations use that total touched cache footprint once for cache fill. Invocation count, CPU cycles, and transferred bits remain distinct; the exact overlap-aware hardware work determines Credits rather than the displayed operation count.
 - Cache load cycles equal touched bits, so cache load rate is readable as bits per second. A 1 b memory operation on a 1 Hz CPU and 1 Hz cache load rate should move straight into Ready with no Buffer buildup.
 - Concurrent cache writes on one CPU package share the package cache load rate, so the cache lane must match the sum of writer-core rates to avoid throttling.
-- RAM load cycles equal staged bits, so loading 256 b into RAM contributes 256 paid operations before the CPU can process that staged work.
+- RAM load cycles equal staged bits, so loading 256 b into RAM contributes 256 paid-work units before the CPU can process that staged work.
 - Compute operations may still require cache, but their CPU compute cycles run after their cache load is ready.
 - Transform tasks should avoid redundant "copy then write" phases; writing the copied value is the copy.
-- Task credit rewards are derived from the paid operation total: CPU cycles plus cache-load work plus RAM-load work. Data rewards can remain hand-authored progression payouts.
+- Task Credit rewards equal the overlap-aware paid-work total: sequential CPU/cache/RAM work adds, while concurrent memory issue and cache transfer count their shared slice once. Data rewards can remain hand-authored first-completion progression payouts, but a card shows Data only while the next completion will actually settle it.
 
 Example early DAG shape:
 
@@ -411,31 +625,42 @@ At all scales, power should work similarly, but tasks do not directly request po
 
 `power_stress = active_hardware_draw / safe_power_capacity`
 
-Power cost accrues continuously while the system is powered on:
+After PSU Management, power cost accrues continuously while a system is powered
+in foreground play. During absence, only productive automated intervals are
+billed; an exhausted or unsafe queue pauses under its saved low-power/shutdown
+policy without continuing to drain Credits:
 
 `power_bill = active_hardware_draw_uW * elapsed_seconds * 1 credit`
 
 CPU draw uses `active_core_uW = clockHz / efficiency`. Idle cores use the active draw until C-State Control is researched, then use the current C-State idle multiplier. PSU readouts show the live rate as `cr/s`.
 
-There is no free wattage threshold. Low early draw should make the first bill forgiving, not free.
+There is no free wattage threshold after PSU Management. Before that research,
+onboarding power is fully subsidized while the PSU still exposes draw and safe
+headroom.
 
-Credits cannot go negative from power billing. If the next bill cannot be paid, credits clamp to 0 and the PSU shows a 10-second unpaid-credit cutoff warning while powered work can still finish and recover the balance. Earning any credits clears the warning and normal billing resumes; if the warning expires at 0 credits, the system enters `off`, work stops progressing, billing stops, and the player sees an out-of-credits popup. The first popup explains idle draw and billing; later popups are brief. From 0 credits, startup grants a short no-bill bootstrap grace period; earning any credits exits grace and normal billing resumes. If grace expires while credits are still 0, the same 10-second unpaid-credit cutoff warning starts before shutdown.
+Once PSU Management is owned, Credits cannot go negative from power billing. If
+the next bill cannot be paid, Credits clamp to 0 and the PSU shows a 10-second
+unpaid-credit cutoff warning while powered work can still finish and recover the
+balance. Earning Credits clears the warning; expiry powers the system off and
+stops billing. A zero-Credit restart receives a short no-bill bootstrap grace
+period before the same warning can begin.
 
 System power state controls whether work can run:
 
 | State | Work / CRON | Billing | Notes |
 |---|---|---|---|
-| `on` | Allowed | Draw-based billing over time unless bootstrap grace is active at 0 credits | Normal running state |
-| `shuttingDown` | New starts, scheduler pulls, and CRON blocked; active work continues | Bills until active work drains and the shutdown delay completes | Makes graceful power-off deliberate |
+| `on` | Allowed | Subsidized before PSU Management; metered foreground draw or productive offline draw afterward unless bootstrap grace is active | Normal running state |
+| `shuttingDown` | New starts, scheduler pulls, and CRON blocked; active work continues | Uses the same subsidy/metering rule until active work drains | Makes graceful power-off deliberate |
 | `off` | Blocked | Zero | Hardware is greyed except power/start controls |
-| `booting` | Blocked | Bills during startup delay | Returns to `on` after startup completes |
+| `booting` | Blocked | No productive-work bill | Returns to `on` after startup completes |
 
 Booting and shutting-down state should be visible near the player’s current system surface. Before the system layer unlocks, show it on the PSU. After the System Scheduler card exists, show it there instead.
 
 If draw approaches or exceeds available power:
 
-- Overload failure pressure fills once draw exceeds 100% capacity, reaching failure in roughly 10 seconds at the threshold and faster at higher overload.
-- PSU failure immediately powers the computer off, shows a short explanatory popup the first time and a red topbar badge after later trips, and clears active plus queued work; the player must reboot.
+- Unsafe starts are forecast and blocked. Before PSU Management, an existing overloaded workload safely pauses instead of failing.
+- After PSU Management, overload failure pressure fills once draw exceeds 100% capacity, reaching failure in roughly 10 seconds at the threshold and faster at higher overload.
+- A managed PSU failure immediately powers the computer off, shows a short explanatory popup the first time and a red topbar badge after later trips, and clears active plus queued work; the player must reboot.
 - Efficiency drops.
 - Jobs may slow down.
 - Heat increases.
@@ -474,7 +699,7 @@ One tiny CPU doing primitive jobs.
 - Current task state.
 - Credits.
 - Data.
-- PSU draw, capacity, stress, state, and live billing.
+- PSU draw, capacity, stress, state, and the subsidized billed rate.
 
 ### Hidden
 
@@ -508,7 +733,7 @@ HUD resource readouts should expose the credits/data graph without fighting mobi
 ### Tasks
 
 Early tasks should be tiny and direct. The first visible work should be a bit-scale starter pair; byte-scale and cache-sensitive tasks appear only after the player has seen simple CPU operations complete and spent earned resources on research.
-Task credit payouts should match the derived paid operation count for the started parent task, including cache and RAM loading work; data rewards can still mark progression milestones.
+Task Credit payouts should match the exact overlap-aware paid hardware work for the started parent task, including cache and RAM loading work. Data can mark progression milestones only as a first-completion payout and must disappear from the card once the next completion will no longer settle it.
 Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
 Research is the player-facing unlock surface. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
 The task panel should group available work by mechanical category, starting with CPU-bound work and system work; later distributed work should land in its own group rather than blending into the CPU task list.
@@ -519,7 +744,7 @@ Pinned task controls should remain useful for repeatable work: an active pinned 
 |---|---|
 | Fetch Bit | First runnable task; teaches 1 b cache-backed work at 1 Hz |
 | Decode Bit | Visible starter goal that needs a 2 b cache footprint |
-| Bit Flip | Unlocks with Decode Logic and teaches 2 b mutation-style CPU operations |
+| Bit Flip | Unlocks with Decode Logic and teaches a three-operation read/mutate/write recipe |
 | Bit Shift | Unlocks with Decode Logic and introduces 2 b shifted bit work |
 | Byte Copy | Reveals with the byte/cache research group; starts after Byte Operations |
 | Packet Check | Reveals with the byte/cache research group; starts after Cache Mapping |
@@ -535,7 +760,7 @@ Repeatable system tasks are the only tasks CRON v1 can automate. They are system
 | Queue Compaction | After first Tiny Checksum | Repeats scheduler maintenance work that CRON can later automate |
 | Power Telemetry | After first Tiny Checksum | Teaches draw observation before PSU controls are researched |
 | Bus Mirror | Second CPU purchase | Teaches multi-CPU system work after another CPU joins the board |
-| Thermal Probe | Deferred | Reserved for the later Thermal pass |
+| Thermal Probe | Thermal Control | Repeatable diagnostic for heat buildup, cooling headroom, and sustained throughput |
 | Shard Reconcile | Second CPU purchase | Introduces wider repeatable system work for a growing CPU package |
 
 ### Research Compute
@@ -554,8 +779,8 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Research | Appears After | Unlocks |
 |---|---|---|
 | CRON Scheduler | Second CPU purchase | CRON v1 timer automation for visible repeatable system tasks |
-| PSU Management | Deferred | Advanced PSU tuning when it exposes a new power decision |
-| Thermal Control | Deferred | Thermal controls, cooling loop upgrades, and cooling tradeoffs |
+| PSU Management | System Scheduler plus first Power Telemetry | Ends onboarding subsidy; enables metered billing, unpaid cutoff, and destructive PSU failure controls |
+| Thermal Control | Workshop entry | Thermal status, cooling tiers, overclocking, and their power/heat tradeoff |
 
 ### Progressive Task And Research Reveal
 
@@ -572,20 +797,20 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
 | Byte Operations, Cache Mapping, and Benchmark Harness research | Decode Logic research | Reveal together as the byte/cache research group; Cache Mapping still requires Byte Operations plus Byte Copy, and Benchmark Harness still requires Cache Mapping plus Packet Check and clock tuning |
 | Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
-| Click Rate Tuning research | Local Scheduler research | Improves manual tap-and-hold task dispatch from the default 110 ms repeat to level-based 10-80 Hz while keeping broad auto-repeat deferred |
+| Hold-repeat accessibility | Available in settings | Changes input comfort only and never increases the intended progression ceiling |
 | RAM Control research | Local Scheduler research | Appears alongside System Scheduler and reveals a paid RAM bay; the first RAM Stick purchase installs 256 b at 1 Hz |
 | System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
-| CPU tier research | kHz after System Automation; later tiers after previous tier research | Unlocks the next level-1 CPU package tier from kHz through PHz using the CSV research costs, and unlocks the matching RAM tier at the same time |
+| CPU tier research | kHz after System Automation; later tiers after previous tier research | Unlocks level-1 kHz, MHz, and GHz CPU/RAM tiers. Physical core clocks stop at 6 GHz; larger values are aggregate infrastructure throughput. |
 | C-State Control research | kHz CPU Research | Stays in research as a global `Level up` item after unlock until max C-State level; levels reduce idle CPU draw only across every system |
 | Memory Voltage Modifier research | RAM Control and kHz CPU Research | Stays in research as a global `Level up` item after unlock until max level; levels reduce idle RAM draw only, with repeat costs starting at 100,000 credits and multiplying by 1.8 |
-| PSU readouts | New save | Shows draw, capacity, load/stress, state, cr/s, and overload failure pressure from the first screen |
+| PSU readouts | New save | Shows draw, capacity, load/stress, state, and subsidized billed rate from the first screen |
 | PSU Capacity upgrade | New save | Lets the player buy more PSU wattage with credits from the first screen |
 | CRON module | CRON Scheduler research | CRON appears at the top of the system board as a paid CRON Job Slot install after research is bought |
 | Memory Scrub, Queue Compaction, and Power Telemetry | After first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
 | CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
 | Bus Mirror and Shard Reconcile | Second CPU purchase | Later repeatable system tasks for multi-CPU system management |
-| PSU Management research | Deferred | Reserved until it exposes a new power decision |
-| Thermal Control research | Deferred | Reserved for the later Thermal pass |
+| PSU Management research | System Scheduler research and first Power Telemetry | Costs 300 Credits / 2 Data, ends the onboarding subsidy, and enables billing/failure consequences after countermeasures are visible |
+| Thermal Control research | Workshop entry | Reveals Thermal status, cooling installation, overclock presets, and Thermal Probe |
 | Broad auto-repeat | Deferred until later scheduler/automation layers | CRON v1 is the scoped early timer; general task auto-repeat stays out of the bit-scale opening |
 
 ---
@@ -722,7 +947,7 @@ Second CPU unlocks after:
 
 ### Major Rule
 
-When the player buys another CPU, CRON Scheduler research becomes visible, but the CRON board module stays hidden until that research is bought. Empty sockets install a level-1 CPU package matching the system's existing CPU tier; CPU purchases no longer copy another package's level, cores, cache, cache speed, or scheduler slots. The next CPU package cost scales exponentially by target package count: CPU #2 costs 2x the system CPU tier's base price, CPU #3 costs 4x, CPU #4 costs 8x, and so on. Each added CPU package also reduces every CPU package's effective efficiency by 25%, so a 2-CPU system uses 75% of base efficiency, a 3-CPU system uses 56.25%, and later CPUs continue the same multiplier. RAM is already introduced by RAM Control before System Scheduler, and PSU stress has been visible since the start; this stage is where repeatable system tasks, power-state strategy, and broader system building become player-facing. Advanced PSU tuning and Thermal are deferred until they create new decisions.
+When the player buys another CPU, CRON Scheduler research becomes visible, but the CRON board module stays hidden until that research is bought. Empty sockets install a level-1 CPU package matching the system's existing CPU tier; CPU purchases no longer copy another package's level, cores, cache, cache speed, or scheduler slots. The next CPU package cost scales exponentially by target package count: CPU #2 costs 2x the system CPU tier's base price, CPU #3 costs 4x, CPU #4 costs 8x, and so on. Each added CPU package also reduces every CPU package's effective efficiency by 25%, so a 2-CPU system uses 75% of base efficiency, a 3-CPU system uses 56.25%, and later CPUs continue the same multiplier. RAM is already introduced by RAM Control before System Scheduler, and PSU stress has been visible since the start; this stage is where repeatable system tasks, power-state strategy, and broader system building become player-facing. Workshop then reveals Thermal when cooling and overclocking create a real sustained-performance decision.
 
 ### New Mechanics
 
@@ -765,16 +990,26 @@ CRON v1 rules:
 - The default minimum interval is 60 seconds after a CRON Job Slot exists.
 - Each `cronInterval` upgrade lowers the minimum interval by 1 second, with credit costs scaling steeply and data costs scaling moderately so low-second automation remains a long-term target.
 - CRON skips a tick if the same task is already active or queued, if the task is blocked, if the target scheduler queue is full, or if the system is `off`, `booting`, or `shuttingDown`.
-- Skipped or offline time does not catch up later. A missed run is simply missed.
+- Foreground CRON does not replay arbitrary missed timer ticks. During capped offline simulation, CRON may renew the one configured standing order when its batch completes; finite schedules and meaningful choices never auto-catch-up.
 - Adding work to the queue through CRON creates a short power spike, so automation interacts with PSU capacity and power billing instead of being free.
 
 ### Power Supply Role
 
-The PSU is visible from the first screen. It shows draw, capacity, load, state, live billing, prominent overload failure pressure when draw exceeds capacity, and a cheap credits-only wattage upgrade so the player immediately understands that powered-on idle time has a cost and headroom can be bought. PSU Management research is deferred until advanced tuning or telemetry exposes a new player-facing decision. The power supply determines whether the system can support active hardware draw reliably. Tasks do not spend or require power directly.
+The PSU is visible from the first screen. It shows draw, capacity, load, state,
+the subsidized billed rate, and a cheap Credits-only wattage upgrade so the
+player learns headroom before it can destroy work. PSU Management appears after
+System Scheduler plus Power Telemetry and explicitly ends that subsidy. Tasks
+do not spend or require power directly; hardware doing work creates draw.
 
-Power is paid over time while the system is powered on. The early draw curve should be tiny but meaningful: the starter CPU draws `0.1 uW` and bills `0.1 cr/s`, active starter work should be profitable, and idling with positive credits should slowly drain money. Fully `off` systems bill zero, grey hardware, and keep hardware edits plus power/start controls active; they cannot start work, dispatch queues, or run CRON. If billing would take credits below 0, credits clamp at 0 and the PSU shows a 10-second unpaid-credit cutoff warning; if the warning expires, the system emergency-shuts down and shows a first-time explanatory popup or a brief repeat popup. Starting again from 0 credits provides a short bootstrap grace window before the same warning applies.
+Before PSU Management, the starter `0.1 uW` draw is fully subsidized and an
+unsafe start is blocked; an already-running overload safely pauses without
+destructive loss. After research, actual draw is paid over time at `1 cr/s` per
+`1 uW`, so that same draw projects `0.1 cr/s`. Fully `off` systems bill zero and
+block work/CRON. Managed billing clamps at zero Credits, shows a 10-second
+unpaid cutoff, and then emergency-shuts down with first/repeat notices. A
+zero-Credit restart has a short bootstrap grace window.
 
-If active draw exceeds PSU capacity:
+After PSU Management, if active draw exceeds PSU capacity:
 
 - Overload failure pressure fills in a large centered PSU header meter, taking about 10 seconds just above 100% load and filling faster at higher overload.
 - The whole PSU module flashes red while draw is above the rated power.
@@ -796,24 +1031,37 @@ The player learns sustained performance.
 
 ### Unlock Condition
 
-Cooling is deferred beyond the current second-CPU automation slice. When it returns, it should unlock after:
+Cooling unlocks in Workshop after:
 
 - A visible thermal problem or tradeoff exists.
-- Player completes Thermal Control research.
+- The player completes Thermal Control research.
 - Player first sees heat and cooling tradeoffs as part of system management.
 
-Thermal Control will be the player-facing gate for cooling controls when the Thermal pass returns. Until then, cooling can be represented internally for balance or future migration, but the UI should not ask the player to manage it.
+Thermal Control is the player-facing gate. Before it, saved systems retain a
+normalized default thermal model but no cooling or overclock controls are
+shown. After it, each Fleet system exposes heat buildup, current status,
+sustained-throughput impact, cooling choice, and overclock choice.
 
 ### Cooling Tiers
 
 | Tier | Effect |
 |---|---|
+| No cooling | Baseline state; stock clock only and no auxiliary draw |
 | Passive heatsink | Raises heat threshold |
 | Fan cooling | Improves cooldown rate |
 | Case airflow | Reduces system heat buildup |
 | Liquid cooling | Enables stronger overclocking |
-| Rack airflow | Server-scale cooling later |
-| Data center cooling | Facility-scale cooling later |
+
+Rack airflow and facility cooling are separate aggregate infrastructure
+capacity profiles rather than installable PC cooling tiers.
+
+### Overclock Presets
+
+Workshop exposes four deterministic presets from stock through aggressive.
+Each preset owns explicit clock, power, and heat multipliers. A preset can
+increase peak work rate only when cooling and PSU headroom support it; otherwise
+thermal throttling reduces effective throughput. The UI shows those projections
+before selection and never asks the renderer to derive simulation outcomes.
 
 ### Design Rule
 
@@ -848,7 +1096,14 @@ Expansion slots unlock after:
 
 Accelerators should specialize. They should not make CPUs obsolete.
 
-The scheduler should eventually route workloads automatically.
+Each system owns explicit expansion-slot state. GPU and NPU modules expose
+device memory, minimum batch fit, specialized throughput, idle/active power,
+and heat. The player can install/remove modules and select CPU, GPU, NPU, or
+automatic routing per compatible workload class. Contending work shares the
+selected accelerator deterministically; an unavailable or non-fitting route
+falls back to CPU only when the saved fallback policy permits it. The Work and
+Workshop surfaces show that routing evidence instead of implying that an
+accelerator accelerated incompatible work.
 
 ---
 
@@ -857,36 +1112,34 @@ The scheduler should eventually route workloads automatically.
 ### Theme
 
 The player stops building only one machine and begins managing a small fleet.
-This is the Multi-System Rack Phase: the rack is first a visual fleet surface,
-not full server-rack infrastructure.
+This is the Workshop Fleet phase. The existing rack-like list is a Fleet
+surface, not full server-rack infrastructure.
 
 ### Unlock Condition
 
-The Multi-System Rack Phase unlocks through `System Catalog` research after the
-CRON/system-bus slice. That research reveals the visual rack and the system
-purchase path for buying a second PC. `Custom Machine Assembly` no longer gates
-the v1 custom builder separately; the custom path appears with the catalog.
+Workshop Fleet unlocks through `System Catalog` research after the
+CRON/system-bus slice. That research reveals the named Fleet and validated
+preset purchases. `Custom Machine Assembly` later reveals Advanced mode once
+the player has used the safer catalog path.
 
 ### New Mechanics
 
 - Buy additional systems.
-- Build custom systems through tiered builder choices.
-- View owned systems in a rack-style surface.
+- Buy validated presets or build a custom system through Advanced choices.
+- View, name, select, and manage owned systems in the Fleet surface.
 - Assign eligible jobs to one selected system.
 - Compare machine roles.
 - Run chunked single-system tasks.
 
-### Visual Rack Rule
+### Visual Fleet Rule
 
-The rack surface grows from ownership, not from theoretical capacity. It should
-show exactly one visible slot for each owned system. Completing a custom build
-adds one occupied slot. Do not show empty
-future rack capacity, server rack units, rack power distribution, rack heat, or
-backplane bandwidth in this phase. Those are Stage 10 rack mechanics.
+The Fleet surface grows from ownership, not theoretical capacity. It shows one
+named entry per owned PC-scale system; buying a preset or Advanced build adds
+one entry. It does not display server rack units, rack power distribution, rack
+heat, or backplane bandwidth—those belong to Stage 10 infrastructure.
 
-Each visible slot maps to one system and should keep the system's power state,
-role, current work, and upgrade/build entry points easy to inspect. A powered-off
-system still occupies its slot.
+Each entry keeps power state, role, active work, system selection, and explicit
+management actions easy to inspect. A powered-off system remains visible.
 
 ### Preconfigured Systems
 
@@ -897,16 +1150,17 @@ system still occupies its slot.
 | Compile Box | CPU/RAM-heavy Compile Code and Regression Test work |
 | Render Brick | Core-heavy Render Frame work before distributed rendering exists |
 
-Preconfigured systems are deferred from the current builder UI. The data can
-remain available for later template work, but the acquisition view should not
-show premade cards, premade/custom mode tabs, or predefined complete-system
-configs until that path is reintroduced.
+Preset systems are a first-class purchase path. Every preset is validated below
+70% idle PSU load and 85% representative peak load and shows effective
+throughput, idle/peak power, peak operating cost, break-even profitability, and
+thermal-adjusted comparison against the selected Fleet system. Advanced mode
+exposes the same projections for a custom draft.
 
 ### Tiered Custom Machine Builder
 
-The custom builder is the deliberate purchase path. It appears with `System
-Catalog` and should expose compatible v1 choices without requiring separate
-`Custom Machine Assembly` research.
+The custom builder is the deliberate Advanced purchase path. It appears after
+`Custom Machine Assembly` and exposes compatible choices with the same
+model-owned projections as presets.
 
 | Tier | Builder Scope |
 |---|---|
@@ -916,10 +1170,9 @@ Catalog` and should expose compatible v1 choices without requiring separate
 
 The builder creates one complete system at a time in the same System
 Scheduler/RAM/CPU package/cache/PSU layout as the normal in-game system view.
-It does not use premade cards, premade/custom mode tabs, predefined complete
-system configs, or a separate module picker. CPU and RAM expose a clear `Tier`
-header whose selectable values are only the clock-scale tiers:
-Hz/kHz/MHz/GHz/THz/PHz. After a tier is selected, the player configures the
+CPU and RAM expose a clear `Tier` header whose selectable values are the
+physical clock-scale tiers Hz/kHz/MHz/GHz, capped at 6 GHz. After a tier is
+selected, the player configures the
 system through the same compact +/- upgrade-style controls used by the normal
 system view for CPU package count in the CPU header, core count, CPU
 frequency, cache capacity/frequency, RAM stick count, RAM capacity/frequency,
@@ -929,7 +1182,7 @@ the selected CPU package. The RAM header should report the configured channel
 topology, such as single channel or dual channel, instead of a generic build
 label, and the builder-only RAM preview should omit runtime channel/write
 status strips. The builder must not impose a fixed low core-count ceiling;
-resources and PSU capacity are the meaningful limits. Builder PSU capacity uses
+resources, rendering practicality, and PSU capacity are the meaningful limits. Builder PSU capacity uses
 the same level-by-level wattage and credit cost curve as the normal PSU Capacity
 upgrade.
 Multi-CPU previews should render each CPU as an individual CPU package/core
@@ -948,15 +1201,15 @@ and the RAM view should show RAM efficiency alongside CPU efficiency.
 
 Catalog and builder CPU choices are research-gated by unlocked CPU tiers, and
 each CPU purchase path instantiates level-1 packages rather than copied package
-specs. The RAM bay should offer only the CPU-unlocked Hz/kHz/MHz/GHz/THz/PHz
+specs. The RAM bay should offer only the CPU-unlocked Hz/kHz/MHz/GHz
 tier modules, with RAM sticks added or removed through the RAM header stepper
 after tier selection. Selection configures the build only; it
 never buys the part immediately. The builder header should read `System Builder`,
 show only the total buy price, and hold the review/confirm purchase action. It
 should validate costs before purchase, require explicit purchase confirmation,
 render the build as a regular system-board preview without runtime progress
-bars, allow risky PSU choices with warnings, then add exactly one owned-system
-rack slot. Leaving Store for the rack or a system view and returning to Store
+bars, warn clearly about an unsafe representative peak load, then add exactly
+one owned Fleet system. Leaving Store for Fleet or a system view and returning to Store
 should preserve the current custom-builder draft until the app state changes the
 available builder choices.
 
@@ -999,9 +1252,9 @@ Systems cooperate.
 
 Networking unlocks after the player owns multiple systems.
 
-Networking is not part of the Multi-System Rack Phase. Owning multiple systems
-does not automatically grant shared queues, network routing, sharding, or
-distributed compute.
+Owning multiple systems does not automatically grant cross-system compute.
+Completing the Local Fabric gate reveals explicit links, storage/network
+capacity, shared queues, placement, and the Cluster Controller buffer level.
 
 ### New Mechanics
 
@@ -1037,9 +1290,9 @@ Complexity appears later through sharding, distributed computing, SLA jobs, and 
 
 Large jobs are split across machines.
 
-This stage remains deferred during the Multi-System Rack Phase. Compile Code,
-Render Frame, and Regression Test are chunked single-system tasks until
-networking and cluster scheduling are introduced.
+Compile Code, Render Frame, and Regression Test remain chunked single-system
+jobs. Local Fabric adds separate distributed workloads whose saved DAGs include
+transfer, shard compute, barrier, reduce, and commit phases.
 
 ### Sharding
 
@@ -1123,9 +1376,8 @@ Servers and racks unlock after:
 
 A rack contains servers and has its own constraints.
 
-The Stage 7 visual rack is only an owned-system display. The constraints below
-belong to true server/rack infrastructure and should stay hidden until this
-stage unlocks.
+The Stage 7 Fleet is only an owned PC-system display. The constraints below
+belong to true server/rack infrastructure and stay hidden until this stage.
 
 | Constraint | Meaning |
 |---|---|
@@ -1584,16 +1836,16 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 13 | Second CPU package purchase | Transitions to full system building |
 | 14 | CRON Scheduler research reveal | Shows automation research after the second CPU purchase; CRON module stays hidden until researched |
 | 15 | CRON Scheduler | Adds scoped timer automation for visible repeatable system tasks |
-| 16 | CPU tier research | Unlocks kHz after System Automation; completing kHz reveals MHz, completing MHz reveals GHz, and the chain continues through PHz level-1 CPU package purchases |
+| 16 | CPU tier research | Unlocks kHz after System Automation, then MHz and GHz level-1 packages, with physical core clocks capped at 6 GHz |
 | 17 | C-State Control | Adds global idle CPU draw reduction after kHz CPU Research and levels from the research list until max |
 | 18 | Memory Voltage Modifier | Adds RAM idle draw reduction after RAM Control and kHz CPU Research and levels from the research list until max |
-| 19 | PSU Management | Deferred until advanced power tuning exposes a new decision |
-| 20 | Thermal Control | Deferred until the cooling/power tradeoff is ready |
-| 21 | Multi-system rack phase | Introduces the owned-system rack surface |
-| 22 | Preconfigured systems | Adds ready-made system purchases |
-| 23 | Tiered custom machine builder | Adds curated custom system construction |
+| 19 | PSU Management | Ends the onboarding subsidy after System Scheduler and Power Telemetry, enabling billing and failure consequences |
+| 20 | Thermal Control | Workshop gate for thermal status, cooling, and overclocking |
+| 21 | Workshop Fleet | Introduces named, owned PC-scale systems |
+| 22 | Preset systems | Adds validated role-oriented system purchases |
+| 23 | Advanced machine builder | Adds projected custom system construction |
 | 24 | Chunked single-system tasks | Adds Compile Code, Render Frame, and Regression Test without distributed compute |
-| 25 | Multiple systems | Fleet management begins; each owned system adds one visible rack slot |
+| 25 | Multiple systems | Fleet management begins; each owned system adds one named Fleet entry |
 | 26 | Expansion slots | Adds specialization |
 | 27 | GPU/NPU | Adds specialized workloads |
 | 28 | Workload routing | Scheduler becomes smarter within and later between systems |
@@ -1643,7 +1895,10 @@ These should be built on existing systems, not introduced as unrelated mechanics
 
 ## 13. Build Notes for Implementation
 
-### 13.1 Minimum Viable Prototype Scope
+### 13.1 Historical Minimum Viable Prototype Scope
+
+This subsection records the original prototype checkpoint and is not the
+current implementation boundary.
 
 The first prototype should include only:
 
@@ -1662,7 +1917,10 @@ The first prototype should include only:
 
 Do not implement auto-repeat, RAM, power, heat, cooling, networking, data centers, or SLA in the first playable prototype unless the early loop already feels good.
 
-### 13.2 First Vertical Slice Scope
+### 13.2 Historical First Vertical Slice Scope
+
+This subsection records the first vertical-slice acceptance that preceded the
+Long-Form Planetary Campaign.
 
 A strong first vertical slice should include progression through:
 
@@ -1676,37 +1934,38 @@ A strong first vertical slice should include progression through:
 8. Second CPU package unlock.
 9. Second CPU purchase reveals CRON Scheduler research; PSU has been visible since the start.
 10. CRON Scheduler reveals a paid CRON Job Slot install; buying it unlocks CRON v1 for visible repeatable system tasks only.
-11. PSU Management remains deferred until it exposes a new power decision.
-12. Thermal Control remains deferred until the cooling/power tradeoff is ready.
+11. PSU Management remained deferred until it exposed a new power decision.
+12. Thermal Control was deferred at that checkpoint and is now implemented in Workshop.
 
 This validates the most important design promise: complexity appears only after the player understands the previous layer.
 
-### 13.3 Multi-System Rack Phase Scope
+### 13.3 Workshop Fleet Baseline and Long-Form Expansion
 
-The next pre-live phase should include:
+The earlier Fleet baseline included the following historical constraints:
 
 - A clean save reset for this phase instead of preserving obsolete prototype
   state.
-- A rack-style owned-system view that grows exactly one visible slot per owned
-  system.
-- A custom-only acquisition path; preconfigured system purchase UI is deferred.
+- A former rack-style owned-system view that grew one entry per owned system.
+- A custom-only acquisition path before presets were introduced.
 - A tiered custom machine builder that creates one complete system at a time.
 - Chunked single-system tasks: Compile Code, Render Frame, and Regression Test.
 - Per-system task targeting and local system constraints.
 
-This phase should not include shared queues, networking, sharding, distributed
-computing, true server rack constraints, data centers, or SLA contracts. Those
-remain later stages until implementation and tests explicitly prove otherwise.
+The current build continues directly from that baseline through
+shared queues, networking, sharding, distributed computing, true server racks,
+data centers, SLA contracts, availability zones, regions, and planetary
+routing. Each layer ships as a playable, tested vertical slice rather than a
+hidden placeholder.
 
 The RAM block/channel overhaul uses save version 4 and intentionally resets
 v3 and older saves to a clean initial state. The older RAM residency stream is
 incompatible with fixed per-stick block addresses, channel striping state, and
 Memory Voltage Modifier levels.
 
-The CPU child queue overhaul uses save version 6 and intentionally resets v5
-and older saves to a clean initial state. The older scheduler queue state is
-incompatible with entry-based System Scheduler parents, CPU scheduler child
-entries, parent queue entry IDs, and per-work-unit chunk metadata.
+The CPU child queue overhaul used save version 6. The long-form campaign uses a
+clean save-v7 reset because exact amounts, departure snapshots, Automation
+Buffer, campaign state, and deterministic RNG are incompatible with the v6
+prototype schema.
 
 ### 13.4 Full Midgame Scope
 
@@ -1749,11 +2008,11 @@ Late game should include:
 5. RAM should become visible only when the player has enough parallelism for active/intermediate staging to matter.
 6. Cache, RAM, and storage load speeds should be meaningful upgrade paths.
 7. Tasks should not require power directly; active hardware creates power draw and stress.
-8. Power should be billed over time from actual draw with no free threshold; the starting draw should be tiny but meaningful.
+8. Power draw and headroom are visible immediately, but onboarding is subsidized until PSU Management; after that gate, actual draw is billed with no free threshold.
 9. CPU draw should scale from package tier, package level, clock, efficiency, active core count, and C-State idle multipliers.
-10. Power billing should clamp at 0 credits, show a 10-second unpaid-credit cutoff warning before auto-shutdown, and provide a short no-bill bootstrap restart from 0 credits.
+10. Managed power billing should clamp at 0 Credits, show a 10-second unpaid cutoff before auto-shutdown, and provide a short no-bill bootstrap restart from zero.
 11. Power state controls should make `off` useful for configuration and zero billing while clearly blocking work and CRON.
-12. Power should first show stress and throttle without rewinding tasks; hard failure risk belongs to later, higher-scale reliability systems.
+12. Before PSU Management, unsafe starts block and existing overload pauses safely; destructive PSU failure belongs only after the player owns visible countermeasures.
 13. CRON v1 should repeat only visible repeatable system tasks, skip blocked or duplicate work, and never catch up missed runs.
 14. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability while adding an active-power tradeoff.
 15. Higher SLA jobs should pay more because they require safer infrastructure.

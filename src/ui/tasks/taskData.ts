@@ -402,7 +402,11 @@ export const getActiveTaskFor = (task: UiTask, activeTasks: UiActiveTask[]) =>
 
 export const getTaskRewardCosts = (task: UiTask): DisplayCost[] => {
   const credits = firstNumber(task.rewardCredits, task.rewards?.credits);
-  const data = firstNumber(task.rewardData, task.rewards?.data);
+  const data = firstNumber(
+    task.firstCompletionData,
+    task.rewardData,
+    task.rewards?.data,
+  );
   const costs: DisplayCost[] = [];
   if (credits && credits > 0) costs.push({ resource: "credits", amount: credits });
   if (data && data > 0) costs.push({ resource: "data", amount: data });

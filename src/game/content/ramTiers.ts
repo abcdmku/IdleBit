@@ -1,12 +1,23 @@
 import type { Cost, CpuTierId, ResearchId } from "../types";
+import { V1_HARDWARE_LIMITS } from "../hardwareLimits";
 import { getCpuTierLevelDefinition } from "./cpuTiers";
+import {
+  amount,
+  amountAdd,
+  amountMultiply,
+  amountPow,
+  amountRound,
+  type Amount,
+  type AmountInput,
+} from "../amount";
+import { roundedCost } from "../exactCosts";
 
 export interface RamTierLevelDefinition {
   level: number;
   globalLevel: number;
-  upgradeCost: number;
-  calculatedCost: number;
-  dataCost: number;
+  upgradeCost: Amount;
+  calculatedCost: Amount;
+  dataCost: Amount;
   efficiency: number;
   clockHz: number;
   capacityBits: number;
@@ -16,7 +27,7 @@ export interface RamTierLevelDefinition {
   octChannelBps: number;
   idleMicroWatts: number;
   memoryVoltageIdleMultiplier: number;
-  memoryVoltageCost: number;
+  memoryVoltageCost: Amount;
 }
 
 export interface RamTierDefinition {
@@ -24,19 +35,16 @@ export interface RamTierDefinition {
   name: string;
   unit: string;
   unlockResearchId: ResearchId | null;
-  nextTierResearchCost: number | null;
+  nextTierResearchCost: Amount | null;
   firstGlobalLevel: number;
   levels: RamTierLevelDefinition[];
 }
 
-export const RAM_TIER_MAX_LEVEL = 36;
-export const RAM_TIER_COUNT = 6;
+export const RAM_TIER_MAX_LEVEL = V1_HARDWARE_LIMITS.ramTierLevels;
+export const RAM_TIER_COUNT = 4;
 export const RAM_MAX_LEVEL = RAM_TIER_MAX_LEVEL * RAM_TIER_COUNT;
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: AmountInput): Cost => roundedCost("credits", value);
 
 const roundTo = (value: number, digits: number) => {
   const factor = 10 ** digits;
@@ -56,7 +64,7 @@ const tierMetadata: Array<
     name: "Hz RAM",
     unit: "Hz",
     unlockResearchId: null,
-    nextTierResearchCost: 2_000_000,
+    nextTierResearchCost: amount("2000000"),
     tierIndex: 0,
     baseEfficiency: 10,
     efficiencyDecay: 0.92,
@@ -67,7 +75,7 @@ const tierMetadata: Array<
     name: "kHz RAM",
     unit: "kHz",
     unlockResearchId: "cpuTierKhz",
-    nextTierResearchCost: 20_000_000_000,
+    nextTierResearchCost: amount("20000000000"),
     tierIndex: 1,
     baseEfficiency: 6,
     efficiencyDecay: 0.93,
@@ -78,7 +86,7 @@ const tierMetadata: Array<
     name: "MHz RAM",
     unit: "MHz",
     unlockResearchId: "cpuTierMhz",
-    nextTierResearchCost: 200_000_000_000_000,
+    nextTierResearchCost: amount("200000000000000"),
     tierIndex: 2,
     baseEfficiency: 3,
     efficiencyDecay: 0.94,
@@ -89,32 +97,10 @@ const tierMetadata: Array<
     name: "GHz RAM",
     unit: "GHz",
     unlockResearchId: "cpuTierGhz",
-    nextTierResearchCost: 200_000_000_000_000_000,
+    nextTierResearchCost: null,
     tierIndex: 3,
     baseEfficiency: 2,
     efficiencyDecay: 0.96,
-    minEfficiency: 0.5,
-  },
-  {
-    id: "thz",
-    name: "THz RAM",
-    unit: "THz",
-    unlockResearchId: "cpuTierThz",
-    nextTierResearchCost: 2_000_000_000_000_000_000,
-    tierIndex: 4,
-    baseEfficiency: 1,
-    efficiencyDecay: 0.98,
-    minEfficiency: 0.5,
-  },
-  {
-    id: "phz",
-    name: "PHz RAM",
-    unit: "PHz",
-    unlockResearchId: "cpuTierPhz",
-    nextTierResearchCost: null,
-    tierIndex: 5,
-    baseEfficiency: 0.5,
-    efficiencyDecay: 0.99,
     minEfficiency: 0.5,
   },
 ];
@@ -127,10 +113,10 @@ const getEfficiency = (
 ) => roundTo(Math.max(minimum, baseEfficiency * decay ** (level - 1)), 1);
 
 const getMemoryVoltageCostValue = (level: number) => {
-  let cost = 100_000;
+  let cost = amount("100000");
 
   for (let currentLevel = 2; currentLevel <= level; currentLevel += 1) {
-    cost = Math.round(cost * 1.8);
+    cost = amountRound(amountMultiply(cost, "1.8"));
   }
 
   return cost;
@@ -139,8 +125,21 @@ const getMemoryVoltageCostValue = (level: number) => {
 const getMemoryVoltageMultiplier = (level: number) =>
   roundTo(Math.max(0.02, 0.74 - level * 0.02), 2);
 
-const getRamCapacityCost = (cpuStyleCost: number, tierLevelIndex: number) =>
-  Math.round(cpuStyleCost * 2 ** tierLevelIndex);
+const getRamCapacityCost = (cpuStyleCost: Amount, tierLevelIndex: number) =>
+  amountRound(amountMultiply(cpuStyleCost, amountPow(2, tierLevelIndex)));
+
+const getRamDataCost = (tierIndex: number, tierLevelIndex: number) => {
+  const capacityBits = amountMultiply(
+    "256",
+    amountMultiply(amountPow(2, tierLevelIndex), amountPow(1024, tierIndex)),
+  );
+  return amountRound(
+    amountMultiply(
+      amountMultiply(capacityBits, "0.125"),
+      amountAdd("1", amountMultiply("0.35", tierIndex)),
+    ),
+  );
+};
 
 export const ramTierDefinitions: RamTierDefinition[] = tierMetadata.map((tier) => {
   const firstGlobalLevel = tier.tierIndex * RAM_TIER_MAX_LEVEL + 1;
@@ -163,7 +162,7 @@ export const ramTierDefinitions: RamTierDefinition[] = tierMetadata.map((tier) =
       globalLevel,
       upgradeCost: cpuStyleCost,
       calculatedCost: getRamCapacityCost(cpuStyleCost, index),
-      dataCost: Math.round((capacityBits / 8) * (1 + tier.tierIndex * 0.35)),
+      dataCost: getRamDataCost(tier.tierIndex, index),
       efficiency,
       clockHz,
       capacityBits,

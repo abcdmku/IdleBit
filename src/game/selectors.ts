@@ -1,11 +1,36 @@
+import { getVisibleAutomationBuffer } from "./automation";
+import {
+  amount,
+  amountCompare,
+  amountDivide,
+  amountMultiply,
+  amountSubtract,
+  amountToSafeNumber,
+} from "./amount";
+import { getVisibleCloudState } from "./cloudSelectors";
+import { normalizeCloudForGameState } from "./cloudGame";
+import {
+  getVisibleLiveOperations,
+  syncLiveOperationsAllocation,
+} from "./liveOperations";
+import { canAfford, projectExactCosts, syncExactResources } from "./economy";
+import { halfRefundExact } from "./exactCosts";
+import { getVisibleInfrastructureWithWorkloads } from "./distributedDefinitions";
+import {
+  getCampaignBottleneck,
+  getVisibleCampaignChapter,
+} from "./campaign";
 import { hasResearch, researchDefinitions } from "./content/research";
+import {
+  overclockPresetDefinitions,
+  workshopCoolingTierDefinitions,
+} from "./content/cooling";
+import { acceleratorSkuDefinitions, getAcceleratorSkuDefinition } from "./content/accelerators";
 import {
   BOOTLOADER_MAX_LEVEL,
   getGlobalBootloaderLevel,
 } from "./bootloader";
 import {
-  CLICK_RATE_MAX_LEVEL,
-  getClickRateLevel,
   getVisibleInputConfig,
 } from "./clickRate";
 import { getGlobalCStateLevel } from "./cState";
@@ -22,6 +47,13 @@ import {
   getMachineSelectionCost,
   machineTemplates,
 } from "./content/machines";
+import {
+  getMachineSelectionBlockedReason,
+  isAdvancedMachineBuilderUnlocked,
+  isComponentSkuUnlocked,
+  isMachineTemplateUnlocked,
+  projectMachineSelection,
+} from "./machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
   getUpgradeCount,
@@ -29,11 +61,9 @@ import {
   getUpgradeDowngradeBlockedReason,
   getUpgradeRefund,
 } from "./content/upgrades";
-import { canAfford } from "./economy";
 import {
   DEADLOCK_FAILURE_SECONDS,
   POWER_OVERLOAD_FAILURE_SECONDS,
-  estimateJobSeconds,
   getActiveRamWriteBandwidthBps,
   getActiveRamWriteBlockKeys,
   getAvailableSchedulerSlots,
@@ -41,12 +71,14 @@ import {
   getCacheLoadCycles,
   getDeadlockCooldownRate,
   getHardwareCacheBits,
+  getBaseHardwareDrawWatts,
   getMemoryCapacityBits,
   getCoolingReliabilityBonus,
   getBilledPowerWatts,
   getCpuMatchEfficiency,
   getHardwareDrawWatts,
   getPowerCostPerSecond,
+  getPowerCostPerSecondExact,
   getPowerEfficiency,
   getPowerOverloadRate,
   getPsuCapacityWatts,
@@ -74,15 +106,20 @@ import {
   getPsuWatts,
   getRamBits,
   getRamSpeedMt,
+  isPsuManagementUnlocked,
   getMilestone,
   getStage,
   getStageLabel,
   syncCoreSchedulers,
-  getUnlockedCpuTierDefinitions,
   getUnlockedRamTierDefinitions,
-  getMaxUnlockedRamLevel,
 } from "./progression";
-import { ensureSystems, materializeSystem, syncSelectedSystemRuntime } from "./systems";
+import {
+  ensureSystems,
+  getFleetSystemLimitBlockedReason,
+  materializeSystem,
+  syncSelectedSystemRuntime,
+} from "./systems";
+import { getTaskBatchProjection, getStoredTaskRewardCredits } from "./taskBatches";
 import {
   getAvailableTasks,
   getAvailableUpgrades,
@@ -92,6 +129,7 @@ import {
 } from "./simulation";
 import type {
   ActiveCoreOperation,
+  AdvanceReport,
   CacheResidencySegment,
   GameState,
   MemoryRuntimeState,
@@ -115,6 +153,40 @@ import type {
   VisibleTaskSubtask,
   VisibleUpgrade,
 } from "./types";
+import { getVisibleWorkState } from "./work";
+import {
+  deriveWorkshopThermalSnapshot,
+  getAcceleratorInstallBlockedReason,
+  getCoolingInstallBlockedReason,
+  getOverclockSelectionBlockedReason,
+  getThermalStatusThroughputModifierBps,
+  getWorkshopAcceleratorRoutes,
+  getWorkshopActiveAcceleratorDeviceIds,
+  hasWorkshopSpecializationProof,
+  isWorkshopSpecializedComputeUnlocked,
+  isWorkshopThermalControlsUnlocked,
+  isWorkshopThermalVisible,
+  projectWorkshopSystemPower,
+} from "./workshop";
+import {
+  WORKSHOP_STORAGE_PAID_WORK_UNITS,
+  WORKSHOP_STORAGE_SERVICE_VALUE_MULTIPLIER,
+  getWorkshopStorageInstallBlockedReason,
+  getWorkshopStoragePowerHeat,
+  getWorkshopStorageSkuDefinitions,
+  getWorkshopStorageWorkloadBlockedReason,
+  getWorkshopStorageWorkloadDurationMs,
+  getWorkshopStorageWorkloadProgressBps,
+  isWorkshopStorageUnlocked,
+  startWorkshopStorageWorkload,
+  workshopStorageWorkloadDefinition,
+} from "./workshopStorage";
+import {
+  getLocalNetworkInstallBlockedReason,
+  getLocalNetworkSkuDefinitions,
+  getLocalNetworkSkuId,
+  isLocalNetworkUnlocked,
+} from "./localNetwork";
 
 const getCacheFit = (
   state: GameState,
@@ -127,7 +199,12 @@ const getCacheFit = (
 };
 
 const getBusyCoreIds = (state: GameState) =>
-  new Set(state.activeTasks.flatMap((task) => task.assignedCoreIds));
+  new Set([
+    ...state.activeTasks.flatMap((task) => task.assignedCoreIds),
+    ...(state.liveOperations.systemId === state.selectedSystemId
+      ? state.liveOperations.allocatedCoreIds
+      : []),
+  ]);
 
 const taskFitsCpuHardware = (
   state: GameState,
@@ -281,6 +358,10 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return state.power.state === "booting" ? "System booting." : "System shutting down.";
   }
 
+  if (!isPsuManagementUnlocked(state) && getPsuStress(state) > 1) {
+    return "PSU overload risk; increase capacity before starting work.";
+  }
+
   if (
     state.deadlockProcessLockout ||
     state.activeTasks.some((activeTask) =>
@@ -313,9 +394,6 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
   return null;
 };
 
-const getTaskCanStart = (state: GameState, task: TaskDefinition) =>
-  canAcceptTask(state, task) && getBlockedReason(state, task) === null;
-
 const getTaskCanQueue = (state: GameState, task: TaskDefinition) =>
   getQueueBlockedReason(state, task) === null;
 
@@ -324,6 +402,9 @@ const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
   if (state.power.state !== "on") {
     if (state.power.state === "off") return "System powered off.";
     return state.power.state === "booting" ? "System booting." : "System shutting down.";
+  }
+  if (!isPsuManagementUnlocked(state) && getPsuStress(state) > 1) {
+    return "PSU overload risk; increase capacity before queueing work.";
   }
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
@@ -376,6 +457,12 @@ const getVisibleOperation = (operation: TaskDefinition["operations"][number]): V
   cacheBytes: operation.cacheBytes,
   ramBytes: operation.ramBytes,
   parallel: operation.parallel,
+  acceleratorClass: operation.acceleratorClass ?? null,
+  acceleratorModelMemoryBits: operation.acceleratorModelMemoryBits ?? 0,
+  acceleratorBatchSize: operation.acceleratorBatchSize ?? 1,
+  acceleratorMinimumComputeOperationsPerSecond:
+    operation.acceleratorMinimumComputeOperationsPerSecond ?? 0,
+  acceleratorPreferredKind: operation.acceleratorPreferredKind ?? null,
 });
 
 const getVisibleTaskSubtask = (
@@ -403,20 +490,91 @@ const getVisibleQueue = (state: GameState) =>
     ? state.queueEntries
     : state.queue;
 
-const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => ({
+const getTaskProjection = (
+  state: GameState,
+  task: TaskDefinition,
+  blockedReason: string | null,
+): VisibleTask["projection"] => {
+  const batch = getTaskBatchProjection(state, task);
+  const durationMs = batch.durationMs;
+  const powerCostPerSecond = getPowerCostPerSecondExact(state);
+  const energyCostCredits = amountMultiply(
+    powerCostPerSecond,
+    amountDivide(amount(durationMs), 1_000),
+  );
+  const rewardCredits = batch.rewardCredits;
+  const creditRunwayCovered =
+    amountCompare(state.exactResources.credits, energyCostCredits) >= 0;
+  const creditRunwayMs =
+    amountCompare(powerCostPerSecond, 0) <= 0
+      ? null
+      : creditRunwayCovered
+        ? durationMs
+        : amountToSafeNumber(
+            amountMultiply(
+              amountDivide(state.exactResources.credits, powerCostPerSecond),
+              1_000,
+            ),
+          );
+  const bufferCovered =
+    durationMs <=
+    getVisibleAutomationBuffer(state).maxOfflineMs;
+  return {
+    durationMs,
+    baseDurationMs: batch.baseDurationMs,
+    batchMultiplier: batch.multiplier,
+    logicalWorkUnitCount: batch.logicalWorkUnitCount,
+    paidWorkUnits: batch.paidWorkUnits,
+    rewardCredits,
+    energyCostCredits,
+    netRewardCredits: amountSubtract(rewardCredits, energyCostCredits),
+    creditRunwayMs,
+    creditRunwayCovered,
+    bufferCovered,
+    cacheFits: task.cacheNeedBits <= getHardwareCacheBits(state),
+    ramFits: task.ramNeedBits <= getMemoryCapacityBits(state),
+    pauseReason:
+      blockedReason ??
+      (!creditRunwayCovered
+        ? "Insufficient credit runway."
+        : bufferCovered
+          ? null
+          : "Automation Buffer ends before projected completion."),
+  };
+};
+
+const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => {
+  const blockedReason = getBlockedReason(state, task);
+  const projection = getTaskProjection(state, task, blockedReason);
+  const firstCompletionData = isTaskComplete(state, task)
+    ? task.repeatRewardData
+    : task.firstCompletionData;
+  return ({
   id: task.id,
   name: task.name,
   kind: task.kind,
   category: task.category,
   visibility: task.visibility,
   composition: task.composition,
-  rewardCredits: task.rewardCredits,
-  rewardData: task.rewardData,
+  rewardCredits: amountToSafeNumber(
+    projection.rewardCredits ?? task.rewardCreditsExact,
+  ),
+  // Advertise the exact Data that the next completion will settle. Discovery
+  // Data is first-completion-only; completed repeatable cards must not keep
+  // showing a reward that their repeat path will not pay.
+  rewardData: firstCompletionData,
+  firstCompletionData,
+  repeatRewardData: task.repeatRewardData,
+  completionCount:
+    state.completedTasks[task.id] ?? state.completedJobs[task.id] ?? 0,
   cacheNeedBits: task.cacheNeedBits,
   ramNeedBits: task.ramNeedBits,
   cacheNeedBytes: task.cacheNeedBytes,
   ramNeedBytes: task.ramNeedBytes,
   operationCount: task.operationCount,
+  paidWorkUnits: amountToSafeNumber(
+    projection.paidWorkUnits ?? task.paidWorkUnitsExact,
+  ),
   operations: task.operations.map(getVisibleOperation),
   subtaskCount: task.subtasks.length,
   subtasks: task.subtasks.map(getVisibleTaskSubtask),
@@ -426,11 +584,13 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   workUnitCount: task.workUnitCount,
   workUnitName: task.workUnitName,
   cacheFit: getCacheFit(state, task),
-  canStart: getTaskCanStart(state, task),
+  canStart: canAcceptTask(state, task) && blockedReason === null,
   canQueue: getTaskCanQueue(state, task),
-  blockedReason: getBlockedReason(state, task),
+  blockedReason,
   queueBlockedReason: getQueueBlockedReason(state, task),
-});
+  projection,
+  });
+};
 
 const getRamUsedBytes = (state: GameState) =>
   bitsToBytes(getReservedMemoryBits(state));
@@ -542,7 +702,7 @@ const getRuntimeCacheWriteProgress = (
 ) => {
   if (loaded || !isCacheLoadingRuntime(runtime)) return 1;
   return getCacheProgress(
-    runtime.remainingLoadCycles,
+    amountToSafeNumber(runtime.remainingLoadCycles),
     getCacheLoadCycles(state, operation),
   );
 };
@@ -554,10 +714,16 @@ const getRuntimeCacheIssueProgress = (
 ) => {
   if (loaded || !isCacheLoadingRuntime(runtime)) return 1;
   if (!operation.memoryAction) {
-    return getCacheProgress(runtime.remainingLoadCycles, runtime.totalLoadCycles);
+    return getCacheProgress(
+      amountToSafeNumber(runtime.remainingLoadCycles),
+      amountToSafeNumber(runtime.totalLoadCycles),
+    );
   }
 
-  return getCacheProgress(runtime.remainingCycles, runtime.totalCycles);
+  return getCacheProgress(
+    amountToSafeNumber(runtime.remainingCycles),
+    amountToSafeNumber(runtime.totalCycles),
+  );
 };
 
 const getRuntimeCacheState = (
@@ -851,7 +1017,9 @@ const getRamResidencySegments = (state: GameState): RamResidencySegment[] => {
         runtime.status === "loadingRam" || runtime.memoryState === "ramLoad";
       const progress = loading
         ? clampProgress(
-            1 - runtime.remainingLoadCycles / Math.max(ramLoadCycles, 1),
+            1 -
+              amountToSafeNumber(runtime.remainingLoadCycles) /
+                Math.max(ramLoadCycles, 1),
           )
         : hasPendingRamLoad
           ? 0
@@ -893,16 +1061,20 @@ const getActiveOperationWork = (
   operation: TaskOperationDefinition,
   runtime: ActiveCoreOperation,
 ) => {
-  if (operation.memoryAction && runtime.totalLoadCycles > 0) {
+  const totalCycles = amountToSafeNumber(runtime.totalCycles);
+  const totalLoadCycles = amountToSafeNumber(runtime.totalLoadCycles);
+  const remainingCycles = amountToSafeNumber(runtime.remainingCycles);
+  const remainingLoadCycles = amountToSafeNumber(runtime.remainingLoadCycles);
+  if (operation.memoryAction && totalLoadCycles > 0) {
     return {
-      total: Math.max(runtime.totalCycles, runtime.totalLoadCycles),
-      remaining: Math.max(runtime.remainingCycles, runtime.remainingLoadCycles),
+      total: Math.max(totalCycles, totalLoadCycles),
+      remaining: Math.max(remainingCycles, remainingLoadCycles),
     };
   }
 
   return {
-    total: runtime.totalCycles + runtime.totalLoadCycles,
-    remaining: runtime.remainingCycles + runtime.remainingLoadCycles,
+    total: totalCycles + totalLoadCycles,
+    remaining: remainingCycles + remainingLoadCycles,
   };
 };
 
@@ -975,7 +1147,9 @@ const getCpuExecutionProgress = (operation: ActiveCoreOperation) => {
   }
 
   return clampProgress(
-    1 - operation.remainingCycles / Math.max(operation.totalCycles, 1),
+    1 -
+      amountToSafeNumber(operation.remainingCycles) /
+        Math.max(amountToSafeNumber(operation.totalCycles), 1),
   );
 };
 
@@ -994,10 +1168,10 @@ const getCoreProgress = (
     status: halted ? "deadlocked" : operation.status,
     memoryState: halted ? "deadlock" : operation.memoryState,
     progress: getCpuExecutionProgress(operation),
-    remainingCycles: operation.remainingCycles,
-    totalCycles: operation.totalCycles,
-    remainingLoadCycles: operation.remainingLoadCycles,
-    totalLoadCycles: operation.totalLoadCycles,
+    remainingCycles: amountToSafeNumber(operation.remainingCycles),
+    totalCycles: amountToSafeNumber(operation.totalCycles),
+    remainingLoadCycles: amountToSafeNumber(operation.remainingLoadCycles),
+    totalLoadCycles: amountToSafeNumber(operation.totalLoadCycles),
     cacheBits: definition?.cacheBits ?? 0,
     memoryReservedBytes: operation.memoryReservedBytes,
     memoryReservedBits: operation.memoryReservedBits,
@@ -1036,6 +1210,12 @@ const getVisibleActiveTask = (
     name: definition.name,
     coreId: activeTask.coreId,
     assignedCoreIds: activeTask.assignedCoreIds,
+    batchMultiplier: activeTask.batchMultiplier ?? 1,
+    projectedRewardCredits: getStoredTaskRewardCredits(
+      definition,
+      activeTask.projectedRewardCredits,
+      activeTask.batchMultiplier,
+    ),
     progress: getTaskRuntimeProgress(state, activeTask, definition),
     status: halted ? "deadlocked" : combineStatus(activeTask.coreOperations),
     memoryState: halted ? "deadlock" : combineMemoryState(activeTask.coreOperations),
@@ -1142,8 +1322,8 @@ const getVisibleUpgrade = (
     name: upgrade.name,
     component: upgrade.component,
     accent: upgrade.accent,
-    costs,
-    refunds,
+    costs: projectExactCosts(costs),
+    refunds: projectExactCosts(refunds),
     ...(powerDeltaWatts === null ? {} : { powerDeltaWatts }),
     canAfford: !maxed && canAfford(state, costs),
     canDowngrade: refunds.length > 0 && downgradeBlockedReason === null,
@@ -1385,8 +1565,10 @@ const getResearchComputeTask = (
     name: task.name,
     category: task.category,
     operationCount: task.operationCount,
-    rewardCredits: task.rewardCredits,
-    rewardData: task.rewardData,
+    rewardCredits: visibleTask.rewardCredits,
+    rewardData: visibleTask.rewardData,
+    firstCompletionData: visibleTask.firstCompletionData,
+    repeatRewardData: visibleTask.repeatRewardData,
     cacheNeedBits: task.cacheNeedBits,
     ramNeedBits: task.ramNeedBits,
     requiredCores: task.minCores,
@@ -1401,6 +1583,7 @@ const getResearchComputeTask = (
       : completed
         ? 1
         : 0,
+    projection: visibleTask.projection,
   };
 };
 
@@ -1435,19 +1618,11 @@ const isBootloaderLevelUpResearch = (
   completed &&
   getGlobalBootloaderLevel(state) < BOOTLOADER_MAX_LEVEL;
 
-const isClickRateLevelUpResearch = (
-  state: GameState,
-  researchId: string,
-  completed: boolean,
-) =>
-  researchId === "clickRateTuning" &&
-  completed &&
-  getClickRateLevel(state) < CLICK_RATE_MAX_LEVEL;
-
 const getVisibleResearch = (state: GameState) =>
   researchDefinitions
     .filter(
       (research) =>
+        research.id !== "clickRateTuning" &&
         !isBuilderResearchHidden(state, research.id) &&
         (research.reveal(state) ||
           state.research.completed.includes(research.id)),
@@ -1470,16 +1645,10 @@ const getVisibleResearch = (state: GameState) =>
         research.id,
         savedCompleted,
       );
-      const clickRateLevelUp = isClickRateLevelUpResearch(
-        state,
-        research.id,
-        savedCompleted,
-      );
       const repeatableLevelUp =
         cStateLevelUp ||
         memoryVoltageLevelUp ||
-        bootloaderLevelUp ||
-        clickRateLevelUp;
+        bootloaderLevelUp;
       const completed = savedCompleted && !repeatableLevelUp;
       const canAffordResearch = canAfford(state, costs);
       const requirements = repeatableLevelUp
@@ -1501,7 +1670,7 @@ const getVisibleResearch = (state: GameState) =>
         name: research.name,
         description: research.description,
         grants: research.grants,
-        costs,
+        costs: projectExactCosts(costs),
         canAfford: canAffordResearch,
         canBuy,
         completed,
@@ -1524,7 +1693,7 @@ const getVisibleJobs = (state: GameState): VisibleJob[] =>
     return {
       ...visibleTask,
       kind: visibleTask.kind === "task" ? "job" : visibleTask.kind,
-      seconds: estimateJobSeconds(state, task),
+      seconds: visibleTask.projection.durationMs / 1_000,
     };
   });
 
@@ -1573,7 +1742,8 @@ const getVisiblePowerOverloadFailure = (state: GameState) => {
   const seconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
   const psuStress = getPsuStress(state);
   const rate =
-    state.power.state === "on" || state.power.state === "shuttingDown"
+    isPsuManagementUnlocked(state) &&
+    (state.power.state === "on" || state.power.state === "shuttingDown")
       ? getPowerOverloadRate(psuStress)
       : 0;
 
@@ -1632,6 +1802,7 @@ const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[nu
 
   return {
     ...sku,
+    cost: projectExactCosts(sku.cost),
     canAfford: canAfford(state, sku.cost),
     tierName: sku.cpuTierId ? getCpuTierDefinition(sku.cpuTierId).name : undefined,
     clockHz: cpuTierLevel?.clockHz ?? (sku.clockLevel ? getClockHz(sku.clockLevel) : undefined),
@@ -1659,51 +1830,284 @@ const getVisibleComponentSku = (state: GameState, sku: (typeof componentSkus)[nu
   };
 };
 
-const cpuSkuUnlocked = (state: GameState, sku: (typeof componentSkus)[number]) => {
-  if (sku.type !== "cpu" || !sku.cpuTierId) return true;
-  return getUnlockedCpuTierDefinitions(state).some((tier) => tier.id === sku.cpuTierId);
-};
-
-const ramSkuUnlocked = (state: GameState, sku: (typeof componentSkus)[number]) => {
-  if (sku.type !== "ram" || !sku.ramLevel) return true;
-  return sku.ramLevel <= getMaxUnlockedRamLevel(state);
-};
-
-const getVisibleMachineBuilder = (state: GameState) => ({
-  unlocked: state.flags.systemCatalog,
-  templates: state.flags.systemCatalog
-    ? machineTemplates.map((template) => {
+const getVisibleMachineBuilder = (state: GameState) => {
+  const advancedUnlocked = isAdvancedMachineBuilderUnlocked(state);
+  const fleetLimitBlockedReason = getFleetSystemLimitBlockedReason(state);
+  const visibleComponents = advancedUnlocked
+    ? componentSkus.filter((sku) => isComponentSkuUnlocked(state, sku))
+    : [];
+  return {
+    unlocked: state.flags.systemCatalog,
+    advancedUnlocked,
+    canBuy: fleetLimitBlockedReason === null,
+    blockedReason: fleetLimitBlockedReason,
+    templates: state.flags.systemCatalog
+      ? machineTemplates
+          .filter((template) => isMachineTemplateUnlocked(state, template))
+          .map((template) => {
         const cost = getMachineSelectionCost(template.components);
+        const projection = projectMachineSelection(template.components);
+        const blockedReason =
+          fleetLimitBlockedReason ??
+          getMachineSelectionBlockedReason(state, template.components);
         return {
           ...template,
-          cost,
+          cost: projectExactCosts(cost),
           canAfford: canAfford(state, cost),
+          canBuy: blockedReason === null && canAfford(state, cost),
+          blockedReason,
+          projection,
         };
-      })
-    : [],
-  components: {
-    cpu: state.flags.systemCatalog
-      ? componentSkus
-          .filter((sku) => sku.type === "cpu" && cpuSkuUnlocked(state, sku))
-          .map((sku) => getVisibleComponentSku(state, sku))
+          })
       : [],
-    ram: state.flags.systemCatalog
-      ? componentSkus
-          .filter((sku) => sku.type === "ram" && ramSkuUnlocked(state, sku))
-          .map((sku) => getVisibleComponentSku(state, sku))
-      : [],
-    scheduler: state.flags.systemCatalog
-      ? componentSkus
-          .filter((sku) => sku.type === "scheduler")
-          .map((sku) => getVisibleComponentSku(state, sku))
-      : [],
-    psu: state.flags.systemCatalog
-      ? componentSkus
-          .filter((sku) => sku.type === "psu")
-          .map((sku) => getVisibleComponentSku(state, sku))
-      : [],
-  },
-});
+    components: {
+      cpu: visibleComponents
+        .filter((sku) => sku.type === "cpu")
+        .map((sku) => getVisibleComponentSku(state, sku)),
+      ram: visibleComponents
+        .filter((sku) => sku.type === "ram")
+        .map((sku) => getVisibleComponentSku(state, sku)),
+      scheduler: visibleComponents
+        .filter((sku) => sku.type === "scheduler")
+        .map((sku) => getVisibleComponentSku(state, sku)),
+      psu: visibleComponents
+        .filter((sku) => sku.type === "psu")
+        .map((sku) => getVisibleComponentSku(state, sku)),
+    },
+  };
+};
+
+const getVisibleWorkshopState = (state: GameState) => {
+  const baseHardwarePowerWatts = getBaseHardwareDrawWatts(state);
+  const projection = projectWorkshopSystemPower(
+    state,
+    baseHardwarePowerWatts,
+  );
+  const thermal = deriveWorkshopThermalSnapshot(
+    state,
+    baseHardwarePowerWatts,
+  );
+  const activeDeviceIds = new Set(
+    getWorkshopActiveAcceleratorDeviceIds(state),
+  );
+  const storageBlockedReason = getWorkshopStorageWorkloadBlockedReason(state);
+  const storageProjectionState = state.workshop.activeStorageWorkload
+    ? state
+    : startWorkshopStorageWorkload(state, workshopStorageWorkloadDefinition.id);
+  const storageDurationMs =
+    state.workshop.completedStorageWorkloads > 0
+      ? amount(0)
+      : storageProjectionState.workshop.activeStorageWorkload
+        ? getWorkshopStorageWorkloadDurationMs(storageProjectionState.workshop)
+        : null;
+  const storageOperatingCostCredits =
+    storageDurationMs === null
+      ? null
+      : amountMultiply(
+          getPowerCostPerSecondExact(storageProjectionState),
+          amountDivide(storageDurationMs, 1000),
+        );
+  const storageBufferCovered =
+    storageDurationMs !== null &&
+    amountCompare(
+      storageDurationMs,
+      getVisibleAutomationBuffer(state).maxOfflineMs,
+    ) <= 0;
+  return {
+    thermalVisible: isWorkshopThermalVisible(state),
+    thermalControlsUnlocked: isWorkshopThermalControlsUnlocked(state),
+    specializedComputeUnlocked: isWorkshopSpecializedComputeUnlocked(state),
+    thermalStatus: thermal.status,
+    thermalStressBps: thermal.stressBps,
+    thermalThroughputModifierBps: getThermalStatusThroughputModifierBps(
+      thermal.status,
+    ),
+    generatedHeatWatts: thermal.generatedHeatWatts,
+    sustainedHeatWatts: thermal.sustainedHeatWatts,
+    coolingCapacityWatts: thermal.coolingCapacityWatts,
+    coolingPowerWatts: projection.coolingPowerWatts,
+    highestObservedThermalStatus:
+      state.workshop.highestObservedThermalStatus,
+    coolingTierId: state.workshop.coolingTierId,
+    overclockPresetId: state.workshop.overclockPresetId,
+    coolingTiers: workshopCoolingTierDefinitions.map((definition) => {
+      const blockedReason = getCoolingInstallBlockedReason(
+        state,
+        definition.id,
+      );
+      return {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        level: definition.level,
+        capacityWatts: definition.capacityWatts,
+        powerDrawWatts: definition.powerDrawWatts,
+        costs: [...definition.costs],
+        installed: state.workshop.coolingTierId === definition.id,
+        canInstall: blockedReason === null,
+        blockedReason,
+      };
+    }),
+    overclockPresets: overclockPresetDefinitions.map((definition) => {
+      const blockedReason = getOverclockSelectionBlockedReason(
+        state,
+        definition.id,
+      );
+      return {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        clockMultiplierBps: definition.clockMultiplierBps,
+        powerMultiplierBps: definition.powerMultiplierBps,
+        heatMultiplierBps: definition.heatMultiplierBps,
+        selected: state.workshop.overclockPresetId === definition.id,
+        canSelect: blockedReason === null,
+        blockedReason,
+      };
+    }),
+    expansionSlots: state.workshop.expansionSlots,
+    accelerators: state.workshop.accelerators.map((device) => {
+      const definition = getAcceleratorSkuDefinition(device.skuId);
+      return {
+        ...device,
+        kind: definition.kind,
+        name: definition.name,
+        expansionSlots: definition.expansionSlots,
+        active: activeDeviceIds.has(device.id),
+      };
+    }),
+    acceleratorSkus: acceleratorSkuDefinitions.map((definition) => {
+      const blockedReason = getAcceleratorInstallBlockedReason(
+        state,
+        definition.id,
+      );
+      return {
+        id: definition.id,
+        kind: definition.kind,
+        name: definition.name,
+        description: definition.description,
+        supportedWorkloadClasses: definition.supportedWorkloadClasses,
+        expansionSlots: definition.expansionSlots,
+        deviceMemoryBits: definition.deviceMemoryBits,
+        minimumBatchSize: definition.minimumBatchSize,
+        computeOperationsPerSecond: definition.computeOperationsPerSecond,
+        throughputMultiplierBps: definition.throughputMultiplierBps,
+        idlePowerWatts: definition.idlePowerWatts,
+        activePowerWatts: definition.activePowerWatts,
+        idleHeatWatts: definition.idleHeatWatts,
+        activeHeatWatts: definition.activeHeatWatts,
+        costs: [...definition.costs],
+        canInstall: blockedReason === null,
+        blockedReason,
+      };
+    }),
+    routes: getWorkshopAcceleratorRoutes(state).map((route) => ({
+      workloadId: route.workloadId,
+      taskInstanceId: route.taskInstanceId,
+      taskId: route.taskId,
+      coreId: route.coreId,
+      operationId: route.operationId,
+      workloadClass: route.workloadClass,
+      target: route.assignment.target,
+      deviceId:
+        route.assignment.target === "accelerator"
+          ? route.assignment.deviceId
+          : null,
+      skuId:
+        route.assignment.target === "accelerator"
+          ? route.assignment.skuId
+          : null,
+      acceleratorKind: route.acceleratorKind,
+      fallbackReason: route.assignment.fallbackReason,
+    })),
+    storageUnlocked: isWorkshopStorageUnlocked(state),
+    storageSkuId: state.workshop.storageSkuId,
+    storageSkus: getWorkshopStorageSkuDefinitions().map((definition) => {
+      const blockedReason = getWorkshopStorageInstallBlockedReason(
+        state,
+        definition.id,
+      );
+      const heat = getWorkshopStoragePowerHeat(state.workshop, definition.id);
+      return {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        capacityBits: definition.profile.storageBits,
+        readBitsPerSecond: definition.profile.rates.storageRead,
+        writeBitsPerSecond: definition.profile.rates.storageWrite,
+        idlePowerWatts: definition.profile.idleWatts,
+        peakPowerWatts: definition.profile.peakWatts,
+        idleHeatWatts: heat.idleHeatWatts,
+        peakHeatWatts: heat.peakHeatWatts,
+        costs: [...definition.costs],
+        installed: state.workshop.storageSkuId === definition.id,
+        canInstall: blockedReason === null,
+        blockedReason,
+      };
+    }),
+    networkUnlocked: isLocalNetworkUnlocked(state),
+    networkSkuId: getLocalNetworkSkuId(state),
+    networkSkus: getLocalNetworkSkuDefinitions().map((definition) => {
+      const blockedReason = getLocalNetworkInstallBlockedReason(
+        state,
+        definition.id,
+      );
+      return {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        ingressBitsPerSecond: definition.profile.rates.networkIngress,
+        egressBitsPerSecond: definition.profile.rates.networkEgress,
+        idlePowerWatts: definition.profile.idleWatts,
+        peakPowerWatts: definition.profile.peakWatts,
+        costs: [...definition.costs],
+        installed: getLocalNetworkSkuId(state) === definition.id,
+        canInstall: blockedReason === null,
+        blockedReason,
+      };
+    }),
+    storageWorkload: {
+      id: workshopStorageWorkloadDefinition.id,
+      name: workshopStorageWorkloadDefinition.name,
+      description: workshopStorageWorkloadDefinition.description,
+      storageRequiredBits:
+        workshopStorageWorkloadDefinition.plan.storageBits,
+      readBits:
+        workshopStorageWorkloadDefinition.plan.work.storageRead,
+      writeBits:
+        workshopStorageWorkloadDefinition.plan.work.storageWrite,
+      paidWorkUnits: WORKSHOP_STORAGE_PAID_WORK_UNITS,
+      workValueMultiplier: WORKSHOP_STORAGE_SERVICE_VALUE_MULTIPLIER,
+      rewards: workshopStorageWorkloadDefinition.plan.reward,
+      active: state.workshop.activeStorageWorkload !== null,
+      completedCount: state.workshop.completedStorageWorkloads,
+      progressBps: getWorkshopStorageWorkloadProgressBps(state.workshop),
+      canStart: storageBlockedReason === null,
+      blockedReason: storageBlockedReason,
+      projection: {
+        durationMs: storageDurationMs,
+        operatingCostCredits: storageOperatingCostCredits,
+        netRewardCredits:
+          storageOperatingCostCredits === null
+            ? null
+            : amountSubtract(
+                workshopStorageWorkloadDefinition.plan.reward.credits,
+                storageOperatingCostCredits,
+              ),
+        bufferCovered: storageBufferCovered,
+        pauseReason:
+          state.workshop.completedStorageWorkloads > 0
+            ? "completed"
+            : storageBlockedReason ??
+              (storageBufferCovered
+                ? null
+                : "Automation Buffer ends before projected completion."),
+      },
+    },
+    evidence: state.workshop.evidence,
+    specializationComplete: hasWorkshopSpecializationProof(state),
+  };
+};
 
 const getVisibleSystemSummary = (
   state: GameState,
@@ -1726,15 +2130,12 @@ const getVisibleSystemSummary = (
   const ramSlotIds = ramSlots.map((slot) => slot.id);
   const powerUsedWatts = getHardwareDrawWatts(systemState);
   const psuCapacityWatts = getPsuCapacityWatts(systemState);
+  const visibleWorkshop = getVisibleWorkshopState(systemState);
   const system = ensureSystems(state).systems.find((item) => item.id === systemId);
 
-  const purchaseCosts = system?.purchaseCosts ?? [];
-  const sellRefund = purchaseCosts
-    .map((cost) => ({
-      resource: cost.resource,
-      amount: Math.floor(cost.amount * 0.5),
-    }))
-    .filter((cost) => cost.amount > 0);
+  const exactPurchaseCosts = system?.purchaseCosts ?? [];
+  const purchaseCosts = projectExactCosts(exactPurchaseCosts);
+  const sellRefund = projectExactCosts(halfRefundExact(exactPurchaseCosts));
 
   return {
     id: systemId,
@@ -1742,6 +2143,7 @@ const getVisibleSystemSummary = (
     templateId: system?.templateId ?? null,
     selected: systemId === selectedSystemId,
     powerState: systemState.power.state,
+    idlePowerPolicy: systemState.power.idlePolicy,
     coreCount: systemState.hardware.cores,
     activeTaskCount: systemState.activeTasks.length,
     queueCount: systemState.queue.length,
@@ -1749,10 +2151,13 @@ const getVisibleSystemSummary = (
     drawWatts: powerUsedWatts,
     ramBits: systemState.hardware.ramBits,
     ramUsedBits,
+    thermalStatus: visibleWorkshop.thermalStatus,
+    acceleratorCount: visibleWorkshop.accelerators.length,
     purchaseCosts,
     sellRefund,
     visible: {
       hardware: systemState.hardware,
+      workshop: visibleWorkshop,
       metrics: {
         cpuSockets: getCpuSockets(systemState, activeTasks, activeJobs, cacheResidency),
         activeCoreCount: busyCoreIds.size,
@@ -1790,8 +2195,19 @@ const getVisibleSystemSummary = (
         cpuEfficiency: getCpuMatchEfficiency(systemState),
         coolingReliabilityBonus:
           Math.round((getCoolingReliabilityBonus(systemState) - 1) * 1000) / 1000,
+        thermalStress: visibleWorkshop.thermalVisible
+          ? visibleWorkshop.thermalStressBps / 10_000
+          : null,
+        thermalStatus: visibleWorkshop.thermalStatus,
+        thermalThroughputModifierBps:
+          visibleWorkshop.thermalThroughputModifierBps,
+        thermalGeneratedHeatWatts: visibleWorkshop.generatedHeatWatts,
+        thermalSustainedHeatWatts: visibleWorkshop.sustainedHeatWatts,
+        coolingCapacityWatts: visibleWorkshop.coolingCapacityWatts,
+        coolingPowerWatts: visibleWorkshop.coolingPowerWatts,
         powerCostPerSecond: getPowerCostPerSecond(systemState),
         powerState: systemState.power.state,
+        idlePowerPolicy: systemState.power.idlePolicy,
         powerTransitionSeconds: systemState.power.transitionSeconds,
         powerTransitionTotalSeconds: systemState.power.transitionTotalSeconds,
         powerBootstrapGraceSeconds: systemState.power.bootstrapGraceSeconds,
@@ -1821,9 +2237,30 @@ const getVisibleSystemSummary = (
   };
 };
 
+/**
+ * A return report pauses the game behind a modal; a quick tab refresh or
+ * sub-minute absence must not summon it. Destructive losses and safe pauses
+ * always surface regardless of absence length.
+ */
+const isNotableOfflineReport = (report: AdvanceReport) => {
+  const destructiveCount = Object.values(report.destructiveEvents).reduce(
+    (total, count) => total + (count ?? 0),
+    0,
+  );
+  return report.elapsedMs >= 60_000 || report.pausedMs > 0 || destructiveCount > 0;
+};
+
 export const deriveVisibleState = (state: GameState): VisibleState => {
-  const syncedState = syncCoreSchedulers(
-    materializeSystem(syncSelectedSystemRuntime(state), state.selectedSystemId),
+  const syncedState = syncLiveOperationsAllocation(
+    normalizeCloudForGameState(
+      syncCoreSchedulers(
+        materializeSystem(
+          syncSelectedSystemRuntime(syncExactResources(state)),
+          state.selectedSystemId,
+        ),
+      ),
+    ),
+    "foreground",
   );
   const rackSystems = ensureSystems(syncedState).systems;
   const systemSummaries = rackSystems.map((system) =>
@@ -1845,6 +2282,13 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       drawWatts: getHardwareDrawWatts(syncedState),
       ramBits: syncedState.hardware.ramBits,
       ramUsedBits: getRamUsedBits(syncedState),
+      thermalStatus: deriveWorkshopThermalSnapshot(
+        syncedState,
+        getBaseHardwareDrawWatts(syncedState),
+      ).status,
+      acceleratorCount: syncedState.workshop.accelerators.length,
+      purchaseCosts: [],
+      sellRefund: [],
     };
   const stage = getStage(syncedState);
   const busyCoreIds = getBusyCoreIds(syncedState);
@@ -1856,6 +2300,34 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     const visibleTask = activeTasks[index] ?? getVisibleActiveTask(syncedState, activeTask);
     return asVisibleActiveJob(syncedState, activeTask, visibleTask);
   });
+  const visibleJobs = getVisibleJobs(syncedState);
+  const allActiveJobs = systemSummaries.flatMap(
+    (system) => system.visible.activeJobs,
+  );
+  const infrastructure = getVisibleInfrastructureWithWorkloads(syncedState);
+  const cloud = getVisibleCloudState(syncedState.cloud, syncedState);
+  const work = getVisibleWorkState(
+    syncedState,
+    visibleJobs,
+    allActiveJobs,
+    infrastructure,
+    cloud,
+  );
+  const currentChapter = getVisibleCampaignChapter(syncedState);
+  const currentObjective =
+    work.missions.find((mission) => mission.current) ?? null;
+  // Work-surface reveal gates. The opening is Jobs-only: Campaign and
+  // Automation open once the player owns a real scheduled system (System
+  // Scheduler research), and the Market opens with CRON because managed
+  // contracts model unattended client workloads. Legacy OR-branches keep
+  // surfaces functional for saves that already hold that content.
+  const workViews = {
+    campaign:
+      syncedState.flags.scheduler ||
+      work.projects.some((project) => project.active || project.completed),
+    market: syncedState.flags.cron || work.contracts.length > 0,
+    automation: syncedState.flags.scheduler || syncedState.flags.cron,
+  };
   const ramUsedBits = getRamUsedBits(syncedState);
   const ramUsedBytes = getRamUsedBytes(syncedState);
   const powerUsedWatts = getHardwareDrawWatts(syncedState);
@@ -1868,8 +2340,11 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const ramSlots = getRamSlots(syncedState, ramResidency);
   const ramSlotIds = ramSlots.map((slot) => slot.id);
   const machineBuilder = getVisibleMachineBuilder(syncedState);
+  const visibleWorkshop = getVisibleWorkshopState(syncedState);
   const customBuilder = {
     title: "Custom",
+    canBuy: machineBuilder.canBuy,
+    blockedReason: machineBuilder.blockedReason,
     groups: [
       { id: "cpu", label: "CPU", options: machineBuilder.components.cpu },
       { id: "ram", label: "RAM", options: machineBuilder.components.ram },
@@ -1886,18 +2361,43 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     stage,
     stageLabel: getStageLabel(stage),
     resources: syncedState.resources,
+    exactResources: syncedState.exactResources,
+    infrastructure,
+    cloud,
+    automationBuffer: getVisibleAutomationBuffer(syncedState),
+    standingOrder: syncedState.standingOrder,
+    liveOperations: getVisibleLiveOperations(syncedState),
+    offlineReport:
+      syncedState.lastAdvanceReport?.mode === "offline" &&
+      isNotableOfflineReport(syncedState.lastAdvanceReport)
+        ? syncedState.lastAdvanceReport
+        : null,
+    campaign: syncedState.campaign,
+    currentChapter,
+    currentObjective,
+    bottleneck: getCampaignBottleneck(syncedState),
+    missions: work.missions,
+    projects: work.projects,
+    contracts: work.contracts,
+    contractMarket: work.contractMarket,
+    workViews,
+    standingOrders: work.standingOrders,
+    activeWork: work.activeWork,
+    departureForecast: work.departureForecast,
+    work,
     rack: {
       selectedSystemId: syncedState.selectedSystemId,
       systems: systemSummaries,
       templates: machineBuilder.templates,
       preconfiguredSystems: machineBuilder.templates,
-      customBuilder: machineBuilder.unlocked ? customBuilder : null,
+      customBuilder: machineBuilder.advancedUnlocked ? customBuilder : null,
       unlocked: machineBuilder.unlocked,
     },
     systems: systemSummaries,
     selectedSystem,
     machineBuilder,
     hardware: syncedState.hardware,
+    workshop: visibleWorkshop,
     input: getVisibleInputConfig(syncedState),
     metrics: {
       cpuSockets: getCpuSockets(syncedState, activeTasks, activeJobs, cacheResidency),
@@ -1936,8 +2436,19 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
       cpuEfficiency: getCpuMatchEfficiency(syncedState),
       coolingReliabilityBonus:
         Math.round((getCoolingReliabilityBonus(syncedState) - 1) * 1000) / 1000,
+      thermalStress: visibleWorkshop.thermalVisible
+        ? visibleWorkshop.thermalStressBps / 10_000
+        : null,
+      thermalStatus: visibleWorkshop.thermalStatus,
+      thermalThroughputModifierBps:
+        visibleWorkshop.thermalThroughputModifierBps,
+      thermalGeneratedHeatWatts: visibleWorkshop.generatedHeatWatts,
+      thermalSustainedHeatWatts: visibleWorkshop.sustainedHeatWatts,
+      coolingCapacityWatts: visibleWorkshop.coolingCapacityWatts,
+      coolingPowerWatts: visibleWorkshop.coolingPowerWatts,
       powerCostPerSecond: getPowerCostPerSecond(syncedState),
       powerState: syncedState.power.state,
+      idlePowerPolicy: syncedState.power.idlePolicy,
       powerTransitionSeconds: syncedState.power.transitionSeconds,
       powerTransitionTotalSeconds: syncedState.power.transitionTotalSeconds,
       powerBootstrapGraceSeconds: syncedState.power.bootstrapGraceSeconds,
@@ -1960,7 +2471,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
           isTaskRevealed(syncedState, task),
       )
       .map((task) => getTaskVisible(syncedState, task)),
-    jobs: getVisibleJobs(syncedState),
+    jobs: visibleJobs,
     upgrades: getAvailableUpgrades(syncedState).map((upgrade) =>
       getVisibleUpgrade(syncedState, upgrade),
     ),

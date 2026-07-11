@@ -1,5 +1,9 @@
 import { Server, Store } from "lucide-react";
-import { getSelectedSystemComponent, scopeSelectionToSystem, type SelectedComponent } from "../workbenchData";
+import {
+  getSelectedSystemComponent,
+  scopeSelectionToSystem,
+  type SelectedComponent,
+} from "../workbenchData";
 import type { Dispatch } from "../uiActions";
 import { getSystemStatusTone } from "./rackMetrics";
 import type { RackView, UiRackData } from "./types";
@@ -34,19 +38,19 @@ export function RackStrip({
   return (
     <div
       className={`rack-strip mode-${view}`}
-      aria-label="Rack quick switch"
+      aria-label="Fleet quick switch"
     >
       <button
         type="button"
         className="rack-strip-home"
         onClick={onHome}
-        title="Back to rack"
-        aria-label="Back to rack"
+        title="Back to fleet"
+        aria-label="Back to fleet"
       >
         <Server size={13} />
-        <span>Rack</span>
+        <span>Fleet</span>
       </button>
-      <div className="rack-strip-chips" role="tablist">
+      <div className="rack-strip-chips" role="tablist" aria-label="Fleet systems">
         {rack.systems.map((system, index) => {
           const isActiveSystem = system.id === activeSystemId;
           const selected = isActiveSystem && view === "detail";
@@ -60,7 +64,7 @@ export function RackStrip({
                 selected ? "selected" : ""
               }`}
               aria-selected={selected}
-              aria-pressed={selected}
+              aria-label={`Open ${system.name}`}
               onClick={() => {
                 dispatch({ type: "selectSystem", systemId: system.id });
                 onSelectComponent(
@@ -68,9 +72,10 @@ export function RackStrip({
                 );
                 onSelectSystem(system.id);
               }}
-              title={`Open system ${index + 1}`}
+              title={`Open ${system.name}`}
             >
               <span className="rack-slot-index">{index + 1}</span>
+              <span className="rack-strip-system-name">{system.name}</span>
             </button>
           );
         })}
@@ -78,15 +83,14 @@ export function RackStrip({
       {builderUnlocked && (
         <button
           type="button"
-          role="tab"
-          aria-selected={view === "builder"}
+          aria-pressed={view === "builder"}
           className={`rack-strip-build ${view === "builder" ? "selected" : ""}`}
           onClick={onOpenBuilder}
-          title="Open the system store"
-          aria-label="Open the system store"
+          title="Open the fleet builder"
+          aria-label="Open the fleet builder"
         >
           <Store size={13} />
-          <span className="rack-strip-build-label">Store</span>
+          <span className="rack-strip-build-label">Build</span>
         </button>
       )}
     </div>

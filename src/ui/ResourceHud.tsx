@@ -4,7 +4,6 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type MouseEvent,
 } from "react";
 import {
   Database,
@@ -14,19 +13,25 @@ import {
   ShoppingCart,
   Zap,
 } from "lucide-react";
-import type { VisibleState } from "../game";
-import { formatResourceAmount } from "./format";
 import {
-  ResourceAmount,
+  amountCompare,
+  amountSubtract,
+  type Amount,
+  type VisibleState,
+} from "../game";
+import { formatExactResourceAmount } from "./format";
+import {
+  ExactResourceAmount,
   type ResourceKind,
 } from "./ResourceTokens";
+import { ResetConfirmationDialog } from "./commandDeck/ResetConfirmationDialog";
 
 type ResourceGainKind = ResourceKind;
 
 interface ResourceGainBurst {
   id: number;
   kind: ResourceGainKind;
-  amount: number;
+  amount: Amount;
   startX: number;
   startY: number;
   endX: number;
@@ -40,7 +45,7 @@ const RESOURCE_GAIN_EPSILON = 0.0001;
 const createResourceGainBurst = (
   id: number,
   kind: ResourceGainKind,
-  amount: number,
+  amount: Amount,
   targetElement: HTMLElement | null,
 ): ResourceGainBurst => {
   const targetRect = targetElement?.getBoundingClientRect();
@@ -67,7 +72,6 @@ export function ResourceHud({
   onReset,
   animateResourceGains,
   onSelectResource,
-  onGrantDevResource,
   graphOpen = false,
   resourceGraphTitle,
   hardwarePurchasesVisible = true,
@@ -75,12 +79,12 @@ export function ResourceHud({
   keepScreenAwake = false,
   onKeepScreenAwakeChange,
   keepScreenAwakeSupported = true,
+  resetDisabled = false,
 }: {
   visible: VisibleState;
   onReset: () => void;
   animateResourceGains: boolean;
   onSelectResource?: (resource: ResourceKind) => void;
-  onGrantDevResource?: (resource: ResourceKind) => void;
   graphOpen?: boolean;
   resourceGraphTitle?: string;
   hardwarePurchasesVisible?: boolean;
@@ -88,26 +92,22 @@ export function ResourceHud({
   keepScreenAwake?: boolean;
   onKeepScreenAwakeChange?: (enabled: boolean) => void;
   keepScreenAwakeSupported?: boolean;
+  resetDisabled?: boolean;
 }) {
   const dataReadoutRef = useRef<HTMLDivElement>(null);
   const creditsReadoutRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const previousResourcesRef = useRef(visible.resources);
+  const previousResourcesRef = useRef(visible.exactResources);
   const resourceEffectsArmedRef = useRef(false);
   const nextBurstIdRef = useRef(0);
   const gainTimeoutsRef = useRef<number[]>([]);
   const [gainBursts, setGainBursts] = useState<ResourceGainBurst[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const resourceInteractive = Boolean(onSelectResource);
 
   const handleResourceClick =
-    (resource: ResourceKind) => (event: MouseEvent<HTMLDivElement>) => {
-      if (event.shiftKey && onGrantDevResource) {
-        event.preventDefault();
-        onGrantDevResource(resource);
-        return;
-      }
-
+    (resource: ResourceKind) => () => {
       onSelectResource?.(resource);
     };
 
@@ -160,7 +160,7 @@ export function ResourceHud({
 
   useEffect(() => {
     const previousResources = previousResourcesRef.current;
-    const currentResources = visible.resources;
+    const currentResources = visible.exactResources;
     previousResourcesRef.current = currentResources;
 
     if (!animateResourceGains) {
@@ -176,15 +176,18 @@ export function ResourceHud({
     const resourceGains = [
       {
         kind: "data" as const,
-        amount: currentResources.data - previousResources.data,
+        amount: amountSubtract(currentResources.data, previousResources.data),
         target: dataReadoutRef.current,
       },
       {
         kind: "credits" as const,
-        amount: currentResources.credits - previousResources.credits,
+        amount: amountSubtract(
+          currentResources.credits,
+          previousResources.credits,
+        ),
         target: creditsReadoutRef.current,
       },
-    ].filter((gain) => gain.amount > RESOURCE_GAIN_EPSILON);
+    ].filter((gain) => amountCompare(gain.amount, RESOURCE_GAIN_EPSILON) > 0);
 
     if (resourceGains.length === 0) return;
 
@@ -213,7 +216,11 @@ export function ResourceHud({
 
       gainTimeoutsRef.current.push(timeoutId);
     });
-  }, [animateResourceGains, visible.resources.credits, visible.resources.data]);
+  }, [
+    animateResourceGains,
+    visible.exactResources.credits,
+    visible.exactResources.data,
+  ]);
 
   return (
     <div className="resource-hud" aria-label="Resources">
@@ -232,7 +239,7 @@ export function ResourceHud({
                 } as CSSProperties
               }
             >
-              <ResourceAmount
+              <ExactResourceAmount
                 resource={burst.kind}
                 amount={burst.amount}
                 plus
@@ -254,10 +261,9 @@ export function ResourceHud({
         title={resourceTitle}
       >
         <Zap size={13} />
-        <strong>
-          {formatResourceAmount(Math.floor(visible.resources.credits))}
+        <strong title={`${visible.exactResources.credits} credits`}>
+          {formatExactResourceAmount(visible.exactResources.credits)}
         </strong>
-        <span>cr</span>
       </div>
       <div
         className={`resource-readout data ${
@@ -271,8 +277,9 @@ export function ResourceHud({
         title={resourceTitle}
       >
         <Database size={13} />
-        <strong>{formatResourceAmount(Math.floor(visible.resources.data))}</strong>
-        <span>data</span>
+        <strong title={`${visible.exactResources.data} data`}>
+          {formatExactResourceAmount(visible.exactResources.data)}
+        </strong>
       </div>
       <div className="resource-settings" ref={settingsRef}>
         <button
@@ -333,12 +340,13 @@ export function ResourceHud({
             <button
               type="button"
               className="resource-settings-row resource-settings-reset"
+              disabled={resetDisabled}
               onClick={() => {
                 setSettingsOpen(false);
-                onReset();
+                setResetConfirmOpen(true);
               }}
-              title="Reset dev save"
-              aria-label="Reset dev save"
+              title={resetDisabled ? "Wait for offline processing" : "Reset save"}
+              aria-label="Reset save"
             >
               <span className="resource-settings-label">
                 <RefreshCw size={12} />
@@ -348,6 +356,15 @@ export function ResourceHud({
           </div>
         )}
       </div>
+      {resetConfirmOpen && (
+        <ResetConfirmationDialog
+          onCancel={() => setResetConfirmOpen(false)}
+          onConfirm={() => {
+            setResetConfirmOpen(false);
+            onReset();
+          }}
+        />
+      )}
     </div>
   );
 }

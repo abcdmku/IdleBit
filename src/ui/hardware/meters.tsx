@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { formatBits } from "../format";
+import { SmoothFill } from "../SmoothProgress";
 
 export type CacheSegmentKind = "read" | "write" | "overwrite" | "compute";
 export type CacheSegmentState = "buffering" | "loading" | "loaded";
@@ -31,13 +32,6 @@ export interface RamSegment {
 export const clampMeter = (value: number | null | undefined) =>
   Math.min(1, Math.max(0, value ?? 0));
 
-export const getProgressStyle = (
-  value: number | null | undefined,
-): CSSProperties =>
-  ({
-    "--meter-progress": clampMeter(value),
-  }) as CSSProperties;
-
 const getProgressPercent = (value: number | null | undefined) =>
   `${clampMeter(value) * 100}%`;
 
@@ -62,10 +56,22 @@ const getCacheSegmentWriteProgress = (segment: CacheSegment) => {
   return clampMeter(segment.progress);
 };
 
-export function ModuleMeter({ value }: { value: number }) {
+export function ModuleMeter({
+  value,
+  snapKey,
+  snapOnDecrease = true,
+}: {
+  value: number;
+  snapKey?: string;
+  snapOnDecrease?: boolean;
+}) {
   return (
     <span className="module-meter" aria-hidden="true">
-      <span className="progress-fill" style={getProgressStyle(value)} />
+      <SmoothFill
+        value={value}
+        snapKey={snapKey}
+        snapOnDecrease={snapOnDecrease}
+      />
     </span>
   );
 }
@@ -84,9 +90,8 @@ function CacheStateBadge({
       className={`cache-state-badge ${state} ${bits > 0 ? "active" : ""}`}
       title={`${label}: ${formatBits(bits)}`}
     >
-      <strong>{formatBits(bits)}</strong>
-      <span aria-hidden="true" />
       <small>{label}</small>
+      <strong>{formatBits(bits)}</strong>
     </span>
   );
 }
@@ -195,7 +200,10 @@ export function RamPressureMeter({
             } as CSSProperties
           }
         >
-          <span className="ram-pressure-fill" />
+          <SmoothFill
+            className="ram-pressure-fill"
+            value={segment.state === "loaded" ? 1 : segment.progress}
+          />
         </span>
       ))}
     </span>
@@ -252,8 +260,18 @@ function CachePressureMeter({
             } as CSSProperties
           }
         >
-          <span className="cache-pressure-buffer" />
-          <span className="cache-pressure-fill" />
+          <SmoothFill
+            className="cache-pressure-buffer"
+            value={
+              segment.state === "loading" || segment.state === "loaded"
+                ? 1
+                : segment.bufferProgress
+            }
+          />
+          <SmoothFill
+            className="cache-pressure-fill"
+            value={getCacheSegmentWriteProgress(segment)}
+          />
         </span>
       ))}
     </span>

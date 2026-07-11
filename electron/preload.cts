@@ -1,4 +1,12 @@
-import { contextBridge, ipcRenderer } from "electron";
+import {
+  contextBridge,
+  ipcRenderer,
+  type IpcRendererEvent,
+} from "electron";
+
+interface BeforeCloseRequest {
+  requestId: number;
+}
 
 const CHANNELS = {
   clear: "idlebit:persistence:clear",
@@ -7,7 +15,59 @@ const CHANNELS = {
   set: "idlebit:persistence:set",
 } as const;
 
+const LIFECYCLE_CHANNELS = {
+  acknowledgeClose: "idlebit:lifecycle:acknowledge-close",
+  beforeClose: "idlebit:lifecycle:before-close",
+} as const;
+
+function parseBeforeCloseRequest(value: unknown): BeforeCloseRequest | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Object.hasOwn(value, "requestId")
+  ) {
+    return null;
+  }
+
+  const requestId = (value as { requestId: unknown }).requestId;
+  return typeof requestId === "number" &&
+    Number.isSafeInteger(requestId) &&
+    requestId > 0
+    ? { requestId }
+    : null;
+}
+
 const idleBitPlatform = {
+  lifecycle: {
+    acknowledgeBeforeClose: (requestId: number) => {
+      if (Number.isSafeInteger(requestId) && requestId > 0) {
+        ipcRenderer.send(LIFECYCLE_CHANNELS.acknowledgeClose, { requestId });
+      }
+    },
+    onBeforeClose: (listener: (request: BeforeCloseRequest) => void) => {
+      if (typeof listener !== "function") {
+        return () => undefined;
+      }
+
+      const handleBeforeClose = (
+        _event: IpcRendererEvent,
+        payload: unknown,
+      ) => {
+        const request = parseBeforeCloseRequest(payload);
+        if (request) {
+          listener(request);
+        }
+      };
+
+      ipcRenderer.on(LIFECYCLE_CHANNELS.beforeClose, handleBeforeClose);
+      return () => {
+        ipcRenderer.removeListener(
+          LIFECYCLE_CHANNELS.beforeClose,
+          handleBeforeClose,
+        );
+      };
+    },
+  },
   persistence: {
     clear: (keyPrefix?: string) =>
       ipcRenderer.invoke(CHANNELS.clear, keyPrefix) as Promise<void>,

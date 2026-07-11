@@ -20,6 +20,8 @@ import {
 } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import type { SelectedComponent } from "../workbenchData";
+import { WorkshopPanel } from "../workshop/WorkshopPanel";
+import { SystemWorkSummary } from "../work/SystemWorkSummary";
 import { PsuSection } from "./PsuSection";
 import { RamSection } from "./RamSection";
 import {
@@ -37,11 +39,11 @@ import {
   hasPsuManagement,
   type CpuBankView,
 } from "./SystemBoardSections";
-import { ThermalSection } from "./ThermalSection";
 import { useActiveCpuSocket } from "./useActiveCpuSocket";
 
 interface HardwareSystemBoardProps {
   visible: VisibleState;
+  systemId?: string | number;
   dispatch: Dispatch;
   selectedComponent: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
@@ -55,6 +57,7 @@ interface HardwareSystemBoardProps {
 
 export function HardwareSystemBoard({
   visible,
+  systemId,
   dispatch,
   selectedComponent,
   onSelectComponent,
@@ -66,6 +69,7 @@ export function HardwareSystemBoard({
   onDismissPsuFailureHelp,
 }: HardwareSystemBoardProps) {
   const selectedCoreId = getSelectedCoreId(selectedComponent);
+  const resolvedSystemId = systemId ?? visible.selectedSystem.id;
   const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
   const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
   const selectedRamStickId = getSelectedRamStickId(selectedComponent);
@@ -81,7 +85,7 @@ export function HardwareSystemBoard({
   const memoryVisible = hasSystemMemory(visible);
   const psuAdvancedControlsVisible = hasPsuManagement(visible);
   const psuVisible = true;
-  const thermalVisible = false;
+  const thermalVisible = visible.workshop?.thermalVisible === true;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
 
@@ -129,6 +133,9 @@ export function HardwareSystemBoard({
   };
 
   const renderSocket = (socket: VisibleCpuSocket): ReactNode => {
+    // One frame per package: the module layout only wraps in a CpuPackage when
+    // memory is visible and the socket is not shown standalone in tab view.
+    const standalone = !memoryVisible || (multiCpu && bankView === "tabs");
     const moduleLayout = (
       <CpuModuleLayout
         socket={socket}
@@ -151,17 +158,11 @@ export function HardwareSystemBoard({
         onDismissDeadlockHelp={onDismissDeadlockHelp}
         onDismissDeadlockCooldownHelp={onDismissDeadlockCooldownHelp}
         showCoreDeadlockPressure={!memoryVisible}
-        showCoreArrayEfficiency={
-          !memoryVisible || (multiCpu && bankView === "tabs")
-        }
+        standalone={standalone}
       />
     );
 
-    if (!memoryVisible) {
-      return <Fragment key={socket.id}>{moduleLayout}</Fragment>;
-    }
-
-    if (multiCpu && bankView === "tabs") {
+    if (standalone) {
       return <Fragment key={socket.id}>{moduleLayout}</Fragment>;
     }
 
@@ -185,6 +186,12 @@ export function HardwareSystemBoard({
 
   return (
     <SystemBoard visible={visible}>
+      {/* System-level work (projects, contracts, scheduler-routed tasks)
+          cannot exist before the System Scheduler; early manual jobs already
+          show on their core tiles. */}
+      {visible.flags.scheduler && (
+        <SystemWorkSummary visible={visible} systemId={resolvedSystemId} />
+      )}
       {cronVisible && (
         <CronAutomationSection
           visible={visible}
@@ -282,19 +289,10 @@ export function HardwareSystemBoard({
               onDismissFailureHelp={onDismissPsuFailureHelp}
             />
           )}
-          {thermalVisible && (
-            <ThermalSection
-              visible={visible}
-              status={boardSystemLoad}
-              selected={selectedComponent === "thermal"}
-              onSelect={() => onSelectComponent("thermal")}
-              upgrades={psuUpgrades}
-              dispatch={dispatch}
-              unlocked={false}
-            />
-          )}
         </SystemRail>
       )}
+
+      {thermalVisible && <WorkshopPanel visible={visible} dispatch={dispatch} />}
     </SystemBoard>
   );
 }

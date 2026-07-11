@@ -1,0 +1,13 @@
+elapsedDays,label,milestoneId,profileId,reachedAtMs,runId,seed
+0,Automation Buffer: startingNode,buffer:startingNode,full-idle,0,full-idle-10000,10000
+0.0006944444444444445,Execute a first operation,mission:bootstrap:first-operation,full-idle,60000,full-idle-10000,10000
+0.0006944444444444445,Decode the instruction stream,mission:bootstrap:decode-logic,full-idle,60000,full-idle-10000,10000
+0,Automation Buffer: startingNode,buffer:startingNode,regular,0,regular-10001,10001
+0.0006944444444444445,Execute a first operation,mission:bootstrap:first-operation,regular,60000,regular-10001,10001
+0.0006944444444444445,Decode the instruction stream,mission:bootstrap:decode-logic,regular,60000,regular-10001,10001
+0,Automation Buffer: startingNode,buffer:startingNode,engaged,0,engaged-10002,10002
+0.0006944444444444445,Execute a first operation,mission:bootstrap:first-operation,engaged,60000,engaged-10002,10002
+0.0006944444444444445,Decode the instruction stream,mission:bootstrap:decode-logic,engaged,60000,engaged-10002,10002
+0,Automation Buffer: startingNode,buffer:startingNode,optimizer,0,optimizer-10003,10003
+0.00034722222222222224,Execute a first operation,mission:bootstrap:first-operation,optimizer,30000,optimizer-10003,10003
+0.00034722222222222224,Decode the instruction stream,mission:bootstrap:decode-logic,optimizer,30000,optimizer-10003,10003

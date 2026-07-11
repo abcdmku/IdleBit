@@ -95,7 +95,7 @@
 .resource-graph-legend .legend em {
   color: var(--muted);
   font-style: normal;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   letter-spacing: var(--tracking-tight);
   text-transform: uppercase;
 }
@@ -104,8 +104,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-pill);
@@ -158,7 +158,7 @@
 
 .resource-graph-axis-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   dominant-baseline: middle;
 }
@@ -173,7 +173,7 @@
 
 .resource-graph-time-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   fill: var(--muted);
   letter-spacing: var(--tracking-mid);
@@ -286,5 +286,10 @@
     overflow-x: auto;
     flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .resource-graph-close {
+    width: 44px;
+    height: 44px;
   }
 }

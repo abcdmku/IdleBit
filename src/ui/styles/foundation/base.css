@@ -41,17 +41,17 @@
   /* ---------- Text ---------- */
   --text: #e7f5ee;
   --muted: #8aa39d;
-  --muted-2: #5d7972;
+  --muted-2: #718e87;
 
   /* ---------- Type ---------- */
   --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-body: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
 
-  --fs-2xs: 0.60rem;
-  --fs-xs:  0.68rem;
-  --fs-sm:  0.78rem;
-  --fs-md:  0.86rem;
+  --fs-2xs: 0.70rem;
+  --fs-xs:  0.75rem;
+  --fs-sm:  0.82rem;
+  --fs-md:  0.90rem;
   --fs-lg:  1.00rem;
   --fs-xl:  1.20rem;
 
@@ -59,6 +59,20 @@
   --tracking-wide: 0.10em;
   --tracking-mid: 0.06em;
   --tracking-tight: 0.02em;
+
+  /* ---------- Text tiers (module readouts) ----------
+     title   — module headers: display face, uppercase, tracked, accent-tinted
+     value   — primary numbers: mono, tabular, bright; must outrank labels
+     caption — supporting labels: small + muted, no uppercase-tracking inflation */
+  --fs-title: 0.72rem;
+  --fs-value: 0.85rem;
+  --fs-caption: 0.66rem;
+  --text-value: var(--text);
+  --text-caption: var(--muted-2);
+
+  /* Shared meter fill accent — sections override per domain. */
+  --meter-accent: var(--cyan);
+  --meter-track: rgba(231, 245, 238, 0.08);
 
   /* ---------- Spacing scale ---------- */
   --s-0: 2px;
@@ -89,13 +103,15 @@
   --dur-1: 120ms;
   --dur-2: 200ms;
   --dur-3: 320ms;
+  /* Foreground simulation publishes every 500ms; finish just before the next snapshot. */
+  --runtime-meter-duration: 480ms;
 
   /* ---------- Component-local sizes ---------- */
   --progress-bar-thickness: 3px;
   --progress-bar-thickness-compact: 2px;
-  --control-h-sm: 22px;
-  --control-h: 28px;
-  --control-h-lg: 34px;
+  --control-h-sm: 24px;
+  --control-h: 32px;
+  --control-h-lg: 44px;
 
   color: var(--text);
   background: var(--bg-0);
@@ -113,7 +129,7 @@ html, body, #root {
 }
 
 html {
-  touch-action: pan-x pan-y;
+  touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -129,27 +145,9 @@ body {
     linear-gradient(180deg, #03060a 0%, #050807 60%, #060a09 100%);
   color: var(--text);
   overflow: hidden;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-x pan-y;
+  touch-action: manipulation;
   overscroll-behavior-y: contain;
-}
-
-/* prevent text selection anywhere in the app shell */
-.app-shell,
-.app-shell * {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-/* allow form fields to still work */
-.app-shell input,
-.app-shell textarea,
-.app-shell select {
-  -webkit-user-select: auto;
-  user-select: auto;
 }
 
 button, select { font: inherit; color: inherit; }
@@ -228,12 +226,23 @@ button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-button:disabled { cursor: not-allowed; opacity: 0.42; }
+button:disabled {
+  border-color: var(--line-muted);
+  color: #91a7a1;
+  background-color: rgba(113, 142, 135, 0.08);
+  cursor: not-allowed;
+  opacity: 1;
+  text-decoration: none;
+}
 
 button:focus-visible,
 select:focus-visible,
 summary:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
   border-color: var(--amber);
@@ -278,18 +287,18 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   line-height: 1.05;
 }
 .metric > strong {
-  color: var(--text);
+  color: var(--text-value);
   font-family: var(--font-mono);
-  font-size: var(--fs-md);
+  font-size: var(--fs-value);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .metric > small {
-  color: var(--muted);
+  color: var(--text-caption);
   font-family: var(--font-display);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-caption);
   font-weight: 600;
-  letter-spacing: var(--tracking-wide);
+  letter-spacing: var(--tracking-tight);
   text-transform: uppercase;
 }
 
@@ -314,9 +323,111 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   width: 100%;
   transform: scaleX(var(--meter-progress, 0));
   transform-origin: left center;
-  will-change: transform;
-  transition: transform 80ms linear;
+  transition: transform var(--runtime-meter-duration) linear;
 }
+
+.progress-fill.is-vertical {
+  transform: scaleY(var(--meter-progress, 0));
+  transform-origin: center bottom;
+}
+
+.progress-fill.is-snapping {
+  transition: none;
+}
+
+.smooth-progress {
+  display: block;
+  width: 100%;
+  height: max(3px, var(--progress-bar-thickness));
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--meter-track);
+}
+
+.smooth-progress > .progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--meter-fill-background, var(--meter-accent));
+}
+
+/* ---------- Stat tiles: value-first readouts ----------
+   Big mono number over a tiny caption (never label-left/value-right rows),
+   optional 3px capacity meter between them. Fixed internal rhythm so live
+   value changes never reflow neighbours. */
+.stat-tile {
+  --stat-accent: var(--cyan);
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  min-width: 0;
+}
+
+.stat-tile.is-green { --stat-accent: var(--green); }
+.stat-tile.is-violet { --stat-accent: var(--violet); }
+.stat-tile.is-amber { --stat-accent: var(--amber); }
+.stat-tile.is-rose { --stat-accent: var(--rose); }
+
+.stat-tile-value {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stat-tile-value small {
+  margin-left: 3px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.stat-tile-label {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-mid);
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stat-tile-meter {
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--meter-track, rgba(231, 245, 238, 0.08));
+}
+
+.stat-tile-meter-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--stat-accent);
+  transform-origin: left center;
+  transition: transform var(--dur-2) var(--ease);
+}
+
+.stat-tile-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.stat-tile-row.dense { gap: var(--s-2); }
 
 /* visually-hidden helper */
 .sr-only {
@@ -352,7 +463,11 @@ h1, h2, p, dl, dt, dd { margin: 0; }
 *::-webkit-scrollbar-thumb:hover { background: rgba(36, 231, 195, 0.32); }
 
 @media (prefers-reduced-motion: reduce) {
-  .progress-fill {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
   }
 }

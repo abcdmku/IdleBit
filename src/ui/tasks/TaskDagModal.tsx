@@ -15,6 +15,8 @@ import type { VisibleState } from "../../game";
 import { formatBits, formatNumber, formatResourceAmount } from "../format";
 import { clampMeter, firstBits, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
+import { SmoothFill } from "../SmoothProgress";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import {
   getActiveRuntimeLabel,
   getNodeCacheBits,
@@ -102,9 +104,6 @@ const getRelatedDagNodes = (task: UiTask, node: UiTaskGraphNode) => {
   );
 };
 
-const sumNodeOperationCounts = (nodes: UiTaskGraphNode[]) =>
-  nodes.reduce((total, node) => total + (firstNumber(node.operationCount) ?? 0), 0);
-
 function buildStages(task: UiTask): DagStage[] {
   const subtasks = task.subtasks ?? [];
   const sourceNodes: UiTaskGraphNode[] =
@@ -134,13 +133,10 @@ function buildStages(task: UiTask): DagStage[] {
     const cycles =
       firstNumber(executeNode?.cycles, executeNode?.requiredCycles, node.cycles, node.requiredCycles) ??
       0;
-    const dagOperationCount = sumNodeOperationCounts(relatedDagNodes);
-    const operationCount =
-      firstNumber(
-        dagOperationCount > 0 ? dagOperationCount : undefined,
-        node.operationCount,
-        Array.isArray(node.operations) ? getOperationCountFromOperations(operations) : undefined,
-      ) ?? operations.reduce((total, operation) => total + (operation.count ?? 1), 0);
+    // Cache bits, RAM bits, and CPU cycles are distinct physical work. Do not
+    // add them together and call the result "operations"; count the authored
+    // operation invocations and show each hardware quantity in its own chip.
+    const operationCount = getOperationCountFromOperations(operations);
     const parallelOps = countParallelOps(operations);
 
     return {
@@ -299,6 +295,7 @@ export function TaskDagModal({
   onClose: () => void;
   memoryUnlocked: boolean;
 }) {
+  const dialogRef = useDialogFocus<HTMLElement>(onClose);
   const progress = activeTask ? clampMeter(activeTask.progress) : clampMeter(task.progress ?? 0);
   const stages = buildStages(task);
   const chunked = isChunkedTask(task);
@@ -347,10 +344,12 @@ export function TaskDagModal({
   return (
     <div className="task-dag-overlay" role="presentation" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
         className="task-dag-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-dag-title"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="task-dag-header">
@@ -374,6 +373,12 @@ export function TaskDagModal({
           <DagSummaryChip label="Cores" value={coreNote} />
           <DagSummaryChip label="Cache" value={cacheNote} />
           {memoryUnlocked && <DagSummaryChip label="RAM" value={ramNote} />}
+          {typeof task.paidWorkUnits === "number" && (
+            <DagSummaryChip
+              label="Paid work"
+              value={formatNumber(task.paidWorkUnits)}
+            />
+          )}
           {payoutRewards.length > 0 && <DagSummaryChip label="Payout" value={payoutNote} />}
         </div>
 
@@ -572,9 +577,9 @@ function PipelineStage({
   const displayOperationCount = stage.operationCount * stageWorkScale;
   const operationTagText = scalesAcrossChunks
     ? `${formatNumber(displayOperationCount)} total ops`
-    : `${formatNumber(displayOperationCount)} ops`;
+    : `${formatNumber(displayOperationCount)} ${displayOperationCount === 1 ? "op" : "ops"}`;
   const operationTagTitle = scalesAcrossChunks
-    ? `${formatNumber(stage.operationCount)} ops each x ${formatNumber(stageWorkScale)}`
+    ? `${formatNumber(stage.operationCount)} ${stage.operationCount === 1 ? "op" : "ops"} each x ${formatNumber(stageWorkScale)}`
     : undefined;
   const cacheUnitBits = stage.cacheLoadBits > 0 ? stage.cacheLoadBits : stage.cacheBits;
   const cacheDisplay = formatScaledBits(cacheUnitBits, stageWorkScale);
@@ -702,9 +707,9 @@ function PipelineStage({
 
         {(runtime.active || runtime.progress !== null) && (
           <div className="dag-stage-progress" aria-label="Stage progress">
-            <span
+            <SmoothFill
               className="dag-stage-progress-fill"
-              style={{ width: `${clampMeter(runtime.progress) * 100}%` }}
+              value={clampMeter(runtime.progress)}
             />
           </div>
         )}

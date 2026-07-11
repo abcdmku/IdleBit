@@ -1,8 +1,29 @@
 import {
+  amount,
+  amountClampMin,
+  amountCompare,
+  amountMax,
+  amountMin,
+  amountToSafeNumber,
+  exactResourceBag,
+  sumAmounts,
+  ZERO_AMOUNT,
+  type Amount,
+  type ExactResourceBag,
+} from "./amount";
+import {
+  normalizeAutomationBufferState,
+  normalizeStandingOrderState,
+} from "./automation";
+import { normalizeCampaignState, updateCampaignProgress } from "./campaign";
+import {
+  normalizeContractMarketState,
+  pruneStaleContractOffers,
+} from "./contracts";
+import {
   BOOTLOADER_MAX_LEVEL,
   getBootloaderLevelFromHardware,
 } from "./bootloader";
-import { getClickRateLevelFromResearch } from "./clickRate";
 import {
   bitsToBytes,
   createCoreSchedulers,
@@ -23,8 +44,23 @@ import {
   syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
-import { taskDefinitions } from "./content/tasks";
+import { getTaskDefinition, taskDefinitions } from "./content/tasks";
+import { researchDefinitions } from "./content/research";
+import { projectExactResources, syncExactResources } from "./economy";
+import { normalizeRngState } from "./rng";
+import { normalizeProjectsState } from "./projects";
+import { normalizeCloudForGameState } from "./cloudGame";
+import { normalizeLiveOperationsState } from "./liveOperations";
 import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
+import { normalizeWorkshopSystemState } from "./workshop";
+import { V1_HARDWARE_LIMITS, clampFiniteInteger } from "./hardwareLimits";
+import {
+  getStoredTaskRewardCredits,
+  getStoredTaskWorkCycles,
+  normalizeTaskBatchMultiplier,
+} from "./taskBatches";
+import { RAM_MAX_LEVEL } from "./content/ramTiers";
+import type { AcceleratorKind } from "./content/accelerators";
 import type {
   ActiveCoreOperation,
   ActiveTask,
@@ -37,24 +73,71 @@ import type {
   ResearchId,
   TaskId,
   TaskQueueEntry,
+  WorkOrigin,
 } from "./types";
 
-export const SAVE_VERSION = 6 as const;
+export const SAVE_VERSION = 7 as const;
 
 export interface SaveEnvelope {
   version: typeof SAVE_VERSION;
   savedAt: string;
+  savedAtMs: number;
+  departedAtMs: number | null;
   state: GameState;
 }
 
-export const createSaveEnvelope = (state: GameState): SaveEnvelope => ({
-  version: SAVE_VERSION,
-  savedAt: new Date().toISOString(),
-  state,
-});
+/**
+ * The sole compatibility boundary for pre-exact callers that still replace the
+ * numeric projection directly before saving. Finite, non-negative overrides are
+ * promoted to exact values here; saturated, invalid, and normal derived
+ * projections leave the exact authority untouched.
+ */
+const applyLegacyResourceOverridesAtSerializationBoundary = (
+  state: GameState,
+): GameState => {
+  const projected = projectExactResources(state.exactResources);
+  const exactResources = { ...state.exactResources };
+  for (const resource of ["credits", "data"] as const) {
+    const candidate = state.resources[resource];
+    if (
+      Number.isFinite(candidate) &&
+      candidate >= 0 &&
+      Math.abs(projected[resource]) < Number.MAX_VALUE &&
+      candidate !== projected[resource]
+    ) {
+      exactResources[resource] = amount(candidate);
+    }
+  }
+  return syncExactResources({ ...state, exactResources });
+};
 
-export const serializeSave = (state: GameState) =>
-  JSON.stringify(createSaveEnvelope(state));
+export const createSaveEnvelope = (
+  state: GameState,
+  savedAtMs = Date.now(),
+): SaveEnvelope => {
+  const normalizedSavedAtMs = Math.max(
+    0,
+    Math.trunc(Number.isFinite(savedAtMs) ? savedAtMs : 0),
+  );
+  return {
+    version: SAVE_VERSION,
+    savedAt: new Date(normalizedSavedAtMs).toISOString(),
+    savedAtMs: normalizedSavedAtMs,
+    departedAtMs: state.time.departedAtMs,
+    state: applyLegacyResourceOverridesAtSerializationBoundary(
+      {
+        ...syncSelectedSystemRuntime(state),
+        liveOperations: {
+          ...state.liveOperations,
+          allocatedCoreIds: [],
+        },
+      },
+    ),
+  };
+};
+
+export const serializeSave = (state: GameState, savedAtMs?: number) =>
+  JSON.stringify(createSaveEnvelope(state, savedAtMs));
 
 type LegacyHardwareState = Partial<GameState["hardware"]> & {
   ramGb?: number;
@@ -62,6 +145,7 @@ type LegacyHardwareState = Partial<GameState["hardware"]> & {
 
 type LegacyState = Omit<Partial<GameState>, "version"> & {
   version?: number;
+  campaignChapter?: number;
   flags?: Partial<GameFlags>;
   hardware?: LegacyHardwareState;
   activeJobs?: unknown[];
@@ -83,38 +167,11 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   return completed;
 };
 
-const validResearchIds = [
-  "decodeLogic",
-  "bitMutation",
-  "shiftOperations",
-  "byteOperations",
-  "cacheMapping",
-  "benchmarkHarness",
-  "multiCore",
-  "localScheduler",
-  "schedulerWatchdog",
-  "schedulerPolicies",
-  "systemScheduler",
-  "bootloader",
-  "ramControl",
-  "systemBus",
-  "clickRateTuning",
-  "cronScheduler",
-  "systemCatalog",
-  "customMachineAssembly",
-  "psuManagement",
-  "thermalControl",
-  "cpuTierKhz",
-  "cpuTierMhz",
-  "cpuTierGhz",
-  "cpuTierThz",
-  "cpuTierPhz",
-  "cStateControl",
-  "dualChannelRam",
-  "quadChannelRam",
-  "octChannelRam",
-  "memoryVoltageModifier",
-] satisfies ResearchId[];
+const validResearchIds = new Set<ResearchId>(
+  researchDefinitions
+    .map((definition) => definition.id)
+    .filter((id) => id !== "clickRateTuning"),
+);
 
 const validTaskIds = new Set<TaskId>(taskDefinitions.map((task) => task.id));
 
@@ -127,11 +184,142 @@ const toFiniteNumber = (value: unknown, fallback = 0) =>
 const toNonNegativeNumber = (value: unknown, fallback = 0) =>
   Math.max(0, toFiniteNumber(value, fallback));
 
+const toNonNegativeAmount = (value: unknown) => {
+  try {
+    return amountClampMin(
+      typeof value === "string" || typeof value === "number" ? value : 0,
+    );
+  } catch {
+    return amount(0);
+  }
+};
+
 const toInteger = (value: unknown, fallback = 0) =>
   Math.trunc(toFiniteNumber(value, fallback));
 
+const normalizeExactResources = (
+  value: Partial<ExactResourceBag> | null | undefined,
+  resources: GameState["resources"],
+) => {
+  try {
+    if (value?.credits !== undefined && value.data !== undefined) {
+      return exactResourceBag(
+        amountClampMin(value.credits),
+        amountClampMin(value.data),
+      );
+    }
+  } catch {
+    // Fall through to the numeric compatibility projection.
+  }
+  return exactResourceBag(
+    Math.max(0, resources.credits),
+    Math.max(0, resources.data),
+  );
+};
+
 const normalizeTaskIdList = (values: unknown): TaskId[] =>
   Array.isArray(values) ? values.filter(isTaskId) : [];
+
+const normalizeAcceleratorKinds = (values: unknown): AcceleratorKind[] =>
+  Array.isArray(values)
+    ? Array.from(
+        new Set(
+          values.filter(
+            (value): value is AcceleratorKind =>
+              value === "gpu" || value === "npu",
+          ),
+        ),
+      )
+    : [];
+
+const normalizeWorkOrigin = (value: unknown): WorkOrigin | undefined =>
+  value === "standing-order" ? "standing-order" : undefined;
+
+const normalizeTaskBatchSnapshot = (
+  taskId: TaskId,
+  parentTaskId: unknown,
+  batchMultiplier: unknown,
+  projectedRewardCredits: unknown,
+  projectedWorkCycles: unknown,
+) => {
+  const task = getTaskDefinition(taskId);
+  const batchOwner = isTaskId(parentTaskId)
+    ? getTaskDefinition(parentTaskId)
+    : task;
+  const multiplier = normalizeTaskBatchMultiplier(
+    batchMultiplier,
+    batchOwner.aggregateBatch?.maximumMultiplier ?? 1,
+  );
+  try {
+    return {
+      batchMultiplier: multiplier,
+      projectedRewardCredits:
+        projectedRewardCredits === undefined
+          ? getStoredTaskRewardCredits(task, undefined, multiplier)
+          : amountClampMin(projectedRewardCredits as string | number),
+      projectedWorkCycles:
+        projectedWorkCycles === undefined
+          ? getStoredTaskWorkCycles(task, undefined, multiplier)
+          : amountClampMin(projectedWorkCycles as string | number),
+    };
+  } catch {
+    return {
+      batchMultiplier: multiplier,
+      projectedRewardCredits: getStoredTaskRewardCredits(
+        task,
+        undefined,
+        multiplier,
+      ),
+      projectedWorkCycles: getStoredTaskWorkCycles(
+        task,
+        undefined,
+        multiplier,
+      ),
+    };
+  }
+};
+
+const normalizeQueueEntries = (values: unknown): TaskQueueEntry[] =>
+  Array.isArray(values)
+    ? values
+        .filter(
+          (value): value is Record<string, unknown> =>
+            Boolean(value && typeof value === "object" && !Array.isArray(value)),
+        )
+        .filter(
+          (value) =>
+            typeof value.id === "string" &&
+            isTaskId(value.taskId) &&
+            (value.target === "cpu" || value.target === "system"),
+        )
+        .map((value) => {
+          const taskId = value.taskId as TaskId;
+          const batch = normalizeTaskBatchSnapshot(
+            taskId,
+            value.parentTaskId,
+            value.batchMultiplier,
+            value.projectedRewardCredits,
+            value.projectedWorkCycles,
+          );
+          return {
+            ...(value as unknown as TaskQueueEntry),
+            ...batch,
+            workOrigin: normalizeWorkOrigin(value.workOrigin),
+            acceleratorKindsUsed: normalizeAcceleratorKinds(
+              value.acceleratorKindsUsed,
+            ),
+            completedChildKeys: Array.isArray(value.completedChildKeys)
+              ? Array.from(
+                  new Set(
+                    value.completedChildKeys.filter(
+                      (item): item is string => typeof item === "string",
+                    ),
+                  ),
+                )
+              : undefined,
+          };
+        })
+    : [];
 
 const normalizeTaskCounts = (
   counts: unknown,
@@ -155,9 +343,7 @@ const normalizeResearchCompleted = (
 ): ResearchId[] => {
   const normalized = completed
     .map((id) => (id === "kernelScheduler" ? "systemScheduler" : id))
-    .filter((id): id is ResearchId =>
-      validResearchIds.includes(id as ResearchId),
-    );
+    .filter((id): id is ResearchId => validResearchIds.has(id as ResearchId));
 
   return Array.from(new Set(normalized));
 };
@@ -171,6 +357,22 @@ const isActiveTask = (value: unknown): value is ActiveTask => {
     isTaskId(candidate.taskId) &&
     Array.isArray(candidate.assignedCoreIds) &&
     Array.isArray(candidate.coreOperations)
+  );
+};
+
+const normalizeTaskAmountTotals = (
+  values: unknown,
+): Partial<Record<TaskId, Amount>> => {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+  return Object.fromEntries(
+    Object.entries(values as Record<string, unknown>).flatMap(([taskId, value]) => {
+      if (!isTaskId(taskId)) return [];
+      try {
+        return [[taskId, amountClampMin(value as string | number)]];
+      } catch {
+        return [];
+      }
+    }),
   );
 };
 
@@ -234,15 +436,15 @@ const normalizeActiveOperation = (
   operation: ActiveCoreOperation,
 ): ActiveCoreOperation => {
   const status = normalizeOperationStatus(operation.status);
-  const remainingCycles = toNonNegativeNumber(operation.remainingCycles);
-  const totalCycles = Math.max(
+  const remainingCycles = toNonNegativeAmount(operation.remainingCycles);
+  const totalCycles = amountMax(
     remainingCycles,
-    toNonNegativeNumber(operation.totalCycles),
+    toNonNegativeAmount(operation.totalCycles),
   );
-  const remainingLoadCycles = toNonNegativeNumber(operation.remainingLoadCycles);
-  const totalLoadCycles = Math.max(
+  const remainingLoadCycles = toNonNegativeAmount(operation.remainingLoadCycles);
+  const totalLoadCycles = amountMax(
     remainingLoadCycles,
-    toNonNegativeNumber(operation.totalLoadCycles),
+    toNonNegativeAmount(operation.totalLoadCycles),
   );
   const memoryReservedBits = toNonNegativeNumber(operation.memoryReservedBits);
 
@@ -288,20 +490,41 @@ const normalizeActiveTask = (
     .filter((operation) => coreOperationIds.has(operation.coreId));
   if (coreOperations.length === 0) return null;
 
-  const remainingCycles = coreOperations.reduce(
-    (total, operation) => total + operation.remainingCycles + operation.remainingLoadCycles,
-    0,
+  const activeRemainingCycles = sumAmounts(
+    coreOperations.flatMap((operation) => [
+      operation.remainingCycles,
+      operation.remainingLoadCycles,
+    ]),
   );
-  const totalCycles = coreOperations.reduce(
-    (total, operation) => total + operation.totalCycles + operation.totalLoadCycles,
-    0,
+  const activeTotalCycles = sumAmounts(
+    coreOperations.flatMap((operation) => [
+      operation.totalCycles,
+      operation.totalLoadCycles,
+    ]),
+  );
+  const batch = normalizeTaskBatchSnapshot(
+    task.taskId,
+    task.parentTaskId,
+    task.batchMultiplier,
+    task.projectedRewardCredits,
+    task.projectedWorkCycles,
+  );
+  const remainingCycles = amountMax(
+    toNonNegativeAmount(task.remainingCycles),
+    activeRemainingCycles,
+  );
+  const totalCycles = amountMax(
+    remainingCycles,
+    amountMax(toNonNegativeAmount(task.totalCycles), activeTotalCycles),
   );
 
   return {
     ...task,
+    ...batch,
     taskId: task.taskId,
     jobId: normalizeTaskId(task.jobId, task.taskId),
     schedulerQueued: task.schedulerQueued === true,
+    workOrigin: normalizeWorkOrigin(task.workOrigin),
     coreId: assignedCoreIds.includes(task.coreId)
       ? task.coreId
       : (assignedCoreIds[0] ?? 1),
@@ -315,9 +538,56 @@ const normalizeActiveTask = (
           ),
         )
       : undefined,
+    acceleratorKindsUsed: normalizeAcceleratorKinds(
+      task.acceleratorKindsUsed,
+    ),
     coreOperations,
     remainingCycles,
-    totalCycles: Math.max(remainingCycles, totalCycles),
+    totalCycles,
+  };
+};
+
+const normalizeCoreSchedulerQueueEntries = (
+  value: GameState["coreSchedulers"] | null | undefined,
+  fallback: GameState["coreSchedulers"],
+): GameState["coreSchedulers"] => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([coreId, scheduler]) =>
+      scheduler && typeof scheduler === "object"
+        ? [[
+            coreId,
+            {
+              ...scheduler,
+              localQueueEntries: normalizeQueueEntries(
+                scheduler.localQueueEntries,
+              ),
+            },
+          ]]
+        : [],
+    ),
+  ) as GameState["coreSchedulers"];
+};
+
+const normalizeSavedSystemWorkOrigins = (
+  system: GameState["systems"][number],
+): GameState["systems"][number] => {
+  const activeTasks = (Array.isArray(system.activeTasks)
+    ? system.activeTasks
+    : []
+  ).map((task) => ({
+    ...task,
+    workOrigin: normalizeWorkOrigin(task.workOrigin),
+  }));
+  return {
+    ...system,
+    activeTasks,
+    activeJobs: activeTasks,
+    queueEntries: normalizeQueueEntries(system.queueEntries),
+    coreSchedulers: normalizeCoreSchedulerQueueEntries(
+      system.coreSchedulers,
+      system.coreSchedulers,
+    ),
   };
 };
 
@@ -330,6 +600,7 @@ const normalizeCronSchedules = (
 ): GameState["cron"]["schedules"] =>
   Array.isArray(schedules)
     ? schedules
+        .slice(0, 1)
         .filter((schedule): schedule is Partial<GameState["cron"]["schedules"][number]> =>
           Boolean(schedule && typeof schedule === "object"),
         )
@@ -365,14 +636,23 @@ const normalizeRamSticks = (
   const fallbackSticks = createRamSticksForLevel(ramLevel, ramSpeedLevel);
   const sourceSticks =
     Array.isArray(savedSticks) && savedSticks.length > 0
-      ? savedSticks
+      ? savedSticks.slice(0, V1_HARDWARE_LIMITS.ramSticks)
       : fallbackSticks;
   const usedIds = new Set<number>();
   const normalizedSticks = sourceSticks.filter(isSavedRamStick).map((stick, index) => {
-    const level = Math.max(1, toInteger(stick.level, index + 1));
-    const savedBits = toFiniteNumber(stick.bits, NaN);
-    const bits = savedBits > 0 ? savedBits : getRamBits(level);
-    const speedLevel = Math.max(1, toInteger(stick.speedLevel, ramSpeedLevel));
+    const level = clampFiniteInteger(
+      stick.level,
+      1,
+      RAM_MAX_LEVEL,
+      index + 1,
+    );
+    const bits = getRamBits(level);
+    const speedLevel = clampFiniteInteger(
+      stick.speedLevel,
+      1,
+      RAM_MAX_LEVEL,
+      ramSpeedLevel,
+    );
 
     return {
       id: createUniqueRamStickId(toInteger(stick.id, index + 1), usedIds),
@@ -389,42 +669,60 @@ const normalizeRamSticks = (
 
 const normalizeState = (state: LegacyState): GameState => {
   const fresh = createInitialGameState();
+  const savedSystems = Array.isArray(state.systems)
+    ? state.systems
+        .slice(0, V1_HARDWARE_LIMITS.inspectedSystems)
+        .map(normalizeSavedSystemWorkOrigins)
+    : fresh.systems;
   const hardware: LegacyHardwareState = state.hardware ?? {};
-  const cacheLevel = hardware.cacheLevel ?? fresh.hardware.cacheLevel;
-  const cacheSpeedLevel =
-    hardware.cacheSpeedLevel ?? fresh.hardware.cacheSpeedLevel;
-  const ramLevel = Math.max(
-    0,
-    toInteger(hardware.ramLevel, hardware.ramGb ? 1 : fresh.hardware.ramLevel),
+  const cacheLevel = clampFiniteInteger(
+    hardware.cacheLevel,
+    1,
+    V1_HARDWARE_LIMITS.cacheLevel,
+    fresh.hardware.cacheLevel,
   );
-  const ramSpeedLevel =
-    Math.max(
-      1,
-      toInteger(
-        hardware.ramSpeedLevel,
-        hardware.ramSpeedMt && hardware.ramSpeedMt > 0
-          ? Math.max(1, Math.round(Math.log2(hardware.ramSpeedMt) + 1))
-          : fresh.hardware.ramSpeedLevel,
-      ),
-    );
-  const cacheBits = hardware.cacheBits ?? getCacheBits(cacheLevel);
-  const ramBits = hardware.ramBits ?? (ramLevel > 0 ? getRamBits(ramLevel) : 0);
+  const cacheSpeedLevel = clampFiniteInteger(
+    hardware.cacheSpeedLevel,
+    1,
+    V1_HARDWARE_LIMITS.cacheSpeedLevel,
+    fresh.hardware.cacheSpeedLevel,
+  );
+  const ramLevel = clampFiniteInteger(
+    hardware.ramLevel,
+    0,
+    V1_HARDWARE_LIMITS.ramSticks,
+    hardware.ramGb ? 1 : fresh.hardware.ramLevel,
+  );
+  const ramSpeedLevel = clampFiniteInteger(
+    hardware.ramSpeedLevel,
+    1,
+    RAM_MAX_LEVEL,
+    hardware.ramSpeedMt && hardware.ramSpeedMt > 0
+      ? Math.max(1, Math.round(Math.log2(hardware.ramSpeedMt) + 1))
+      : fresh.hardware.ramSpeedLevel,
+  );
+  const cacheBits = getCacheBits(cacheLevel);
+  const ramBits = ramLevel > 0 ? getRamBits(Math.min(ramLevel, RAM_MAX_LEVEL)) : 0;
   const ramSticks = normalizeRamSticks(
     hardware.ramSticks,
     ramLevel,
     ramSpeedLevel,
   );
-  const schedulerSlots = Math.max(
+  const schedulerSlots = clampFiniteInteger(
+    hardware.schedulerSlots,
     0,
-    hardware.schedulerSlots ?? fresh.hardware.schedulerSlots,
+    V1_HARDWARE_LIMITS.cpuQueueSlotsPerCpu,
+    fresh.hardware.schedulerSlots,
   );
-  const systemSchedulerSlots = Math.max(
+  const systemSchedulerSlots = clampFiniteInteger(
+    hardware.systemSchedulerSlots,
     0,
-    hardware.systemSchedulerSlots ?? fresh.hardware.systemSchedulerSlots,
+    V1_HARDWARE_LIMITS.systemQueueSlots,
+    fresh.hardware.systemSchedulerSlots,
   );
   const cpus =
-    hardware.cpus && hardware.cpus.length > 0
-      ? hardware.cpus.map((cpu) =>
+    Array.isArray(hardware.cpus) && hardware.cpus.length > 0
+      ? hardware.cpus.slice(0, V1_HARDWARE_LIMITS.cpuPackages).map((cpu) =>
           createCpuHardwareState(cpu.id, cpu.coreIds, {
             ...cpu,
             schedulerConfig: createSchedulerConfig(cpu.schedulerConfig),
@@ -434,7 +732,14 @@ const normalizeState = (state: LegacyState): GameState => {
           createCpuHardwareState(
             1,
             Array.from(
-              { length: Math.max(1, hardware.cores ?? fresh.hardware.cores) },
+              {
+                length: clampFiniteInteger(
+                  hardware.cores,
+                  1,
+                  V1_HARDWARE_LIMITS.coresPerCpu,
+                  fresh.hardware.cores,
+                ),
+              },
               (_, index) => index + 1,
             ),
             {
@@ -446,9 +751,11 @@ const normalizeState = (state: LegacyState): GameState => {
             },
           ),
         ];
-  const psuLevel = Math.max(
+  const psuLevel = clampFiniteInteger(
+    hardware.psuLevel,
     1,
-    hardware.psuLevel ?? (hardware.psuWatts ? 1 : fresh.hardware.psuLevel),
+    V1_HARDWARE_LIMITS.psuLevel,
+    hardware.psuWatts ? 1 : fresh.hardware.psuLevel,
   );
   const coolingLevel = hardware.coolingLevel ?? fresh.hardware.coolingLevel;
   const coreClockLevels: Record<number, number> =
@@ -465,6 +772,34 @@ const normalizeState = (state: LegacyState): GameState => {
     state.completedTasks ?? state.completedJobs,
   );
   const completedJobs = normalizeTaskCounts(state.completedJobs ?? completedTasks);
+  const taskRewardCreditsEarned = normalizeTaskAmountTotals(
+    state.taskRewardCreditsEarned,
+  );
+  const taskWorkCyclesCompleted = normalizeTaskAmountTotals(
+    state.taskWorkCyclesCompleted,
+  );
+  const standingTaskCompletions = Object.fromEntries(
+    Object.entries(normalizeTaskCounts(state.standingTaskCompletions)).map(
+      ([taskId, count]) => [
+        taskId,
+        Math.min(count, completedTasks[taskId as TaskId] ?? 0),
+      ],
+    ),
+  ) as GameState["standingTaskCompletions"];
+  const clampStandingAmounts = (
+    standingValues: unknown,
+    totals: Partial<Record<TaskId, Amount>> | null = null,
+  ) =>
+    Object.fromEntries(
+      Object.entries(normalizeTaskAmountTotals(standingValues)).map(
+        ([taskId, value]) => [
+          taskId,
+          totals
+            ? amountMin(value, totals[taskId as TaskId] ?? ZERO_AMOUNT)
+            : value,
+        ],
+      ),
+    ) as Partial<Record<TaskId, Amount>>;
   const activeTasks = (state.activeTasks ?? state.activeJobs ?? [])
     .filter(isActiveTask)
     .map((task) => normalizeActiveTask(task, availableCoreIds))
@@ -472,16 +807,19 @@ const normalizeState = (state: LegacyState): GameState => {
   const researchCompleted = normalizeResearchCompleted(
     state.research?.completed ?? researchFromLegacyFlags(state.flags),
   );
-  const clickRateLevel = getClickRateLevelFromResearch(state.research);
+  const clickRateLevel = 0;
   const normalizedCronSchedules = normalizeCronSchedules(state.cron?.schedules);
   const cronScheduleSlots = Math.max(
     0,
     hardware.cronScheduleSlots ?? normalizedCronSchedules.length,
   );
   const resources = {
-    ...fresh.resources,
-    ...state.resources,
+    credits: toNonNegativeNumber(state.resources?.credits, fresh.resources.credits),
+    data: toNonNegativeNumber(state.resources?.data, fresh.resources.data),
   };
+  const exactResources = normalizeExactResources(state.exactResources, resources);
+  resources.credits = amountToSafeNumber(exactResources.credits);
+  resources.data = amountToSafeNumber(exactResources.data);
   const powerState =
     state.power?.state === "shuttingDown" ||
     state.power?.state === "off" ||
@@ -490,7 +828,7 @@ const normalizeState = (state: LegacyState): GameState => {
       : "on";
   const bootstrapGraceSeconds =
     state.power?.bootstrapGraceSeconds ??
-    (resources.credits <= 0 && powerState !== "off"
+    (amountCompare(exactResources.credits, 0) <= 0 && powerState !== "off"
       ? POWER_BOOTSTRAP_GRACE_SECONDS
       : 0);
   const savedPower = state.power as
@@ -515,6 +853,40 @@ const normalizeState = (state: LegacyState): GameState => {
     ...fresh,
     ...state,
     version: SAVE_VERSION,
+    advanceRemainderMs: Math.max(0, toFiniteNumber(state.advanceRemainderMs)),
+    exactResources,
+    rng: normalizeRngState(state.rng),
+    time: {
+      lastSavedAtMs:
+        state.time?.lastSavedAtMs == null
+          ? null
+          : Math.max(0, toInteger(state.time.lastSavedAtMs)),
+      departedAtMs:
+        state.time?.departedAtMs == null
+          ? null
+          : Math.max(0, toInteger(state.time.departedAtMs)),
+    },
+    campaign: normalizeCampaignState(state.campaign),
+    contracts: normalizeContractMarketState(state.contracts),
+    projects: normalizeProjectsState(state.projects),
+    automationBuffer: normalizeAutomationBufferState(state.automationBuffer),
+    standingOrder: normalizeStandingOrderState(state.standingOrder),
+    liveOperations: normalizeLiveOperationsState(
+      {
+        ...fresh,
+        ...state,
+        systems: savedSystems,
+        hardware: {
+          ...fresh.hardware,
+          ...hardware,
+          cpus,
+          cores: cpus.reduce((total, cpu) => total + cpu.coreIds.length, 0),
+        },
+      } as GameState,
+      state.liveOperations,
+      true,
+    ),
+    lastAdvanceReport: null,
     hardware: {
       ...fresh.hardware,
       ...hardware,
@@ -532,7 +904,12 @@ const normalizeState = (state: LegacyState): GameState => {
       systemSchedulerSlots,
       systemSchedulerConfig: createSchedulerConfig(hardware.systemSchedulerConfig),
       deadlockRecoveryLevel:
-        hardware.deadlockRecoveryLevel ?? fresh.hardware.deadlockRecoveryLevel,
+        clampFiniteInteger(
+          hardware.deadlockRecoveryLevel,
+          0,
+          V1_HARDWARE_LIMITS.deadlockRecoveryLevel,
+          fresh.hardware.deadlockRecoveryLevel,
+        ),
       ramLevel,
       ramBits,
       ramBytes: ramLevel > 0 ? getRamBytes(ramLevel) : 0,
@@ -558,30 +935,46 @@ const normalizeState = (state: LegacyState): GameState => {
           ),
         }),
       ),
-      cronScheduleSlots,
-      cronIntervalLevel:
-        hardware.cronIntervalLevel ?? fresh.hardware.cronIntervalLevel,
-      cStateLevel: Math.max(
+      cronScheduleSlots: clampFiniteInteger(cronScheduleSlots, 0, 1, 0),
+      cronIntervalLevel: clampFiniteInteger(
+        hardware.cronIntervalLevel,
         0,
-        toInteger(hardware.cStateLevel, fresh.hardware.cStateLevel),
+        V1_HARDWARE_LIMITS.cronIntervalLevel,
+        fresh.hardware.cronIntervalLevel,
+      ),
+      cStateLevel: clampFiniteInteger(
+        hardware.cStateLevel,
+        0,
+        V1_HARDWARE_LIMITS.cpuLevel,
+        fresh.hardware.cStateLevel,
       ),
       psuLevel,
-      psuWatts: Math.max(
-        hardware.psuWatts && hardware.psuWatts > 0 ? hardware.psuWatts : 0,
-        getPsuWatts(psuLevel),
-      ),
+      psuWatts: getPsuWatts(psuLevel),
       coolingLevel,
       coolingRating:
         hardware.coolingRating ??
         (coolingLevel > 0 ? getCoolingRating(coolingLevel) : 0),
     },
+    workshop: normalizeWorkshopSystemState(
+      state.workshop ??
+        savedSystems.find(
+          (system) => system.id === (state.selectedSystemId ?? fresh.selectedSystemId),
+        )?.workshop,
+      hardware,
+    ),
     flags: {
       ...fresh.flags,
       ...state.flags,
+      specializedCompute: state.flags?.specializedCompute === true,
     },
+    systems: savedSystems,
     resources,
     power: {
       state: powerState,
+      idlePolicy:
+        state.power?.idlePolicy === "shutdown-when-idle"
+          ? "shutdown-when-idle"
+          : "low-power",
       transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
       transitionTotalSeconds: Math.max(
         0,
@@ -624,25 +1017,45 @@ const normalizeState = (state: LegacyState): GameState => {
     },
     completedTasks,
     completedJobs,
+    taskRewardCreditsEarned,
+    taskWorkCyclesCompleted,
+    standingTaskCompletions,
+    standingTaskRewardCreditsEarned: clampStandingAmounts(
+      state.standingTaskRewardCreditsEarned,
+      taskRewardCreditsEarned,
+    ),
+    standingTaskDataEarned: clampStandingAmounts(
+      state.standingTaskDataEarned,
+    ),
+    standingTaskWorkCyclesCompleted: clampStandingAmounts(
+      state.standingTaskWorkCyclesCompleted,
+      taskWorkCyclesCompleted,
+    ),
     completedBenchmarks: normalizeTaskIdList(
       state.completedBenchmarks ?? fresh.completedBenchmarks,
     ),
     activeTasks,
     activeJobs: activeTasks,
     cacheResidency: [],
-    coreSchedulers:
-      state.coreSchedulers ?? createCoreSchedulers(hardware.cores ?? fresh.hardware.cores),
+    coreSchedulers: normalizeCoreSchedulerQueueEntries(
+      state.coreSchedulers,
+      createCoreSchedulers(hardware.cores ?? fresh.hardware.cores),
+    ),
     queue: normalizeTaskIdList(state.queue ?? fresh.queue),
-    queueEntries: Array.isArray(state.queueEntries)
-      ? (state.queueEntries as TaskQueueEntry[])
-      : fresh.queueEntries,
+    queueEntries: normalizeQueueEntries(state.queueEntries),
     autoRepeatJobId: normalizeTaskId(state.autoRepeatJobId, null),
   };
 
-  return materializeSystem(
-    syncSelectedSystemRuntime(
-      syncCronSchedules(updateProgressionFlags(syncHardwarePackages(normalized))),
-    ),
+  return updateCampaignProgress(
+    normalizeCloudForGameState(materializeSystem(
+      syncSelectedSystemRuntime(
+        syncCronSchedules(
+          pruneStaleContractOffers(
+            updateProgressionFlags(syncHardwarePackages(normalized)),
+          ),
+        ),
+      ),
+    )),
   );
 };
 
@@ -652,19 +1065,42 @@ export const deserializeSave = (raw: string | null): GameState => {
   try {
     const parsed = JSON.parse(raw) as {
       version?: number;
+      savedAt?: string;
+      savedAtMs?: number;
+      departedAtMs?: number | null;
       state?: LegacyState;
     };
 
     if (
       (parsed.version === 3 && parsed.state?.version === 3) ||
       (parsed.version === 4 && parsed.state?.version === 4) ||
-      (parsed.version === 5 && parsed.state?.version === 5)
+      (parsed.version === 5 && parsed.state?.version === 5) ||
+      (parsed.version === 6 && parsed.state?.version === 6)
     ) {
       return createInitialGameState();
     }
 
     if (parsed.version === SAVE_VERSION && parsed.state?.version === SAVE_VERSION) {
-      return normalizeState(parsed.state);
+      const normalized = normalizeState(parsed.state);
+      const parsedSavedAtMs =
+        typeof parsed.savedAtMs === "number" && Number.isFinite(parsed.savedAtMs)
+          ? parsed.savedAtMs
+          : typeof parsed.savedAt === "string"
+            ? Date.parse(parsed.savedAt)
+            : Number.NaN;
+      const savedAtMs = Number.isFinite(parsedSavedAtMs)
+        ? Math.max(0, Math.trunc(parsedSavedAtMs))
+        : normalized.time.lastSavedAtMs;
+      const departedAtMs =
+        typeof parsed.departedAtMs === "number" && Number.isFinite(parsed.departedAtMs)
+          ? Math.max(0, Math.trunc(parsed.departedAtMs))
+          : parsed.departedAtMs === null
+            ? null
+            : normalized.time.departedAtMs;
+      return {
+        ...normalized,
+        time: { lastSavedAtMs: savedAtMs, departedAtMs },
+      };
     }
   } catch {
     return createInitialGameState();

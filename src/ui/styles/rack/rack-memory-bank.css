@@ -79,8 +79,9 @@
 
 .rack-memory-stick-fill {
   position: absolute;
-  inset: auto 0 0;
+  inset: 0;
   display: block;
+  height: 100%;
   background: linear-gradient(180deg, rgba(124, 255, 160, 0.72), rgba(36, 231, 195, 0.52));
   box-shadow: 0 0 8px rgba(124, 255, 160, 0.42);
 }

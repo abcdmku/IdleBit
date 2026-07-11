@@ -20,6 +20,18 @@ import {
 } from "./ramTiers";
 import { getPsuCapacityBuildCost } from "./psu";
 import { getCpuSchedulerSlotBuildCost } from "./scheduler";
+import { normalizeMachineComponentSelection } from "../machineSelection";
+import {
+  amountMultiply,
+  amountPow,
+  type AmountInput,
+} from "../amount";
+import {
+  combineCostsExact,
+  roundedCost,
+  roundedGrowthCost,
+  scaleCostsExact,
+} from "../exactCosts";
 
 type ComponentSkuTier = "starter" | "compile" | "render" | "workstation" | "server";
 type CatalogResearchId = Extract<
@@ -39,32 +51,31 @@ type CatalogMachineTemplateDefinition = MachineTemplateDefinition & {
   intendedTasks: TaskId[];
 };
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: AmountInput): Cost => roundedCost("credits", value);
 
-const data = (amount: number): Cost => ({
-  resource: "data",
-  amount: Math.round(amount),
-});
+const data = (value: AmountInput): Cost => roundedCost("data", value);
 
 const RAM_TIER_STICK_COUNT = 4;
 
 const ramTierLevel = (tierId: CpuTierId) => getRamTierFirstGlobalLevel(tierId);
 
 const ramTierCost = (tierId: CpuTierId, stickCount = RAM_TIER_STICK_COUNT) => [
-  credits(getRamTierLevelDefinition(ramTierLevel(tierId)).upgradeCost * stickCount),
+  credits(
+    amountMultiply(
+      getRamTierLevelDefinition(ramTierLevel(tierId)).upgradeCost,
+      stickCount,
+    ),
+  ),
 ];
 
 const coreCosts = (purchaseCount: number): Cost[] => [
-  credits(140 * 2.05 ** purchaseCount),
-  data(5 * 1.45 ** purchaseCount),
+  roundedGrowthCost("credits", "140", "2.05", purchaseCount),
+  roundedGrowthCost("data", "5", "1.45", purchaseCount),
 ];
 
 const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
-  credits(3 * 1.45 ** purchaseCount),
-  data(6 * 1.78 ** purchaseCount),
+  roundedGrowthCost("credits", "3", "1.45", purchaseCount),
+  roundedGrowthCost("data", "6", "1.78", purchaseCount),
 ];
 
 const getPositiveInteger = (value: number | undefined, fallback: number) =>
@@ -166,123 +177,22 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     cacheSpeedLevel: 14,
   },
   {
-    id: "cpu-workstation-8",
-    name: "THz Workstation Package",
+    id: "cpu-workstation-16",
+    name: "16-Core GHz Workstation",
     tier: "workstation",
     type: "cpu",
     unlockResearchId: "customMachineAssembly",
     offTheShelf: true,
-    description: "Level 1 THz CPU package for wider local work.",
+    description: "Sixteen-core package tuned for high-throughput local work.",
     cost: [credits(2_000_000_000_000_000)],
     cpuPackageCount: 1,
-    cpuTierId: "thz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 14,
-    cacheSpeedLevel: 17,
-  },
-  {
-    id: "cpu-workstation-12",
-    name: "THz Cache Package",
-    tier: "workstation",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Level 1 THz CPU package for cache-heavy jobs.",
-    cost: [credits(2_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "thz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 16,
-    cacheSpeedLevel: 21,
-  },
-  {
-    id: "cpu-ghz-16",
-    name: "THz Wide Package",
-    tier: "workstation",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Level 1 THz CPU package at the local-die ceiling.",
-    cost: [credits(2_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "thz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
+    cpuTierId: "ghz",
+    cpuLevel: 28,
+    coreCount: 16,
+    clockLevel: 28,
     cacheLevel: 18,
-    cacheSpeedLevel: 24,
-  },
-  {
-    id: "cpu-server-24",
-    name: "PHz Rack Package",
-    tier: "server",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Level 1 PHz CPU package for dense rack-node builds.",
-    cost: [credits(8_000_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "phz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 20,
     cacheSpeedLevel: 28,
-  },
-  {
-    id: "cpu-server-32",
-    name: "PHz Cache Package",
-    tier: "server",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Level 1 PHz CPU package for cache-rich batch work.",
-    cost: [credits(8_000_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "phz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 22,
-    cacheSpeedLevel: 31,
-  },
-  {
-    id: "cpu-server-48",
-    name: "PHz Throughput Package",
-    tier: "server",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Level 1 PHz CPU package for pre-cluster throughput.",
-    cost: [credits(8_000_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "phz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 25,
-    cacheSpeedLevel: 34,
-  },
-  {
-    id: "cpu-server-64",
-    name: "PHz Apex Package",
-    tier: "server",
-    type: "cpu",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Highest current level 1 PHz CPU package.",
-    cost: [credits(8_000_000_000_000_000_000)],
-    cpuPackageCount: 1,
-    cpuTierId: "phz",
-    cpuLevel: 1,
-    coreCount: 1,
-    clockLevel: 1,
-    cacheLevel: 28,
-    cacheSpeedLevel: 36,
+    schedulerSlots: 16,
   },
   {
     id: "ram-none",
@@ -350,32 +260,6 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     ramSpeedLevel: ramTierLevel("ghz"),
   },
   {
-    id: "ram-thz-tier",
-    name: "THz RAM Tier",
-    tier: "workstation",
-    type: "ram",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Four THz-tier sticks unlocked with THz CPU research.",
-    cost: ramTierCost("thz"),
-    ramStickCount: RAM_TIER_STICK_COUNT,
-    ramLevel: ramTierLevel("thz"),
-    ramSpeedLevel: ramTierLevel("thz"),
-  },
-  {
-    id: "ram-phz-tier",
-    name: "PHz RAM Tier",
-    tier: "server",
-    type: "ram",
-    unlockResearchId: "customMachineAssembly",
-    offTheShelf: true,
-    description: "Four PHz-tier sticks unlocked with PHz CPU research.",
-    cost: ramTierCost("phz"),
-    ramStickCount: RAM_TIER_STICK_COUNT,
-    ramLevel: ramTierLevel("phz"),
-    ramSpeedLevel: ramTierLevel("phz"),
-  },
-  {
     id: "scheduler-none",
     name: "No System Scheduler",
     tier: "starter",
@@ -394,7 +278,7 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     unlockResearchId: "systemCatalog",
     offTheShelf: true,
     description: "Basic system-level queue intake.",
-    cost: [credits(800), data(18)],
+    cost: [credits(800)],
     schedulerSlots: 2,
   },
   {
@@ -470,9 +354,9 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     type: "psu",
     unlockResearchId: "systemCatalog",
     offTheShelf: true,
-    description: "Safer rack-node power supply.",
+    description: "Safer Fleet-node power supply.",
     cost: [credits(2_800)],
-    psuLevel: 18,
+    psuLevel: 23,
   },
   {
     id: "psu-headroom",
@@ -483,7 +367,7 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     offTheShelf: true,
     description: "More capacity for dense chunked work.",
     cost: [credits(9_500)],
-    psuLevel: 22,
+    psuLevel: 37,
   },
   {
     id: "psu-workstation",
@@ -494,7 +378,7 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     offTheShelf: true,
     description: "Power supply for dense workstation modules.",
     cost: [credits(46_000)],
-    psuLevel: 27,
+    psuLevel: 51,
   },
   {
     id: "psu-server",
@@ -516,7 +400,7 @@ export const machineTemplates: CatalogMachineTemplateDefinition[] = [
     tier: "starter",
     unlockResearchId: "systemCatalog",
     description: "The same minimal machine the game starts with.",
-    intendedTasks: ["fetchBit", "decodeBit"],
+    intendedTasks: ["fetchBit"],
     components: {
       cpu: "cpu-barebones-1",
       ram: "ram-none",
@@ -529,7 +413,7 @@ export const machineTemplates: CatalogMachineTemplateDefinition[] = [
     name: "Starter Node",
     tier: "starter",
     unlockResearchId: "systemCatalog",
-    description: "A compact rack node for familiar system work.",
+    description: "A compact Fleet node for familiar system work.",
     intendedTasks: ["compileCode"],
     components: {
       cpu: "cpu-sip-core",
@@ -574,8 +458,8 @@ export const machineTemplates: CatalogMachineTemplateDefinition[] = [
     description: "A high-throughput local workstation for dense batch work.",
     intendedTasks: ["compileCode", "renderFrame", "regressionTest"],
     components: {
-      cpu: "cpu-ghz-16",
-      ram: "ram-thz-tier",
+      cpu: "cpu-workstation-16",
+      ram: "ram-ghz-tier",
       scheduler: "scheduler-12-slot",
       psu: "psu-workstation",
     },
@@ -601,22 +485,10 @@ export const getMachineComponentSkus = (selection: MachineComponentSelection) =>
   getComponentSku(selection.psu),
 ];
 
-const combineCosts = (costs: Cost[]) =>
-  costs.reduce<Cost[]>((combined, cost) => {
-    const existing = combined.find((item) => item.resource === cost.resource);
-    if (existing) {
-      existing.amount += cost.amount;
-      return combined;
-    }
-    combined.push({ ...cost });
-    return combined;
-  }, []);
+const combineCosts = combineCostsExact;
 
-const scaleCosts = (costs: Cost[], multiplier: number) =>
-  costs.map((cost) => ({
-    ...cost,
-    amount: cost.amount * multiplier,
-  }));
+const scaleCosts = (costs: Cost[], multiplier: AmountInput) =>
+  scaleCostsExact(costs, multiplier);
 
 const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
   const packageCount = Math.max(1, cpuPackageCount);
@@ -631,6 +503,7 @@ const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
 };
 
 export const getMachineSelectionCost = (selection: MachineComponentSelection) => {
+  selection = normalizeMachineComponentSelection(selection);
   const [cpu, ram, scheduler, psu] = getMachineComponentSkus(selection);
   const cpuPackageCount = Math.max(
     1,
@@ -781,7 +654,7 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
   );
   const ramInstallCosts = hasCustomRam
     ? Array.from({ length: targetRamStickCount }, (_, index) =>
-        scaleCosts(getRamTierInstallCost(baseRamLevel), 2 ** index),
+        scaleCosts(getRamTierInstallCost(baseRamLevel), amountPow(2, index)),
       ).flat()
     : ram.cost;
   const ramCapacityCosts = hasCustomRam

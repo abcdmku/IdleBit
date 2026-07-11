@@ -1,2 +1,670 @@
 @import "./hardware/system-board.css";
 @import "./tasks/pinned-task-bar.css";
+@import "../workshop/workshop.css";
+
+.hardware-view-tabs {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 2px;
+  border: 1px solid rgb(101 159 180 / 24%);
+  border-radius: 5px;
+  background: rgb(4 15 22 / 72%);
+}
+
+.hardware-view-tabs button {
+  min-height: 26px;
+  padding: 3px 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.hardware-view-tabs button.active {
+  border-color: rgb(57 217 255 / 42%);
+  background: rgb(30 83 98 / 64%);
+  color: var(--text-primary, #e6f7ff);
+}
+
+.late-surface-loading {
+  margin: 0;
+  padding: 16px;
+  color: var(--text-muted, #91a9b7);
+}
+
+.mobile-hardware-view-tabs {
+  display: none;
+}
+
+.late-command-panel {
+  display: grid;
+  gap: 14px;
+  color: var(--text-primary, #e6f7ff);
+}
+
+.late-command-header,
+.cloud-section-heading,
+.cloud-active-sla > header,
+.planetary-progress > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.late-command-header {
+  justify-content: flex-start;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--cyan, #39d9ff) 35%, transparent);
+  border-radius: 8px;
+  background: linear-gradient(120deg, rgb(13 35 48 / 92%), rgb(8 19 29 / 94%));
+}
+
+.late-command-header h2,
+.cloud-command-section h3 {
+  margin: 0;
+}
+
+.late-command-header p,
+.cloud-zone-card p,
+.cloud-sla-list p {
+  margin: 3px 0 0;
+  color: var(--text-muted, #91a9b7);
+}
+
+.cloud-routing-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cloud-routing-summary > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgb(103 202 226 / 20%);
+  border-radius: 6px;
+  background: rgb(8 22 31 / 76%);
+}
+
+.cloud-routing-summary strong {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+
+.cloud-command-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgb(124 164 181 / 20%);
+  border-radius: 7px;
+  background: rgb(5 15 23 / 74%);
+}
+
+.cloud-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  align-items: end;
+  gap: 8px;
+}
+
+.cloud-control-grid label,
+.cloud-region-grid label,
+.cloud-failover-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cloud-control-grid input,
+.cloud-control-grid select,
+.cloud-region-grid input,
+.cloud-failover-controls input {
+  min-width: 0;
+  width: 100%;
+}
+
+.cloud-region-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.cloud-region-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid rgb(92 140 160 / 28%);
+  border-radius: 6px;
+  background: rgb(10 25 34 / 82%);
+}
+
+.cloud-region-grid header,
+.cloud-route-row,
+.cloud-failover-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cloud-routing-editor {
+  display: grid;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid rgb(92 140 160 / 22%);
+}
+
+.cloud-route-row {
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  border: 1px solid rgb(92 140 160 / 22%);
+  border-radius: 5px;
+}
+
+.cloud-failover-controls {
+  flex-wrap: wrap;
+  padding: 9px;
+  border: 1px solid rgb(92 140 160 / 24%);
+  border-radius: 6px;
+}
+
+.cloud-failover-controls > label:first-child {
+  display: flex;
+  align-items: center;
+}
+
+.cloud-failover-controls > label:first-child input {
+  width: auto;
+}
+
+.cloud-command-panel button {
+  min-height: 36px;
+}
+
+.cloud-zone-grid,
+.cloud-charter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.cloud-zone-card,
+.cloud-active-sla,
+.cloud-sla-list > article,
+.planetary-progress {
+  padding: 10px;
+  border: 1px solid rgb(92 140 160 / 28%);
+  border-radius: 6px;
+  background: rgb(10 25 34 / 82%);
+}
+
+.cloud-zone-card.active {
+  border-color: rgb(57 217 255 / 78%);
+  box-shadow: inset 3px 0 rgb(57 217 255 / 72%);
+}
+
+.cloud-zone-card.derated {
+  border-color: rgb(255 190 71 / 64%);
+}
+
+.cloud-zone-card.paused {
+  border-color: rgb(255 100 100 / 58%);
+  background: rgb(39 18 22 / 78%);
+}
+
+.cloud-zone-card header,
+.cloud-sla-list > article {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cloud-zone-card header span,
+.cloud-active-sla header span {
+  color: var(--text-muted, #91a9b7);
+  text-transform: capitalize;
+}
+
+.cloud-zone-card dl {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+}
+
+.cloud-zone-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cloud-zone-card dt {
+  color: var(--text-muted, #91a9b7);
+}
+
+.cloud-zone-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.cloud-sla-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cloud-sla-list > article > div {
+  min-width: 0;
+}
+
+.cloud-sla-list small,
+.cloud-blocker {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted, #91a9b7);
+}
+
+.cloud-blocker {
+  color: var(--warning, #ffc35a);
+}
+
+.cloud-active-sla .smooth-progress,
+.planetary-progress .smooth-progress {
+  width: 100%;
+  margin-top: 9px;
+}
+
+.cloud-sla-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 8px;
+  color: var(--text-muted, #91a9b7);
+}
+
+.cloud-charter-grid button {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  text-align: left;
+}
+
+.cloud-charter-grid button[aria-pressed="true"] {
+  border-color: rgb(57 217 255 / 82%);
+  background: rgb(20 62 75 / 86%);
+}
+
+.cloud-charter-grid span,
+.planetary-progress small {
+  color: var(--text-muted, #91a9b7);
+}
+
+.cloud-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted, #91a9b7);
+}
+
+@media (max-width: 900px) {
+  .cloud-routing-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .cloud-routing-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-section-heading,
+  .cloud-sla-list > article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cloud-zone-grid,
+  .cloud-charter-grid,
+  .cloud-control-grid,
+  .cloud-region-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-failover-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-command-panel *,
+  .cloud-command-panel *::before,
+  .cloud-command-panel *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+.infrastructure-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.infrastructure-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgb(104 202 225 / 20%);
+  border-radius: 6px;
+  background: rgb(8 22 31 / 76%);
+}
+
+.infrastructure-summary span,
+.infrastructure-section-heading > span,
+.cluster-card header span,
+.facility-card header span {
+  color: var(--text-muted, #91a9b7);
+}
+
+.infrastructure-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.infrastructure-command-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgb(124 164 181 / 20%);
+  border-radius: 7px;
+  background: rgb(5 15 23 / 74%);
+}
+
+.infrastructure-section-heading,
+.infrastructure-section-heading > div,
+.cluster-card > header,
+.facility-card > header,
+.true-rack-card > header,
+.true-rack-card > header > div,
+.cluster-workload > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.infrastructure-section-heading > div,
+.true-rack-card > header > div {
+  justify-content: flex-start;
+}
+
+.infrastructure-section-heading h3 {
+  margin: 0;
+}
+
+.cluster-builder {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(240px, 2fr) auto;
+  align-items: end;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgb(92 140 160 / 28%);
+  border-radius: 6px;
+  background: rgb(10 25 34 / 82%);
+}
+
+.cluster-builder > label,
+.cluster-card header label,
+.rack-placement-control,
+.cluster-workload-actions label {
+  display: grid;
+  gap: 4px;
+}
+
+.cluster-builder fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(92 140 160 / 32%);
+  border-radius: 5px;
+}
+
+.cluster-builder fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cluster-card-grid,
+.facility-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.cluster-card,
+.facility-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgb(92 140 160 / 30%);
+  border-radius: 7px;
+  background: rgb(10 25 34 / 82%);
+}
+
+.cluster-card > header > div,
+.facility-card > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.infrastructure-ledger {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 12px;
+  margin: 0;
+}
+
+.infrastructure-ledger > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.infrastructure-ledger dt {
+  color: var(--text-muted, #91a9b7);
+}
+
+.infrastructure-ledger dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.infrastructure-blocker {
+  display: block;
+  color: var(--warning, #ffc35a);
+}
+
+.cluster-workload-list,
+.true-rack-list {
+  display: grid;
+  gap: 7px;
+}
+
+.cluster-workload,
+.true-rack-card {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid rgb(90 143 164 / 28%);
+  border-radius: 5px;
+  background: rgb(5 16 24 / 68%);
+}
+
+.cluster-workload .smooth-progress {
+  width: 100%;
+}
+
+.cluster-workload-actions {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cluster-workload-actions input {
+  width: 76px;
+}
+
+.workload-projection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--line-soft);
+}
+
+.workload-projection > div {
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(5, 11, 10, 0.9);
+}
+
+.workload-projection dt,
+.workload-projection dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+}
+
+.workload-projection dt {
+  color: var(--muted-2);
+  font-family: var(--font-display);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.workload-projection dd {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.workload-catalog,
+.facility-catalog,
+.rack-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workload-catalog button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 6px;
+  text-align: left;
+}
+
+.workload-catalog button small {
+  grid-column: 2;
+  color: var(--text-muted, #91a9b7);
+}
+
+.rack-catalog button,
+.facility-catalog button {
+  display: grid;
+  gap: 4px;
+  min-height: 34px;
+  text-align: left;
+}
+
+.infrastructure-commission-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.true-rack-card p {
+  margin: 0;
+  color: var(--text-muted, #91a9b7);
+}
+
+.rack-node-list {
+  display: grid;
+  gap: 5px;
+}
+
+.rack-node-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@media (max-width: 1050px) {
+  .infrastructure-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cluster-builder {
+    grid-template-columns: 1fr 1.5fr;
+  }
+
+  .cluster-builder > button {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .infrastructure-summary,
+  .cluster-card-grid,
+  .facility-card-grid,
+  .infrastructure-ledger,
+  .cluster-builder {
+    grid-template-columns: 1fr;
+  }
+
+  .cluster-card > header,
+  .facility-card > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 760px) {
+  .mobile-hardware-view-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 7;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: 3px;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgb(77 143 164 / 28%);
+    background: rgb(3 14 20 / 96%);
+  }
+
+  .mobile-hardware-view-tabs button {
+    min-height: 38px;
+  }
+
+  .mobile-hardware-view-tabs button.active {
+    border-color: rgb(57 217 255 / 54%);
+    background: rgb(27 79 94 / 72%);
+    color: var(--text-primary, #e6f7ff);
+  }
+}

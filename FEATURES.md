@@ -12,28 +12,60 @@
 | Tested | Built and covered by automated or smoke verification |
 | Deferred | Tracked for a later build |
 
+## Long-Form Planetary Campaign
+
+The campaign target supersedes prototype-era rows where they conflict. Existing
+hardware and scheduler coverage remains valuable foundation; status here tracks
+the new end-to-end campaign acceptance.
+
+| Feature | Status | Acceptance |
+|---|---|---|
+| Exact `Amount` arithmetic | In Progress | Exact resources, campaign costs/rewards, capacity vectors, throughput, and reports are string-backed; the final audit is removing remaining number-backed legacy physical cost/reward/work interfaces and enforcing bounded projections |
+| Deterministic advance engine | Tested | `advanceGame` consumes full foreground/chunked/offline intervals across event boundaries, passes strict delta-invariance coverage, and batches a stable seven-day standing order in about 1 ms |
+| Save-v7 campaign reset | Tested | Pre-v7 saves clean-reset; v7 persists exact balances, timestamps, the departure buffer snapshot, deterministic RNG, and campaign/runtime state; return reports are rebuilt from each catch-up instead of being carried across reloads |
+| Automation Buffer | Tested | Nine sequential levels (the starting node plus eight purchases) progress from 0 to 168 hours; each late maximum has a separate chapter research gate, departure-owned capacity caps catch-up, and overflow is harmless and non-retroactive |
+| Offline return reports | Tested | Reports include elapsed/simulated/overflow/productive/paused time, completions, gross earnings, expenses, utilization, and blockers |
+| Standing orders | Tested | Local Scheduler completes only finite queued work; CRON renews one safe baseline order without permanently stalling |
+| Live Operations | Tested | Foreground-only managed spare-core lane alternates queue triage and canary validation, pays exact compute-scaled rewards, contributes physical power/thermal/billing load, preserves offline progress without allocating cores, and rejects public task spoofing |
+| Bootstrap/Coherent campaign | Tested | Data-driven opening objectives teach queue, buffer, first benchmark, multicore, RAM, schedulers, second CPU, and CRON without repeatable Data farming |
+| Workshop Fleet rename and rebalance | Tested | Player-facing PC surface is Fleet; up to 16 named fully simulated systems, cooling, overclocking, saved storage staging, accelerator routing, explicit actions, and useful projections replace rack terminology and hidden gestures before later growth moves into aggregate infrastructure |
+| Contracts and projects | In Progress | Deterministic sustained/burst offers enforce a 15-minute refresh cadence, three-contract capacity, active-template novelty reservation, and compact exact rate readouts; contract template eligibility and `refreshContractMarket` are CRON-gated with a public blocker and stale offers are pruned at load; the bootstrapBenchmark project is removed with its first-completion Data re-homed to early tasks; productive progress follows frozen ordered cache/RAM/CPU and later storage/network work on the assigned system, incompatible target systems are rejected with explicit lane blockers instead of fake maximum ETAs, every Credit settles from exact recipe work plus a named frozen multiplier, offer expiry remains a deadline, and phased optional arcs persist exact stage progress without blocking the mainline |
+| Local Fabric and distributed work | Tested | Local Fabric progressively reveals a per-system NIC bay; project and distributed network stages use the installed machine's real ingress/egress rates, while shared queues, multi-resource placement, weighted-fair scheduling, shard DAGs, storage staging, barriers, reduce/commit, and replication are simulated and covered |
+| Rack and Facility | Tested | True racks and data centers model exact procurement, rack units, compute, memory, storage, power, cooling, uplink, operating cost, utilization, reserve, and headroom |
+| Resilient Cloud | Tested | SLA productive work follows routed capacity while a separately named service observation window integrates availability, replica quorum, deadlines, p95 latency, zones, explicit failover, opt-in incidents, and exact rewards |
+| Planetary Commons | Tested | Regions, min-cost global routing, the three-phase finale, swappable charters, and endless postgame contracts are playable and covered |
+| Campaign balance runner | In Progress | Public-action cadence profiles, seeded Monte Carlo, dominance-pruned beam search, NSGA-II, metrics, generated CSV evidence, and focused tests exist; full campaign pacing gates are not yet calibrated |
+| Command-deck UI | Tested | Compact desktop-topbar and mobile-Jobs objective status, exceptional persistence status, contextual Automation Buffer controls in Work, Work taxonomy, projections, return summary, named Fleet, preset/Advanced builder, responsive mobile-first Work, zoom/reflow, touch targets, keyboard/focus, reduced motion, and zero-violation tagged WCAG Axe coverage pass the browser acceptance suite |
+| Progressive hardware-owned work UI | In Progress | Opening Work exposes only playable Jobs; Campaign and Automation reveal with System Scheduler research (legacy saves with an active/completed project keep Campaign), Contract Market reveals with CRON Scheduler research (or while legacy contracts exist), Standing Orders join Automation at CRON, and Automation Buffer levels stay R&D-column purchase cards while Automation shows only buffer status/departure forecast; until Campaign reveals, the chapter objective plus its actionable blocked reason stays in the topbar/mobile objective chip; task cards avoid redundant projections; fixed-height system status shows active projects/contracts/orders/jobs without shifting surrounding UI |
+| Offline Worker and persistence status | Tested | Worker catch-up has a sync fallback; departure saves, hydration, error/status UI, confirmed reset, and browser/Electron failure recovery are covered |
+| Electron packaging and PR CI | Tested | Relative production assets, durable relaunch E2E, reproducible Linux directory packaging, Windows packaging CI, and PR checks cover tests, typecheck, web/Electron builds, Storybook, browser/Electron E2E, balance evidence, and packaging |
+
 ## Vertical Slice
 
 | Feature | Status | Acceptance |
 |---|---|---|
 | Primitive CPU start | Tested | New save starts with 10 credits, one Hz tier level-1 CPU core at 1 Hz, 1 b cache, 1 Hz cache load rate, 0 b RAM, hidden 1 Hz RAM load rate, data, visible PSU power readouts, 0.1 uW starter CPU draw, 10 uW starter PSU capacity, runnable Fetch Bit, and 2 b-gated Decode Bit visible |
+| Opening physical timing | Tested | Fetch Bit is exactly two operations and two seconds at starter 1 Hz rates; one transfer bit or CPU cycle takes one second on its applicable 1 Hz lane, and Bit Flip is exactly three read/mutate/write operations, so it is strictly slower on identical hardware |
+| Hardware-derived task timing | Tested | Authored cache/RAM/CPU work and fixed aggregate batch volumes determine task time; projects/contracts use ordered hardware paths, and fixed clocks are limited to explicitly named deadlines, observation windows, and physical latencies |
+| Smooth exact progress meters | Tested | Work, project, contract, cluster, Cloud, storage, Live Ops, core, cache, RAM, rack, and queue fills interpolate across exact 500 ms snapshots, snap batch resets, and disable motion under reduced-motion preference |
 | Bit-scale startup | Tested | Opening tasks stay as a tiny bit-scale pair before byte/cache/research concepts are introduced, with Decode using a 2 b cache footprint and overwrite bit tasks reusing 1 b footprints |
-| Manual tasks | Tested | Player can start an available task/job and receive credits/data on completion |
-| Manual click-rate tuning | Tested | Holding task buttons repeats manual dispatch for up to 30 seconds; Click Rate Tuning appears after Local Scheduler, unlocks for 500,000 credits, then levels 1-36 from 100,000 credits with rounded 1.4x cost growth, raising hold cadence from the default 110 ms repeat to 10 Hz plus 2 Hz per level through 80 Hz |
+| Manual tasks | Tested | Player can start an available task/job, receive work-derived Credits on every completion, and receive authored Data only while its first-completion milestone is still pending |
+| Work-derived payouts | Tested | One exact paid-work ledger covers Jobs, paid benchmarks, every project phase, contracts, Live Operations, Workshop storage, cluster work, and Cloud SLAs; sequential lane work pays one Credit per unit before an explicit named frozen multiplier, concurrent memory issue/cache transfer is counted once, hardware speed changes duration rather than gross payout, and closed-world balance tests reject untracked Credit sources |
+| Manual click-rate tuning | Deferred | The prototype research path is being removed; hold-repeat remains only as an accessibility setting and cannot raise the intended progression ceiling |
 | Task cancellation | Tested | Active tasks and queued scheduler entries can be canceled, releasing reserved work without paying rewards or removing active scheduler reservations for other queued copies |
 | Resource gain flyouts | Tested | Positive credits/data gains show transient +amount labels above the mobile/desktop workbench that fly into the matching HUD total |
 | Resource amount tokens | Tested | Credits/data use one icon-number-color treatment in the HUD, flyouts, task payouts, upgrade/research costs, graph readouts, and inspect summaries, with RuneScape-style exact/K/M/B/T/Q/Qn/S/Sp stack count formatting and spaced suffixes |
-| Dev resource shortcut | Tested | Shift-clicking the HUD credits readout grants 100B credits, Shift-clicking the data readout grants 100B data, and neither shortcut toggles the resource graph |
+| Development-only resource shortcut | Deferred | The public simulation API and HUD shortcut are removed so production and diagnostic surfaces share the same player-visible action boundary; test fixtures fund exact resources directly |
 | HUD resource graph | Tested | Desktop clicks on the HUD credits/data readouts toggle the resource graph, while mobile taps always open the graph and route to the R&D/graph column without closing it on repeated taps |
 | HUD settings menu | Tested | The settings icon beside the HUD data readout opens compact toggles for showing hardware purchase controls and requesting a keep-screen-awake lock |
 | Storybook component documentation | Tested | Storybook is configured for reusable UI components, with stories for resource cost states, HUD zero/high/gain states, PSU/credit failure notices, motherboard layout board/rack states, SystemRackPanel rack states, and TaskBay route/pinned-task states using static review fixtures |
 | React UI module boundaries | Tested | App persistence, notice preferences, resource UI, failure notices, rack/builder UI, rack visual bays, task route/card UI, task/research panels, CPU/cache/scheduler, RAM, PSU, and shared hardware meters live in focused modules instead of one mixed hardware board file |
 | CSS architecture | Tested | CSS uses ordered domain manifests and focused partials for foundation, layout, hardware, scheduler, tasks, overlays, responsive, rack, and late surface rules without adding a utility framework dependency |
 | CPU Package Level upgrades | Tested | Upgrade increases CPU operation throughput for every core in the CPU package, charges the target-level CPU tier cost for each installed core, changes package draw through clock/efficiency, and uses one combined price/refund control |
-| CPU tier research | Tested | CSV-backed Hz, kHz, MHz, GHz, THz, and PHz tiers each have 36 levels; kHz CPU Research unlocks after System Automation, each completed tier research immediately reveals the next tier research, level-1 CPU purchases use sheet metadata costs, and the final PHz next-tier marker is ignored until another tier exists |
+| CPU tier research | Tested | Hz, kHz, MHz, and GHz tiers each have 36 bounded levels; research advances through GHz level-1 packages, physical clocks stop at 6 GHz, and larger values are aggregate Fleet/infrastructure throughput |
 | C-State Control | Tested | C-State research appears after kHz CPU Research, costs the sheet `c_state unlock` value, then remains open as a global `Level up` research item using sheet C-State costs until max level while reducing idle CPU draw only across every system |
 | Cache upgrades | Tested | Capacity and speed upgrades are available from the start; capacity costs more data than credits, speed follows the CPU tier frequency ladder with target-level costs multiplied by installed cores, active cache writes share the CPU-package cache lane, and both improve cache queue/fill behavior |
-| Task operation composition | Tested | CPU-bound tasks decompose into read/write/overwrite memory operations and compute operations, exposed RAM read/write/overwrite page tasks unlock with RAM Control, system/distributed tasks are composed from CPU-bound child tasks with child provenance preserved in DAG stages, and stage operation totals sum cache load, RAM load, and execute work |
+| Task operation composition | Tested | CPU-bound tasks decompose into read/write/overwrite memory operations and compute operations, exposed RAM page tasks unlock with RAM Control, and composed system/distributed stages preserve child provenance; cards count real operation invocations while DAG chips keep cache bits, RAM bits, and CPU cycles separate |
 | Runtime progress meters | Tested | Task cards show one whole-task progress value across recipe/load/compute work, RAM shows reserved/loading/ready staging progress, and CPU core meters show current CPU execution, including memory-operation cache issue cycles |
 | Inferred task composition DAG | Tested | Task definitions infer cached recipe-step DAG nodes, per-step cache/RAM staging, held RAM, and accept/execute/complete dependencies for ready/waiting reasons |
 | CPU cache operation queue | Tested | Cache stores CPU operation queues instead of acting only as a percent modifier; total cache fit gates impossible tasks while active cache writes that exceed capacity create CPU-package deadlocks that halt all active work on that CPU |
@@ -41,7 +73,7 @@
 | Progressive task reveal | Tested | Tasks appear in small concept groups and the task panel groups visible work by CPU-bound, system, distributed, and other task categories instead of a single previous-task chain |
 | Progressive research reveal | Tested | Research appears only after data/research has player-facing meaning |
 | Research requirements clarity | Tested | Research cards list unmet research, task, hardware, and compute requirements before purchase |
-| Task/research summary chips | Tested | Task cards and research compute rows keep operation counts, multi-core requirements above one core, cache/RAM needs, and resource payouts/costs visible, while blocked action buttons show the current blocker; task cards do not list live state or recolor while active |
+| Task/research summary chips | Tested | Task cards and research compute rows keep real authored operation-invocation counts, multi-core requirements above one core, cache/RAM needs, and exact next-completion payouts/costs visible; first-completion Data disappears after settlement, blocked action buttons show the current blocker, and task cards do not list live state or recolor while active |
 | Task route picker | Tested | The task panel header uses a compact layer selector plus target dropdown: C chooses a core, CPU chooses a CPU scheduler, and Sys chooses the System Scheduler without an Auto route |
 | CRON v1 timer automation | Tested | CRON Scheduler research reveals a paid CRON Job Slot install; installed slots enable timer repeats for visible repeatable system tasks only with a default minimum 60s, seconds/minutes modes, whole-second next-job countdown, increasingly expensive `cronInterval` upgrades lower the minimum by 1 second each, and skipped runs do not catch up |
 | Broad auto-repeat | Deferred | General task auto-repeat remains out of scope beyond the scoped CRON v1 system-task loop |
@@ -62,31 +94,33 @@
 | RAM reveal | Tested | RAM appears after RAM Control research, not after second CPU purchase |
 | CRON module reveal | Tested | Second CPU purchase reveals CRON Scheduler research only; the CRON system module stays hidden until that research is bought, then appears as a paid CRON Job Slot install outline |
 | CRON Scheduler research | Tested | Unlocks the paid CRON Job Slot install that enables CRON controls for visible repeatable system tasks only |
-| PSU Management research | Deferred | Deferred until it exposes a new player-facing power decision; cheap credits-only PSU capacity upgrades remain available from the start |
-| Thermal Control research | Deferred | Thermal UI, cooling controls, and thermal research are deferred for a later system-management pass |
-| Repeatable system tasks | Tested | Memory Scrub, Queue Compaction, and Power Telemetry reveal after Tiny Checksum; Bus Mirror and Shard Reconcile reveal after second CPU; Thermal Probe is deferred |
-| Power reveal | Tested | PSU is visible from the first screen; Thermal remains hidden for now |
-| PSU startup balance | Tested | Powered-on systems bill at 1 credit/sec per 1 uW, starter CPU draw is 0.1 uW with 0.1 cr/s billing, idle time drains positive credits, and active starter work remains profitable |
+| PSU Management research | Tested | Appears after System Scheduler plus Power Telemetry, ends the onboarding energy subsidy, and enables metered billing, unpaid cutoff, and destructive PSU failure only after the player has visible countermeasures |
+| Thermal Control research | Tested | Workshop progression reveals the Thermal surface, five cooling tiers, heat/throttle status, and overclock controls when those choices become actionable |
+| Repeatable system tasks | Tested | Memory Scrub, Queue Compaction, Power Telemetry, Bus Mirror, Shard Reconcile, and Thermal Probe reveal at their campaign gates |
+| Power and thermal reveal | Tested | PSU is visible from the first screen; Thermal is progressively revealed in Workshop with model-owned heat and sustained-throughput status |
+| PSU onboarding subsidy | Tested | PSU draw/capacity/headroom are visible from the first screen, but billing and destructive failures stay disabled until PSU Management; unsafe starts pause safely before that gate |
 | RAM staging model | Tested | RAM extends the memory staging hierarchy after cache, exposes CPU-bound RAM read/write/overwrite page tasks, shows task loading into fixed per-stick address blocks before CPU execution, reuses released block locations after cancellation/completion, and peak per-core RAM fit gates impossible tasks while active RAM writes that exceed capacity create system-wide deadlocks that halt all active work |
 | RAM upgrades | Tested | First RAM install presents a tier choice for each CPU-unlocked RAM tier; once RAM exists on the system, new sticks match the existing RAM tier and no tier picker is shown, then stick capacity and frequency upgrade per selected stick or all sticks; mixed capacities and frequencies are allowed, new sticks add capacity rather than summed total speed, stick and frequency costs match CPU tier level costs, frequency values match the CPU/cache tier clock ladder, capacity costs multiply that CPU-style cost by the stick's per-tier size growth, capacity doubles each level, each tier is 1024x the previous tier, capacity starts at 256 b, and frequency starts at 1 Hz |
 | RAM channel research | Tested | Single-channel RAM allocations fill lower-numbered sticks first and spill to later sticks for capacity, but only one stick is actively written per channel at a time; concurrent writes on the serviced stick/channel share that lane, aggregate RAM write speed is capped by both writer-core Hz and serviced RAM-lane Hz, Dual/Quad/Oct Channel RAM research costs 200,000/20,000, 50,000,000/5,000,000, and 1,000,000,000/100,000,000 credits/data, no longer requires matching installed stick counts, and unlocks System Scheduler striping across up to 2/4/8 serviced channel lanes capped by installed sticks; later stick groups wait behind the lowest pending group instead of skipping lower-numbered sticks, unused later sticks are reserved before spare capacity on larger earlier sticks, and visible bandwidth reports the current effective write rate |
 | Memory Voltage Modifier | Tested | Memory Voltage Modifier appears after RAM Control plus kHz CPU Research, unlocks for 1,000,000 credits, then remains as a repeatable `Level up` research item starting at 100,000 credits and multiplying each level by 1.8 while reducing idle RAM draw only |
-| Power states and billing | Tested | Power states are `on`, `shuttingDown`, `off`, and `booting`; booting/shutting-down status appears on the PSU before the system card unlocks and on the System Scheduler card afterward; off greys hardware while still allowing hardware edits and power/start controls, blocks work/CRON, and bills zero; graceful shutdown blocks new work while current work drains |
-| Zero-credit power cutoff | Tested | Power billing clamps credits at 0, starts a 10-second unpaid-credit cutoff warning before shutdown, emergency-shuts down if the warning expires, shows a first-time explanation plus quick repeat popup after cutoff, and allows a short no-bill bootstrap startup from 0 credits |
-| PSU reliability stress | Tested | PSU affects reliability, efficiency, throttle, draw billing, and a 10-second overload failure that flashes the PSU red, hard-powers off, shows a short first-time failure popup, uses a red topbar badge for later trips, and clears active/queued work |
+| Power states and billing | Tested | Power states are `on`, `shuttingDown`, `off`, and `booting`; after PSU Management, productive powered work is metered while off bills zero, graceful shutdown drains current work, and idle/departure policy can power down safely |
+| Zero-credit power cutoff | Tested | After PSU Management, billing clamps credits at 0, starts a 10-second unpaid cutoff before shutdown, and shows first/repeat notices; the opening subsidy prevents this failure before countermeasures exist |
+| PSU reliability stress | Tested | Live PSU stress and safe start blockers are visible early; after PSU Management, overload pressure can throttle, flash, hard-power off, notify, and clear active/queued work after the 10-second failure window |
 | CPU power curve | Tested | Active CPU draw is `clock / efficiency`, idle draw uses the C-State multiplier after C-State unlock, and starter PSU capacity is 10 uW with `10 uW * 1.7^(level - 1)` capacity progression |
 | RAM/CPU efficiency matching | Tested | Matching RAM module sizes/frequencies and CPU package specs improves power efficiency; mismatches add effective draw and reliability pressure |
-| Cooling Thermal Control gate | Deferred | Cooling controls and the Thermal surface are deferred |
-| Cooling power tradeoff | Deferred | Active cooling tradeoffs remain planned for the later Thermal pass |
-| Browser persistence | Tested | Save/load works in browser storage, browser persistence writes `save-v6`, and incompatible v5-or-older saves reset to a clean v6 initial state for the CPU child queue model |
-| Electron shell | Built | Desktop app opens the same game build |
-| Responsive game UI | Tested | Main interface remains usable on desktop and mobile widths |
+| Cooling Thermal Control gate | Tested | Thermal Control reveals system-scoped cooling installation and overclock controls in Workshop |
+| Cooling power tradeoff | Tested | Five cooling tiers trade exact purchase/operating power against heat buildup, throttling, and sustained throughput |
+| Workshop storage staging | Tested | Each system saves an installable Local SSD/NVMe profile and one exact CapacityWork artifact-staging workload with capacity/read/write fit, progress, reward, power, heat, offline, cancellation, and Fleet-capacity mirroring coverage |
+| Workshop accelerators | Tested | Entry GPU/NPU modules route fitted render/inference work with contention and explicit CPU fallback; Open Foundry optionally unlocks advanced modules without blocking the mainline specialization proof |
+| Browser persistence | Tested | Save/load writes save-v7 exact campaign state, snapshots the owned departure buffer before absence, normalizes corrupt v7 data, and clean-resets incompatible pre-v7 prototypes |
+| Electron shell | Tested | The packaged desktop build loads relative assets through a constrained preload bridge, atomically persists, flushes elapsed time before close, relaunches the same durable save, and presents the offline return report |
+| Responsive game UI | Tested | Work opens first on mobile, bottom navigation and mission/active status remain visible, and browser acceptance covers 320–1920 px plus 200%-equivalent reflow |
 | Alert visibility | Tested | In-board PSU/deadlock alert captions scroll fully into view when they appear, including after mobile tab routing switches back to Hardware |
 | Mobile unlock notifications | Tested | Mobile Tasks and R&D tabs show a red new-content notification when visible tasks or open research have unlocked since that tab was last viewed |
 | Pinned task bar | Tested | Pinned tasks stay quickly runnable from the floating/embedded bar, and active pinned tasks keep their queue action available when the selected scheduler route can accept another copy |
 | Hardware workbench UI | Tested | CPU board is the primary surface; top title chrome and side panels are removed |
 | Board-integrated controls | Tested | Upgrades live on components and jobs sit below the system instead of in a switching inspector |
-| Component-scoped controls | Tested | CPU, CPU-local cache, CPU-local scheduler, RAM, socket, and PSU expose relevant local actions and readouts, with CPU add-remove anchored in the CPU bank header, CPU efficiency visible in standalone/package/array/tab CPU views outside the rack, CPU array cards sharing the same core grid/tile treatment as tab detail views, CPU tab labels shortened to package letters, RAM stick efficiency visible on stick cards, narrow RAM panels stacking sticks to a readable width, the All RAM selector grouped with the RAM title, and core/RAM-stick add-remove anchored in their owning section headers; cheap credits-only PSU wattage upgrades are available from the start while advanced PSU tuning and Thermal controls are deferred |
+| Component-scoped controls | Tested | CPU, CPU-local cache/scheduler, RAM, sockets, PSU, Thermal, cooling, overclocking, and GPU/NPU modules expose explicit local actions and model-owned readouts; cheap PSU capacity stays visible from the start while Workshop progressively reveals its sustained-performance controls |
 | Reversible upgrade tuning | Tested | Reversible hardware specs use one +/- stepper, downgrade refunds 50% of the last purchase cost, capacity removal is blocked while occupied, and unaffordable credit/data tokens dim without disabling the whole spec control |
 | CPU package tuning controls | Tested | Package frequency is purchased from the selected CPU package control strip with a Core Freq label; after CPU Operation Scheduler unlock, a Cores-header All selector targets the same package-level +/- control without becoming a task route, and Add Core lives in the Cores header instead of repeating controls in every core tile |
 | Per-core job targeting | Tested | Selecting a core makes Jobs assign work directly to that core |
@@ -103,20 +137,24 @@
 | Hardware card layout | Tested | Hardware sections render as standalone cards in the hardware panel without an extra framed/background board wrapper |
 | Scalable core layout | Tested | Core grids step through 1x2, 2x2, 2x4, 3x4, 4x4, 3x8, 4x8, and later Nx8 layouts, always filling the core-array width without horizontal scrolling; eight-column desktop grids cap to six columns on medium screens and four on narrow screens; Cache sits beside the CPU scheduler for dense full-width layouts; compact/dense core tiles use the lower bar as the status/progress light and stack label over frequency |
 | CRON top module layout | Tested | CRON appears at the top of the system board after CRON Scheduler research, not as a locked second-CPU module |
-| Support module rail | Tested | PSU remains an always-visible power module; Thermal is deferred |
+| Support module rail | Tested | PSU remains an always-visible power module; Thermal, cooling, overclocking, GPU/NPU slots, routing, and CPU fallback appear at their Workshop gates |
 
-## Multi-System Rack Phase
+## Fleet Foundation
+
+This section tracks the earlier PC-scale implementation under its current
+player-facing name. The Long-Form Planetary Campaign table above is
+authoritative for later cluster, rack, facility, Cloud, and Planetary layers.
 
 | Feature | Status | Acceptance |
 |---|---|---|
-| Multi-system rack phase | Tested | Active pre-live target; rack acquisition unlocks with System Catalog after CRON/system-bus progression, and automated coverage verifies save reset, rack acquisition, selected-system routing, and chunked task boundaries |
-| Clean save reset for rack phase | Tested | This phase intentionally starts from a fresh local save/save version rather than migrating obsolete prototype system/rack state |
-| Visual rack slots | Tested | The rack-style view shows exactly one visible slot per owned system; completing a custom build adds one slot |
-| Preconfigured systems | Deferred | Ready-made complete systems remain out of the current builder UI; the build path should not show premade cards or predefined config choices |
-| Tiered custom machine builder | Tested | Custom builder appears with System Catalog without separate Custom Machine Assembly research, opens directly in the same System Scheduler/RAM/CPU package/cache/PSU layout as the in-game system view, adds CPU/RAM Tier headers whose selectable values are the clock-scale Hz/kHz/MHz/GHz/THz/PHz tiers, uses normal upgrade-style +/- controls for CPU package count in the CPU header, uncapped per-CPU core count, RAM sticks, frequency, size, per-CPU scheduler slots, and PSU specs, prices PSU capacity with the same level-by-level cost and wattage curve as the normal PSU Capacity upgrade, renders each CPU as its own core array with a Link all CPUs checkbox for shared specs, lets each CPU scheduler match that CPU's core count or use its own slot modifier, keeps shared scheduler/core/frequency controls outside CPU cards only while CPUs are linked, moves those controls inside each CPU card when unlinked, lets the full CPU package card select that CPU without a separate CPU tab strip, uses compact builder-only scheduler/spec controls, shows RAM channel topology in the RAM header without the runtime channel/write strip, preserves the current draft when leaving and reopening Store, switches high-core arrays to a full-width dense layout with stacked core text and no horizontal scrolling, shows RAM efficiency alongside CPU efficiency, shows a top System Builder header with total buy price and review/confirm purchase, and buys one complete system with CPU/RAM/scheduler/PSU modifiers applied |
-| Static equipment tier ladder | Tested | Catalog CPU, RAM, scheduler, and PSU modules use fixed tier prices; catalog CPUs are research-gated tier level-1 packages with visible clock, efficiency, and draw; hardware-store RAM offers only the CPU-unlocked Hz/kHz/MHz/GHz/THz/PHz tier modules as four-stick kits with matching tier capacity/frequency; CPU-local scheduler width is derived from CPU cores rather than arbitrary scheduler SKU width |
+| Multi-system Fleet | Tested | Fleet Orchestrator unlocks named PC-scale systems; coverage verifies save reset, acquisition, selected-system routing, task boundaries, and aggregate active-work status |
+| Clean save reset for campaign | Tested | Save-v7 intentionally resets incompatible pre-v7 prototypes and normalizes all current campaign, Workshop, infrastructure, Cloud, and exact-amount state |
+| Named Fleet systems | Tested | The Fleet view shows exactly one explicit, named entry per owned system; completing a custom build adds one entry and makes all actions discoverable |
+| Preset systems | Tested | The builder offers useful presets plus an Advanced editor, all with throughput, idle/peak power, operating-cost, profitability, and comparison projections |
+| Tiered custom machine builder | Tested | Custom Machine Assembly reveals Advanced mode with linked or independent CPU packages, cores, RAM, schedulers, cache, and PSU controls, a persistent draft, projections, and confirmed exact purchase. V1 bounds physical builds at 8 packages and 64 cores per package (512 cores), with all runtime/save actions clamped to explicit component limits. Physical CPU choices stop at the 6 GHz ceiling; larger-scale throughput belongs to aggregate Fleet and infrastructure profiles. |
+| Static equipment tier ladder | Tested | Catalog CPU, RAM, scheduler, and PSU modules use fixed, research-gated prices with visible clock, efficiency, draw, fit, and peak-load validation; CPU-local scheduler width derives from installed cores. |
 | Chunked single-system tasks | Tested | Compile Code, Render Frame, and Regression Test are fixed-count chunk workloads; idle eligible cores across all CPU packages on the selected system each process one chunk at a time with per-chunk cache/RAM fit, explicit per-work-unit child stages before single global barrier/output stages, and no cross-system execution |
-| No distributed computing in rack phase | Tested | Shared queues, networking, sharding, cluster scheduling, and cross-system task splitting remain unavailable in this phase |
+| Fleet-to-Fabric boundary | Tested | Fleet jobs stay system-scoped until Local Fabric unlocks; Local Fabric then adds explicit shared queues, placement, networking, sharding, barriers, and cross-system scheduling |
 
 ## Core Resources
 
@@ -129,13 +167,13 @@
 | Cache operation queues | Tested |
 | RAM staging | Tested |
 | Cache/RAM load speeds | Tested |
-| Storage load speeds | Deferred |
+| Storage load speeds | Tested |
 | Power reliability | Tested |
 | Power billing | Tested |
 | Power states | Tested |
 | Heat | Tested |
 | Cooling reliability | Tested |
-| Operating cost | Deferred |
+| Operating cost | Tested |
 
 ## Jobs
 
@@ -152,7 +190,7 @@
 | Queue Compaction | Tested |
 | Power Telemetry | Tested |
 | Bus Mirror | Tested |
-| Thermal Probe | Deferred |
+| Thermal Probe | Tested |
 | Shard Reconcile | Tested |
 | Micro Benchmark | Tested |
 | Parallelism Benchmark | Tested |
@@ -184,55 +222,105 @@
 | CPU scheduler queue slots | Tested |
 | System Scheduler queue slots | Tested |
 | CPU Operation Scheduler | Tested |
-| PSU Management research | Deferred |
-| Thermal Control research | Deferred |
+| PSU Management research | Tested |
+| Thermal Control research | Tested |
 | Scheduler Watchdog | Tested |
 | Deadlock Cooldown | Tested |
 | Scheduler policies | Tested |
 | System Scheduler | Tested |
-| Cluster scheduler | Deferred |
-| Regional scheduler | Deferred |
+| Cluster scheduler | Tested |
+| Regional scheduler | Tested |
 | Preconfigured systems | Tested |
 | Tiered custom machine builder | Tested |
-| System templates | Deferred |
-| Shared queue | Deferred |
-| Rack templates | Deferred |
-| Data center procurement policies | Deferred |
-| SLA-safe scheduling | Deferred |
-| Failover policy | Deferred |
-| Global scheduler | Deferred |
-| Infrastructure policy | Deferred |
+| System templates | Tested |
+| Shared queue | Tested |
+| Rack templates | Tested |
+| Data center procurement policies | Tested |
+| SLA-safe scheduling | Tested |
+| Failover policy | Tested |
+| Global scheduler | Tested |
+| Infrastructure policy | Tested |
 
 ## Later Stages
 
 | Stage Or System | Status |
 |---|---|
 | Second CPU automation research | Tested |
-| Stage 4: full system building | Deferred |
-| Multi-system rack phase | Tested |
-| Stage 5: cooling controls | Deferred |
-| Stage 5: overclocking | Deferred |
-| Stage 6: expansion slots and specialized compute | Deferred |
+| Stage 4: full system building | Tested |
+| Workshop Fleet | Tested |
+| Stage 5: cooling controls | Tested |
+| Stage 5: overclocking | Tested |
+| Stage 6: expansion slots and specialized compute | Tested |
 | Stage 7: multiple systems | Tested |
-| Stage 8: networking and local cluster | Deferred |
-| Stage 9: sharding and distributed computing | Deferred |
-| Stage 10: servers and racks | Deferred |
-| Stage 11: data centers | Deferred |
-| SLA contracts | Deferred |
-| Availability zones | Deferred |
-| Regions | Deferred |
-| Planetary computing | Deferred |
+| Stage 8: networking and local cluster | Tested |
+| Stage 9: sharding and distributed computing | Tested |
+| Stage 10: servers and racks | Tested |
+| Stage 11: data centers | Tested |
+| SLA contracts | Tested |
+| Availability zones | Tested |
+| Regions | Tested |
+| Planetary computing | Tested |
 
 ## Current Build Notes
 
-- The first build targeted the vertical slice; the active docs target is now the Multi-System Rack Phase.
+- The active pre-live target is the complete Long-Form Planetary Campaign. The
+  former vertical-slice and “Multi-System Rack Phase” notes below are retained
+  only as dated implementation history; their old scope boundaries and save
+  versions are superseded by save-v7 and the campaign table above.
+- Progression now runs from Bootstrap Node through Planetary Commons, with
+  exact string-backed economy amounts, deterministic foreground/offline
+  advancement, the purchased 0–168 hour Automation Buffer, standing orders,
+  managed contracts, phased projects, and model-owned departure forecasts.
+- Fleet is the PC-scale surface. Workshop adds cooling, overclocking, and
+  GPU/NPU specialization; Local Fabric adds shared placement and distributed
+  DAG work; Rack/Facility adds aggregate server infrastructure; Cloud and
+  Planetary add zones, SLAs, failover, regions, routing, finale, charters, and
+  endless postgame contracts.
+- Work exposes Missions, Projects, Contracts, Standing Orders, Jobs, the
+  Automation Buffer, and whole-world Active Work. The desktop topbar and mobile
+  Jobs view keep the current objective available, while exceptional persistence
+  status stays visible without a second global strip; start/departure
+  projections retain responsive, keyboard, reduced-motion, focus, zoom, and
+  touch-target coverage.
+- Final campaign profile calibration and the last cross-surface acceptance run
+  are tracked separately in the top table until their generated evidence and
+  full verification commands pass.
+- Progression gating rework completed July 10, 2026: Work opens Jobs-only, with
+  Campaign and Automation revealed by System Scheduler research (legacy saves
+  with an active/completed project keep Campaign; Live Operations anchors
+  Automation), Contract Market revealed by CRON Scheduler research (legacy
+  contracts persist), and Standing Orders inside Automation at CRON; contract
+  template eligibility and `refreshContractMarket` are CRON-gated with a public
+  blocker, stale offers are pruned at load, and Automation Buffer levels stay
+  R&D-column purchase cards while the Automation view shows only buffer
+  status/departure forecast. Rationale: contracts model unattended client
+  workloads (requiring CRON) and projects are background system workloads
+  (requiring the System Scheduler), so each era's surface funds the next era's
+  unlocks—task first-completions fund research through System Scheduler,
+  projects plus Live Ops fund System Bus/second CPU/CRON, and contracts fund
+  Fleet expansion. Content: bootstrapBenchmark is removed and its 9
+  first-completion Data re-homed (bitFlip 5, bitShift 5, byteCopy 5,
+  packetCheck 4); RAM-era first-completions raised
+  (readRamPage/writeRamPage/overwriteRamPage 3 each, tinyChecksum 8) to fund
+  System Scheduler research; schedulerIntegration requires System Scheduler
+  research to start; early costs retuned for the Jobs-only opening (Benchmark
+  Harness 28c+1d, Multi-Core Control 56c+6d, Local Scheduler research 80c+6d,
+  Local Scheduler buffer 70c+8d). Balance harness: the policy budgets shared
+  cache across planned manual dispatches, routes post-Local-Scheduler income
+  through CPU queue slots (`queueTask`), deprioritizes manual repeats near the
+  ten-completion promise, exempts objective-critical research from the savings
+  reserve, and gates market refresh on CRON.
+
+## Historical Build Notes
+
+- The first build targeted the vertical slice, followed by the historical Multi-System Rack Phase.
 - Docs target for this slice: bit-scale startup, visible-from-start PSU billing, grouped task/research reveal, internal recipe DAG, RAM Control before System Scheduler, CPU-local cache/scheduler packages, CSV-backed CPU tier research, package-level CPU upgrades, level-1 CPU purchases, C-State idle draw, second-CPU CRON Scheduler research reveal, and CRON Scheduler controls.
-- Multi-System Rack Phase target: rack acquisition after System Catalog research following CRON/system-bus progression, visual rack growth at exactly one visible slot per owned system, tiered custom machine building without a separate custom-machine research gate or premade config cards, confirmed custom purchase, and chunked single-system Compile Code, Render Frame, and Regression Test tasks that fill idle cores across CPU packages on the selected system. Networking, shared queues, sharding, cluster scheduling, and distributed computing remain out of scope for this phase.
+- Historical Multi-System Rack Phase target: rack acquisition after System Catalog research following CRON/system-bus progression, visual rack growth at exactly one visible slot per owned system, tiered custom machine building without a separate custom-machine research gate or premade config cards, confirmed custom purchase, and chunked single-system Compile Code, Render Frame, and Regression Test tasks that fill idle cores across CPU packages on the selected system. Its former networking/distributed boundary is superseded by Local Fabric.
 - Rack-phase rows are marked `Tested` after automated coverage for save reset, one-slot-per-owned-system rack visuals, system acquisition, selected-system routing, chunked selected-system tasks, and no distributed-computing boundary.
-- Active pre-live target: tasks are composed from low-level and counted operations; paid operation totals include CPU cycles, cache load bits, and RAM staging bits, so a 256 b RAM load contributes 256 paid operations; counted memory-operation cache fill uses total touched bits once; task-level cache provisioning and active residency sum distinct reads/writes, multiply parallel per-core cache footprints, include later primary-core work while other cores retain their footprints, and let overwrites reuse the touched footprint; RAM need is the peak per-core resident footprint while RAM load work counts each required staged load; cache stores CPU operation queues; cache-required operations wait for cache fill at their DAG step; cache UI reports committed cache as Buffer plus Ready, where Buffer is only issue work that outruns cache write speed and Ready includes cache load/ready residency; cache capacity upgrade costs are weighted toward data over credits while cache speed uses the CPU tier frequency/cost ladder with per-core pricing, RAM new-stick costs use CPU-style tier credit costs with CPU-package-style per-stick doubling, RAM frequency costs use CPU-style tier credit costs, RAM frequency values use the same CPU/cache tier clock ladder, and RAM capacity costs multiply the CPU-style tier cost by stick size growth within that tier; CPU scheduler backlog and multicore provisioning width come from purchased per-CPU CPU Queue Slot upgrades instead of infinite default slots; system tasks are admitted by separate System Queue Slot upgrades on the visible System Scheduler as parent entries, then reserve CPU scheduler slots for real CPU-bound child entries before cores can execute them, including while target CPU cores are currently busy, CPU hardware cannot currently start the child, or CPU-local cache policy is holding execution; scheduler-dispatched tasks stay in their scheduler queue and keep their slot occupied until completion, with queue-entry metadata tracking parent/child CPU work, composition stage, and chunk work-unit index; cache/RAM total fit gates impossible tasks, while cache/RAM deadlocks happen only when active staging would write beyond capacity, halting the affected CPU package for cache or the whole system for RAM until the player cancels work or adds capacity; unresolved deadlocks build 10 seconds of pressure, clear early into a nonblocking cooldown, and only wipe active processes plus lock starts when the full timer is reached; only the None scheduler policy ignores deadlock lookahead, System Scheduler FIFO/None routing feeds the least-filled eligible CPU scheduler in stable CPU order on the selected system, Least queued and Most headroom route by queued runtime and cache headroom while non-None policies wait for RAM-safe admission, FIFO/Shortest task/Smallest memory CPU schedulers use active footprint lookahead to skip dispatches that can eventually exhaust CPU-local cache or CPU-owned RAM, CPU cache safety and CPU hardware fit for system work stay with the target CPU scheduler, and Shortest task/Smallest memory can reorder scheduler-owned queue entries, Scheduler Watchdog can preview its auto-kill victim, target core, and countdown before killing scheduler-owned deadlocks after 3 seconds, and Deadlock Cooldown upgrades drain post-deadlock pressure faster; newly researched RAM, CPU scheduler, System Scheduler, and CRON hardware render as paid outline bays until the first module is purchased; RAM stages larger active/intermediate work as the next memory tier after cache, exposes CPU-bound RAM read/write/overwrite page tasks after RAM Control, shows fixed-address block loading before CPU execution, starts only after buying the first 256 b 1 Hz RAM Stick after RAM Control, buys new base sticks, lets selected sticks or all sticks upgrade capacity and frequency independently without summing stick speeds into a total RAM frequency, unlocks RAM tiers through CPU tier research, services one stick per RAM channel at a time, can stripe System Scheduler writes across researched 2/4/8-channel RAM while later stick groups wait behind the lowest pending group and unused later sticks reserve before larger earlier-stick spare capacity, sits above the CPU package, and gates System Scheduler at 1 Kb; Memory Voltage Modifier reduces idle RAM draw without changing active write bandwidth; cache, CPU scheduler slots, and cores are CPU-local; CPU purchases on existing systems install a level-1 one-core package matching that system's CPU tier with projected power increase, copied-package install semantics are hidden, CPU Package Level upgrades tune all cores in the package with per-core level pricing, and Add Core includes the selected CPU package tier's level-1 core cost plus current CPU level and cache-frequency backfill costs; reversible hardware specs use +/- controls and refund half of the last purchase cost when downgraded.
+- Active pre-live target: tasks are composed from low-level and counted operations; the paid-work ledger keeps CPU cycles, cache/RAM/storage/network transfer bits, and real operation invocations as separate quantities, so a 256 b RAM load contributes 256 paid-work units without being mislabeled as 256 operations; counted memory-operation cache fill uses total touched bits once; task-level cache provisioning and active residency sum distinct reads/writes, multiply parallel per-core cache footprints, include later primary-core work while other cores retain their footprints, and let overwrites reuse the touched footprint; RAM need is the peak per-core resident footprint while RAM load work counts each required staged load; cache stores CPU operation queues; cache-required operations wait for cache fill at their DAG step; cache UI reports committed cache as Buffer plus Ready, where Buffer is only issue work that outruns cache write speed and Ready includes cache load/ready residency; cache capacity upgrade costs are weighted toward data over credits while cache speed uses the CPU tier frequency/cost ladder with per-core pricing, RAM new-stick costs use CPU-style tier credit costs with CPU-package-style per-stick doubling, RAM frequency costs use CPU-style tier credit costs, RAM frequency values use the same CPU/cache tier clock ladder, and RAM capacity costs multiply the CPU-style tier cost by stick size growth within that tier; CPU scheduler backlog and multicore provisioning width come from purchased per-CPU CPU Queue Slot upgrades instead of infinite default slots; system tasks are admitted by separate System Queue Slot upgrades on the visible System Scheduler as parent entries, then reserve CPU scheduler slots for real CPU-bound child entries before cores can execute them, including while target CPU cores are currently busy, CPU hardware cannot currently start the child, or CPU-local cache policy is holding execution; scheduler-dispatched tasks stay in their scheduler queue and keep their slot occupied until completion, with queue-entry metadata tracking parent/child CPU work, composition stage, and chunk work-unit index; cache/RAM total fit gates impossible tasks, while cache/RAM deadlocks happen only when active staging would write beyond capacity, halting the affected CPU package for cache or the whole system for RAM until the player cancels work or adds capacity; unresolved deadlocks build 10 seconds of pressure, clear early into a nonblocking cooldown, and only wipe active processes plus lock starts when the full timer is reached; only the None scheduler policy ignores deadlock lookahead, System Scheduler FIFO/None routing feeds the least-filled eligible CPU scheduler in stable CPU order on the selected system, Least queued and Most headroom route by queued runtime and cache headroom while non-None policies wait for RAM-safe admission, FIFO/Shortest task/Smallest memory CPU schedulers use active footprint lookahead to skip dispatches that can eventually exhaust CPU-local cache or CPU-owned RAM, CPU cache safety and CPU hardware fit for system work stay with the target CPU scheduler, and Shortest task/Smallest memory can reorder scheduler-owned queue entries, Scheduler Watchdog can preview its auto-kill victim, target core, and countdown before killing scheduler-owned deadlocks after 3 seconds, and Deadlock Cooldown upgrades drain post-deadlock pressure faster; newly researched RAM, CPU scheduler, System Scheduler, and CRON hardware render as paid outline bays until the first module is purchased; RAM stages larger active/intermediate work as the next memory tier after cache, exposes CPU-bound RAM read/write/overwrite page tasks after RAM Control, shows fixed-address block loading before CPU execution, starts only after buying the first 256 b 1 Hz RAM Stick after RAM Control, buys new base sticks, lets selected sticks or all sticks upgrade capacity and frequency independently without summing stick speeds into a total RAM frequency, unlocks RAM tiers through CPU tier research, services one stick per RAM channel at a time, can stripe System Scheduler writes across researched 2/4/8-channel RAM while later stick groups wait behind the lowest pending group and unused later sticks reserve before larger earlier-stick spare capacity, sits above the CPU package, and gates System Scheduler at 1 Kb; Memory Voltage Modifier reduces idle RAM draw without changing active write bandwidth; cache, CPU scheduler slots, and cores are CPU-local; CPU purchases on existing systems install a level-1 one-core package matching that system's CPU tier with projected power increase, copied-package install semantics are hidden, CPU Package Level upgrades tune all cores in the package with per-core level pricing, and Add Core includes the selected CPU package tier's level-1 core cost plus current CPU level and cache-frequency backfill costs; reversible hardware specs use +/- controls and refund half of the last purchase cost when downgraded.
 - CRON target: CRON v1 automates only visible repeatable system tasks after the first CRON Job Slot is bought, starts with a 60s minimum interval, supports seconds/minutes modes, uses increasingly expensive `cronInterval` upgrades to lower the minimum by 1 second each, skips duplicate/blocked/full/off-state runs, never catches up missed runs, and adds a power spike when it queues work.
 - Power target: tasks do not require power directly; PSU is visible from the first screen; active CPU draw is `clock / efficiency`, idle draw uses the C-State multiplier after C-State unlock, starter draw is 0.1 uW, billing is 1 credit/sec per 1 uW, and starter PSU capacity is 10 uW with `10 uW * 1.7^(level - 1)` progression; positive-credit idle time drains money; power billing clamps credits at 0, shows a 10-second unpaid-credit cutoff warning, and emergency-shuts down if the warning expires, with a first-time explanation and quick repeat popup after cutoff; startup from 0 credits grants a short no-bill bootstrap window before the same unpaid-credit warning if no credits are earned; cheap credits-only PSU wattage upgrades are purchasable from the start, and capacity is a reliability/stress system with throttle plus a 10-second overload failure that fills faster above 100% load, flashes the full PSU red with a larger centered header progress meter, hard-powers off, shows a short first-time failure popup, uses a red topbar badge for repeat trips, and clears active/queued work; `off` greys hardware but keeps hardware edits plus power/start controls available while blocking work/CRON and billing zero; graceful shutdown blocks new work while current work drains; startup/shutdown have delays; and RAM/CPU package matching should reward efficient builds.
-- Cooling target: Thermal UI, Thermal Control research, Thermal Probe, and active cooling tradeoffs are deferred until a later system-management pass.
+- Historical cooling target: Thermal UI, Thermal Control research, Thermal Probe, and active cooling tradeoffs were deferred at that checkpoint and are now implemented in Workshop.
 - Research target: new task groups and hardware categories unlock through research cards; benchmark-style compute is launched from research cards, each card lists the research/task/hardware/compute requirements blocking it, and task/research rows keep needed operations/resources plus payouts visible even when blocked.
 - Scheduler naming target: CPU Operation Scheduler first, then system, cluster, regional, and later global/planetary layers.
 - Broad auto-repeat is deferred until much later automation work; CRON v1 is the scoped early timer for repeatable system tasks.

@@ -1,3 +1,4 @@
+import type { Amount } from "../game/amount";
 import type { ResourceBag } from "../game/types";
 
 export interface DisplayCost {
@@ -25,6 +26,85 @@ const RESOURCE_STACK_BANDS = [
   { threshold: STACK_K_THRESHOLD, divisor: 1_000, suffix: "K" },
 ] as const;
 const GAME_CURRENCY_RESOURCES = new Set(["credits", "data"]);
+
+const EXACT_RESOURCE_STACK_BANDS = [
+  { thresholdExponent: 25, divisorExponent: 24, suffix: "Sp" },
+  { thresholdExponent: 22, divisorExponent: 21, suffix: "S" },
+  { thresholdExponent: 19, divisorExponent: 18, suffix: "Qn" },
+  { thresholdExponent: 16, divisorExponent: 15, suffix: "Q" },
+  { thresholdExponent: 13, divisorExponent: 12, suffix: "T" },
+  { thresholdExponent: 10, divisorExponent: 9, suffix: "B" },
+  { thresholdExponent: 7, divisorExponent: 6, suffix: "M" },
+  { thresholdExponent: 5, divisorExponent: 3, suffix: "K" },
+] as const;
+const MAX_NAMED_BAND_COEFFICIENT_DIGITS = 4;
+const SCIENTIFIC_LEADING_DIGITS = 6;
+const SCIENTIFIC_TRAILING_DIGITS = 3;
+
+const parseCanonicalAmount = (value: Amount) => {
+  const raw = String(value);
+  const negative = raw.startsWith("-");
+  const unsigned = negative || raw.startsWith("+") ? raw.slice(1) : raw;
+  const [rawInteger = "0", rawFraction = ""] = unsigned.split(".");
+  const integer = rawInteger.replace(/^0+(?=\d)/, "") || "0";
+  const fraction = rawFraction.replace(/0+$/, "");
+  const zero = integer === "0" && !/[1-9]/.test(fraction);
+
+  return {
+    sign: negative && !zero ? "-" : "",
+    integer,
+    fraction,
+    zero,
+  };
+};
+
+const formatExactScientific = ({
+  sign,
+  integer,
+  fraction,
+}: ReturnType<typeof parseCanonicalAmount>) => {
+  const significantDigits = `${integer}${fraction}`;
+  const leadingDigits = significantDigits.slice(0, SCIENTIFIC_LEADING_DIGITS);
+  const leadingFraction = leadingDigits.slice(1).replace(/0+$/, "");
+  const coefficient = `${leadingDigits[0]}${
+    leadingFraction ? `.${leadingFraction}` : ""
+  }`;
+  const omittedDigits = significantDigits.slice(SCIENTIFIC_LEADING_DIGITS);
+  const omittedNonZero = /[1-9]/.test(omittedDigits);
+  const distinguishingTail = omittedNonZero
+    ? `…${significantDigits.slice(-SCIENTIFIC_TRAILING_DIGITS)}`
+    : "";
+
+  return `${sign}${coefficient}${distinguishingTail}e${integer.length - 1}`;
+};
+
+/**
+ * Formats canonical Amount strings without projecting them through JavaScript
+ * numbers. Named stack bands retain the legacy truncation rules; values beyond
+ * a four-digit Sp coefficient use a bounded scientific representation.
+ */
+export const formatExactResourceAmount = (value: Amount) => {
+  const parsed = parseCanonicalAmount(value);
+  if (parsed.zero) return "0";
+
+  const spCoefficientDigits = parsed.integer.length - 24;
+  if (spCoefficientDigits > MAX_NAMED_BAND_COEFFICIENT_DIGITS) {
+    return formatExactScientific(parsed);
+  }
+
+  const band = EXACT_RESOURCE_STACK_BANDS.find(
+    ({ thresholdExponent }) =>
+      parsed.integer.length >= thresholdExponent + 1,
+  );
+  if (!band) {
+    return `${parsed.sign}${parsed.integer}${
+      parsed.fraction ? `.${parsed.fraction}` : ""
+    }`;
+  }
+
+  const coefficient = parsed.integer.slice(0, -band.divisorExponent);
+  return `${parsed.sign}${coefficient} ${band.suffix}`;
+};
 
 export const formatNumber = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -62,6 +142,17 @@ export const formatResourceRate = (amountPerSecond: number) => {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: absAmountPerSecond >= 1 ? 1 : 3,
   }).format(amountPerSecond);
+};
+
+/**
+ * Applies the compact rate precision to exact values that are small enough to
+ * project safely, while retaining exact stack/scientific formatting at scale.
+ */
+export const formatExactResourceRate = (value: Amount) => {
+  const parsed = parseCanonicalAmount(value);
+  return parsed.integer.length >= 6
+    ? formatExactResourceAmount(value)
+    : formatResourceRate(Number(value));
 };
 
 export const formatDisplayCostAmount = (cost: DisplayCost) =>

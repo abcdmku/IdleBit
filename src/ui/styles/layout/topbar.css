@@ -26,6 +26,7 @@
 .topbar-brand { flex: 0 0 auto; }
 .topbar-stage { flex: 1 1 auto; }
 .topbar-alert-badge { flex: 0 0 auto; }
+.topbar-persistence-slot { flex: 0 0 156px; }
 .resource-hud { flex: 0 0 auto; margin-left: auto; }
 
 .topbar-brand {
@@ -88,6 +89,54 @@
   content: "·";
   padding-right: var(--s-3);
   color: var(--muted-2);
+}
+
+.topbar-persistence-slot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.topbar-persistence {
+  display: inline-flex;
+  gap: var(--s-1);
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 100%;
+  padding: 3px var(--s-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.topbar-persistence.sr-only {
+  position: absolute;
+  display: block;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.topbar-persistence-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-persistence.saving,
+.topbar-persistence.hydrating { color: var(--amber); }
+
+.topbar-persistence.error {
+  border-color: var(--line-danger);
+  color: var(--rose);
 }
 
 .topbar-alert-badge {

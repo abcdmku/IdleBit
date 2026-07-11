@@ -1,17 +1,48 @@
-import { Power, RefreshCw, TriangleAlert } from "lucide-react";
+import { RefreshCw, TriangleAlert } from "lucide-react";
+import type { IdlePowerPolicy } from "../../game";
 import { formatNumber } from "../format";
+import { SmoothFill } from "../SmoothProgress";
 import type { Dispatch } from "../uiActions";
-import { getProgressStyle } from "./meters";
 
 type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
 
-interface PowerControlState {
+interface PowerTransitionState {
   state: PowerLifecycleState;
-}
-
-interface PowerTransitionState extends PowerControlState {
   transitionSeconds: number;
   transitionTotalSeconds?: number;
+}
+
+export function IdlePowerPolicyControl({
+  policy,
+  dispatch,
+}: {
+  policy: IdlePowerPolicy;
+  dispatch: Dispatch;
+}) {
+  const shutsDown = policy === "shutdown-when-idle";
+  const nextPolicy: IdlePowerPolicy = shutsDown
+    ? "low-power"
+    : "shutdown-when-idle";
+  const currentLabel = shutsDown ? "off" : "low";
+  const nextLabel = shutsDown ? "low power" : "shutdown";
+
+  return (
+    <button
+      type="button"
+      className="idle-power-policy-control"
+      onClick={() => dispatch({ type: "setIdlePowerPolicy", policy: nextPolicy })}
+      aria-label={`Idle power policy: ${
+        shutsDown ? "shutdown when idle" : "low power"
+      }. Switch to ${nextLabel}.`}
+      aria-pressed={shutsDown}
+      title={`Idle systems currently use ${
+        shutsDown ? "automatic shutdown" : "low power"
+      }. Switch to ${nextLabel}.`}
+    >
+      <span>Idle:</span>
+      <strong>{currentLabel}</strong>
+    </button>
+  );
 }
 
 const POWER_BOOT_SECONDS = 10;
@@ -22,40 +53,6 @@ const clampMeter = (value: number | null) =>
 
 const formatCountdownSeconds = (seconds: number) =>
   `${formatNumber(Math.max(0, Math.ceil(seconds)))}s`;
-
-export function SystemShutdownControl({
-  power,
-  dispatch,
-}: {
-  power: PowerControlState;
-  dispatch: Dispatch;
-}) {
-  const starting = power.state === "off";
-  const label =
-    power.state === "off"
-      ? "Start system"
-      : power.state === "booting"
-        ? "Starting"
-        : power.state === "shuttingDown"
-          ? "Shutting down"
-          : "Shutdown";
-
-  return (
-    <button
-      type="button"
-      className={`system-shutdown-button ${starting ? "start" : ""}`}
-      onClick={() =>
-        dispatch({ type: "setPowerState", state: starting ? "on" : "off" })
-      }
-      disabled={power.state !== "on" && power.state !== "off"}
-      title={starting ? "Start system" : "Graceful shutdown"}
-      aria-label={starting ? "Start system" : "Graceful shutdown"}
-    >
-      <Power size={12} />
-      <span>{label}</span>
-    </button>
-  );
-}
 
 export function PowerTransitionBanner({
   power,
@@ -95,7 +92,7 @@ export function PowerTransitionBanner({
         </span>
       )}
       <span className="power-transition-meter" aria-hidden="true">
-        <span className="progress-fill" style={getProgressStyle(progress)} />
+        <SmoothFill value={progress} snapKey={power.state} />
       </span>
     </div>
   );
@@ -106,11 +103,13 @@ export function PsuHeaderWarning({
   progress,
   flashing,
   tripped,
+  snapKey,
 }: {
   label: string;
   progress: number;
   flashing: boolean;
   tripped: boolean;
+  snapKey: string;
 }) {
   return (
     <span
@@ -124,7 +123,11 @@ export function PsuHeaderWarning({
         <strong>{label}</strong>
       </span>
       <span className="psu-header-warning-meter" aria-hidden="true">
-        <span className="progress-fill" style={getProgressStyle(progress)} />
+        <SmoothFill
+          value={progress}
+          snapKey={snapKey}
+          snapOnDecrease={false}
+        />
       </span>
     </span>
   );

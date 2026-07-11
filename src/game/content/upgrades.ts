@@ -56,38 +56,35 @@ import {
   getSchedulerQueuedCount,
   getSystemSchedulerQueuedCount,
 } from "../math";
+import { V1_HARDWARE_LIMITS } from "../hardwareLimits";
+import { amountPow, type AmountInput } from "../amount";
+import {
+  combineCostsExact,
+  halfRefundExact,
+  roundedCost,
+  roundedGrowthCost,
+  scaleCostsExact,
+} from "../exactCosts";
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: AmountInput): Cost => roundedCost("credits", value);
 
-const data = (amount: number): Cost => ({
-  resource: "data",
-  amount: Math.round(amount),
-});
+const data = (value: AmountInput): Cost => roundedCost("data", value);
 
-const halfRefund = (costs: Cost[]): Cost[] =>
-  costs
-    .map((cost) => ({
-      ...cost,
-      amount: Math.floor(cost.amount * 0.5),
-    }))
-    .filter((cost) => cost.amount > 0);
+const halfRefund = halfRefundExact;
 
 const systemSchedulerSlotCosts = (slotCount: number): Cost[] => [
-  credits(180 * 1.72 ** slotCount),
-  data(12 * 1.5 ** slotCount),
+  roundedGrowthCost("credits", "180", "1.72", slotCount),
+  roundedGrowthCost("data", "4", "1.4", slotCount),
 ];
 
 const deadlockRecoveryCosts = (purchaseCount: number): Cost[] => [
-  credits(95 * 1.7 ** purchaseCount),
-  data(24 * 1.48 ** purchaseCount),
+  roundedGrowthCost("credits", "95", "1.7", purchaseCount),
+  roundedGrowthCost("data", "24", "1.48", purchaseCount),
 ];
 
 const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
-  credits(3 * 1.45 ** purchaseCount),
-  data(6 * 1.78 ** purchaseCount),
+  roundedGrowthCost("credits", "3", "1.45", purchaseCount),
+  roundedGrowthCost("data", "1", "1.5", purchaseCount),
 ];
 
 const cacheSpeedCosts = (tierId: CpuTierId, targetLevel: number): Cost[] =>
@@ -96,7 +93,7 @@ const cacheSpeedCosts = (tierId: CpuTierId, targetLevel: number): Cost[] =>
 const ramStickCosts = (targetLevel: number, targetStickCount = 1): Cost[] =>
   multiplyCosts(
     getRamTierInstallCost(targetLevel),
-    2 ** Math.max(0, targetStickCount - 1),
+    amountPow(2, Math.max(0, targetStickCount - 1)),
   );
 
 const ramCapacityCosts = (targetLevel: number): Cost[] =>
@@ -124,23 +121,23 @@ const getRamInstallLevelForContext = (
 };
 
 const coreCosts = (purchaseCount: number): Cost[] => [
-  credits(140 * 2.05 ** purchaseCount),
-  data(5 * 1.45 ** purchaseCount),
+  roundedGrowthCost("credits", "140", "2.05", purchaseCount),
+  roundedGrowthCost("data", "2", "1.3", purchaseCount),
 ];
 
 const coolingCosts = (purchaseCount: number): Cost[] => [
-  credits(180 * 1.76 ** purchaseCount),
-  data(8 * 1.38 ** purchaseCount),
+  roundedGrowthCost("credits", "180", "1.76", purchaseCount),
+  roundedGrowthCost("data", "8", "1.38", purchaseCount),
 ];
 
 const cronIntervalCosts = (purchaseCount: number): Cost[] => [
-  credits(42 * 1.42 ** purchaseCount),
-  data(6 * 1.18 ** purchaseCount),
+  roundedGrowthCost("credits", "42", "1.42", purchaseCount),
+  roundedGrowthCost("data", "6", "1.18", purchaseCount),
 ];
 
 const cronScheduleCosts = (purchaseCount: number): Cost[] => [
-  credits(160 * 1.62 ** purchaseCount),
-  data(18 * 1.36 ** purchaseCount),
+  roundedGrowthCost("credits", "160", "1.62", purchaseCount),
+  roundedGrowthCost("data", "18", "1.36", purchaseCount),
 ];
 
 const setHardware = (
@@ -241,26 +238,10 @@ const getRamTargetSticks = (state: GameState, context?: UpgradeContext) => {
   return getRamSticks(state).filter((stick) => targetIds.has(stick.id));
 };
 
-const combineCosts = (costs: Cost[]) =>
-  (["credits", "data"] as const)
-    .map((resource) => ({
-      resource,
-      amount: costs
-        .filter((cost) => cost.resource === resource)
-        .reduce((total, cost) => total + cost.amount, 0),
-    }))
-    .filter((cost) => cost.amount > 0);
+const combineCosts = combineCostsExact;
 
-const multiplyCosts = (costs: Cost[], multiplier: number) => {
-  const safeMultiplier = Math.max(0, Math.trunc(multiplier));
-
-  return costs
-    .map((cost) => ({
-      ...cost,
-      amount: cost.amount * safeMultiplier,
-    }))
-    .filter((cost) => cost.amount > 0);
-};
+const multiplyCosts = (costs: Cost[], multiplier: AmountInput) =>
+  scaleCostsExact(costs, multiplier);
 
 const getClockTargetCpu = (state: GameState, context?: UpgradeContext) =>
   getCpuHardware(state, getContextCpuId(state, context));
@@ -317,15 +298,18 @@ const baseCpuCost = (state: GameState): Cost[] =>
   getCpuTierPurchaseCost(getSystemCpuInstallTierId(state));
 
 const cpuPackageCost = (state: GameState, targetCpuCount: number): Cost[] =>
-  multiplyCosts(baseCpuCost(state), 2 ** Math.max(0, targetCpuCount - 1));
+  multiplyCosts(
+    baseCpuCost(state),
+    amountPow(2, Math.max(0, targetCpuCount - 1)),
+  );
 
 const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   const sourceCpu = getCpuHardware(state, sourceCpuId);
   const costs: Cost[] = getCpuTierPurchaseCost(sourceCpu.tierId);
 
   for (let coreIndex = 1; coreIndex < sourceCpu.coreIds.length; coreIndex += 1) {
-    costs.push(credits(140 * 2.05 ** (coreIndex - 1)));
-    costs.push(data(5 * 1.45 ** (coreIndex - 1)));
+    costs.push(roundedGrowthCost("credits", "140", "2.05", coreIndex - 1));
+    costs.push(roundedGrowthCost("data", "5", "1.45", coreIndex - 1));
     costs.push(...getCpuTierPurchaseCost(sourceCpu.tierId));
   }
 
@@ -359,6 +343,7 @@ const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
 const installCpuPackage = (
   state: GameState,
 ) => {
+  if (state.hardware.cpus.length >= V1_HARDWARE_LIMITS.cpuPackages) return state;
   const tierId = getSystemCpuInstallTierId(state);
   const nextCpuId = Math.max(0, ...state.hardware.cpus.map((cpu) => cpu.id)) + 1;
   const firstCoreId =
@@ -637,6 +622,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "Cache",
     component: "cache",
     accent: "green",
+    maxPurchases: V1_HARDWARE_LIMITS.cacheLevel - 1,
     requirement: () => true,
     cost: (state, context) => {
       const cpu = getCpuHardware(state, getContextCpuId(state, context));
@@ -644,7 +630,9 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
     buy: (state, context) => {
       const cpuId = getContextCpuId(state, context);
-      const cacheLevel = getCpuHardware(state, cpuId).cacheLevel + 1;
+      const cpu = getCpuHardware(state, cpuId);
+      if (cpu.cacheLevel >= V1_HARDWARE_LIMITS.cacheLevel) return state;
+      const cacheLevel = cpu.cacheLevel + 1;
       return setCpuHardware(state, cpuId, {
         cacheLevel,
         cacheBits: getCacheBits(cacheLevel),
@@ -732,6 +720,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "Add Core",
     component: "cpu",
     accent: "cyan",
+    maxPurchases: V1_HARDWARE_LIMITS.coresPerCpu - 1,
     requirement: (state) => state.flags.multiCore,
     cost: (state, context) => {
       const cpu = getCpuHardware(state, getContextCpuId(state, context));
@@ -740,6 +729,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     buy: (state, context) => {
       const cpuId = getContextCpuId(state, context);
       const cpu = getCpuHardware(state, cpuId);
+      if (cpu.coreIds.length >= V1_HARDWARE_LIMITS.coresPerCpu) return state;
       const nextCoreId =
         Math.max(0, ...state.hardware.cpus.flatMap((item) => item.coreIds)) + 1;
       return syncHardwarePackages({
@@ -793,6 +783,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "CPU Queue Slot",
     component: "scheduler",
     accent: "violet",
+    maxPurchases: V1_HARDWARE_LIMITS.cpuQueueSlotsPerCpu,
     requirement: (state) => state.flags.basicQueue || state.flags.scheduler,
     cost: (state, context) => {
       const cpu = getCpuHardware(state, getContextCpuId(state, context));
@@ -801,6 +792,9 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     buy: (state, context) => {
       const cpuId = getContextCpuId(state, context);
       const cpu = getCpuHardware(state, cpuId);
+      if (cpu.schedulerSlots >= V1_HARDWARE_LIMITS.cpuQueueSlotsPerCpu) {
+        return state;
+      }
       return setCpuHardware(state, cpuId, {
         schedulerSlots: cpu.schedulerSlots + 1,
       });
@@ -827,13 +821,15 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "System Queue Slot",
     component: "scheduler",
     accent: "violet",
+    maxPurchases: V1_HARDWARE_LIMITS.systemQueueSlots,
     requirement: (state) => state.flags.scheduler,
     cost: (state) =>
       systemSchedulerSlotCosts(state.hardware.systemSchedulerSlots ?? 0),
-    buy: (state) =>
-      setHardware(state, {
-        systemSchedulerSlots: (state.hardware.systemSchedulerSlots ?? 0) + 1,
-      }),
+    buy: (state) => {
+      const slots = state.hardware.systemSchedulerSlots ?? 0;
+      if (slots >= V1_HARDWARE_LIMITS.systemQueueSlots) return state;
+      return setHardware(state, { systemSchedulerSlots: slots + 1 });
+    },
     refund: (state) => {
       const slots = state.hardware.systemSchedulerSlots ?? 0;
       return slots > 0 ? halfRefund(systemSchedulerSlotCosts(slots - 1)) : [];
@@ -853,13 +849,15 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "Deadlock Cooldown",
     component: "scheduler",
     accent: "violet",
+    maxPurchases: V1_HARDWARE_LIMITS.deadlockRecoveryLevel,
     requirement: (state) => state.flags.schedulerWatchdog,
     cost: (state) =>
       deadlockRecoveryCosts(Math.max(0, state.hardware.deadlockRecoveryLevel ?? 0)),
-    buy: (state) =>
-      setHardware(state, {
-        deadlockRecoveryLevel: (state.hardware.deadlockRecoveryLevel ?? 0) + 1,
-      }),
+    buy: (state) => {
+      const level = state.hardware.deadlockRecoveryLevel ?? 0;
+      if (level >= V1_HARDWARE_LIMITS.deadlockRecoveryLevel) return state;
+      return setHardware(state, { deadlockRecoveryLevel: level + 1 });
+    },
     refund: (state) =>
       (state.hardware.deadlockRecoveryLevel ?? 0) > 0
         ? halfRefund(
@@ -898,15 +896,19 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "CRON Interval",
     component: "cron",
     accent: "violet",
-    maxPurchases: 59,
+    maxPurchases: V1_HARDWARE_LIMITS.cronIntervalLevel,
     requirement: (state) =>
       state.flags.cron &&
       (state.hardware.cronScheduleSlots ?? 0) > 0 &&
-      (state.hardware.cronIntervalLevel ?? 0) < 59,
+      (state.hardware.cronIntervalLevel ?? 0) <
+        V1_HARDWARE_LIMITS.cronIntervalLevel,
     cost: (state) => cronIntervalCosts(Math.max(0, state.hardware.cronIntervalLevel ?? 0)),
     buy: (state) =>
       setHardware(state, {
-        cronIntervalLevel: Math.min(59, (state.hardware.cronIntervalLevel ?? 0) + 1),
+        cronIntervalLevel: Math.min(
+          V1_HARDWARE_LIMITS.cronIntervalLevel,
+          (state.hardware.cronIntervalLevel ?? 0) + 1,
+        ),
       }),
     refund: (state) =>
       (state.hardware.cronIntervalLevel ?? 0) > 0
@@ -946,6 +948,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "Install CPU",
     component: "socket",
     accent: "cyan",
+    maxPurchases: V1_HARDWARE_LIMITS.cpuPackages - 1,
     requirement: (state) => state.flags.secondCpu,
     cost: (state) => cpuPackageCost(state, state.hardware.cpus.length + 1),
     buy: (state) => installCpuPackage(state),
@@ -971,6 +974,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "RAM Stick",
     component: "ram",
     accent: "green",
+    maxPurchases: V1_HARDWARE_LIMITS.ramSticks,
     requirement: (state) =>
       state.flags.systemStats || state.research.completed.includes("ramControl"),
     cost: (state, context) => {
@@ -982,6 +986,7 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     },
     buy: (state, context) => {
       const ramSticks = getRamSticks(state);
+      if (ramSticks.length >= V1_HARDWARE_LIMITS.ramSticks) return state;
       const installLevel = getRamInstallLevelForContext(state, context);
       if (installLevel === null) return state;
 
@@ -1225,9 +1230,11 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
     name: "PSU Capacity",
     component: "psu",
     accent: "amber",
+    maxPurchases: V1_HARDWARE_LIMITS.psuLevel,
     requirement: () => true,
     cost: (state) => getPsuCapacityUpgradeCost(state.hardware.psuLevel + 1),
     buy: (state) => {
+      if (state.hardware.psuLevel >= V1_HARDWARE_LIMITS.psuLevel) return state;
       const psuLevel = state.hardware.psuLevel + 1;
       return setHardware(state, {
         psuLevel,

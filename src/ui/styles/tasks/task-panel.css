@@ -8,9 +8,6 @@
   letter-spacing: var(--tracking-wide);
 }
 
-.task-panel-header { min-width: 0; }
-.task-panel-header > span { flex: 0 0 auto; }
-
 /* ---------- Route picker ---------- */
 
 .task-route-picker {
@@ -50,9 +47,16 @@
 }
 
 .task-route-combo-select {
-  flex: 0 1 158px;
-  max-width: 176px;
+  flex: 1 1 158px;
   color: var(--cyan);
+}
+
+/* Single bay-level route row above the task groups (game-spec 4.1). */
+.task-bay-route {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+  margin-left: 0;
 }
 
 /* ---------- Group titles ---------- */
@@ -78,13 +82,16 @@
   min-width: 0;
 }
 
+.task-group-title { min-height: 22px; }
+
 .task-group-toggle {
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
   flex: 1 1 auto;
   min-width: 0;
-  padding: 2px 0;
+  min-height: 22px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -108,15 +115,10 @@
   letter-spacing: var(--tracking-tight);
 }
 
-.task-group-title > .task-route-picker {
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-
 /* ============================================================
-   Task card — grid layout, single-line meta
-   - Ready: head row + meta row + action row
-   - Blocked: head row + meta row + full-width reason pill row
+   Task card — compact grid, single-line meta (~48-52px idle)
+   - Ready: head row + meta row + quiet action row
+   - Blocked: identical geometry; reason renders inside the button
    ============================================================ */
 
 .task-card {
@@ -126,8 +128,8 @@
     "head"
     "meta"
     "run";
-  row-gap: var(--s-2);
-  padding: var(--s-3) var(--s-4);
+  row-gap: var(--s-1);
+  padding: var(--s-1) var(--s-4);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: rgba(8, 16, 15, 0.55);
@@ -142,7 +144,7 @@
     "head"
     "meta"
     "run";
-  row-gap: var(--s-2);
+  row-gap: var(--s-1);
 }
 
 .task-card:hover {
@@ -181,7 +183,7 @@
   min-width: 0;
   color: var(--text);
   font-family: var(--font-display);
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: var(--tracking-tight);
   overflow: hidden;
@@ -224,8 +226,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -240,12 +242,17 @@
   background: var(--cyan-soft);
 }
 
-/* ---------- Meta line: single-line icon-led chips ---------- */
+/* ---------- Meta: recipe bar + tiny caption cluster ----------
+   One row of icon+number pairs (no words) right-aligned above a slim
+   4px bar whose segments are proportional to the task's cpu (cyan) /
+   cache (green) / ram (violet) work mix. Full wording lives in chip
+   aria-labels and the Inspect modal. The bar always renders at fixed
+   height so live state changes never reflow the card. */
 
 .task-meta-line {
   grid-area: meta;
   display: flex;
-  gap: var(--s-2);
+  gap: var(--s-0) var(--s-2);
   align-items: center;
   min-width: 0;
   font-family: var(--font-mono);
@@ -253,32 +260,44 @@
   flex-wrap: wrap;
 }
 
+.meta-rewards {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .meta-need {
   display: inline-flex;
   align-items: center;
-  gap: var(--s-3);
+  justify-content: flex-end;
+  gap: var(--s-2);
   flex: 1 1 auto;
   min-width: 0;
   flex-wrap: wrap;
-  row-gap: var(--s-1);
+  row-gap: var(--s-0);
+  margin-left: auto;
 }
 
 .meta-chip {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: 9px;
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .meta-chip > svg {
   flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
   color: var(--muted);
   opacity: 0.85;
 }
@@ -289,12 +308,114 @@
   white-space: nowrap;
 }
 
-.meta-chip.ops > svg { color: var(--green); opacity: 1; }
-.meta-chip.ops > strong { color: var(--green); }
+.meta-chip.ops > svg,
+.meta-chip.cores > svg,
+.meta-chip.chunked > svg { color: var(--cyan); opacity: 1; }
+.meta-chip.cache > svg { color: var(--green); opacity: 1; }
+.meta-chip.ram > svg { color: var(--violet); opacity: 1; }
 
-.meta-chip.chunked > svg {
-  color: var(--cyan);
-  opacity: 1;
+.task-recipe-bar {
+  display: flex;
+  flex: 1 1 100%;
+  height: 4px;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--meter-track, rgba(231, 245, 238, 0.08));
+}
+
+.recipe-seg {
+  flex: 0 1 auto;
+  min-width: 3px;
+  height: 100%;
+}
+
+.recipe-seg.cpu { background: var(--cyan); }
+.recipe-seg.cache { background: var(--green); }
+.recipe-seg.ram { background: var(--violet); }
+.recipe-seg.storage { background: var(--amber); }
+.recipe-seg.network { background: var(--rose); }
+.recipe-seg + .recipe-seg { margin-left: 1px; }
+
+/* ---------- Start decision projection ---------- */
+
+.task-start-projection {
+  grid-area: projection;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--line-soft);
+}
+
+.task-projection-summary {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.task-projection-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.67rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.task-projection-details > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0.35rem 0 0;
+}
+
+.task-projection-details > dl > div {
+  background: rgba(5, 20, 19, 0.48);
+  padding: 0.3rem 0.38rem;
+}
+
+.task-projection-details dt,
+.task-projection-details dd { margin: 0; }
+.task-projection-details dt { color: var(--muted); font-size: 0.62rem; }
+.task-projection-details dd { font-size: 0.7rem; }
+
+.task-start-projection > div {
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(5, 11, 10, 0.9);
+}
+
+.task-start-projection dt,
+.task-start-projection dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-start-projection dt {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.task-start-projection dd {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.task-start-projection > .task-start-projection-reason {
+  grid-column: 1 / -1;
+}
+
+.task-start-projection-reason dd {
+  color: var(--amber);
+  white-space: normal;
 }
 
 /* ---------- Rewards ---------- */
@@ -305,6 +426,7 @@
   gap: var(--s-2);
   flex: 0 0 auto;
   min-width: 0;
+  min-height: 14px;
   margin-left: var(--s-1);
 }
 
@@ -318,7 +440,10 @@
   letter-spacing: var(--tracking-tight);
 }
 
-/* ---------- Primary run button ---------- */
+/* ---------- Primary run button ----------
+   Quiet by default: outline + accent text at 24px. The filled
+   treatment is reserved for hover/active. Full width is kept so
+   long blocker strings swap in without any geometry change. */
 
 .task-run-button {
   grid-area: run;
@@ -326,16 +451,16 @@
   gap: var(--s-2);
   align-items: center;
   justify-content: center;
-  height: 26px;
+  min-height: var(--control-h-sm);
   width: 100%;
   min-width: 0;
-  padding: 0 var(--s-4);
+  padding: 0 var(--s-3);
   border: 1px solid rgba(36, 231, 195, 0.46);
   border-radius: var(--radius-sm);
   color: var(--cyan);
-  background: var(--cyan-soft);
+  background: transparent;
   font-family: var(--font-display);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-2xs);
   font-weight: 800;
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
@@ -351,8 +476,10 @@
   height: 11px;
 }
 
-.task-run-button:hover:not(:disabled) {
+.task-run-button:hover:not(:disabled),
+.task-run-button:active:not(:disabled) {
   border-color: var(--cyan);
+  color: var(--cyan);
   background: rgba(36, 231, 195, 0.18);
   box-shadow: 0 0 12px rgba(36, 231, 195, 0.20);
 }
@@ -365,18 +492,17 @@
   white-space: nowrap;
 }
 
-/* ---------- Blocked state: full-width amber reason pill ---------- */
+/* ---------- Blocked state: identical geometry, muted reason ---------- */
 
 .task-run-button.blocked {
   width: 100%;
   justify-self: stretch;
   justify-content: center;
-  height: 26px;
+  min-height: var(--control-h-sm);
   padding: 0 var(--s-3);
   color: var(--amber);
-  border-color: rgba(242, 194, 78, 0.42);
-  background:
-    linear-gradient(180deg, rgba(242, 194, 78, 0.12), rgba(242, 194, 78, 0.06));
+  border-color: rgba(242, 194, 78, 0.32);
+  background: transparent;
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   letter-spacing: var(--tracking-tight);
@@ -388,6 +514,7 @@
   overflow: visible;
   white-space: normal;
   text-align: center;
+  line-height: 1.15;
 }
 
 /* ---------- Active-state cancel (used in inspector, not the card) ---------- */

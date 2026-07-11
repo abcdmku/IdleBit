@@ -3,35 +3,35 @@
 .module-rail {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
+  gap: var(--s-3);
 }
 
 .module-rail .hw-section {
-  padding: 10px;
-  gap: 6px;
+  padding: var(--s-4);
+  gap: var(--s-2);
 }
 
 .module-rail .hw-section .hw-section-header {
-  font-size: 0.7rem;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-title);
+  letter-spacing: var(--tracking-mid);
 }
 
 .module-stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--s-1);
   font-family: var(--font-mono);
 }
 
 .module-stat strong {
-  color: var(--text);
-  font-size: 0.94rem;
+  color: var(--text-value);
+  font-size: var(--fs-value);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .module-stat small {
-  color: var(--muted);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
+  color: var(--text-caption);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--tracking-tight);
 }

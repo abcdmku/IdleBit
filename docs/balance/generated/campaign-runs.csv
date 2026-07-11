@@ -1,0 +1,5 @@
+activeMinutes,completedAtMs,contractShare,elapsedCalendarDays,offlineHours,overflowHours,overflowShare,pausedOfflineHours,productiveOfflineHours,profileId,roiReturnRatio,runId,scheduleMode,seed,sessionCount,standingOrderShare,status,unusedCapacityShare
+1264,,0,14,314.93333333333334,314.93333333333334,1,0,0,full-idle,-0.0011860051393556038,full-idle-10000,deterministic,10000,158,0,horizon-reached,1
+156,,0,14,333.4,333.4,1,0,0,regular,-0.009569377990430622,regular-10001,deterministic,10001,13,0,horizon-reached,1
+255,,0,14,331.75,331.75,1,0,0,engaged,-0.005865102639296188,engaged-10002,deterministic,10002,14,0,horizon-reached,1
+1560,,0,14,310,310,1,0,0,optimizer,0.001203659123736158,optimizer-10003,deterministic,10003,52,0,horizon-reached,1

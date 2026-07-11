@@ -8,6 +8,12 @@ import {
 } from "./progression";
 import { withGlobalBootloaderLevel } from "./bootloader";
 import { withGlobalCStateLevel } from "./cState";
+import {
+  normalizeWorkshopSystemState,
+  syncWorkshopHardwareProjection,
+} from "./workshop";
+import { amountCompare, exactCost, ZERO_AMOUNT } from "./amount";
+import { V1_HARDWARE_LIMITS } from "./hardwareLimits";
 import type {
   Cost,
   GameState,
@@ -18,6 +24,33 @@ import type {
 
 const getRamStickBits = (ramSticks: RamStickState[]) =>
   ramSticks.reduce((total, stick) => total + stick.bits, 0);
+
+const normalizePurchaseCosts = (value: unknown): Cost[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const resource = (entry as { resource?: unknown }).resource;
+        const rawAmount = (entry as { amount?: unknown }).amount;
+        if (resource !== "credits" && resource !== "data") return [];
+        if (typeof rawAmount !== "string" && typeof rawAmount !== "number") {
+          return [];
+        }
+        try {
+          const cost = exactCost(resource, rawAmount);
+          return amountCompare(cost.amount, ZERO_AMOUNT) >= 0 ? [cost] : [];
+        } catch {
+          return [];
+        }
+      })
+    : [];
+
+const limitInspectedSystems = (systems: readonly SystemState[]) =>
+  systems.slice(0, V1_HARDWARE_LIMITS.inspectedSystems);
+
+export const getFleetSystemLimitBlockedReason = (state: GameState) =>
+  (state.systems?.length ?? 0) >= V1_HARDWARE_LIMITS.inspectedSystems
+    ? `A v1 Fleet supports at most ${V1_HARDWARE_LIMITS.inspectedSystems} fully simulated systems; expand through cluster and facility capacity.`
+    : null;
 
 const preserveRuntimeRamOverride = (hardware: HardwareState): HardwareState => {
   const ramSticks = hardware.ramSticks ?? [];
@@ -68,6 +101,10 @@ const normalizeSystemPower = (system: SystemState): SystemState["power"] => {
     ...fallback,
     ...power,
     state: powerState,
+    idlePolicy:
+      power?.idlePolicy === "shutdown-when-idle"
+        ? "shutdown-when-idle"
+        : "low-power",
     transitionSeconds: Math.max(
       0,
       power?.transitionSeconds ?? fallback.transitionSeconds,
@@ -102,24 +139,32 @@ const normalizeSystemPower = (system: SystemState): SystemState["power"] => {
   };
 };
 
-const getSystemRuntime = (_state: GameState, system: SystemState): SystemState => ({
-  ...system,
-  hardware: syncHardwarePackages({
+const getSystemRuntime = (_state: GameState, system: SystemState): SystemState => {
+  const workshop = normalizeWorkshopSystemState(system.workshop, system.hardware);
+  const hardware = syncWorkshopHardwareProjection(
+    syncHardwarePackages({
     ..._state,
     hardware: withGlobalBootloaderLevel(
       _state,
       withGlobalCStateLevel(_state, system.hardware),
     ),
-  }).hardware,
-  power: normalizeSystemPower(system),
-  activeJobs: system.activeTasks,
-  coreSchedulers:
-    Object.keys(system.coreSchedulers).length > 0
-      ? system.coreSchedulers
-      : createCoreSchedulers(system.hardware.cores),
-  purchaseCosts: Array.isArray(system.purchaseCosts) ? system.purchaseCosts : [],
-  queueEntries: Array.isArray(system.queueEntries) ? system.queueEntries : [],
-});
+    }).hardware,
+    workshop,
+  );
+  return {
+    ...system,
+    hardware,
+    workshop,
+    power: normalizeSystemPower(system),
+    activeJobs: system.activeTasks,
+    coreSchedulers:
+      Object.keys(system.coreSchedulers).length > 0
+        ? system.coreSchedulers
+        : createCoreSchedulers(system.hardware.cores),
+    purchaseCosts: normalizePurchaseCosts(system.purchaseCosts),
+    queueEntries: Array.isArray(system.queueEntries) ? system.queueEntries : [],
+  };
+};
 
 export const createSystemFromRuntime = (
   state: GameState,
@@ -127,11 +172,10 @@ export const createSystemFromRuntime = (
   name = `System ${id}`,
   templateId: string | null = null,
   purchaseCosts: Cost[] = [],
-): SystemState => ({
-  id,
-  name,
-  templateId,
-  hardware: syncHardwarePackages({
+): SystemState => {
+  const workshop = normalizeWorkshopSystemState(state.workshop, state.hardware);
+  const hardware = syncWorkshopHardwareProjection(
+    syncHardwarePackages({
     ...state,
     hardware: withGlobalBootloaderLevel(
       state,
@@ -140,26 +184,35 @@ export const createSystemFromRuntime = (
         preserveRuntimeRamOverride(state.hardware),
       ),
     ),
-  }).hardware,
-  power: state.power,
-  cron: state.cron,
-  activeTasks: state.activeTasks,
-  activeJobs: state.activeTasks,
-  cacheResidency: state.cacheResidency,
-  coreSchedulers: state.coreSchedulers,
-  queue: state.queue,
-  queueEntries: state.queueEntries ?? [],
-  deadlockPressureSeconds: state.deadlockPressureSeconds,
-  deadlockPressureResource: state.deadlockPressureResource,
-  deadlockPressureCpuId: state.deadlockPressureCpuId,
-  deadlockProcessLockout: state.deadlockProcessLockout,
-  purchaseCosts,
-});
+    }).hardware,
+    workshop,
+  );
+  return {
+    id,
+    name,
+    templateId,
+    hardware,
+    workshop,
+    power: state.power,
+    cron: state.cron,
+    activeTasks: state.activeTasks,
+    activeJobs: state.activeTasks,
+    cacheResidency: state.cacheResidency,
+    coreSchedulers: state.coreSchedulers,
+    queue: state.queue,
+    queueEntries: state.queueEntries ?? [],
+    deadlockPressureSeconds: state.deadlockPressureSeconds,
+    deadlockPressureResource: state.deadlockPressureResource,
+    deadlockPressureCpuId: state.deadlockPressureCpuId,
+    deadlockProcessLockout: state.deadlockProcessLockout,
+    purchaseCosts: normalizePurchaseCosts(purchaseCosts),
+  };
+};
 
 export const ensureSystems = (state: GameState): GameState => {
   const existingSystems =
     state.systems && state.systems.length > 0
-      ? state.systems
+      ? limitInspectedSystems(state.systems)
       : [createSystemFromRuntime(state, 1, "Barebones PC", "barebonesPc")];
   const systems = existingSystems.map((system) => getSystemRuntime(state, system));
   const selectedSystemId = systems.some((system) => system.id === state.selectedSystemId)
@@ -183,7 +236,7 @@ export const ensureSystems = (state: GameState): GameState => {
 export const syncSelectedSystemRuntime = (state: GameState): GameState => {
   const existingSystems =
     state.systems && state.systems.length > 0
-      ? state.systems
+      ? limitInspectedSystems(state.systems)
       : [createSystemFromRuntime(state, 1, "Barebones PC", "barebonesPc")];
   const selectedSystem =
     existingSystems.find((system) => system.id === state.selectedSystemId) ??
@@ -243,6 +296,7 @@ export const materializeSystem = (
     ...ensured,
     selectedSystemId: selectedSystem.id,
     hardware: selectedSystem.hardware,
+    workshop: selectedSystem.workshop,
     power: selectedSystem.power,
     cron: selectedSystem.cron,
     activeTasks: selectedSystem.activeTasks,
@@ -313,15 +367,25 @@ export const replaceSystems = (
   state: GameState,
   systems: SystemState[],
   selectedSystemId = state.selectedSystemId,
-): GameState =>
-  materializeSystem(
+): GameState => {
+  const limitedSystems = limitInspectedSystems(systems);
+  const limitedSelectedSystemId = limitedSystems.some(
+    (system) => system.id === selectedSystemId,
+  )
+    ? selectedSystemId
+    : limitedSystems[0]?.id ?? 1;
+  return materializeSystem(
     {
       ...state,
-      selectedSystemId,
+      selectedSystemId: limitedSelectedSystemId,
       rack: {
-        nextSystemId: Math.max(state.rack.nextSystemId, ...systems.map((system) => system.id + 1)),
+        nextSystemId: Math.max(
+          state.rack.nextSystemId,
+          ...limitedSystems.map((system) => system.id + 1),
+        ),
       },
-      systems,
+      systems: limitedSystems,
     },
-    selectedSystemId,
+    limitedSelectedSystemId,
   );
+};

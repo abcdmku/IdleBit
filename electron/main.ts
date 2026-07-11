@@ -1,16 +1,26 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  ACKNOWLEDGE_CLOSE_CHANNEL,
+  BEFORE_CLOSE_CHANNEL,
+  createCloseHandshake,
+  parseCloseAcknowledgementRequestId,
+  type CloseHandshakeController,
+} from "./closeHandshake.js";
 import { registerPersistenceIpc } from "./persistence.js";
 
 let mainWindow: BrowserWindow | null = null;
+let closeHandshake: CloseHandshakeController | null = null;
+let isQuitting = false;
 const defaultRendererDevUrl = "http://127.0.0.1:6173";
+const forceFileRenderer = process.env.IDLEBIT_FILE_RENDERER === "1";
 
 const rendererDevUrl =
   process.env.VITE_DEV_SERVER_URL ??
   process.env.ELECTRON_RENDERER_URL ??
-  (app.isPackaged ? undefined : defaultRendererDevUrl);
+  (app.isPackaged || forceFileRenderer ? undefined : defaultRendererDevUrl);
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 function rendererHtmlPath(): string {
@@ -50,7 +60,7 @@ function isAllowedExternalUrl(url: string): boolean {
 }
 
 async function createMainWindow(): Promise<void> {
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 960,
@@ -65,23 +75,46 @@ async function createMainWindow(): Promise<void> {
       sandbox: true,
     },
   });
+  mainWindow = window;
+  const windowCloseHandshake = createCloseHandshake({
+    isWindowDestroyed: () => window.isDestroyed(),
+    requestClose: () => {
+      if (isQuitting) {
+        app.quit();
+      } else {
+        window.close();
+      }
+    },
+    sendBeforeClose: (request) => {
+      window.webContents.send(BEFORE_CLOSE_CHANNEL, request);
+    },
+  });
+  closeHandshake = windowCloseHandshake;
 
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+  window.once("ready-to-show", () => {
+    window.show();
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  window.on("close", (event) => {
+    windowCloseHandshake.handleClose(event);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.on("closed", () => {
+    windowCloseHandshake.dispose();
+    if (mainWindow === window) {
+      mainWindow = null;
+      closeHandshake = null;
+    }
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedExternalUrl(url)) {
       void shell.openExternal(url);
     }
     return { action: "deny" };
   });
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
+  window.webContents.on("will-navigate", (event, url) => {
     if (isAllowedNavigation(url)) {
       return;
     }
@@ -93,11 +126,25 @@ async function createMainWindow(): Promise<void> {
   });
 
   if (rendererDevUrl) {
-    await mainWindow.loadURL(rendererDevUrl);
+    await window.loadURL(rendererDevUrl);
     return;
   }
 
-  await mainWindow.loadFile(rendererHtmlPath());
+  await window.loadFile(rendererHtmlPath());
+}
+
+function registerLifecycleIpc(): void {
+  ipcMain.on(ACKNOWLEDGE_CLOSE_CHANNEL, (event, payload: unknown) => {
+    const window = mainWindow;
+    if (!window || event.sender !== window.webContents) {
+      return;
+    }
+
+    const requestId = parseCloseAcknowledgementRequestId(payload);
+    if (requestId !== null) {
+      closeHandshake?.acknowledge(requestId);
+    }
+  });
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -105,6 +152,10 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
+  app.on("before-quit", () => {
+    isQuitting = true;
+  });
+
   app.on("second-instance", () => {
     if (!mainWindow) {
       return;
@@ -119,6 +170,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     registerPersistenceIpc();
+    registerLifecycleIpc();
     await createMainWindow();
 
     app.on("activate", () => {

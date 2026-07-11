@@ -1,12 +1,11 @@
 import type { Cost } from "../types";
+import { amount, amountMultiply, amountRound, type Amount } from "../amount";
+import { roundedCost } from "../exactCosts";
 import { getRamTierLevelDefinition } from "./ramTiers";
 
 export const MEMORY_VOLTAGE_MAX_LEVEL = 36;
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+const credits = (value: Amount): Cost => roundedCost("credits", value);
 
 const roundTo = (value: number, digits: number) => {
   const factor = 10 ** digits;
@@ -22,10 +21,10 @@ export const getMemoryVoltageCost = (targetLevel: number) =>
     : [credits(getMemoryVoltageCostValue(targetLevel))];
 
 const getMemoryVoltageCostValue = (level: number) => {
-  let cost = 100_000;
+  let cost = amount("100000");
 
   for (let currentLevel = 2; currentLevel <= level; currentLevel += 1) {
-    cost = Math.round(cost * 1.8);
+    cost = amountRound(amountMultiply(cost, "1.8"));
   }
 
   return cost;

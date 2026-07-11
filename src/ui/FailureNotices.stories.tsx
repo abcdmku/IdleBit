@@ -22,7 +22,7 @@ export const FirstCreditFailureDialog: Story = {
   ),
 };
 
-export const LaterCreditFailureToast: Story = {
+export const LaterCreditFailureDialog: Story = {
   render: () => (
     <CreditFailurePopup firstTime={false} onDismiss={() => undefined} />
   ),

@@ -3,9 +3,10 @@ import type { VisibleCpuSocket, VisibleState } from "../../game";
 import { formatBits, formatClock } from "../format";
 import type { Dispatch } from "../uiActions";
 import { DeadlockHelpCaption, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
+import { formatFraction } from "./display";
 import { CachePipeline } from "./meters";
 import { UpgradeChip } from "./UpgradeControls";
-import { getCachePrimaryState, getCacheStateBits, toCacheSegment } from "./cacheData";
+import { getCacheStateBits, toCacheSegment } from "./cacheData";
 
 /* ============ CACHE SECTION ============ */
 
@@ -49,11 +50,6 @@ export function CacheSection({
   const cooldownActive =
     shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
     deadlockPressure.lockout;
-  const cacheState = cacheDeadlocked
-    ? "Deadlock"
-    : cooldownActive
-      ? "Cooldown"
-    : getCachePrimaryState(cacheReservation.segments);
 
   return (
     <section
@@ -65,7 +61,14 @@ export function CacheSection({
         <HardDrive size={14} />
         <span>Cache</span>
         <span className="hw-section-meta">
-          <strong>{cacheState}</strong>
+          <strong>
+            {formatFraction(
+              formatBits(cacheReservation.reservedBits),
+              formatBits(capacity),
+            )}
+          </strong>
+          {" @ "}
+          {formatClock(socket.cacheSpeedHz)}
         </span>
       </button>
       {showDeadlockHelp && (
@@ -77,19 +80,6 @@ export function CacheSection({
           onDismiss={onDismissDeadlockCooldownHelp}
         />
       )}
-
-      <div className="cache-stat-row">
-        <span className="stat cache-capacity-stat">
-          <small>Capacity</small>
-          <strong>
-            {formatBits(cacheReservation.reservedBits)} / {formatBits(capacity)}
-          </strong>
-        </span>
-        <span className="stat cache-frequency-stat">
-          <small>Frequency</small>
-          <strong>{formatClock(socket.cacheSpeedHz)}</strong>
-        </span>
-      </div>
 
       <CachePipeline
         segments={cacheReservation.segments}

@@ -1,17 +1,71 @@
 import { getBootSeconds, getBootloaderReducedSeconds } from "./bootloader";
 import {
-  CLICK_RATE_MAX_LEVEL,
-  getClickRateLevel,
-  getClickRateUpgradeCost,
-} from "./clickRate";
+  ZERO_AMOUNT,
+  amount,
+  amountAdd,
+  amountClampMin,
+  amountCompare,
+  amountDivide,
+  amountMax,
+  amountMin,
+  amountMultiply,
+  amountSubtract,
+  amountToSafeNumber,
+  exactCost,
+  exactResourceBag,
+  sumAmounts,
+  type Amount,
+} from "./amount";
+import {
+  applyAutomationAction,
+  getAutomationBufferLevelIndex,
+} from "./automation";
+import { updateCampaignProgress } from "./campaign";
+import {
+  advanceNormalizedCloudForGameState,
+  applyCloudAction,
+  getNormalizedCloudAdvanceBlockedReason,
+  getNormalizedCloudOperatingCostPerSecond,
+  getNextNormalizedRunnableCloudGameEventMs,
+  hasActiveCloudWork,
+  isCloudAction,
+  normalizeCloudForGameState,
+} from "./cloudGame";
+import {
+  advanceClusterWorkloads,
+  applyClusterWorkloadAction,
+  getNextClusterWorkloadEventMs,
+  getClusterWorkloadOperatingCostPerSecond,
+  getProductiveClusterFacilityIds,
+  getRunnableClusterNodeIds,
+  hasActiveClusterWorkloads,
+  isClusterWorkloadAction,
+} from "./distributedDefinitions";
+import {
+  applyFacilityInfrastructureAction,
+  isFacilityInfrastructureAction,
+} from "./facilityInfrastructure";
+import {
+  acceptContract,
+  completeContract,
+  declineContract,
+  refreshContractMarket,
+} from "./contracts";
 import { getResearchDefinition, researchDefinitions } from "./content/research";
 import {
-  getComponentSku,
-  getMachineComponentSkus,
   getMachineSelectionCost,
   getMachineTemplate,
 } from "./content/machines";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
+import {
+  advanceLiveOperations,
+  applyLiveOperationsAction,
+  clearLiveOperationsForRemovedSystem,
+  getNextLiveOperationsEventMs,
+  isLiveOperationsTaskId,
+  normalizeLiveOperationsForGameState,
+  syncLiveOperationsAllocation,
+} from "./liveOperations";
 import {
   getUpgradeDefinition,
   getUpgradeCount,
@@ -19,13 +73,23 @@ import {
   getUpgradeRefund,
   upgradeDefinitions,
 } from "./content/upgrades";
-import { addRewards, canAfford, spend } from "./economy";
+import {
+  addCosts,
+  addExactRewards,
+  canAfford,
+  setExactResource,
+  spend,
+  spendExact,
+  syncExactResources,
+} from "./economy";
+import { halfRefundExact } from "./exactCosts";
 import {
   DEADLOCK_FAILURE_SECONDS,
   POWER_OVERLOAD_FAILURE_SECONDS,
   allocateRamBlocksForOperation,
   estimateActiveRemainingSeconds,
   estimateTaskSeconds,
+  getBaseHardwareDrawWatts,
   getAvailableMemoryBits,
   getAvailableSchedulerSlots,
   getAvailableSystemSchedulerSlots,
@@ -33,32 +97,46 @@ import {
   getCacheLoadRateForOperationTick,
   getDeadlockCooldownRate,
   getHardwareCacheBits,
+  getEffectiveCoreClockHz,
   getMemoryCapacityBits,
   getOperationEffectiveClock,
-  getPowerCostPerSecond,
+  getPowerCostPerSecondExact,
   getPowerOverloadRate,
   getPsuStress,
   getRamLoadCycles,
   getRamBlockLoadDeltasForOperationTick,
+  getRamBlockLoadRatesForOperation,
   getRamLoadCyclesForOperationTick,
   getReservedCacheBits,
 } from "./math";
 import {
+  advanceWorkshopThermal,
+  getNextWorkshopThermalEventMs,
+  getWorkshopAcceleratorRoutes,
+  getWorkshopThermalEnvironment,
+  installWorkshopAccelerator,
+  installWorkshopCoolingTier,
+  recordWorkshopCompletionEvidence,
+  removeWorkshopAccelerator,
+  selectWorkshopOverclockPreset,
+} from "./workshop";
+import {
+  advanceWorkshopStorageWorkload,
+  cancelWorkshopStorageWorkload,
+  getNextWorkshopStorageEventMs,
+  installWorkshopStorage,
+  startWorkshopStorageWorkload,
+} from "./workshopStorage";
+import { installLocalNetwork } from "./localNetwork";
+import {
   bitsToBytes,
   createCoreSchedulerState,
-  createCpuHardwareState,
-  createRamStickState,
   createSchedulerConfig,
   createSystemState,
-  getCacheBits,
-  getCacheBytes,
   getAllCoreIds,
-  getCpuClockHz,
   getCpuHardware,
   getCpuIdForCore,
-  getCoreClockHz,
-  getPsuWatts,
-  getRamSpeedMt,
+  isPsuManagementUnlocked,
   getOperationProgress,
   POWER_BOOTSTRAP_GRACE_SECONDS,
   POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
@@ -66,20 +144,41 @@ import {
   updateProgressionFlags,
 } from "./progression";
 import {
+  createHardwareFromMachineSelection,
+  getMachineSelectionBlockedReason,
+  isMachineTemplateUnlocked,
+} from "./machines";
+import { startProjectPhase } from "./projects";
+import {
+  applyInfrastructureAction,
+  isInfrastructureAction,
+  isLegacyActionBlockedByManagedSystem,
+  isSystemManaged,
+} from "./fleet";
+import {
   ensureSystems,
+  getFleetSystemLimitBlockedReason,
   materializeSystem,
   replaceSystems,
   syncSelectedSystemRuntime,
   updateMaterializedSystem,
 } from "./systems";
+import {
+  getStoredTaskRewardCredits,
+  getStoredTaskWorkCycles,
+  getTaskBatchProjection,
+  normalizeTaskBatchMultiplier,
+} from "./taskBatches";
 import type {
   ActiveCoreOperation,
   ActiveTask,
+  AdvanceMode,
   Cost,
   CpuTierId,
   DeadlockResource,
   GameAction,
   GameState,
+  IdlePowerPolicy,
   MachineComponentSelection,
   PowerFailureReason,
   ResearchId,
@@ -92,6 +191,7 @@ import type {
   TaskQueueEntry,
   TaskOperationDefinition,
   UpgradeId,
+  WorkOrigin,
 } from "./types";
 
 const POWER_SHUTDOWN_SECONDS = 8;
@@ -101,186 +201,15 @@ const CRON_MAX_SECONDS_INTERVAL = 120;
 const CRON_MIN_MINUTES_INTERVAL = 1;
 const CRON_MAX_MINUTES_INTERVAL = 60;
 const CRON_QUEUE_SPIKE_SECONDS = 5;
-export const DEV_RESOURCE_GRANT_AMOUNT = 100_000_000_000;
-
-const getSku = (
-  selection: MachineComponentSelection,
-  key: "cpu" | "ram" | "scheduler" | "psu",
-) =>
-  getComponentSku(selection[key]);
-
-const distributeCoreCount = (coreCount: number, cpuPackageCount: number) => {
-  const packageCount = Math.max(1, cpuPackageCount);
-  const total = Math.max(packageCount, coreCount);
-  const coresPerPackage = Math.max(1, Math.floor(total / packageCount));
-  const extraCores = total % packageCount;
-
-  return Array.from(
-    { length: packageCount },
-    (_, index) => coresPerPackage + (index < extraCores ? 1 : 0),
-  );
-};
-
-const distributeSlotCount = (slotCount: number, cpuPackageCount: number) => {
-  const packageCount = Math.max(1, cpuPackageCount);
-  const total = Math.max(0, Math.trunc(slotCount));
-  const slotsPerPackage = Math.floor(total / packageCount);
-  const extraSlots = total % packageCount;
-
-  return Array.from(
-    { length: packageCount },
-    (_, index) => slotsPerPackage + (index < extraSlots ? 1 : 0),
-  );
-};
-
-const createHardwareFromMachineSelection = (
-  selection: MachineComponentSelection,
-): GameState["hardware"] => {
-  const cpu = getSku(selection, "cpu");
-  const ram = getSku(selection, "ram");
-  const scheduler = getSku(selection, "scheduler");
-  const psu = getSku(selection, "psu");
-  const cpuPackageCount = Math.max(
-    1,
-    selection.cpuPackageConfigs?.length ?? 0,
-    selection.cpuPackageCount ?? cpu.cpuPackageCount ?? 1,
-  );
-  const schedulerSlots = Math.max(0, scheduler.schedulerSlots ?? 0);
-  const cpuTierId = cpu.cpuTierId ?? "hz";
-  const fallbackCoreCounts = distributeCoreCount(
-    selection.cpuCoreCount ?? (cpu.coreCount ?? 1) * cpuPackageCount,
-    cpuPackageCount,
-  );
-  const fallbackCpuLevel = Math.max(
-    1,
-    selection.cpuLevel ?? cpu.cpuLevel ?? cpu.clockLevel ?? 1,
-  );
-  const fallbackCacheLevel = Math.max(1, selection.cacheLevel ?? cpu.cacheLevel ?? 1);
-  const fallbackCacheSpeedLevel = Math.max(
-    1,
-    selection.cacheSpeedLevel ?? cpu.cacheSpeedLevel ?? 1,
-  );
-  const cpuPackageConfigs = Array.from({ length: cpuPackageCount }, (_, index) => {
-    const config = selection.cpuPackageConfigs?.[index];
-
-    return {
-      coreCount: Math.max(1, config?.coreCount ?? fallbackCoreCounts[index] ?? 1),
-      cpuLevel: Math.max(1, config?.cpuLevel ?? fallbackCpuLevel),
-      cacheLevel: Math.max(1, config?.cacheLevel ?? fallbackCacheLevel),
-      cacheSpeedLevel: Math.max(
-        1,
-        config?.cacheSpeedLevel ?? fallbackCacheSpeedLevel,
-      ),
-      schedulerSlots:
-        config?.schedulerSlots === undefined
-          ? undefined
-          : Math.max(0, Math.trunc(config.schedulerSlots)),
-    };
-  });
-  const coreCount = cpuPackageConfigs.reduce(
-    (total, config) => total + config.coreCount,
-    0,
-  );
-  const packageCpuSchedulerSlotCounts = cpuPackageConfigs.some(
-    (config) => config.schedulerSlots !== undefined,
-  )
-    ? cpuPackageConfigs.map((config) => config.schedulerSlots ?? config.coreCount)
-    : null;
-  const totalCpuSchedulerSlots =
-    selection.cpuSchedulerSlots === undefined
-      ? null
-      : Math.max(0, Math.trunc(selection.cpuSchedulerSlots));
-  const customCpuSchedulerSlotCounts =
-    packageCpuSchedulerSlotCounts ??
-    (totalCpuSchedulerSlots === null
-      ? null
-      : totalCpuSchedulerSlots === coreCount
-        ? cpuPackageConfigs.map((config) => config.coreCount)
-        : distributeSlotCount(totalCpuSchedulerSlots, cpuPackageCount));
-  const ramStickCount = Math.max(0, selection.ramStickCount ?? ram.ramStickCount ?? 0);
-  const ramLevel = Math.max(1, selection.ramLevel ?? ram.ramLevel ?? 1);
-  const ramSpeedLevel = Math.max(
-    1,
-    selection.ramSpeedLevel ?? ram.ramSpeedLevel ?? 1,
-  );
-  const ramSticks = Array.from({ length: ramStickCount }, (_, index) =>
-    createRamStickState(index + 1, ramLevel, ramSpeedLevel),
-  );
-  const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
-  const psuLevel = Math.max(1, psu.psuLevel ?? 1, selection.psuLevel ?? 1);
-  let nextCoreId = 1;
-  const coreClockLevels: Record<number, number> = {};
-  const cpus = cpuPackageConfigs.map((config, index) => {
-    const count = config.coreCount;
-    const start = nextCoreId;
-    nextCoreId += count;
-    const packageCoreIds = Array.from(
-      { length: count },
-      (_, coreIndex) => start + coreIndex,
-    );
-    packageCoreIds.forEach((coreId) => {
-      coreClockLevels[coreId] = config.cpuLevel;
-    });
-
-    return createCpuHardwareState(index + 1, packageCoreIds, {
-      cacheLevel: config.cacheLevel,
-      cacheSpeedLevel: config.cacheSpeedLevel,
-      cacheBits: getCacheBits(config.cacheLevel),
-      cacheBytes: getCacheBytes(config.cacheLevel),
-      schedulerSlots: Math.max(
-        0,
-        customCpuSchedulerSlotCounts?.[index] ?? cpu.schedulerSlots ?? count,
-      ),
-      tierId: cpuTierId,
-      level: config.cpuLevel,
-    });
-  });
-  const cpuLevel = Math.max(1, ...cpuPackageConfigs.map((config) => config.cpuLevel));
-  const cacheLevel = Math.max(
-    1,
-    ...cpuPackageConfigs.map((config) => config.cacheLevel),
-  );
-  const cacheSpeedLevel = Math.max(
-    1,
-    ...cpuPackageConfigs.map((config) => config.cacheSpeedLevel),
-  );
-  const cpuSchedulerSlots = cpus.reduce(
-    (total, cpuPackage) => total + cpuPackage.schedulerSlots,
-    0,
+const finalizeGameMutation = (state: GameState) =>
+  normalizeLiveOperationsForGameState(
+    normalizeCloudForGameState(
+      updateCampaignProgress(syncExactResources(state)),
+    ),
   );
 
-  return {
-    clockLevel: cpuLevel,
-    clockHz: getCpuClockHz(cpuTierId, cpuLevel),
-    coreClockLevels,
-    cpus,
-    cacheLevel,
-    cacheSpeedLevel,
-    cacheBits: getCacheBits(cacheLevel),
-    cacheBytes: getCacheBytes(cacheLevel),
-    cores: coreCount,
-    schedulerSlots: cpuSchedulerSlots,
-    systemSchedulerSlots: schedulerSlots,
-    systemSchedulerConfig: createSchedulerConfig({ policy: "fifo" }),
-    deadlockRecoveryLevel: 0,
-    secondCpu: cpuPackageCount > 1,
-    ramLevel: ramSticks.length,
-    ramBits,
-    ramBytes: bitsToBytes(ramBits),
-    ramSpeedLevel,
-    ramSpeedMt: getRamSpeedMt(ramSpeedLevel),
-    ramSticks,
-    memoryVoltageLevel: 0,
-    bootloaderLevel: 0,
-    cronScheduleSlots: 0,
-    cronIntervalLevel: 0,
-    cStateLevel: 0,
-    psuLevel,
-    psuWatts: getPsuWatts(psuLevel),
-    coolingLevel: 0,
-    coolingRating: 0,
-  };
-};
+const finalizeNormalizedGameMutation = (state: GameState) =>
+  updateCampaignProgress(syncExactResources(state));
 
 export const getCronMinIntervalSeconds = (state: GameState) =>
   Math.max(1, CRON_DEFAULT_INTERVAL_SECONDS - Math.max(0, state.hardware.cronIntervalLevel ?? 0));
@@ -451,16 +380,22 @@ const getRuntimeWork = (
   definition: TaskOperationDefinition | null,
   operation: ActiveCoreOperation,
 ) => {
-  if (definition?.memoryAction && operation.totalLoadCycles > 0) {
+  if (
+    definition?.memoryAction &&
+    amountCompare(operation.totalLoadCycles, ZERO_AMOUNT) > 0
+  ) {
     return {
-      remaining: Math.max(operation.remainingCycles, operation.remainingLoadCycles),
-      total: Math.max(operation.totalCycles, operation.totalLoadCycles),
+      remaining: amountMax(
+        operation.remainingCycles,
+        operation.remainingLoadCycles,
+      ),
+      total: amountMax(operation.totalCycles, operation.totalLoadCycles),
     };
   }
 
   return {
-    remaining: operation.remainingCycles + operation.remainingLoadCycles,
-    total: operation.totalCycles + operation.totalLoadCycles,
+    remaining: amountAdd(operation.remainingCycles, operation.remainingLoadCycles),
+    total: amountAdd(operation.totalCycles, operation.totalLoadCycles),
   };
 };
 
@@ -474,18 +409,26 @@ const getFutureWorkUnitCycles = (
 
 const refreshTaskTotals = (task: ActiveTask): ActiveTask => {
   const taskDefinition = getTaskDefinition(task.taskId);
-  const activeRemainingCycles = task.coreOperations.reduce(
-    (sum, operation) =>
-      sum + getRuntimeWork(getOperation(task, operation.operationIndex), operation).remaining,
-    0,
+  const activeRemainingCycles = sumAmounts(
+    task.coreOperations.map(
+      (operation) =>
+        getRuntimeWork(getOperation(task, operation.operationIndex), operation)
+          .remaining,
+    ),
   );
-  const activeTotalCycles = task.coreOperations.reduce(
-    (sum, operation) =>
-      sum + getRuntimeWork(getOperation(task, operation.operationIndex), operation).total,
-    0,
+  const activeTotalCycles = sumAmounts(
+    task.coreOperations.map(
+      (operation) =>
+        getRuntimeWork(getOperation(task, operation.operationIndex), operation)
+          .total,
+    ),
   );
 
   if (isChunkedTask(taskDefinition)) {
+    const batchMultiplier = normalizeTaskBatchMultiplier(
+      task.batchMultiplier,
+      taskDefinition.aggregateBatch?.maximumMultiplier ?? 1,
+    );
     const totalWorkUnits = task.workUnitsTotal ?? taskDefinition.workUnitCount;
     const startedWorkUnits = task.workUnitsStarted ?? 0;
     const pendingWorkUnits =
@@ -501,11 +444,17 @@ const refreshTaskTotals = (task: ActiveTask): ActiveTask => {
 
     return {
       ...task,
-      remainingCycles:
-        activeRemainingCycles +
-        futureActiveCycles +
-        unstartedWorkUnits * taskDefinition.workUnitCycles,
-      totalCycles: Math.max(1, taskDefinition.requiredCycles),
+      remainingCycles: amountAdd(
+        activeRemainingCycles,
+        amountAdd(
+          amountMultiply(futureActiveCycles, batchMultiplier),
+          amountMultiply(
+            taskDefinition.workUnitCyclesExact,
+            unstartedWorkUnits * batchMultiplier,
+          ),
+        ),
+      ),
+      totalCycles: amountMax("1", task.projectedWorkCycles ?? taskDefinition.requiredCyclesExact),
     };
   }
 
@@ -694,6 +643,7 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
 
   return (
     canAcceptPoweredWork(state) &&
+    (isPsuManagementUnlocked(state) || getPsuStress(state) <= 1) &&
     !isDeadlockStartBlocked(state) &&
     canAcceptTask(state, taskId) &&
     taskFitsCpuHardware(state, task, cpuId)
@@ -752,12 +702,16 @@ interface QueueEntryOptions {
   parentQueueEntryId?: string | null;
   childTaskId?: TaskId | null;
   childTaskName?: string | null;
+  workOrigin?: WorkOrigin;
   compositionIndex?: number | null;
   compositionRepeatIndex?: number | null;
   workUnitIndex?: number | null;
   childWorkKey?: string | null;
   completedChildKeys?: string[];
   totalChildCount?: number;
+  batchMultiplier?: number;
+  projectedRewardCredits?: TaskQueueEntry["projectedRewardCredits"];
+  projectedWorkCycles?: TaskQueueEntry["projectedWorkCycles"];
 }
 
 const createQueueEntry = (
@@ -766,24 +720,42 @@ const createQueueEntry = (
   target: TaskQueueEntry["target"],
   options: QueueEntryOptions = {},
   sequence = getNextQueueEntryNumber(state, target),
-): TaskQueueEntry => ({
-  id: options.id ?? getQueueEntryId(target, sequence),
-  reservationId: options.reservationId ?? null,
-  taskId: task.id,
-  ...getTaskEntrySnapshot(task),
-  parentTaskId: options.parentTaskId ?? null,
-  parentTaskName: options.parentTaskName ?? null,
-  parentQueueEntryId: options.parentQueueEntryId ?? null,
-  childTaskId: options.childTaskId ?? null,
-  childTaskName: options.childTaskName ?? null,
-  compositionIndex: options.compositionIndex ?? null,
-  compositionRepeatIndex: options.compositionRepeatIndex ?? null,
-  workUnitIndex: options.workUnitIndex ?? null,
-  childWorkKey: options.childWorkKey ?? null,
-  completedChildKeys: options.completedChildKeys,
-  totalChildCount: options.totalChildCount,
-  target,
-});
+): TaskQueueEntry => {
+  const projection = getTaskBatchProjection(state, task);
+  const batchOwner = options.parentTaskId
+    ? getTaskDefinition(options.parentTaskId)
+    : task;
+  const batchMultiplier = normalizeTaskBatchMultiplier(
+    options.batchMultiplier ?? projection.multiplier,
+    batchOwner.aggregateBatch?.maximumMultiplier ?? 1,
+  );
+  return {
+    id: options.id ?? getQueueEntryId(target, sequence),
+    reservationId: options.reservationId ?? null,
+    taskId: task.id,
+    ...getTaskEntrySnapshot(task),
+    parentTaskId: options.parentTaskId ?? null,
+    parentTaskName: options.parentTaskName ?? null,
+    parentQueueEntryId: options.parentQueueEntryId ?? null,
+    childTaskId: options.childTaskId ?? null,
+    childTaskName: options.childTaskName ?? null,
+    workOrigin: options.workOrigin,
+    compositionIndex: options.compositionIndex ?? null,
+    compositionRepeatIndex: options.compositionRepeatIndex ?? null,
+    workUnitIndex: options.workUnitIndex ?? null,
+    childWorkKey: options.childWorkKey ?? null,
+    completedChildKeys: options.completedChildKeys,
+    batchMultiplier,
+    projectedRewardCredits:
+      options.projectedRewardCredits ??
+      amountMultiply(task.rewardCreditsExact, batchMultiplier),
+    projectedWorkCycles:
+      options.projectedWorkCycles ??
+      amountMultiply(task.requiredCyclesExact, batchMultiplier),
+    totalChildCount: options.totalChildCount,
+    target,
+  };
+};
 
 interface SystemChildWorkUnit {
   taskId: TaskId;
@@ -1101,10 +1073,10 @@ const idleCoreOperation = (
   operationName: null,
   status: "complete",
   memoryState: "idle",
-  remainingCycles: 0,
-  totalCycles: 0,
-  remainingLoadCycles: 0,
-  totalLoadCycles: 0,
+  remainingCycles: ZERO_AMOUNT,
+  totalCycles: ZERO_AMOUNT,
+  remainingLoadCycles: ZERO_AMOUNT,
+  totalLoadCycles: ZERO_AMOUNT,
   memoryReservedBits: 0,
   memoryReservedBytes: 0,
   ramBlocks: [],
@@ -1125,9 +1097,9 @@ const beginRamLoadOperation = (
   task: ActiveTask,
   operation: ActiveCoreOperation,
   operationDefinition: TaskOperationDefinition,
-  remainingCycles: number,
-  ramLoadCycles: number,
-  totalLoadCycles: number,
+  remainingCycles: ActiveCoreOperation["remainingCycles"],
+  ramLoadCycles: ActiveCoreOperation["remainingLoadCycles"],
+  totalLoadCycles: ActiveCoreOperation["totalLoadCycles"],
 ): ActiveCoreOperation => {
   const allocated = allocateRamBlocksForOperation(
     state,
@@ -1141,7 +1113,7 @@ const beginRamLoadOperation = (
       status: "loadingRam",
       memoryState: "ramLoad",
       remainingCycles,
-      totalCycles: operationDefinition.cycles,
+      totalCycles: amountMax(remainingCycles, operation.totalCycles),
       remainingLoadCycles: ramLoadCycles,
       totalLoadCycles,
       memoryReservedBits: getTotalRamBlockBits(operation),
@@ -1161,8 +1133,10 @@ const beginRamLoadOperation = (
     status: "loadingRam",
     memoryState: "ramLoad",
     remainingCycles,
-    totalCycles: operationDefinition.cycles,
-    remainingLoadCycles: Math.max(0, operationDefinition.ramBits - loadedBits),
+    totalCycles: amountMax(remainingCycles, operation.totalCycles),
+    remainingLoadCycles: amountClampMin(
+      amountSubtract(ramLoadCycles, loadedBits),
+    ),
     totalLoadCycles,
     memoryReservedBits: operationDefinition.ramBits,
     memoryReservedBytes: operationDefinition.ramBytes,
@@ -1209,10 +1183,10 @@ const enterOperation = (
       operationName: null,
       status: "complete",
       memoryState: retainedRamBits > 0 ? "ready" : "idle",
-      remainingCycles: 0,
-      totalCycles: 0,
-      remainingLoadCycles: 0,
-      totalLoadCycles: 0,
+      remainingCycles: ZERO_AMOUNT,
+      totalCycles: ZERO_AMOUNT,
+      remainingLoadCycles: ZERO_AMOUNT,
+      totalLoadCycles: ZERO_AMOUNT,
       memoryReservedBits: retainedRamBits,
       memoryReservedBytes: bitsToBytes(retainedRamBits),
       ramBlocks: retainedRamBlocks,
@@ -1224,7 +1198,17 @@ const enterOperation = (
     };
   }
 
-  if (operation.kind === "barrier" && isChunkedTask(getTaskDefinition(task.taskId))) {
+  const taskDefinition = getTaskDefinition(task.taskId);
+  const batchOwner = task.parentTaskId
+    ? getTaskDefinition(task.parentTaskId)
+    : taskDefinition;
+  const batchMultiplier = normalizeTaskBatchMultiplier(
+    task.batchMultiplier,
+    batchOwner.aggregateBatch?.maximumMultiplier ?? 1,
+  );
+  const operationCycles = amountMultiply(operation.cycles, batchMultiplier);
+
+  if (operation.kind === "barrier" && isChunkedTask(taskDefinition)) {
     return enterOperation(state, task, coreOperation, operationIndex + 1);
   }
 
@@ -1236,10 +1220,10 @@ const enterOperation = (
       operationName: operation.name,
       status: "waitingBarrier",
       memoryState: "idle",
-      remainingCycles: 0,
-      totalCycles: operation.cycles,
-      remainingLoadCycles: 0,
-      totalLoadCycles: 0,
+      remainingCycles: ZERO_AMOUNT,
+      totalCycles: operationCycles,
+      remainingLoadCycles: ZERO_AMOUNT,
+      totalLoadCycles: ZERO_AMOUNT,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
       ramBlocks: [],
@@ -1258,10 +1242,10 @@ const enterOperation = (
       operationName: operation.name,
       status: "waitingBarrier",
       memoryState: "idle",
-      remainingCycles: 0,
-      totalCycles: operation.cycles,
-      remainingLoadCycles: 0,
-      totalLoadCycles: 0,
+      remainingCycles: ZERO_AMOUNT,
+      totalCycles: operationCycles,
+      remainingLoadCycles: ZERO_AMOUNT,
+      totalLoadCycles: ZERO_AMOUNT,
       memoryReservedBits: 0,
       memoryReservedBytes: 0,
       ramBlocks: [],
@@ -1285,12 +1269,19 @@ const enterOperation = (
   const retainedRamChannelCount =
     retainedRamBits > 0 ? Math.max(1, coreOperation.ramChannelCount) : 1;
 
-  const cacheLoadCycles = getCacheLoadCycles(state, operation);
-  const ramLoadCycles =
-    retainedRamBits >= operationRamBits ? 0 : getRamLoadCycles(state, operation);
-  const totalLoadCycles = cacheLoadCycles + ramLoadCycles;
+  const cacheLoadCycles = amountMultiply(
+    getCacheLoadCycles(state, operation),
+    batchMultiplier,
+  );
+  const ramLoadCycles = amountMultiply(
+    retainedRamBits >= operationRamBits
+      ? 0
+      : getRamLoadCycles(state, operation),
+    batchMultiplier,
+  );
+  const totalLoadCycles = amountAdd(cacheLoadCycles, ramLoadCycles);
 
-  if (cacheLoadCycles > 0) {
+  if (amountCompare(cacheLoadCycles, ZERO_AMOUNT) > 0) {
     return {
       ...coreOperation,
       operationIndex,
@@ -1301,8 +1292,8 @@ const enterOperation = (
         operationRamBits > 0 && retainedRamBits >= operationRamBits
           ? "ready"
           : "cacheLoad",
-      remainingCycles: operation.cycles,
-      totalCycles: operation.cycles,
+      remainingCycles: operationCycles,
+      totalCycles: operationCycles,
       remainingLoadCycles: cacheLoadCycles,
       totalLoadCycles,
       memoryReservedBits: retainedRamBits,
@@ -1315,7 +1306,7 @@ const enterOperation = (
     };
   }
 
-  if (ramLoadCycles > 0) {
+  if (amountCompare(ramLoadCycles, ZERO_AMOUNT) > 0) {
     return beginRamLoadOperation(
       state,
       task,
@@ -1324,13 +1315,15 @@ const enterOperation = (
         operationIndex,
         operationId: operation.id,
         operationName: operation.name,
+        remainingCycles: operationCycles,
+        totalCycles: operationCycles,
         memoryReservedBits: 0,
         memoryReservedBytes: 0,
         ramBlocks: [],
         ramChannelCount: 1,
       },
       operation,
-      operation.cycles,
+      operationCycles,
       ramLoadCycles,
       totalLoadCycles,
     );
@@ -1343,9 +1336,9 @@ const enterOperation = (
     operationName: operation.name,
     status: "running",
     memoryState: "ready",
-    remainingCycles: operation.cycles,
-    totalCycles: operation.cycles,
-    remainingLoadCycles: 0,
+    remainingCycles: operationCycles,
+    totalCycles: operationCycles,
+    remainingLoadCycles: ZERO_AMOUNT,
     totalLoadCycles,
     memoryReservedBits: operationRamBits,
     memoryReservedBytes: operationRamBytes,
@@ -1365,11 +1358,37 @@ const createActiveTask = (
   entry: Partial<
     Pick<
       ActiveTask,
-      "queueEntryId" | "parentQueueEntryId" | "parentTaskId" | "childTaskId"
+      | "queueEntryId"
+      | "parentQueueEntryId"
+      | "parentTaskId"
+      | "childTaskId"
+      | "workOrigin"
+      | "batchMultiplier"
+      | "projectedRewardCredits"
+      | "projectedWorkCycles"
+      | "projectedWorkCycles"
     >
   > = {},
 ): [GameState, ActiveTask] => {
   const taskDefinition = getTaskDefinition(taskId);
+  const projection = getTaskBatchProjection(state, taskDefinition);
+  const batchOwner = entry.parentTaskId
+    ? getTaskDefinition(entry.parentTaskId)
+    : taskDefinition;
+  const batchMultiplier = normalizeTaskBatchMultiplier(
+    entry.batchMultiplier ?? projection.multiplier,
+    batchOwner.aggregateBatch?.maximumMultiplier ?? 1,
+  );
+  const projectedRewardCredits = getStoredTaskRewardCredits(
+    taskDefinition,
+    entry.projectedRewardCredits ?? projection.rewardCredits,
+    batchMultiplier,
+  );
+  const projectedWorkCycles = getStoredTaskWorkCycles(
+    taskDefinition,
+    entry.projectedWorkCycles ?? projection.workCycles,
+    batchMultiplier,
+  );
   const instanceId = `task-${state.nextInstanceId}`;
   const primaryCoreId = assignedCoreIds[0] ?? 1;
   const shell: ActiveTask = {
@@ -1381,9 +1400,13 @@ const createActiveTask = (
     parentQueueEntryId: entry.parentQueueEntryId ?? null,
     parentTaskId: entry.parentTaskId ?? null,
     childTaskId: entry.childTaskId ?? null,
+    workOrigin: entry.workOrigin,
     schedulerQueued,
     coreId: primaryCoreId,
     assignedCoreIds,
+    batchMultiplier,
+    projectedRewardCredits,
+    projectedWorkCycles,
     workUnitsTotal: isChunkedTask(taskDefinition)
       ? taskDefinition.workUnitCount
       : undefined,
@@ -1405,8 +1428,8 @@ const createActiveTask = (
         )
       : undefined,
     coreOperations: [],
-    remainingCycles: taskDefinition.requiredCycles,
-    totalCycles: taskDefinition.requiredCycles,
+    remainingCycles: projectedWorkCycles,
+    totalCycles: projectedWorkCycles,
   };
   const coreOperations: ActiveCoreOperation[] = [];
 
@@ -1437,7 +1460,13 @@ const assignTaskToCores = (
   entry: Partial<
     Pick<
       ActiveTask,
-      "queueEntryId" | "parentQueueEntryId" | "parentTaskId" | "childTaskId"
+      | "queueEntryId"
+      | "parentQueueEntryId"
+      | "parentTaskId"
+      | "childTaskId"
+      | "workOrigin"
+      | "batchMultiplier"
+      | "projectedRewardCredits"
     >
   > = {},
 ): GameState => {
@@ -1485,7 +1514,13 @@ const assignTaskToIdleCores = (
   entry: Partial<
     Pick<
       ActiveTask,
-      "queueEntryId" | "parentQueueEntryId" | "parentTaskId" | "childTaskId"
+      | "queueEntryId"
+      | "parentQueueEntryId"
+      | "parentTaskId"
+      | "childTaskId"
+      | "workOrigin"
+      | "batchMultiplier"
+      | "projectedRewardCredits"
     >
   > = {},
 ): GameState =>
@@ -1582,7 +1617,12 @@ const reserveTaskOnCpuScheduler = (
   });
 };
 
-const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
+const enqueueTask = (
+  state: GameState,
+  taskId: TaskId,
+  cpuId?: number,
+  workOrigin?: WorkOrigin,
+) => {
   if (!canQueueTask(state, taskId, cpuId)) return state;
   const task = getTaskDefinition(taskId);
 
@@ -1590,6 +1630,7 @@ const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
     const queueEntry = createQueueEntry(state, task, "system", {
       totalChildCount: getSystemChildWorkUnits(task).length,
       completedChildKeys: [],
+      workOrigin,
     });
     return syncCoreSchedulers({
       ...state,
@@ -1599,7 +1640,7 @@ const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   }
 
   const schedulerSlotCount = getSchedulerSlotReservationCount(task);
-  const queueEntry = createQueueEntry(state, task, "cpu");
+  const queueEntry = createQueueEntry(state, task, "cpu", { workOrigin });
 
   return reserveTaskOnCpuScheduler(
     {
@@ -1610,7 +1651,12 @@ const enqueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
     taskId,
     cpuId ?? getCpuIdForCore(state, selectQueueCoreId(state, cpuId, schedulerSlotCount)),
     schedulerSlotCount,
-    { reservationId: queueEntry.id },
+    {
+      reservationId: queueEntry.id,
+      workOrigin,
+      batchMultiplier: queueEntry.batchMultiplier,
+      projectedRewardCredits: queueEntry.projectedRewardCredits,
+    },
   );
 };
 
@@ -1924,6 +1970,7 @@ export const cancelTask = (
   instanceId?: string,
   coreId?: number,
 ) => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   const activeTask = state.activeTasks.find(
     (task) =>
       (instanceId === undefined
@@ -2210,10 +2257,12 @@ const reserveReadySystemChildWork = (state: GameState): GameState => {
           parentQueueEntryId: parentEntry.id,
           childTaskId: childTask.id,
           childTaskName: childTask.name,
+          workOrigin: parentEntry.workOrigin,
           compositionIndex: unit.compositionIndex,
           compositionRepeatIndex: unit.compositionRepeatIndex,
           workUnitIndex: unit.workUnitIndex,
           childWorkKey: unit.key,
+          batchMultiplier: parentEntry.batchMultiplier,
           allowBlockedDispatch: true,
         },
       );
@@ -2377,6 +2426,10 @@ const assignCpuQueueCandidateToCores = (
       parentQueueEntryId: candidate.entry.parentQueueEntryId ?? null,
       parentTaskId: candidate.entry.parentTaskId ?? null,
       childTaskId: candidate.entry.childTaskId ?? null,
+      workOrigin: candidate.entry.workOrigin,
+      batchMultiplier: candidate.entry.batchMultiplier,
+      projectedRewardCredits: candidate.entry.projectedRewardCredits,
+      projectedWorkCycles: candidate.entry.projectedWorkCycles,
     },
   );
 
@@ -2422,18 +2475,99 @@ const updateQueueEntry = (
   ),
 });
 
+const recordTaskCompletionEconomics = (
+  state: GameState,
+  taskId: TaskId,
+  rewardCredits: Amount,
+  dataReward: Amount,
+  workCycles: Amount,
+  workOrigin?: WorkOrigin,
+): GameState => {
+  const recorded: GameState = {
+    ...state,
+    taskRewardCreditsEarned: {
+      ...state.taskRewardCreditsEarned,
+      [taskId]: amountAdd(
+        state.taskRewardCreditsEarned[taskId] ?? ZERO_AMOUNT,
+        rewardCredits,
+      ),
+    },
+    taskWorkCyclesCompleted: {
+      ...state.taskWorkCyclesCompleted,
+      [taskId]: amountAdd(
+        state.taskWorkCyclesCompleted[taskId] ?? ZERO_AMOUNT,
+        workCycles,
+      ),
+    },
+  };
+  if (workOrigin !== "standing-order") return recorded;
+  return {
+    ...recorded,
+    standingTaskCompletions: {
+      ...recorded.standingTaskCompletions,
+      [taskId]: (recorded.standingTaskCompletions[taskId] ?? 0) + 1,
+    },
+    standingTaskRewardCreditsEarned: {
+      ...recorded.standingTaskRewardCreditsEarned,
+      [taskId]: amountAdd(
+        recorded.standingTaskRewardCreditsEarned[taskId] ?? ZERO_AMOUNT,
+        rewardCredits,
+      ),
+    },
+    standingTaskDataEarned: {
+      ...recorded.standingTaskDataEarned,
+      [taskId]: amountAdd(
+        recorded.standingTaskDataEarned[taskId] ?? ZERO_AMOUNT,
+        dataReward,
+      ),
+    },
+    standingTaskWorkCyclesCompleted: {
+      ...recorded.standingTaskWorkCyclesCompleted,
+      [taskId]: amountAdd(
+        recorded.standingTaskWorkCyclesCompleted[taskId] ?? ZERO_AMOUNT,
+        workCycles,
+      ),
+    },
+  };
+};
+
 const completeParentTask = (
   state: GameState,
   parentTask: TaskDefinition,
   parentQueueEntryId: string,
+  acceleratorKindsUsed: TaskQueueEntry["acceleratorKindsUsed"] = [],
 ): GameState => {
   const completedAmount =
     state.completedTasks[parentTask.id] ?? state.completedJobs[parentTask.id] ?? 0;
   const benchmarkIds = parentTask.kind === "benchmark" ? [parentTask.id] : [];
-  const rewarded = addRewards(state, parentTask.rewardCredits, parentTask.rewardData);
+  const dataReward =
+    completedAmount === 0
+      ? parentTask.firstCompletionDataExact
+      : parentTask.repeatRewardDataExact;
+  const parentEntry = state.queueEntries?.find(
+    (entry) => entry.id === parentQueueEntryId,
+  );
+  const rewardCredits = getStoredTaskRewardCredits(
+    parentTask,
+    parentEntry?.projectedRewardCredits,
+    parentEntry?.batchMultiplier,
+  );
+  const workCycles = getStoredTaskWorkCycles(
+    parentTask,
+    parentEntry?.projectedWorkCycles,
+    parentEntry?.batchMultiplier,
+  );
+  const rewarded = recordTaskCompletionEconomics(
+    addExactRewards(state, exactResourceBag(rewardCredits, dataReward)),
+    parentTask.id,
+    rewardCredits,
+    dataReward,
+    workCycles,
+    parentEntry?.workOrigin,
+  );
   const withoutQueue = removeTopLevelQueueEntryById(rewarded, parentQueueEntryId);
 
-  return updateProgressionFlags({
+  return recordWorkshopCompletionEvidence(updateProgressionFlags({
     ...withoutQueue,
     completedTasks: {
       ...withoutQueue.completedTasks,
@@ -2447,7 +2581,7 @@ const completeParentTask = (
       new Set([...withoutQueue.completedBenchmarks, ...benchmarkIds]),
     ),
     cacheResidency: [],
-  });
+  }), parentTask.id, acceleratorKindsUsed);
 };
 
 const completeChildTask = (
@@ -2476,6 +2610,12 @@ const completeChildTask = (
         completedChildKeys: Array.from(
           new Set([...(entry.completedChildKeys ?? []), childWorkKey]),
         ),
+        acceleratorKindsUsed: Array.from(
+          new Set([
+            ...(entry.acceleratorKindsUsed ?? []),
+            ...(activeTask.acceleratorKindsUsed ?? []),
+          ]),
+        ).sort(),
       }))
     : withoutChildReservation;
   const parentEntry = updatedParent.queueEntries?.find(
@@ -2486,7 +2626,12 @@ const completeChildTask = (
     parentEntry?.totalChildCount ?? getSystemChildWorkUnits(parentTask).length;
 
   return completedCount >= totalChildCount && totalChildCount > 0
-    ? completeParentTask(updatedParent, parentTask, parentQueueEntryId)
+    ? completeParentTask(
+        updatedParent,
+        parentTask,
+        parentQueueEntryId,
+        parentEntry?.acceleratorKindsUsed,
+      )
     : updatedParent;
 };
 
@@ -2502,7 +2647,28 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
   const nextBenchmarks = Array.from(
     new Set([...state.completedBenchmarks, ...benchmarkIds]),
   );
-  const rewarded = addRewards(state, task.rewardCredits, task.rewardData);
+  const dataReward =
+    completedAmount === 0
+      ? task.firstCompletionDataExact
+      : task.repeatRewardDataExact;
+  const rewardCredits = getStoredTaskRewardCredits(
+    task,
+    activeTask.projectedRewardCredits,
+    activeTask.batchMultiplier,
+  );
+  const workCycles = getStoredTaskWorkCycles(
+    task,
+    activeTask.projectedWorkCycles,
+    activeTask.batchMultiplier,
+  );
+  const rewarded = recordTaskCompletionEconomics(
+    addExactRewards(state, exactResourceBag(rewardCredits, dataReward)),
+    task.id,
+    rewardCredits,
+    dataReward,
+    workCycles,
+    activeTask.workOrigin,
+  );
   const queueReleased = activeTask.schedulerQueued
     ? activeTask.queueEntryId
       ? removeLocalQueueReservationById(
@@ -2517,7 +2683,7 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
         )
     : rewarded;
 
-  return updateProgressionFlags({
+  return recordWorkshopCompletionEvidence(updateProgressionFlags({
     ...queueReleased,
     completedTasks: {
       ...queueReleased.completedTasks,
@@ -2529,7 +2695,7 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
     },
     completedBenchmarks: nextBenchmarks,
     cacheResidency: [],
-  });
+  }), task.id, activeTask.acceleratorKindsUsed);
 };
 
 const advanceCoreOperation = (
@@ -2585,15 +2751,33 @@ const getCacheUsedWithOperation = (
 
 const CACHE_CAPACITY_EPSILON = 0.000001;
 
+const normalizeCycleRemainder = (
+  remaining: string | number,
+  total: string | number,
+) => {
+  const normalized = amountClampMin(remaining);
+  // Rates are numeric hardware projections applied to exact logical counters.
+  // Snap only their sub-nanocycle / 1e-15-relative rounding residue so a
+  // 4e-9 artifact cannot defer an operation to the next 15-minute chunk.
+  const tolerance = amountMax(
+    "0.000000001",
+    amountMultiply(amountClampMin(total), "0.000000000000001"),
+  );
+  return amountCompare(normalized, tolerance) <= 0 ? ZERO_AMOUNT : normalized;
+};
+
 const getAllowedCacheProgressCycles = (
   state: GameState,
   task: ActiveTask,
   operation: ActiveCoreOperation,
   requestedLoadCycles: number,
-  requestedCpuCycles: number,
+  requestedCpuCycles: ActiveCoreOperation["remainingCycles"],
 ) => {
-  if (requestedLoadCycles <= 0 && requestedCpuCycles <= 0) {
-    return { loadCycles: 0, cpuCycles: 0, exhausted: false };
+  if (
+    requestedLoadCycles <= 0 &&
+    amountCompare(requestedCpuCycles, ZERO_AMOUNT) <= 0
+  ) {
+    return { loadCycles: 0, cpuCycles: ZERO_AMOUNT, exhausted: false };
   }
 
   const capacity = getCpuHardware(
@@ -2602,13 +2786,17 @@ const getAllowedCacheProgressCycles = (
   ).cacheBits;
   const getUpdatedOperation = (scale: number) => ({
     ...operation,
-    remainingLoadCycles: Math.max(
-      0,
-      operation.remainingLoadCycles - requestedLoadCycles * scale,
+    remainingLoadCycles: amountClampMin(
+      amountSubtract(
+        operation.remainingLoadCycles,
+        amountMultiply(requestedLoadCycles, scale),
+      ),
     ),
-    remainingCycles: Math.max(
-      0,
-      operation.remainingCycles - requestedCpuCycles * scale,
+    remainingCycles: amountClampMin(
+      amountSubtract(
+        operation.remainingCycles,
+        amountMultiply(requestedCpuCycles, scale),
+      ),
     ),
   });
   const usedAfterFullLoad = getCacheUsedWithOperation(
@@ -2650,7 +2838,7 @@ const getAllowedCacheProgressCycles = (
 
   return {
     loadCycles: requestedLoadCycles * low,
-    cpuCycles: requestedCpuCycles * low,
+    cpuCycles: amountMultiply(requestedCpuCycles, low),
     exhausted: usedAfterAllowedProgress >= capacity - CACHE_CAPACITY_EPSILON,
   };
 };
@@ -2660,6 +2848,7 @@ const tickLoad = (
   task: ActiveTask,
   operation: ActiveCoreOperation,
   deltaSeconds: number,
+  exactDeltaSeconds: Amount,
 ): ActiveCoreOperation => {
   const operationDefinition = getOperation(task, operation.operationIndex);
   if (!operationDefinition) return operation;
@@ -2686,19 +2875,28 @@ const tickLoad = (
       };
     }
 
-    return tickLoad(state, task, allocatedOperation, deltaSeconds);
+    return tickLoad(
+      state,
+      task,
+      allocatedOperation,
+      deltaSeconds,
+      exactDeltaSeconds,
+    );
   }
 
   const ramLoadDeltas =
     operation.status === "loadingRam"
       ? getRamBlockLoadDeltasForOperationTick(state, operation, deltaSeconds)
       : [];
-  const requestedRamLoadCycles = ramLoadDeltas.reduce(
-    (total, bits) => total + bits,
-    0,
-  );
+  const requestedRamLoadCycles =
+    operation.status === "loadingRam"
+      ? getRamBlockLoadRatesForOperation(state, operation).reduce(
+          (total, rate) => total + rate * deltaSeconds,
+          0,
+        )
+      : 0;
   const requestedLoadCycles = Math.min(
-    operation.remainingLoadCycles,
+    amountToSafeNumber(operation.remainingLoadCycles),
     operation.status === "loadingCache"
       ? getCacheLoadRateForOperationTick(
           state,
@@ -2711,11 +2909,14 @@ const tickLoad = (
   );
   const requestedCpuCycles =
     operation.status === "loadingCache" && operationDefinition.memoryAction
-      ? Math.min(
+      ? amountMin(
           operation.remainingCycles,
-          getCoreClockHz(state, operation.coreId) * deltaSeconds,
+          amountMultiply(
+            getEffectiveCoreClockHz(state, operation.coreId),
+            exactDeltaSeconds,
+          ),
         )
-      : 0;
+      : ZERO_AMOUNT;
   const cacheProgress =
     operation.status === "loadingCache"
       ? getAllowedCacheProgressCycles(
@@ -2738,23 +2939,33 @@ const tickLoad = (
     requestedRamLoadCycles > 0
       ? Math.min(1, appliedLoadCycles / requestedRamLoadCycles)
       : 0;
-  const nextRamBlocks =
+  let nextRamBlocks =
     operation.status === "loadingRam" && (operation.ramBlocks ?? []).length > 0
       ? applyRamBlockLoadDeltas(operation, ramLoadDeltas, appliedRamBlockScale)
       : operation.ramBlocks ?? [];
-  const loadedRamBlockBits = nextRamBlocks.reduce(
-    (total, block) => total + Math.max(0, block.loadedBits),
-    0,
+  const remainingLoadCycles = normalizeCycleRemainder(
+    amountClampMin(
+      amountSubtract(operation.remainingLoadCycles, appliedLoadCycles),
+    ),
+    operation.totalLoadCycles,
   );
-  const remainingLoadCycles = Math.max(
-    0,
-    operation.status === "loadingRam" && nextRamBlocks.length > 0
-      ? operationDefinition.ramBits -
-          Math.min(operationDefinition.ramBits, loadedRamBlockBits)
-      : operation.remainingLoadCycles - appliedLoadCycles,
+  if (
+    operation.status === "loadingRam" &&
+    amountCompare(remainingLoadCycles, ZERO_AMOUNT) <= 0
+  ) {
+    // Aggregate I/O reuses one bounded resident allocation. Whatever fractional
+    // service slice closed the logical stream, the physical working set is fully
+    // resident before CPU execution begins.
+    nextRamBlocks = nextRamBlocks.map((block) => ({
+      ...block,
+      loadedBits: block.lengthBits,
+    }));
+  }
+  const cpuCyclesDone = cacheProgress?.cpuCycles ?? ZERO_AMOUNT;
+  const remainingCycles = normalizeCycleRemainder(
+    amountClampMin(amountSubtract(operation.remainingCycles, cpuCyclesDone)),
+    operation.totalCycles,
   );
-  const cpuCyclesDone = cacheProgress?.cpuCycles ?? 0;
-  const remainingCycles = Math.max(0, operation.remainingCycles - cpuCyclesDone);
   const memoryReservedBits =
     operation.status === "loadingRam"
       ? (operation.ramBlocks ?? []).length > 0
@@ -2774,7 +2985,7 @@ const tickLoad = (
   if (
     (cacheProgressBlocked ||
       (operation.status === "loadingRam" && appliedLoadCycles < requestedLoadCycles)) &&
-    remainingLoadCycles > 0
+    amountCompare(remainingLoadCycles, ZERO_AMOUNT) > 0
   ) {
     return deadlockLoadOperation(
       operation,
@@ -2789,7 +3000,10 @@ const tickLoad = (
     );
   }
 
-  if (remainingLoadCycles > 0 || (waitsForCpuIssue && remainingCycles > 0)) {
+  if (
+    amountCompare(remainingLoadCycles, ZERO_AMOUNT) > 0 ||
+    (waitsForCpuIssue && amountCompare(remainingCycles, ZERO_AMOUNT) > 0)
+  ) {
     return {
       ...operation,
       remainingLoadCycles,
@@ -2805,10 +3019,15 @@ const tickLoad = (
       operationDefinition.ramBits > 0 &&
       operation.memoryState === "ready" &&
       operation.memoryReservedBits >= operationDefinition.ramBits;
-    const ramLoadCycles = ramAlreadyReady
-      ? 0
-      : getRamLoadCycles(state, operationDefinition);
-    if (ramLoadCycles > 0) {
+    const ramLoadCycles = amountMultiply(
+      ramAlreadyReady ? 0 : getRamLoadCycles(state, operationDefinition),
+      normalizeTaskBatchMultiplier(
+        task.batchMultiplier,
+        getTaskDefinition(task.parentTaskId ?? task.taskId).aggregateBatch
+          ?.maximumMultiplier ?? 1,
+      ),
+    );
+    if (amountCompare(ramLoadCycles, ZERO_AMOUNT) > 0) {
       return beginRamLoadOperation(
         state,
         task,
@@ -2834,8 +3053,8 @@ const tickLoad = (
         task,
         {
           ...operation,
-          remainingCycles: 0,
-          remainingLoadCycles: 0,
+          remainingCycles: ZERO_AMOUNT,
+          remainingLoadCycles: ZERO_AMOUNT,
           memoryReservedBits: 0,
           memoryReservedBytes: 0,
           ramBlocks: [],
@@ -2853,8 +3072,8 @@ const tickLoad = (
       {
         ...operation,
         memoryState: "ready",
-        remainingCycles: 0,
-        remainingLoadCycles: 0,
+        remainingCycles: ZERO_AMOUNT,
+        remainingLoadCycles: ZERO_AMOUNT,
         memoryReservedBits: operationDefinition.ramBits,
         memoryReservedBytes: operationDefinition.ramBytes,
         ramBlocks: nextRamBlocks,
@@ -2869,7 +3088,7 @@ const tickLoad = (
     status: "running",
     memoryState: "ready",
     remainingCycles,
-    remainingLoadCycles: 0,
+    remainingLoadCycles: ZERO_AMOUNT,
     memoryReservedBits:
       operation.status === "loadingRam"
         ? operationDefinition.ramBits
@@ -2887,17 +3106,18 @@ const tickRunning = (
   state: GameState,
   task: ActiveTask,
   operation: ActiveCoreOperation,
-  deltaSeconds: number,
+  exactDeltaSeconds: Amount,
 ): ActiveCoreOperation => {
   const operationDefinition = getOperation(task, operation.operationIndex);
   if (!operationDefinition) return operation;
 
-  const cyclesDone =
-    getOperationEffectiveClock(state, operationDefinition, operation.coreId) *
-    deltaSeconds;
-  const remainingCycles = operation.remainingCycles - cyclesDone;
+  const cyclesDone = amountMultiply(
+    getOperationEffectiveClock(state, operationDefinition, operation.coreId),
+    exactDeltaSeconds,
+  );
+  const remainingCycles = amountSubtract(operation.remainingCycles, cyclesDone);
 
-  if (remainingCycles > 0) {
+  if (amountCompare(remainingCycles, ZERO_AMOUNT) > 0) {
     return {
       ...operation,
       remainingCycles,
@@ -2909,7 +3129,7 @@ const tickRunning = (
     task,
     {
       ...operation,
-      remainingCycles: 0,
+      remainingCycles: ZERO_AMOUNT,
     },
     operation.operationIndex + 1,
   );
@@ -2927,6 +3147,7 @@ const tickDeadlocked = (
   task: ActiveTask,
   operation: ActiveCoreOperation,
   deltaSeconds: number,
+  exactDeltaSeconds: Amount,
 ): ActiveCoreOperation => {
   const agedOperation = {
     ...operation,
@@ -2951,7 +3172,13 @@ const tickDeadlocked = (
     lockReason: null,
   };
 
-  const retriedOperation = tickLoad(state, task, retryOperation, deltaSeconds);
+  const retriedOperation = tickLoad(
+    state,
+    task,
+    retryOperation,
+    deltaSeconds,
+    exactDeltaSeconds,
+  );
 
   if (retriedOperation.status === "deadlocked") {
     return {
@@ -3073,11 +3300,17 @@ const tickActiveTask = (
   state: GameState,
   activeTask: ActiveTask,
   deltaSeconds: number,
+  exactDeltaSeconds: Amount,
+  rateState: GameState = state,
 ): ActiveTask => {
   const ramDeadlocked = Boolean(getRamDeadlockOperation(state));
   const cacheDeadlockedCpuIds = getCacheDeadlockedCpuIds(state);
   const recoveryActive = state.deadlockProcessLockout === true;
   const coreOperations: ActiveCoreOperation[] = [];
+  const acceleratorKindsUsed = new Set(activeTask.acceleratorKindsUsed ?? []);
+  const acceleratorRoutes = getWorkshopAcceleratorRoutes(rateState).filter(
+    (route) => route.taskInstanceId === activeTask.instanceId,
+  );
 
   activeTask.coreOperations.forEach((operation, index) => {
     const stagedTask = {
@@ -3098,7 +3331,13 @@ const tickActiveTask = (
 
     if (operation.status === "deadlocked") {
       coreOperations.push(
-        tickDeadlocked(stagedState, stagedTask, operation, deltaSeconds),
+        tickDeadlocked(
+          stagedState,
+          stagedTask,
+          operation,
+          deltaSeconds,
+          exactDeltaSeconds,
+        ),
       );
       return;
     }
@@ -3113,12 +3352,34 @@ const tickActiveTask = (
     }
 
     if (operation.status === "loadingCache" || operation.status === "loadingRam") {
-      coreOperations.push(tickLoad(stagedState, stagedTask, operation, deltaSeconds));
+      coreOperations.push(
+        tickLoad(
+          stagedState,
+          stagedTask,
+          operation,
+          deltaSeconds,
+          exactDeltaSeconds,
+        ),
+      );
       return;
     }
 
     if (operation.status === "running") {
-      coreOperations.push(tickRunning(stagedState, stagedTask, operation, deltaSeconds));
+      const route = acceleratorRoutes.find(
+        (candidate) =>
+          candidate.coreId === operation.coreId &&
+          candidate.operationIndex === operation.operationIndex,
+      );
+      if (
+        deltaSeconds > 0 &&
+        route?.assignment.target === "accelerator" &&
+        route.acceleratorKind
+      ) {
+        acceleratorKindsUsed.add(route.acceleratorKind);
+      }
+      coreOperations.push(
+        tickRunning(rateState, stagedTask, operation, exactDeltaSeconds),
+      );
       return;
     }
 
@@ -3130,7 +3391,10 @@ const tickActiveTask = (
     coreOperations.push(operation);
   });
 
-  return assignNextChunkedWorkUnits(state, activeTask, coreOperations);
+  return {
+    ...assignNextChunkedWorkUnits(state, activeTask, coreOperations),
+    acceleratorKindsUsed: [...acceleratorKindsUsed].sort(),
+  };
 };
 
 const shouldReleaseWaitingOperation = (
@@ -3332,8 +3596,14 @@ const getInstanceSequence = (task: ActiveTask) =>
   Number(task.instanceId.match(/\d+$/)?.[0] ?? 0);
 
 const getTaskProgress = (task: ActiveTask) => {
-  if (task.totalCycles <= 0) return 1;
-  return Math.min(1, Math.max(0, 1 - task.remainingCycles / task.totalCycles));
+  if (amountCompare(task.totalCycles, ZERO_AMOUNT) <= 0) return 1;
+  return Math.min(
+    1,
+    Math.max(
+      0,
+      1 - amountToSafeNumber(amountDivide(task.remainingCycles, task.totalCycles)),
+    ),
+  );
 };
 
 const getWatchdogVictimPool = (
@@ -3697,6 +3967,17 @@ const updatePowerOverloadFailure = (
   deltaSeconds: number,
 ): GameState => {
   const currentSeconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
+  if (!isPsuManagementUnlocked(state)) {
+    return currentSeconds <= 0
+      ? state
+      : {
+          ...state,
+          power: {
+            ...state.power,
+            overloadFailureSeconds: 0,
+          },
+        };
+  }
   const psuStress = getPsuStress(state);
   const overloadRate =
     canRunPoweredWork(state) ? getPowerOverloadRate(psuStress) : 0;
@@ -3785,7 +4066,11 @@ const forceHardPowerOff = (
 const forcePowerOffForPsuFailure = (state: GameState): GameState =>
   forceHardPowerOff(state, "psuOverload");
 
-const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
+const tickActiveTasks = (
+  state: GameState,
+  deltaSeconds: number,
+  exactDeltaSeconds: Amount,
+): GameState => {
   const activeTasks: ActiveTask[] = [];
 
   state.activeTasks.forEach((activeTask, index) => {
@@ -3794,7 +4079,15 @@ const tickActiveTasks = (state: GameState, deltaSeconds: number): GameState => {
       activeTasks: [...activeTasks, ...state.activeTasks.slice(index)],
       activeJobs: [...activeTasks, ...state.activeTasks.slice(index)],
     };
-    activeTasks.push(tickActiveTask(stagedState, activeTask, deltaSeconds));
+    activeTasks.push(
+      tickActiveTask(
+        stagedState,
+        activeTask,
+        deltaSeconds,
+        exactDeltaSeconds,
+        state,
+      ),
+    );
   });
 
   return syncCoreSchedulers({
@@ -3843,44 +4136,42 @@ const advancePowerTransition = (state: GameState, deltaSeconds: number): GameSta
   };
 };
 
-const forcePowerOffForUnpaidBill = (state: GameState): GameState => ({
-  ...state,
-  resources: {
-    ...state.resources,
-    credits: 0,
-  },
-  power: {
-    ...state.power,
-    state: "off",
-    transitionSeconds: 0,
-    transitionTotalSeconds: 0,
-    bootstrapGraceSeconds: 0,
-    unpaidShutdownWarningSeconds: 0,
-    overloadFailureSeconds: 0,
-    lastFailureReason: "unpaidBill",
-    failureCount: Math.max(0, state.power.failureCount ?? 0) + 1,
-  },
-});
+const forcePowerOffForUnpaidBill = (state: GameState): GameState => {
+  const withoutCredits = setExactResource(state, "credits", 0);
+  return {
+    ...withoutCredits,
+    power: {
+      ...withoutCredits.power,
+      state: "off",
+      transitionSeconds: 0,
+      transitionTotalSeconds: 0,
+      bootstrapGraceSeconds: 0,
+      unpaidShutdownWarningSeconds: 0,
+      overloadFailureSeconds: 0,
+      lastFailureReason: "unpaidBill",
+      failureCount: Math.max(0, withoutCredits.power.failureCount ?? 0) + 1,
+    },
+  };
+};
 
-const beginUnpaidShutdownWarning = (state: GameState): GameState => ({
-  ...state,
-  resources: {
-    ...state.resources,
-    credits: 0,
-  },
-  power: {
-    ...state.power,
-    bootstrapGraceSeconds: 0,
-    unpaidShutdownWarningSeconds:
-      state.power.unpaidShutdownWarningSeconds > 0
-        ? state.power.unpaidShutdownWarningSeconds
-        : POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
-  },
-});
+const beginUnpaidShutdownWarning = (state: GameState): GameState => {
+  const withoutCredits = setExactResource(state, "credits", 0);
+  return {
+    ...withoutCredits,
+    power: {
+      ...withoutCredits.power,
+      bootstrapGraceSeconds: 0,
+      unpaidShutdownWarningSeconds:
+        withoutCredits.power.unpaidShutdownWarningSeconds > 0
+          ? withoutCredits.power.unpaidShutdownWarningSeconds
+          : POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
+    },
+  };
+};
 
 const clearBillingGraceIfFunded = (state: GameState): GameState => {
   if (
-    state.resources.credits <= 0 ||
+    amountCompare(state.exactResources.credits, 0) <= 0 ||
     (state.power.bootstrapGraceSeconds <= 0 &&
       state.power.unpaidShutdownWarningSeconds <= 0)
   ) {
@@ -3897,16 +4188,38 @@ const clearBillingGraceIfFunded = (state: GameState): GameState => {
   };
 };
 
-const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState => {
+const applyPowerBilling = (
+  state: GameState,
+  deltaSeconds: number,
+  deltaMs: number,
+  costPerSecondOverride?: Amount,
+): GameState => {
+  if (!isPsuManagementUnlocked(state)) {
+    if (
+      state.power.bootstrapGraceSeconds <= 0 &&
+      state.power.unpaidShutdownWarningSeconds <= 0
+    ) {
+      return state;
+    }
+    return {
+      ...state,
+      power: {
+        ...state.power,
+        bootstrapGraceSeconds: 0,
+        unpaidShutdownWarningSeconds: 0,
+      },
+    };
+  }
   const fundedState = clearBillingGraceIfFunded(state);
   const warningSeconds = Math.max(
     0,
     fundedState.power.unpaidShutdownWarningSeconds ?? 0,
   );
-  const costPerSecond = getPowerCostPerSecond(fundedState);
+  const costPerSecond =
+    costPerSecondOverride ?? getPowerCostPerSecondExact(fundedState);
 
   if (warningSeconds > 0) {
-    if (costPerSecond <= 0) {
+    if (amountCompare(costPerSecond, 0) <= 0) {
       return {
         ...fundedState,
         power: {
@@ -3925,14 +4238,10 @@ const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState =>
       return forcePowerOffForUnpaidBill(fundedState);
     }
 
-    return {
-      ...fundedState,
-      resources: {
-        ...fundedState.resources,
-        credits: 0,
-      },
-      power: {
-        ...fundedState.power,
+      return {
+        ...setExactResource(fundedState, "credits", 0),
+        power: {
+          ...fundedState.power,
         bootstrapGraceSeconds: 0,
         unpaidShutdownWarningSeconds,
       },
@@ -3940,10 +4249,13 @@ const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState =>
   }
 
   const graceSeconds = Math.max(0, fundedState.power.bootstrapGraceSeconds ?? 0);
-  if (fundedState.resources.credits <= 0 && graceSeconds > 0) {
+  if (amountCompare(fundedState.exactResources.credits, 0) <= 0 && graceSeconds > 0) {
     const bootstrapGraceSeconds = Math.max(0, graceSeconds - deltaSeconds);
 
-    if (bootstrapGraceSeconds <= 0 && costPerSecond > 0) {
+    if (
+      bootstrapGraceSeconds <= 0 &&
+      amountCompare(costPerSecond, 0) > 0
+    ) {
       return beginUnpaidShutdownWarning({
         ...fundedState,
         power: {
@@ -3962,24 +4274,22 @@ const applyPowerBilling = (state: GameState, deltaSeconds: number): GameState =>
     };
   }
 
-  const cost = costPerSecond * deltaSeconds;
+  const exactPowerCost = amountMultiply(
+    costPerSecond,
+    amountDivide(amount(deltaMs), amount(1000)),
+  );
   const billableState = fundedState;
-  if (cost <= 0) return billableState;
+  if (amountCompare(exactPowerCost, 0) <= 0) return billableState;
 
-  if (billableState.resources.credits + POWER_BILLING_EPSILON < cost) {
+  if (amountCompare(billableState.exactResources.credits, exactPowerCost) < 0) {
     return beginUnpaidShutdownWarning(billableState);
   }
 
-  const credits = Math.max(0, billableState.resources.credits - cost);
-  const paidState = {
-    ...billableState,
-    resources: {
-      ...billableState.resources,
-      credits,
-    },
-  };
-
-  return credits <= POWER_BILLING_EPSILON
+  const paidState = spendExact(
+    billableState,
+    [exactCost("credits", exactPowerCost)],
+  );
+  return amountCompare(paidState.exactResources.credits, POWER_BILLING_EPSILON) <= 0
     ? beginUnpaidShutdownWarning(paidState)
     : paidState;
 };
@@ -4122,49 +4432,546 @@ const tickCron = (state: GameState, deltaSeconds: number): GameState => {
   };
 };
 
-const tickSingleSystem = (state: GameState, deltaMs: number): GameState => {
-  const deltaSeconds = Math.max(0, Math.min(deltaMs / 1000, 2));
+const getOperationEventSeconds = (
+  state: GameState,
+  task: ActiveTask,
+  operation: ActiveCoreOperation,
+) => {
+  const definition = getOperation(task, operation.operationIndex);
+  if (!definition) return 0;
+  if (operation.status === "running") {
+    if (amountCompare(operation.remainingCycles, ZERO_AMOUNT) <= 0) return 0;
+    const rate = getOperationEffectiveClock(state, definition, operation.coreId);
+    return rate > 0
+      ? amountToSafeNumber(amountDivide(operation.remainingCycles, rate))
+      : Number.POSITIVE_INFINITY;
+  }
+  if (operation.status === "loadingCache") {
+    const loadRate = getCacheLoadRateForOperationTick(
+      state,
+      operation,
+      definition,
+    );
+    const loadSeconds =
+      amountCompare(operation.remainingLoadCycles, ZERO_AMOUNT) <= 0
+        ? 0
+        : loadRate > 0
+        ? amountToSafeNumber(amountDivide(operation.remainingLoadCycles, loadRate))
+        : Number.POSITIVE_INFINITY;
+    if (!definition.memoryAction) return loadSeconds;
+    const cpuRate = getEffectiveCoreClockHz(state, operation.coreId);
+    const cpuSeconds =
+      amountCompare(operation.remainingCycles, ZERO_AMOUNT) <= 0
+        ? 0
+        : cpuRate > 0
+        ? amountToSafeNumber(amountDivide(operation.remainingCycles, cpuRate))
+        : Number.POSITIVE_INFINITY;
+    return Math.max(loadSeconds, cpuSeconds);
+  }
+  if (operation.status === "loadingRam") {
+    if (amountCompare(operation.remainingLoadCycles, ZERO_AMOUNT) <= 0) return 0;
+    if (operation.ramBlocks.length > 0) {
+      const rates = getRamBlockLoadRatesForOperation(state, operation);
+      const physicalRemainingBits = operation.ramBlocks.reduce(
+        (total, block) =>
+          total + Math.max(0, block.lengthBits - block.loadedBits),
+        0,
+      );
+      if (physicalRemainingBits <= CACHE_CAPACITY_EPSILON) {
+        const aggregateRate = rates.reduce((total, rate) => total + rate, 0);
+        return aggregateRate > 0
+          ? amountToSafeNumber(
+              amountDivide(operation.remainingLoadCycles, aggregateRate),
+            )
+          : Number.POSITIVE_INFINITY;
+      }
+      return operation.ramBlocks.reduce((soonest, block, index) => {
+        const rate = rates[index] ?? 0;
+        const remainingBits = Math.max(0, block.lengthBits - block.loadedBits);
+        return rate > 0 && remainingBits > 0
+          ? Math.min(soonest, remainingBits / rate)
+          : soonest;
+      }, Number.POSITIVE_INFINITY);
+    }
+    const oneSecondLoad = getRamLoadCyclesForOperationTick(
+      state,
+      task,
+      operation,
+      1,
+    );
+    return oneSecondLoad > 0
+      ? amountToSafeNumber(
+          amountDivide(operation.remainingLoadCycles, oneSecondLoad),
+        )
+      : Number.POSITIVE_INFINITY;
+  }
+  if (
+    operation.status === "waitingMemory" ||
+    operation.status === "waitingBarrier"
+  ) {
+    return 0;
+  }
+  if (operation.status === "deadlocked") return 0.1;
+  return Number.POSITIVE_INFINITY;
+};
+
+interface OfflineSystemActivity {
+  productiveSystemIds: Set<number>;
+  localWorkSystemIds: Set<number>;
+  storageWorkSystemIds: Set<number>;
+}
+
+const getOfflineSystemActivity = (state: GameState): OfflineSystemActivity => {
+  const departureLevelIndex = getAutomationBufferLevelIndex(
+    state.automationBuffer.departureLevelId,
+  );
+  const contractsCanRun =
+    departureLevelIndex >= getAutomationBufferLevelIndex("localScheduler");
+  const projectsAndStorageCanRun =
+    departureLevelIndex >= getAutomationBufferLevelIndex("systemScheduler");
+  const contractSystemIds = contractsCanRun
+    ? new Set(state.contracts.active.map((contract) => contract.systemId))
+    : new Set<number>();
+  const projectSystemIds = projectsAndStorageCanRun
+    ? new Set(
+        Object.values(state.projects.progress)
+          .filter((progress) => progress?.active && !progress.completed)
+          .flatMap((progress) =>
+            progress?.systemId === null || progress?.systemId === undefined
+              ? []
+              : [progress.systemId],
+          ),
+      )
+    : new Set<number>();
+  const runnableClusterNodeIds = new Set(
+    getRunnableClusterNodeIds(state, "offline"),
+  );
+  const clusterSystemIds = new Set(
+    state.infrastructure.fleetNodes.flatMap((node) =>
+      runnableClusterNodeIds.has(node.id) && node.source.kind === "system"
+        ? [node.source.systemId]
+        : [],
+    ),
+  );
+
+  const activity: OfflineSystemActivity = {
+    productiveSystemIds: new Set<number>(),
+    localWorkSystemIds: new Set<number>(),
+    storageWorkSystemIds: new Set<number>(),
+  };
+  for (const system of ensureSystems(state).systems) {
+    const local = materializeSystem(state, system.id);
+    const queueWouldStart =
+      local.queue.length > 0 &&
+      pullQueue(local).activeTasks.length > local.activeTasks.length;
+    const localWork = local.activeTasks.length > 0 || queueWouldStart;
+    const storageWork =
+      projectsAndStorageCanRun &&
+      local.workshop.activeStorageWorkload !== null;
+    const projectedLoad = projectSystemAutomatedLoad(
+      local,
+      localWork,
+      storageWork,
+    );
+    const safe =
+      local.power.state === "on" &&
+      getPsuStress(projectedLoad) <= 1 &&
+      !local.activeTasks.some((task) =>
+        task.coreOperations.some(
+          (operation) => operation.status === "deadlocked",
+        ),
+      );
+    if (!safe) continue;
+    if (localWork) {
+      activity.localWorkSystemIds.add(system.id);
+    }
+    if (storageWork) {
+      activity.storageWorkSystemIds.add(system.id);
+    }
+    if (
+      activity.localWorkSystemIds.has(system.id) ||
+      activity.storageWorkSystemIds.has(system.id) ||
+      contractSystemIds.has(system.id) ||
+      projectSystemIds.has(system.id) ||
+      clusterSystemIds.has(system.id)
+    ) {
+      activity.productiveSystemIds.add(system.id);
+    }
+  }
+  return activity;
+};
+
+const getOfflineProductiveSystemIdSet = (state: GameState) =>
+  getOfflineSystemActivity(state).productiveSystemIds;
+
+/** Physical systems whose automated work can advance during this absence slice. */
+export const getOfflineProductiveSystemIds = (state: GameState) =>
+  [...getOfflineProductiveSystemIdSet(state)].sort((left, right) => left - right);
+
+const projectSystemAutomatedLoad = (
+  state: GameState,
+  advanceAutomatedWork: boolean,
+  advanceStorage: boolean,
+): GameState => {
+  const localLoadState = advanceAutomatedWork
+    ? state
+    : {
+        ...state,
+        activeTasks: [],
+        activeJobs: [],
+        cron: { ...state.cron, queuePowerSpikeSeconds: 0 },
+      };
+  return advanceStorage
+    ? localLoadState
+    : {
+        ...localLoadState,
+        workshop: {
+          ...localLoadState.workshop,
+          activeStorageWorkload: null,
+        },
+      };
+};
+
+interface SingleSystemEventPolicy {
+  productive: boolean;
+  advanceAutomatedWork: boolean;
+  advanceStorage: boolean;
+}
+
+const getSingleSystemEventSeconds = (
+  state: GameState,
+  policy: SingleSystemEventPolicy = {
+    productive: true,
+    advanceAutomatedWork: true,
+    advanceStorage: true,
+  },
+) => {
+  const candidates: number[] = [];
+  const thermalEventState = projectSystemAutomatedLoad(
+    state,
+    policy.advanceAutomatedWork,
+    policy.advanceStorage,
+  );
+  const thermalEventMs = getNextWorkshopThermalEventMs(
+    thermalEventState,
+    getBaseHardwareDrawWatts(thermalEventState),
+  );
+  if (thermalEventMs !== null) {
+    candidates.push(amountToSafeNumber(thermalEventMs) / 1000);
+  }
+  if (policy.advanceStorage) {
+    const storageEventMs = getNextWorkshopStorageEventMs(state);
+    if (storageEventMs !== null) {
+      candidates.push(amountToSafeNumber(storageEventMs) / 1000);
+    }
+  }
+  if (state.power.transitionSeconds > 0) {
+    candidates.push(state.power.transitionSeconds);
+  }
+  if (policy.productive && state.power.unpaidShutdownWarningSeconds > 0) {
+    candidates.push(state.power.unpaidShutdownWarningSeconds);
+  }
+  if (policy.advanceAutomatedWork && state.cron.queuePowerSpikeSeconds > 0) {
+    candidates.push(state.cron.queuePowerSpikeSeconds);
+  }
+  if (policy.advanceAutomatedWork) {
+    for (const schedule of state.cron.schedules) {
+      if (schedule.enabled && schedule.remainingSeconds > 0) {
+        candidates.push(schedule.remainingSeconds);
+      }
+    }
+  }
+  if (policy.advanceAutomatedWork) {
+    for (const task of state.activeTasks) {
+      for (const operation of task.coreOperations) {
+        candidates.push(getOperationEventSeconds(state, task, operation));
+      }
+    }
+  }
+  return Math.min(
+    ...candidates.filter((seconds) => Number.isFinite(seconds) && seconds >= 0),
+    Number.POSITIVE_INFINITY,
+  );
+};
+
+/** Exact aggregate physical-system power rate that will be billed this slice. */
+export const getSystemPowerOperatingCostPerSecond = (
+  state: GameState,
+  mode: AdvanceMode = "foreground",
+) => {
+  const offlineActivity =
+    mode === "offline" ? getOfflineSystemActivity(state) : null;
+  return ensureSystems(state).systems.reduce((total, system) => {
+    if (
+      offlineActivity &&
+      !offlineActivity.productiveSystemIds.has(system.id)
+    ) {
+      return total;
+    }
+    const local = materializeSystem(state, system.id);
+    if (!isPsuManagementUnlocked(local)) return total;
+    // Offline safety checks need the full productive rate even if a warning
+    // was saved at departure, so absence advancement pauses before failure.
+    if (mode === "offline") {
+      const billableLoad = projectSystemAutomatedLoad(
+        local,
+        offlineActivity!.localWorkSystemIds.has(system.id),
+        offlineActivity!.storageWorkSystemIds.has(system.id),
+      );
+      return amountAdd(total, getPowerCostPerSecondExact(billableLoad));
+    }
+    if ((local.power.unpaidShutdownWarningSeconds ?? 0) > 0) return total;
+    if (
+      amountCompare(local.exactResources.credits, 0) <= 0 &&
+      (local.power.bootstrapGraceSeconds ?? 0) > 0
+    ) {
+      return total;
+    }
+    return amountAdd(total, getPowerCostPerSecondExact(local));
+  }, ZERO_AMOUNT);
+};
+
+const getNextSimulationEventMsFromNormalizedState = (
+  ensured: GameState,
+  maximumMs: number,
+  mode: AdvanceMode,
+) => {
+  const offlineActivity =
+    mode === "offline" ? getOfflineSystemActivity(ensured) : null;
+  const clusterEvent = getNextClusterWorkloadEventMs(ensured, mode);
+  const clusterEventMs =
+    clusterEvent === null
+      ? maximumMs
+      : amountToSafeNumber(amountMin(clusterEvent, amount(maximumMs)));
+  const cloudEventMs = Math.min(
+    maximumMs,
+    getNextNormalizedRunnableCloudGameEventMs(ensured, maximumMs, mode),
+  );
+  const liveOperationsEventMs = getNextLiveOperationsEventMs(
+    ensured,
+    maximumMs,
+    mode,
+  );
+  const sharedOperatingCostPerSecond = amountAdd(
+    amountAdd(
+      getSystemPowerOperatingCostPerSecond(ensured, mode),
+      getClusterWorkloadOperatingCostPerSecond(ensured, mode),
+    ),
+    hasActiveCloudWork(ensured) &&
+      getNormalizedCloudAdvanceBlockedReason(ensured, mode) === null
+      ? getNormalizedCloudOperatingCostPerSecond(ensured, mode)
+      : ZERO_AMOUNT,
+  );
+  const sharedCreditEventMs =
+    amountCompare(sharedOperatingCostPerSecond, 0) > 0
+      ? amountToSafeNumber(
+          amountMin(
+            amountMultiply(
+              amountDivide(
+                ensured.exactResources.credits,
+                sharedOperatingCostPerSecond,
+              ),
+              1000,
+            ),
+            amount(maximumMs),
+          ),
+        )
+      : maximumMs;
+  const eventMs = Math.min(
+    ...ensureSystems(ensured).systems.map(
+      (system) => {
+        const productive =
+          mode !== "offline" ||
+          offlineActivity?.productiveSystemIds.has(system.id) === true;
+        const advanceAutomatedWork =
+          mode !== "offline" ||
+          offlineActivity?.localWorkSystemIds.has(system.id) === true;
+        return (
+          getSingleSystemEventSeconds(materializeSystem(ensured, system.id), {
+            productive,
+            advanceAutomatedWork,
+            advanceStorage:
+              mode !== "offline" ||
+              offlineActivity?.storageWorkSystemIds.has(system.id) === true,
+          }) * 1000
+        );
+      },
+    ),
+    clusterEventMs,
+    cloudEventMs,
+    liveOperationsEventMs,
+    sharedCreditEventMs,
+    maximumMs,
+  );
+  if (!Number.isFinite(eventMs)) return maximumMs;
+  const nearestMillisecond = Math.round(eventMs);
+  const normalizedEventMs =
+    Math.abs(eventMs - nearestMillisecond) < 0.000001
+      ? nearestMillisecond
+      : Math.round(eventMs * 1_000_000_000) / 1_000_000_000;
+  return Math.max(
+    0,
+    Math.min(
+      maximumMs,
+      normalizedEventMs,
+      clusterEventMs,
+      cloudEventMs,
+      liveOperationsEventMs,
+      sharedCreditEventMs,
+    ),
+  );
+};
+
+/** Next known operation, CRON, or power boundary across all simulated systems. */
+export const getNextSimulationEventMs = (
+  state: GameState,
+  maximumMs: number,
+  mode: AdvanceMode = "foreground",
+) =>
+  getNextSimulationEventMsFromNormalizedState(
+    syncLiveOperationsAllocation(
+      normalizeCloudForGameState(syncSelectedSystemRuntime(state)),
+      mode,
+    ),
+    maximumMs,
+    mode,
+  );
+
+/** Internal event projection for an advance that normalized its public input once. */
+export const getNextNormalizedSimulationEventMs = (
+  state: GameState,
+  maximumMs: number,
+  mode: AdvanceMode = "foreground",
+) =>
+  getNextSimulationEventMsFromNormalizedState(
+    syncLiveOperationsAllocation(state, mode),
+    maximumMs,
+    mode,
+  );
+
+interface SingleSystemTickPolicy {
+  billPower: boolean;
+  advanceAutomatedWork: boolean;
+  advanceWorkshopStorage: boolean;
+  accrueDestructivePressure: boolean;
+}
+
+const foregroundSystemTickPolicy: SingleSystemTickPolicy = {
+  billPower: true,
+  advanceAutomatedWork: true,
+  advanceWorkshopStorage: true,
+  accrueDestructivePressure: true,
+};
+
+const tickSingleSystem = (
+  state: GameState,
+  deltaMs: number,
+  policy: SingleSystemTickPolicy = foregroundSystemTickPolicy,
+): GameState => {
+  if (!Number.isFinite(deltaMs)) {
+    throw new RangeError("Simulation elapsed time must be finite");
+  }
+  const elapsedMs = Math.max(0, deltaMs);
+  const deltaSeconds = elapsedMs / 1000;
+  const exactDeltaSeconds = amountDivide(amount(elapsedMs), "1000");
   const ticked = {
     ...ensureCronState(syncCoreSchedulers(updateProgressionFlags(state))),
     tick: state.tick + deltaSeconds,
-    cacheResidency: [],
+    cacheResidency: policy.advanceAutomatedWork ? [] : state.cacheResidency,
   };
-  const wasPoweredOn = canRunPoweredWork(ticked);
-  const powered = decayCronPowerSpike(
-    applyPowerBilling(advancePowerTransition(ticked, deltaSeconds), deltaSeconds),
-    deltaSeconds,
+  // Idle and blocked systems still cool, but saved work that cannot run must
+  // not contribute active CPU or storage heat during the absence.
+  const thermalLoadState = projectSystemAutomatedLoad(
+    ticked,
+    policy.advanceAutomatedWork,
+    policy.advanceWorkshopStorage,
   );
+  const thermalBasePowerWatts = getBaseHardwareDrawWatts(thermalLoadState);
+  const thermalEnvironment = getWorkshopThermalEnvironment(
+    thermalLoadState,
+    thermalBasePowerWatts,
+  );
+  const advanceThermalForSlice = (nextState: GameState) =>
+    advanceWorkshopThermal(
+      nextState,
+      thermalBasePowerWatts,
+      elapsedMs,
+      thermalEnvironment,
+    );
+  const applyDestructivePressure = (nextState: GameState) =>
+    policy.accrueDestructivePressure
+      ? updatePowerOverloadFailure(nextState, deltaSeconds)
+      : nextState;
+  const wasPoweredOn = canRunPoweredWork(ticked);
+  const transitioned = advancePowerTransition(ticked, deltaSeconds);
+  const billed = policy.billPower
+    ? applyPowerBilling(
+        transitioned,
+        deltaSeconds,
+        elapsedMs,
+        getPowerCostPerSecondExact(
+          projectSystemAutomatedLoad(
+            transitioned,
+            policy.advanceAutomatedWork,
+            policy.advanceWorkshopStorage,
+          ),
+        ),
+      )
+    : transitioned;
+  const powered = policy.advanceAutomatedWork
+    ? decayCronPowerSpike(billed, deltaSeconds)
+    : billed;
 
   if (!wasPoweredOn || !canRunPoweredWork(powered)) {
     return updateProgressionFlags(
-      syncCoreSchedulers(updatePowerOverloadFailure(powered, deltaSeconds)),
+      syncCoreSchedulers(
+        applyDestructivePressure(advanceThermalForSlice(powered)),
+      ),
     );
   }
 
-  const cronTicked = canAcceptPoweredWork(powered)
-    ? tickCron(powered, deltaSeconds)
-    : powered;
-  const advanced = tickActiveTasks(cronTicked, deltaSeconds);
-  const settled = clearBillingGraceIfFunded(settleActiveTasks(advanced));
-  const watched = applySchedulerWatchdogs(settled);
-  const overloadChecked = updatePowerOverloadFailure(watched, deltaSeconds);
-  const pressured = updateDeadlockPressure(overloadChecked, deltaSeconds);
+  if (!isPsuManagementUnlocked(powered) && getPsuStress(powered) > 1) {
+    return updateProgressionFlags(
+      syncCoreSchedulers(
+        applyDestructivePressure(advanceThermalForSlice(powered)),
+      ),
+    );
+  }
+
+  const cronTicked =
+    policy.advanceAutomatedWork && canAcceptPoweredWork(powered)
+      ? tickCron(powered, deltaSeconds)
+      : powered;
+  const taskAdvanced = policy.advanceAutomatedWork
+    ? tickActiveTasks(cronTicked, deltaSeconds, exactDeltaSeconds)
+    : cronTicked;
+  const storageAdvanced = policy.advanceWorkshopStorage
+    ? advanceWorkshopStorageWorkload(taskAdvanced, elapsedMs)
+    : taskAdvanced;
+  const advanced = advanceThermalForSlice(storageAdvanced);
+  const settled = policy.advanceAutomatedWork
+    ? settleActiveTasks(advanced)
+    : advanced;
+  const funded = policy.billPower
+    ? clearBillingGraceIfFunded(settled)
+    : settled;
+  const watched = policy.advanceAutomatedWork
+    ? applySchedulerWatchdogs(funded)
+    : funded;
+  const overloadChecked = applyDestructivePressure(watched);
+  const pressured = policy.advanceAutomatedWork
+    ? updateDeadlockPressure(overloadChecked, deltaSeconds)
+    : overloadChecked;
 
   const progressed = updateProgressionFlags(pressured);
-  return canAcceptPoweredWork(progressed)
+  return policy.advanceAutomatedWork && canAcceptPoweredWork(progressed)
     ? pullQueue(progressed)
     : syncCoreSchedulers(progressed);
 };
 
 const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState =>
   replaceSystems(
-    {
-      ...state,
-      resources: {
-        ...state.resources,
-        credits: 0,
-      },
-    },
+    setExactResource(state, "credits", 0),
     ensureSystems(state).systems.map((system) => {
       if (system.power.state === "off") return system;
       const localState = materializeSystem(state, system.id);
@@ -4182,23 +4989,92 @@ const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState =>
     }),
   );
 
-export const tickGame = (state: GameState, deltaMs: number): GameState => {
-  const ensured = syncSelectedSystemRuntime(state);
-  const baseTick = ensured.tick;
-  let workingState = materializeSystem(ensured, ensured.selectedSystemId);
-  let unpaidBill = false;
+/** Canonicalizes a public simulation input before an event-sliced advance. */
+export const normalizeGameForSimulation = (state: GameState) =>
+  normalizeLiveOperationsForGameState(
+    normalizeCloudForGameState(
+      syncSelectedSystemRuntime(syncExactResources(state)),
+    ),
+  );
 
-  const systems = ensured.systems.map((system) => {
+const hasCloudRuntimeBoundary = (state: GameState) => {
+  const activeZone = state.cloud.zones.find(
+    (zone) => zone.id === state.cloud.failover.activeZoneId,
+  );
+  const automaticFailoverNeeded =
+    state.cloud.automaticFailover &&
+    state.cloud.zones.length > 0 &&
+    (!activeZone || activeZone.configuredStatus === "paused");
+  return (
+    hasActiveCloudWork(state) ||
+    automaticFailoverNeeded ||
+    state.cloud.failover.pendingZoneId !== null ||
+    state.cloud.failover.completesAtMs !== null ||
+    state.cloud.incidents.length > 0
+  );
+};
+
+const advanceQuiescentCloudClock = (
+  state: GameState,
+  deltaMs: number,
+): GameState => {
+  const combinedElapsedMs =
+    state.cloud.advanceRemainderMs + Math.max(0, deltaMs);
+  const wholeElapsedMs = Math.floor(combinedElapsedMs);
+  return {
+    ...state,
+    cloud: {
+      ...state.cloud,
+      elapsedMs:
+        state.cloud.elapsedMs +
+        Math.max(
+          0,
+          Math.min(
+            wholeElapsedMs,
+            Number.MAX_SAFE_INTEGER - state.cloud.elapsedMs,
+          ),
+        ),
+      advanceRemainderMs: combinedElapsedMs - wholeElapsedMs,
+    },
+  };
+};
+
+/** Internal tick for state canonicalized by normalizeGameForSimulation. */
+export const tickNormalizedGame = (
+  ensured: GameState,
+  deltaMs: number,
+  mode: AdvanceMode = "foreground",
+): GameState => {
+  const scheduled = syncLiveOperationsAllocation(ensured, mode);
+  const baseTick = scheduled.tick;
+  let workingState = materializeSystem(scheduled, scheduled.selectedSystemId);
+  let unpaidBill = false;
+  const offlineActivity =
+    mode === "offline" ? getOfflineSystemActivity(scheduled) : null;
+
+  const systems = scheduled.systems.map((system) => {
     const localInput = materializeSystem(
       {
         ...workingState,
-        systems: ensured.systems,
+        systems: scheduled.systems,
         selectedSystemId: system.id,
         tick: baseTick,
       },
       system.id,
     );
-    const localOutput = tickSingleSystem(localInput, deltaMs);
+    const productive =
+      mode !== "offline" ||
+      offlineActivity?.productiveSystemIds.has(system.id) === true;
+    const localOutput = tickSingleSystem(localInput, deltaMs, {
+      billPower: productive,
+      advanceAutomatedWork:
+        mode !== "offline" ||
+        offlineActivity?.localWorkSystemIds.has(system.id) === true,
+      advanceWorkshopStorage:
+        mode !== "offline" ||
+        offlineActivity?.storageWorkSystemIds.has(system.id) === true,
+      accrueDestructivePressure: productive,
+    });
     if (
       system.power.state !== "off" &&
       localOutput.power.state === "off" &&
@@ -4209,10 +5085,19 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
     workingState = {
       ...workingState,
       resources: localOutput.resources,
+      exactResources: localOutput.exactResources,
       research: localOutput.research,
       flags: localOutput.flags,
       completedTasks: localOutput.completedTasks,
       completedJobs: localOutput.completedJobs,
+      taskRewardCreditsEarned: localOutput.taskRewardCreditsEarned,
+      taskWorkCyclesCompleted: localOutput.taskWorkCyclesCompleted,
+      standingTaskCompletions: localOutput.standingTaskCompletions,
+      standingTaskRewardCreditsEarned:
+        localOutput.standingTaskRewardCreditsEarned,
+      standingTaskDataEarned: localOutput.standingTaskDataEarned,
+      standingTaskWorkCyclesCompleted:
+        localOutput.standingTaskWorkCyclesCompleted,
       completedBenchmarks: localOutput.completedBenchmarks,
       nextInstanceId: localOutput.nextInstanceId,
       tick: localOutput.tick,
@@ -4220,6 +5105,7 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
     return {
       ...system,
       hardware: localOutput.hardware,
+      workshop: localOutput.workshop,
       power: localOutput.power,
       cron: localOutput.cron,
       activeTasks: localOutput.activeTasks,
@@ -4234,34 +5120,118 @@ export const tickGame = (state: GameState, deltaMs: number): GameState => {
       deadlockProcessLockout: localOutput.deadlockProcessLockout,
     };
   });
+  workingState = {
+    ...workingState,
+    tick: baseTick + Math.max(0, deltaMs) / 1000,
+  };
 
   const ticked = replaceSystems(
     {
       ...workingState,
       systems,
-      selectedSystemId: ensured.selectedSystemId,
-      rack: ensured.rack,
+      selectedSystemId: scheduled.selectedSystemId,
+      rack: scheduled.rack,
     },
     systems,
-    ensured.selectedSystemId,
+    scheduled.selectedSystemId,
   );
 
-  return unpaidBill ? hardPowerOffAllSystemsForUnpaidBill(ticked) : ticked;
+  const systemAdvanced = syncExactResources(
+    unpaidBill ? hardPowerOffAllSystemsForUnpaidBill(ticked) : ticked,
+  );
+  const liveOperationsAdvanced = advanceLiveOperations(
+    systemAdvanced,
+    deltaMs,
+    mode,
+  );
+  const activeClusterWork = hasActiveClusterWorkloads(liveOperationsAdvanced);
+  const clusterFacilityIds = activeClusterWork
+    ? getProductiveClusterFacilityIds(liveOperationsAdvanced, mode)
+    : [];
+  const clusterAdvanced = activeClusterWork
+    ? advanceClusterWorkloads(liveOperationsAdvanced, deltaMs, mode)
+    : {
+        ...liveOperationsAdvanced,
+        infrastructure: {
+          ...liveOperationsAdvanced.infrastructure,
+          elapsedMs:
+            liveOperationsAdvanced.infrastructure.elapsedMs +
+            Math.max(0, deltaMs),
+        },
+      };
+  const cloudAdvanced = hasCloudRuntimeBoundary(clusterAdvanced)
+    ? advanceNormalizedCloudForGameState(
+        clusterAdvanced,
+        deltaMs,
+        mode,
+        clusterFacilityIds,
+      )
+    : advanceQuiescentCloudClock(clusterAdvanced, deltaMs);
+  return syncLiveOperationsAllocation(
+    finalizeNormalizedGameMutation(syncExactResources(cloudAdvanced)),
+    mode,
+  );
 };
 
-export const startTask = (state: GameState, taskId: TaskId) => {
+export const tickGame = (
+  state: GameState,
+  deltaMs: number,
+  mode: AdvanceMode = "foreground",
+): GameState =>
+  tickNormalizedGame(normalizeGameForSimulation(state), deltaMs, mode);
+
+const startTaskWithOrigin = (
+  state: GameState,
+  taskId: TaskId,
+  workOrigin?: WorkOrigin,
+) => {
+  // These IDs are engine-owned attended work, never public task dispatches.
+  if (isLiveOperationsTaskId(taskId)) return state;
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   const task = getTaskDefinition(taskId);
 
   if (isSystemScheduledTask(task)) {
-    const queued = enqueueTask(state, taskId);
+    const queued = enqueueTask(state, taskId, undefined, workOrigin);
     return queued === state ? state : pullQueue(queued);
   }
 
-  const started = assignTaskToIdleCores(state, taskId);
+  const started = assignTaskToIdleCores(
+    state,
+    taskId,
+    undefined,
+    false,
+    Number.POSITIVE_INFINITY,
+    { workOrigin },
+  );
 
   if (started !== state) return started;
 
-  return enqueueTask(state, taskId);
+  return enqueueTask(state, taskId, undefined, workOrigin);
+};
+
+export const startTask = (state: GameState, taskId: TaskId) =>
+  startTaskWithOrigin(state, taskId);
+
+/** Engine-only standing renewal path; public GameAction cannot provide provenance. */
+export const startStandingOrderTask = (
+  state: GameState,
+  taskId: TaskId,
+  systemId: number,
+) => {
+  const ensured = normalizeCloudForGameState(
+    syncSelectedSystemRuntime(syncExactResources(state)),
+  );
+  const materialized = materializeSystem(ensured, systemId);
+  const updated = startTaskWithOrigin(
+    materialized,
+    taskId,
+    "standing-order",
+  );
+  return finalizeGameMutation(
+    syncExactResources(
+      updateMaterializedSystem(ensured, updated, systemId),
+    ),
+  );
 };
 
 export const startTaskOnCore = (
@@ -4269,6 +5239,8 @@ export const startTaskOnCore = (
   taskId: TaskId,
   coreId: number,
 ) => {
+  if (isLiveOperationsTaskId(taskId)) return state;
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   if (!getAllCoreIds(state).includes(coreId)) return state;
   if (isSystemScheduledTask(getTaskDefinition(taskId))) return state;
 
@@ -4276,12 +5248,24 @@ export const startTaskOnCore = (
 };
 
 export const queueTask = (state: GameState, taskId: TaskId, cpuId?: number) =>
-  enqueueTask(state, taskId, cpuId);
+  isLiveOperationsTaskId(taskId) || isSystemManaged(state, state.selectedSystemId)
+    ? state
+    : enqueueTask(state, taskId, cpuId);
 
 export const cancelQueuedTaskById = (state: GameState, taskId: TaskId) =>
-  cancelQueuedTask(state, taskId);
+  isSystemManaged(state, state.selectedSystemId)
+    ? state
+    : cancelQueuedTask(state, taskId);
 
 export const buyResearch = (state: GameState, researchId: ResearchId) => {
+  if (
+    isLegacyActionBlockedByManagedSystem(state, {
+      type: "buyResearch",
+      researchId,
+    })
+  ) {
+    return state;
+  }
   const research = getResearchDefinition(researchId);
   const costs = research.cost(state);
   const completed = state.research.completed.includes(researchId);
@@ -4326,25 +5310,10 @@ export const buyResearch = (state: GameState, researchId: ResearchId) => {
   }
 
   if (researchId === "clickRateTuning" && completed) {
-    const currentLevel = getClickRateLevel(state);
-    const upgradeCosts = getClickRateUpgradeCost(currentLevel + 1);
-
-    if (
-      currentLevel >= CLICK_RATE_MAX_LEVEL ||
-      !canAfford(state, upgradeCosts)
-    ) {
-      return state;
-    }
-
-    const bought = {
-      ...spend(state, upgradeCosts),
-      research: {
-        ...state.research,
-        clickRateLevel: currentLevel + 1,
-      },
-    };
-    return pullQueue(updateProgressionFlags(bought));
+    return state;
   }
+
+  if (researchId === "clickRateTuning") return state;
 
   if (
     completed ||
@@ -4375,6 +5344,7 @@ export const buyUpgrade = (
   ramStickIds?: number[],
   ramTierId?: CpuTierId,
 ) => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   const upgrade = getUpgradeDefinition(upgradeId);
   const context = {
     coreId,
@@ -4398,16 +5368,8 @@ export const buyUpgrade = (
   return pullQueue(updateProgressionFlags(bought));
 };
 
-const addRefunds = (state: GameState, refunds: Cost[]): GameState => ({
-  ...state,
-  resources: refunds.reduce(
-    (resources, refund) => ({
-      ...resources,
-      [refund.resource]: resources[refund.resource] + refund.amount,
-    }),
-    state.resources,
-  ),
-});
+const addRefunds = (state: GameState, refunds: Cost[]): GameState =>
+  addCosts(state, refunds);
 
 export const downgradeUpgrade = (
   state: GameState,
@@ -4420,6 +5382,7 @@ export const downgradeUpgrade = (
   ramStickIds?: number[],
   ramTierId?: CpuTierId,
 ) => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   const upgrade = getUpgradeDefinition(upgradeId);
   const context = {
     coreId,
@@ -4503,6 +5466,7 @@ const updateSchedulerConfig = (
     : updateCpuSchedulerConfig(state, cpuId, update);
 
 export const requestPowerOff = (state: GameState): GameState => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   if (state.power.state !== "on") return state;
   const shutdownSeconds = getBootloaderReducedSeconds(state, POWER_SHUTDOWN_SECONDS);
 
@@ -4520,6 +5484,7 @@ export const requestPowerOff = (state: GameState): GameState => {
 };
 
 export const requestPowerOn = (state: GameState): GameState => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   if (state.power.state !== "off") return state;
   const bootSeconds = getBootSeconds(state);
 
@@ -4531,13 +5496,16 @@ export const requestPowerOn = (state: GameState): GameState => {
       transitionSeconds: bootSeconds,
       transitionTotalSeconds: bootSeconds,
       bootstrapGraceSeconds:
-        state.resources.credits <= 0 ? POWER_BOOTSTRAP_GRACE_SECONDS : 0,
+        amountCompare(state.exactResources.credits, 0) <= 0
+          ? POWER_BOOTSTRAP_GRACE_SECONDS
+          : 0,
       unpaidShutdownWarningSeconds: 0,
     },
   };
 };
 
 export const requestPowerKill = (state: GameState): GameState => {
+  if (isSystemManaged(state, state.selectedSystemId)) return state;
   if (state.power.state === "off") return state;
   return forceHardPowerOff(state, null);
 };
@@ -4549,6 +5517,59 @@ export const acknowledgePowerFailure = (state: GameState): GameState => ({
     lastFailureReason: null,
   },
 });
+
+export const setIdlePowerPolicy = (
+  state: GameState,
+  policy: IdlePowerPolicy,
+): GameState => ({
+  ...state,
+  power: {
+    ...state.power,
+    idlePolicy:
+      policy === "shutdown-when-idle" ? "shutdown-when-idle" : "low-power",
+  },
+});
+
+const hasIdlePowerReservation = (state: GameState, systemId: number) => {
+  const local = materializeSystem(state, systemId);
+  return (
+    local.activeTasks.length > 0 ||
+    local.activeJobs.length > 0 ||
+    local.queue.length > 0 ||
+    (local.queueEntries?.length ?? 0) > 0 ||
+    local.workshop.activeStorageWorkload !== null ||
+    local.cron.schedules.some((schedule) => schedule.enabled) ||
+    state.contracts.active.some((contract) => contract.systemId === systemId) ||
+    Object.values(state.projects.progress).some(
+      (progress) =>
+        progress?.active &&
+        !progress.completed &&
+        progress.systemId === systemId,
+    ) ||
+    (state.standingOrder.enabled &&
+      state.standingOrder.taskId !== null &&
+      state.standingOrder.systemId === systemId) ||
+    (state.autoRepeatJobId !== null && state.selectedSystemId === systemId)
+  );
+};
+
+/** Applies the saved departure policy without discarding or stranding work. */
+export const applyOfflineIdlePowerPolicies = (state: GameState): GameState => {
+  const ensured = ensureSystems(state);
+  const systems = ensured.systems.map((system) => {
+    if (
+      system.power.idlePolicy !== "shutdown-when-idle" ||
+      system.power.state !== "on" ||
+      isSystemManaged(ensured, system.id) ||
+      hasIdlePowerReservation(ensured, system.id)
+    ) {
+      return system;
+    }
+    const local = requestPowerOff(materializeSystem(ensured, system.id));
+    return { ...system, power: local.power };
+  });
+  return replaceSystems(ensured, systems, ensured.selectedSystemId);
+};
 
 export const requestShutdown = requestPowerOff;
 
@@ -4632,13 +5653,6 @@ const setCronEnabled = (
   });
 
 const applySingleSystemAction = (state: GameState, action: GameAction): GameState => {
-  if (action.type === "grantDevResource") {
-    return addRewards(
-      state,
-      action.resource === "credits" ? DEV_RESOURCE_GRANT_AMOUNT : 0,
-      action.resource === "data" ? DEV_RESOURCE_GRANT_AMOUNT : 0,
-    );
-  }
   if (action.type === "startTask") return startTask(state, action.taskId);
   if (action.type === "startTaskOnCore") {
     return startTaskOnCore(state, action.taskId, action.coreId);
@@ -4655,6 +5669,9 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
   if (action.type === "requestPowerOff") return requestPowerOff(state);
   if (action.type === "requestPowerOn") return requestPowerOn(state);
   if (action.type === "requestPowerKill") return requestPowerKill(state);
+  if (action.type === "setIdlePowerPolicy") {
+    return setIdlePowerPolicy(state, action.policy);
+  }
   if (action.type === "acknowledgePowerFailure") return acknowledgePowerFailure(state);
   if (action.type === "setCronTask") {
     return setCronTask(state, action.scheduleId, action.taskId);
@@ -4671,7 +5688,32 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
     return setCronEnabled(state, action.scheduleId, action.enabled);
   }
   if (action.type === "buyResearch") return buyResearch(state, action.researchId);
+  if (action.type === "installCoolingTier") {
+    return installWorkshopCoolingTier(state, action.tierId);
+  }
+  if (action.type === "setOverclockPreset") {
+    return selectWorkshopOverclockPreset(state, action.presetId);
+  }
+  if (action.type === "installAccelerator") {
+    return installWorkshopAccelerator(state, action.skuId, action.slotId);
+  }
+  if (action.type === "removeAccelerator") {
+    return removeWorkshopAccelerator(state, action.deviceId);
+  }
+  if (action.type === "installWorkshopStorage") {
+    return installWorkshopStorage(state, action.skuId);
+  }
+  if (action.type === "installLocalNetwork") {
+    return installLocalNetwork(state, action.skuId);
+  }
+  if (action.type === "startWorkshopStorageWorkload") {
+    return startWorkshopStorageWorkload(state, action.workloadId);
+  }
+  if (action.type === "cancelWorkshopStorageWorkload") {
+    return cancelWorkshopStorageWorkload(state);
+  }
   if (action.type === "buyUpgrade") {
+    if (action.upgradeId === "cooling") return state;
     return buyUpgrade(
       state,
       action.upgradeId,
@@ -4685,6 +5727,7 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
     );
   }
   if (action.type === "downgradeUpgrade") {
+    if (action.upgradeId === "cooling") return state;
     return downgradeUpgrade(
       state,
       action.upgradeId,
@@ -4751,8 +5794,19 @@ const buyMachineFromSelection = (
   selection: MachineComponentSelection,
   name: string,
   templateId: string | null,
+  requireAdvancedBuilder = false,
 ) => {
   const ensured = ensureSystems(state);
+  if (getFleetSystemLimitBlockedReason(ensured) !== null) return ensured;
+  if (
+    getMachineSelectionBlockedReason(
+      ensured,
+      selection,
+      requireAdvancedBuilder,
+    ) !== null
+  ) {
+    return ensured;
+  }
   const costs = getMachineSelectionCost(selection);
   if (!canAfford(ensured, costs)) return ensured;
 
@@ -4767,13 +5821,7 @@ const buyMachineFromSelection = (
   );
 };
 
-const getSellRefund = (costs: Cost[]): Cost[] =>
-  costs
-    .map((cost) => ({
-      resource: cost.resource,
-      amount: Math.floor(cost.amount * 0.5),
-    }))
-    .filter((cost) => cost.amount > 0);
+const getSellRefund = (costs: Cost[]): Cost[] => halfRefundExact(costs);
 
 const sellSystem = (state: GameState, systemId: number): GameState => {
   const ensured = ensureSystems(state);
@@ -4784,16 +5832,7 @@ const sellSystem = (state: GameState, systemId: number): GameState => {
 
   const remaining = ensured.systems.filter((system) => system.id !== systemId);
   const refund = getSellRefund(target.purchaseCosts ?? []);
-  const refunded: GameState = {
-    ...ensured,
-    resources: refund.reduce(
-      (resources, cost) => ({
-        ...resources,
-        [cost.resource]: resources[cost.resource] + cost.amount,
-      }),
-      ensured.resources,
-    ),
-  };
+  const refunded = addCosts(ensured, refund);
   const nextSelectedId =
     ensured.selectedSystemId === systemId
       ? (remaining[0]?.id ?? 1)
@@ -4808,6 +5847,7 @@ const buyMachineTemplate = (state: GameState, templateId: string) => {
 
   try {
     const template = getMachineTemplate(templateId);
+    if (!isMachineTemplateUnlocked(ensured, template)) return ensured;
     return buyMachineFromSelection(
       ensured,
       template.components,
@@ -4827,12 +5867,12 @@ const buyCustomMachine = (
   if (!ensured.flags.systemCatalog) return ensured;
 
   try {
-    getMachineComponentSkus(components);
     return buyMachineFromSelection(
       ensured,
       components,
       `Custom ${ensured.rack.nextSystemId}`,
       "custom",
+      true,
     );
   } catch {
     return ensured;
@@ -4840,29 +5880,98 @@ const buyCustomMachine = (
 };
 
 export const applyAction = (state: GameState, action: GameAction): GameState => {
-  const ensured = syncSelectedSystemRuntime(state);
+  const isAutomationAction =
+    action.type === "purchaseAutomationBuffer" ||
+    action.type === "recordDeparture" ||
+    action.type === "recordSave" ||
+    action.type === "setStandingOrder" ||
+    action.type === "setStandingOrderEnabled";
+  const ensured = normalizeCloudForGameState(
+    normalizeLiveOperationsForGameState(
+      syncSelectedSystemRuntime(syncExactResources(state)),
+    ),
+  );
 
+  if (
+    action.type === "configureLiveOperations" ||
+    action.type === "setLiveOperationsEnabled"
+  ) {
+    return finalizeGameMutation(applyLiveOperationsAction(ensured, action));
+  }
+
+  if (isCloudAction(action)) {
+    return finalizeGameMutation(applyCloudAction(ensured, action));
+  }
+
+  if (isFacilityInfrastructureAction(action)) {
+    return finalizeGameMutation(
+      applyFacilityInfrastructureAction(ensured, action),
+    );
+  }
+
+  if (isClusterWorkloadAction(action)) {
+    return finalizeGameMutation(applyClusterWorkloadAction(ensured, action));
+  }
+
+  if (isInfrastructureAction(action)) {
+    return finalizeGameMutation(applyInfrastructureAction(ensured, action));
+  }
+
+  if (isLegacyActionBlockedByManagedSystem(ensured, action)) return ensured;
+
+  if (isAutomationAction) {
+    return finalizeGameMutation(applyAutomationAction(ensured, action));
+  }
+
+  if (action.type === "refreshContractMarket") {
+    return finalizeGameMutation(refreshContractMarket(ensured));
+  }
+  if (action.type === "acceptContract") {
+    return finalizeGameMutation(acceptContract(ensured, action.contractId));
+  }
+  if (action.type === "declineContract") {
+    return finalizeGameMutation(declineContract(ensured, action.contractId));
+  }
+  if (action.type === "completeContract") {
+    return finalizeGameMutation(completeContract(ensured, action.contractId));
+  }
+  if (action.type === "startProjectPhase") {
+    return finalizeGameMutation(startProjectPhase(
+      ensured,
+      action.projectId,
+      action.systemId ?? ensured.selectedSystemId,
+    ));
+  }
   if (action.type === "selectSystem") {
-    return materializeSystem(ensured, action.systemId);
+    return finalizeGameMutation(materializeSystem(ensured, action.systemId));
   }
 
   if (action.type === "buyMachineTemplate") {
-    return buyMachineTemplate(ensured, action.templateId);
+    return finalizeGameMutation(buyMachineTemplate(ensured, action.templateId));
   }
 
   if (action.type === "buyCustomMachine") {
-    return buyCustomMachine(ensured, action.components);
+    return finalizeGameMutation(buyCustomMachine(ensured, action.components));
   }
 
   if (action.type === "sellSystem") {
-    return sellSystem(ensured, action.systemId);
+    return finalizeGameMutation(
+      clearLiveOperationsForRemovedSystem(
+        sellSystem(ensured, action.systemId),
+        action.systemId,
+      ),
+    );
   }
 
   const targetSystemId = getActionSystemId(ensured, action);
   const materialized = materializeSystem(ensured, targetSystemId);
   const updated = applySingleSystemAction(materialized, action);
 
-  return updateMaterializedSystem(ensured, updated, targetSystemId);
+  return finalizeGameMutation(
+    syncExactResources(
+      updateMaterializedSystem(ensured, updated, targetSystemId),
+    ),
+  );
 };
 
 export const getAvailableTasks = (state: GameState) =>
@@ -4895,6 +6004,7 @@ export const getAvailableUpgrades = (state: GameState) =>
       upgrade.id !== "cState" &&
       upgrade.id !== "memoryVoltage" &&
       upgrade.id !== "bootloader" &&
+      upgrade.id !== "cooling" &&
       upgrade.requirement(state),
   );
 
@@ -4905,14 +6015,14 @@ export const getVisibleRemainingSeconds = (
   estimateActiveRemainingSeconds(
     state,
     activeTask.taskId,
-    activeTask.remainingCycles,
+    amountToSafeNumber(activeTask.remainingCycles),
     activeTask.coreId,
   );
 
 export const getVisibleOperationProgress = (operation: ActiveCoreOperation) =>
   getOperationProgress(
-    operation.remainingCycles,
-    operation.totalCycles,
-    operation.remainingLoadCycles,
-    operation.totalLoadCycles,
+    amountToSafeNumber(operation.remainingCycles),
+    amountToSafeNumber(operation.totalCycles),
+    amountToSafeNumber(operation.remainingLoadCycles),
+    amountToSafeNumber(operation.totalLoadCycles),
   );

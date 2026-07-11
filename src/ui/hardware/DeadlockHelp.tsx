@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { VisibleCpuSocket, VisibleState } from "../../game";
 import { formatNumber } from "../format";
+import { SmoothFill } from "../SmoothProgress";
 import { formatCountdownSeconds } from "./display";
-import { getProgressStyle } from "./meters";
 
 export function DeadlockCountdown({
   pressure,
@@ -38,7 +38,11 @@ export function DeadlockCountdown({
       aria-valuetext={label}
     >
       <span className="deadlock-countdown-meter" aria-hidden="true">
-        <span className="progress-fill" style={getProgressStyle(pressure.progress)} />
+        <SmoothFill
+          value={pressure.progress}
+          snapKey={`${pressure.active}:${pressure.lockout}`}
+          snapOnDecrease={false}
+        />
       </span>
       <span className="deadlock-countdown-label">{label}</span>
     </span>

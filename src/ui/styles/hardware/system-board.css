@@ -21,21 +21,16 @@
   width: 100%;
 }
 
+/* Flat in-flow cards: 1px border only, no glow gradients or drop shadows. */
 .system-board > .system-board-flow > .hw-section,
-.system-board > .system-board-flow > .cpu-package,
 .system-board > .system-board-flow > .empty-socket {
-  margin: 0;
+  background: linear-gradient(180deg, rgba(14, 26, 24, 0.96), rgba(6, 14, 13, 0.98));
+  box-shadow: none;
 }
 
-.system-board > .system-board-flow > .hw-section,
-.system-board > .system-board-flow > .empty-socket {
-  background:
-    radial-gradient(160% 60% at 50% -10%, rgba(36, 231, 195, 0.06), transparent 60%),
-    linear-gradient(180deg, rgba(14, 26, 24, 0.96), rgba(6, 14, 13, 0.98));
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.6) inset,
-    0 1px 0 rgba(36, 231, 195, 0.06) inset,
-    0 12px 28px rgba(0, 0, 0, 0.3);
+/* One rule for inter-card rhythm inside the board flow. */
+.system-board-flow > * + * {
+  margin-top: 6px;
 }
 
 /* ----- System Rail (RAM / PSU / Cooling) ----- */
@@ -43,7 +38,7 @@
 .system-rail {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  gap: 6px;
   width: 100%;
 }
 
@@ -56,7 +51,7 @@
 .core-cache-row {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
 }
@@ -64,7 +59,7 @@
 .scheduler-cache-row {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
 }
@@ -109,30 +104,17 @@
   padding: 10px 12px;
 }
 
-.system-board > .system-board-flow > .hw-section + .hw-section,
-.system-board > .system-board-flow > .core-cache-row + .hw-section,
-.system-board > .system-board-flow > .hw-section + .core-cache-row,
-.system-board > .system-board-flow > .core-cache-row + .core-cache-row,
-.system-board > .system-board-flow > .scheduler-cache-row + .core-array-section,
-.system-board > .system-board-flow > .scheduler-cache-row + .hw-section,
-.system-board > .system-board-flow > .hw-section + .scheduler-cache-row,
-.system-board > .system-board-flow > .core-cache-row + .scheduler-cache-row,
-.system-board > .system-board-flow > .scheduler-cache-row + .core-cache-row,
-.system-board > .system-board-flow > .cpu-package + .cpu-package,
-.system-board > .system-board-flow > .hw-section + .cpu-package,
-.system-board > .system-board-flow > .cpu-package + .hw-section,
-.system-board > .system-board-flow > .system-rail + .hw-section,
-.system-board > .system-board-flow > .hw-section + .system-rail,
-.system-board > .system-board-flow > .core-cache-row + .system-rail,
-.system-board > .system-board-flow > .cpu-package + .system-rail {
-  margin-top: 10px;
-}
-
 /* Keep the hardware card flow from sitting on the panel grid texture. */
 .hw-panel .panel-body:has(.system-board) {
   background-image: none;
   padding: 12px;
   gap: 0;
+}
+
+/* Populated boards sit on a plain panel; the circuit-grid texture only
+   backs empty states. */
+.hw-panel .panel-body:has(.hw-section, .cpu-package, .cpu-bank, .system-rack) {
+  background-image: none;
 }
 
 @media (max-width: 760px) {

@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import { X } from "lucide-react";
+import { SmoothFill } from "../SmoothProgress";
 import type { Dispatch } from "../uiActions";
-import { clampMeter, getProgressStyle } from "./meters";
+import { clampMeter } from "./meters";
 
 export interface QueuePreviewItem {
   id: string;
@@ -137,9 +138,7 @@ export function QueuePreview({
   } as CSSProperties;
 
   if (visibleSlotCount > 0 && items.length === 0) {
-    const label =
-      emptyLabel ??
-      `${visibleSlotCount} slot${visibleSlotCount === 1 ? "" : "s"} open`;
+    const label = emptyLabel ?? `${visibleSlotCount} open`;
 
     return (
       <div className="queue-preview" style={gridStyle} aria-label={ariaLabel}>
@@ -187,10 +186,7 @@ export function QueuePreview({
                     aria-valuemax={100}
                     aria-valuenow={progressPercent}
                   >
-                    <span
-                      className="progress-fill"
-                      style={getProgressStyle(item.active ? progress : 0)}
-                    />
+                    <SmoothFill value={item.active ? progress : 0} />
                   </span>
                   <button
                     type="button"

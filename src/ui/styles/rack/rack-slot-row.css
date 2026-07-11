@@ -2,11 +2,6 @@
 
 .system-rack-slot {
   position: relative;
-  display: grid;
-  grid-template-areas: "rail visuals";
-  grid-template-columns: 34px minmax(0, 1fr);
-  align-items: stretch;
-  gap: var(--s-2);
   min-height: 0;
   padding: 2px var(--s-2);
   border: 1px solid var(--line);
@@ -19,6 +14,44 @@
     border-color var(--dur-1) var(--ease),
     background var(--dur-1) var(--ease),
     box-shadow var(--dur-1) var(--ease);
+}
+
+/* Row card: left rail | stacked content (name / stats / bays / work) | action rail.
+   No absolute positioning for content; columns can never overlap because the
+   content column is minmax(0, 1fr) and both rails are intrinsic. */
+.system-rack-slot--row {
+  display: grid;
+  grid-template-areas: "rail copy";
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-2);
+  padding: var(--s-2);
+}
+
+/* Whole-card select: an invisible stretched button underneath the content.
+   Real controls and tooltip-bearing readouts sit above it (z-index 1), so
+   clicking the name or any empty area selects the system. */
+.system-rack-slot--row > .rack-slot-select {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.system-rack-slot--row:has(> .rack-slot-select:focus-visible) {
+  box-shadow: var(--ring-focus);
+}
+
+.system-rack-slot--row .rack-slot-rail,
+.system-rack-slot--row .rack-slot-visuals,
+.system-rack-slot--row .rack-slot-net,
+.system-rack-slot--row .system-work-summary {
+  position: relative;
+  z-index: 1;
 }
 
 /* Left status rail */
@@ -122,9 +155,9 @@
   grid-area: rail;
   display: grid;
   justify-items: center;
-  align-content: center;
-  gap: 2px;
-  padding: 0;
+  align-content: start;
+  gap: var(--s-1);
+  padding: 2px 0 0;
   min-height: 0;
 }
 
@@ -222,42 +255,29 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rack-slot-config,
-.rack-slot-detail {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition:
-    color var(--dur-1) var(--ease),
-    border-color var(--dur-1) var(--ease),
-    background var(--dur-1) var(--ease);
-}
-
-.rack-slot-config:hover,
-.rack-slot-detail:hover {
-  color: var(--cyan);
-  border-color: var(--line-hot);
-  background: var(--cyan-soft);
-}
+/* ---------- content column: name / stats / bays / work summary ---------- */
 
 .rack-slot-copy {
   grid-area: copy;
-  display: inline-flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--s-1);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--s-2);
   min-width: 0;
 }
 
-.rack-slot-copy strong {
+/* Row 1 — full-width name plus power/role state. The name gets the whole
+   content column; ellipsis only kicks in when it genuinely runs out. */
+.rack-slot-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.rack-slot-head strong,
+.rack-slot-copy > strong {
+  min-width: 0;
   overflow: hidden;
   color: var(--text);
   font-family: var(--font-display);
@@ -269,15 +289,57 @@
   white-space: nowrap;
 }
 
-.rack-slot-copy small {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  overflow: hidden;
+.rack-slot-head small,
+.rack-slot-copy > small {
+  flex: 0 0 auto;
+  margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   letter-spacing: var(--tracking-mid);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Header net rate — one signed number is the card's economics: green when
+   earning, rose when draining, muted when off. Reserved width + tabular
+   numerals so live updates never reflow the header. */
+.rack-slot-net {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 9ch;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  text-align: right;
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease);
+}
+
+.rack-slot-net.is-gain { color: var(--green); }
+.rack-slot-net.is-drain { color: var(--rose); }
+.rack-slot-net.is-off { color: var(--muted-2); }
+
+/* ---------- rail detail button: the card's single explicit action ---------- */
+
+.rack-slot-detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  min-height: 20px;
+  padding: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: rgba(2, 8, 8, 0.5);
+}
+
+.rack-slot-detail:hover,
+.rack-slot-detail:focus-visible {
+  border-color: var(--line-hot);
+  color: var(--cyan);
+  background: var(--cyan-soft);
 }

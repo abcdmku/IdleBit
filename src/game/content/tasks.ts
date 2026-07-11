@@ -1,4 +1,5 @@
-import { bitsToBytes } from "../progression";
+import { amount, amountToSafeNumber } from "../amount";
+import { bitsToBytes } from "../units";
 import type {
   GameState,
   TaskCompositionDefinition,
@@ -13,7 +14,6 @@ import type {
   TaskSubtaskDefinition,
 } from "../types";
 import {
-  customMachineAssemblyResearchId,
   hasDecodeLogic,
   hasResearch,
   systemCatalogResearchId,
@@ -29,6 +29,11 @@ type RawOperation = {
   cacheBits?: number;
   ramBits: number;
   parallel?: boolean;
+  acceleratorClass?: TaskOperationDefinition["acceleratorClass"];
+  acceleratorModelMemoryBits?: number;
+  acceleratorBatchSize?: number;
+  acceleratorMinimumComputeOperationsPerSecond?: number;
+  acceleratorPreferredKind?: TaskOperationDefinition["acceleratorPreferredKind"];
 };
 
 type RawRecipeStep = {
@@ -44,7 +49,8 @@ type RawTask = {
   kind: TaskKind;
   category: TaskDefinition["category"];
   visibility?: TaskVisibility;
-  rewardData: number;
+  rewardData: string | number;
+  aggregateBatch?: TaskDefinition["aggregateBatch"];
   parallelizable: boolean;
   repeatable: boolean;
   coreScaling?: TaskCoreScaling;
@@ -65,6 +71,7 @@ type RawTask = {
 
 const compileCodeTaskId: TaskId = "compileCode";
 const renderFrameTaskId: TaskId = "renderFrame";
+const inferenceBatchTaskId: TaskId = "inferenceBatch";
 const regressionTestTaskId: TaskId = "regressionTest";
 
 const countTask = (state: GameState, id: TaskDefinition["id"]) =>
@@ -72,6 +79,21 @@ const countTask = (state: GameState, id: TaskDefinition["id"]) =>
 
 const hasCompleted = (state: GameState, id: TaskDefinition["id"]) =>
   countTask(state, id) > 0 || state.completedBenchmarks.includes(id);
+
+const hasSpecializationEvidence = (state: GameState) => {
+  const totals = state.systems.reduce(
+    (evidence, system) => ({
+      gpu:
+        evidence.gpu +
+        (system.workshop?.evidence.gpuRenderCompletions ?? 0),
+      npu:
+        evidence.npu +
+        (system.workshop?.evidence.npuInferenceCompletions ?? 0),
+    }),
+    { gpu: 0, npu: 0 },
+  );
+  return totals.gpu > 0 && totals.npu > 0;
+};
 
 const op = (
   originTaskId: TaskId,
@@ -105,6 +127,13 @@ const op = (
     cacheBytes: bitsToBytes(cacheBits),
     ramBytes: bitsToBytes(operation.ramBits),
     parallel: operation.parallel ?? false,
+    acceleratorClass: operation.acceleratorClass ?? null,
+    acceleratorModelMemoryBits:
+      operation.acceleratorModelMemoryBits ?? 0,
+    acceleratorBatchSize: operation.acceleratorBatchSize ?? 1,
+    acceleratorMinimumComputeOperationsPerSecond:
+      operation.acceleratorMinimumComputeOperationsPerSecond ?? 0,
+    acceleratorPreferredKind: operation.acceleratorPreferredKind ?? null,
   };
 };
 
@@ -276,6 +305,28 @@ const getOperationsWorkCount = (
   getOperationsCacheLoadWork(operations, parallelCoreCount) +
   getOperationsRamLoadWork(operations, parallelCoreCount);
 
+/** Player-facing authored operation invocations, separate from lane work. */
+const getOperationsInvocationCount = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) => operations.reduce(
+  (total, operation) =>
+    total + operation.count * getOperationCoreMultiplier(operation, parallelCoreCount),
+  0,
+);
+
+const getMemoryIssueOverlapWork = (
+  operations: TaskOperationDefinition[],
+  parallelCoreCount: number,
+) =>
+  operations.reduce((total, operation) => {
+    if (!operation.memoryAction) return total;
+    return total + Math.min(
+      getOperationCpuWork(operation, parallelCoreCount),
+      getOperationCacheLoadWork(operation, parallelCoreCount),
+    );
+  }, 0);
+
 const summarizeOperations = (
   operations: TaskOperationDefinition[],
   parallelCoreCount = 1,
@@ -440,6 +491,7 @@ const rawCpuLeafTask = (
     repeatable?: boolean;
     minCores?: number;
     maxCores?: number;
+    rewardData?: number;
   } = {},
 ): RawTask => ({
   id,
@@ -447,7 +499,7 @@ const rawCpuLeafTask = (
   kind: "task",
   category: "cpu",
   visibility: options.visibility ?? "internal",
-  rewardData: 0,
+  rewardData: options.rewardData ?? 0,
   parallelizable: options.parallelizable ?? operation.parallel ?? false,
   repeatable: options.repeatable ?? true,
   minCores: options.minCores ?? 1,
@@ -491,12 +543,25 @@ const rawTasks: RawTask[] = [
         cycles: 1,
         ramBits: 0,
       },
+      {
+        id: "latch-bit",
+        name: "Latch Bit",
+        kind: "compute",
+        cycles: 1,
+        cacheBits: 0,
+        ramBits: 0,
+      },
     ],
     recipe: [
       {
         id: "fetch",
         name: "Fetch one bit",
         operationIds: ["fetch-bit"],
+      },
+      {
+        id: "latch",
+        name: "Latch the fetched bit",
+        operationIds: ["latch-bit"],
       },
     ],
   },
@@ -547,7 +612,10 @@ const rawTasks: RawTask[] = [
     name: "Bit Flip",
     kind: "task",
     category: "cpu",
-    rewardData: 1,
+    // First-completion Data re-homed from the retired Bootstrap Benchmark
+    // project so the Jobs-only opening funds the same research path. Front-
+    // loaded here because the cache ladder to Byte Copy is the first sink.
+    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -562,6 +630,14 @@ const rawTasks: RawTask[] = [
         kind: "memory",
         memoryAction: "read",
         cycles: 1,
+        ramBits: 0,
+      },
+      {
+        id: "flip-bit",
+        name: "Flip Bit",
+        kind: "compute",
+        cycles: 1,
+        cacheBits: 0,
         ramBits: 0,
       },
       {
@@ -580,6 +656,11 @@ const rawTasks: RawTask[] = [
         operationIds: ["read-bit"],
       },
       {
+        id: "flip",
+        name: "Flip source bit",
+        operationIds: ["flip-bit"],
+      },
+      {
         id: "overwrite",
         name: "Write flipped bit",
         operationIds: ["overwrite-bit"],
@@ -591,7 +672,7 @@ const rawTasks: RawTask[] = [
     name: "Bit Shift",
     kind: "task",
     category: "cpu",
-    rewardData: 1,
+    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -606,6 +687,14 @@ const rawTasks: RawTask[] = [
         kind: "memory",
         memoryAction: "read",
         cycles: 1,
+        ramBits: 0,
+      },
+      {
+        id: "shift-bit",
+        name: "Shift Bit",
+        kind: "compute",
+        cycles: 2,
+        cacheBits: 0,
         ramBits: 0,
       },
       {
@@ -624,6 +713,11 @@ const rawTasks: RawTask[] = [
         operationIds: ["read-bit"],
       },
       {
+        id: "shift",
+        name: "Shift source bit",
+        operationIds: ["shift-bit"],
+      },
+      {
         id: "overwrite",
         name: "Write shifted bit",
         operationIds: ["overwrite-bit"],
@@ -635,7 +729,7 @@ const rawTasks: RawTask[] = [
     name: "Byte Copy",
     kind: "task",
     category: "cpu",
-    rewardData: 2,
+    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -679,7 +773,7 @@ const rawTasks: RawTask[] = [
     name: "Packet Check",
     kind: "task",
     category: "cpu",
-    rewardData: 1,
+    rewardData: 4,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -746,6 +840,9 @@ const rawTasks: RawTask[] = [
       visibility: "default",
       reveal: hasRamControl,
       requirement: hasInstalledRam,
+      // RAM-era first completions fund System Scheduler research now that
+      // projects unlock after (not before) the scheduler exists.
+      rewardData: 3,
     },
   ),
   rawCpuLeafTask(
@@ -764,6 +861,7 @@ const rawTasks: RawTask[] = [
       visibility: "default",
       reveal: hasRamControl,
       requirement: hasInstalledRam,
+      rewardData: 3,
     },
   ),
   rawCpuLeafTask(
@@ -782,6 +880,7 @@ const rawTasks: RawTask[] = [
       visibility: "default",
       reveal: hasRamControl,
       requirement: hasInstalledRam,
+      rewardData: 3,
     },
   ),
   rawCpuLeafTask("stageChecksumPage", "Stage Checksum Page", {
@@ -1036,6 +1135,11 @@ const rawTasks: RawTask[] = [
       cacheBits: 8,
       ramBits: 512,
       parallel: true,
+      acceleratorClass: "render",
+      acceleratorModelMemoryBits: 34_359_738_368,
+      acceleratorBatchSize: 1,
+      acceleratorMinimumComputeOperationsPerSecond: 3_000_000_000,
+      acceleratorPreferredKind: "gpu",
     },
     { parallelizable: true },
   ),
@@ -1144,6 +1248,43 @@ const rawTasks: RawTask[] = [
     cycles: 5,
     ramBits: 1024,
   }),
+  rawCpuLeafTask("loadInferenceModel", "Load Inference Model", {
+    id: "load-inference-model",
+    name: "Load Inference Model",
+    kind: "memory",
+    memoryAction: "read",
+    count: 16,
+    cycles: 8,
+    ramBits: 2048,
+  }),
+  rawCpuLeafTask(
+    "runInferenceBatch",
+    "Run Inference Batch",
+    {
+      id: "run-inference-batch",
+      name: "Run Inference Batch",
+      kind: "compute",
+      cycles: 480,
+      cacheBits: 16,
+      ramBits: 2048,
+      parallel: true,
+      acceleratorClass: "inference",
+      acceleratorModelMemoryBits: 17_179_869_184,
+      acceleratorBatchSize: 16,
+      acceleratorMinimumComputeOperationsPerSecond: 6_000_000_000,
+      acceleratorPreferredKind: "npu",
+    },
+    { parallelizable: true },
+  ),
+  rawCpuLeafTask("writeInferenceResults", "Write Inference Results", {
+    id: "write-inference-results",
+    name: "Write Inference Results",
+    kind: "memory",
+    memoryAction: "write",
+    count: 16,
+    cycles: 6,
+    ramBits: 2048,
+  }),
   rawCpuLeafTask(
     "scatterShards",
     "Scatter Shards",
@@ -1200,7 +1341,7 @@ const rawTasks: RawTask[] = [
     name: "Tiny Checksum",
     kind: "task",
     category: "system",
-    rewardData: 2,
+    rewardData: 8,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -1336,8 +1477,12 @@ const rawTasks: RawTask[] = [
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: () => false,
-    requirement: () => false,
+    reveal: (state) =>
+      hasResearch(state, systemCatalogResearchId) &&
+      hasCompleted(state, compileCodeTaskId),
+    requirement: (state) =>
+      hasResearch(state, systemCatalogResearchId) &&
+      hasCompleted(state, compileCodeTaskId),
     composition: [compose("sampleThermalSensors"), compose("fitHeatCurve")],
     recipe: [
       {
@@ -1400,10 +1545,14 @@ const rawTasks: RawTask[] = [
     kind: "task",
     category: "system",
     rewardData: 12,
+    aggregateBatch: {
+      workUnitMultiplier: 64,
+      maximumMultiplier: 1_000_000_000,
+    },
     parallelizable: true,
     repeatable: true,
     coreScaling: "chunked",
-    workUnitCount: 16,
+    workUnitCount: 2,
     workUnitName: "compile unit",
     minCores: 1,
     reveal: (state) => hasResearch(state, systemCatalogResearchId),
@@ -1449,10 +1598,14 @@ const rawTasks: RawTask[] = [
     kind: "task",
     category: "system",
     rewardData: 18,
+    aggregateBatch: {
+      workUnitMultiplier: 96,
+      maximumMultiplier: 1_000_000_000,
+    },
     parallelizable: true,
     repeatable: true,
     coreScaling: "chunked",
-    workUnitCount: 24,
+    workUnitCount: 3,
     workUnitName: "render tile",
     minCores: 1,
     reveal: (state) =>
@@ -1495,20 +1648,67 @@ const rawTasks: RawTask[] = [
     ],
   },
   {
+    id: inferenceBatchTaskId,
+    name: "Inference Batch",
+    kind: "task",
+    category: "system",
+    rewardData: 30,
+    aggregateBatch: {
+      workUnitMultiplier: 64,
+      maximumMultiplier: 1_000_000_000,
+    },
+    parallelizable: true,
+    repeatable: true,
+    coreScaling: "chunked",
+    workUnitCount: 2,
+    workUnitName: "inference shard",
+    minCores: 1,
+    reveal: (state) => hasResearch(state, "specializedCompute"),
+    requirement: (state) => hasResearch(state, "specializedCompute"),
+    composition: [
+      compose("loadInferenceModel"),
+      compose("runInferenceBatch", 1, "perWorkUnit"),
+      compose("writeInferenceResults"),
+    ],
+    recipe: [
+      {
+        id: "load",
+        name: "Load inference model",
+        operationIds: ["load-inference-model"],
+      },
+      {
+        id: "infer",
+        name: "Run inference shards",
+        operationIds: ["run-inference-batch"],
+      },
+      {
+        id: "write",
+        name: "Write inference results",
+        operationIds: ["write-inference-results"],
+      },
+    ],
+  },
+  {
     id: regressionTestTaskId,
     name: "Regression Test",
     kind: "task",
     category: "system",
     rewardData: 24,
+    aggregateBatch: {
+      workUnitMultiplier: 96,
+      maximumMultiplier: 1_000_000_000,
+    },
     parallelizable: true,
     repeatable: true,
     coreScaling: "chunked",
-    workUnitCount: 32,
+    workUnitCount: 4,
     workUnitName: "test case",
     minCores: 1,
-    reveal: (state) => hasResearch(state, customMachineAssemblyResearchId),
+    reveal: (state) =>
+      hasResearch(state, systemCatalogResearchId) &&
+      hasCompleted(state, renderFrameTaskId),
     requirement: (state) =>
-      hasResearch(state, customMachineAssemblyResearchId) &&
+      hasResearch(state, systemCatalogResearchId) &&
       hasCompleted(state, renderFrameTaskId),
     composition: [
       compose("stageTestFixtures", 1, "perWorkUnit"),
@@ -1556,7 +1756,7 @@ const rawTasks: RawTask[] = [
     name: "Micro Benchmark",
     kind: "benchmark",
     category: "cpu",
-    rewardData: 4,
+    rewardData: 12,
     parallelizable: false,
     repeatable: false,
     minCores: 1,
@@ -1589,7 +1789,7 @@ const rawTasks: RawTask[] = [
     name: "Parallelism Benchmark",
     kind: "benchmark",
     category: "cpu",
-    rewardData: 8,
+    rewardData: 16,
     parallelizable: false,
     repeatable: false,
     minCores: 1,
@@ -1666,6 +1866,60 @@ const rawTasks: RawTask[] = [
       },
     ],
   },
+  {
+    id: "workstationBenchmark",
+    name: "Workstation Benchmark",
+    kind: "task",
+    category: "cpu",
+    rewardData: 80,
+    parallelizable: false,
+    repeatable: false,
+    minCores: 1,
+    reveal: (state) => hasResearch(state, "specializedCompute"),
+    requirement: (state) =>
+      hasResearch(state, "specializedCompute") &&
+      hasSpecializationEvidence(state) &&
+      !hasCompleted(state, "workstationBenchmark"),
+    operations: [
+      {
+        id: "verify-specialized-throughput",
+        name: "Verify Specialized Throughput",
+        kind: "compute",
+        cycles: 600,
+        cacheBits: 32,
+        ramBits: 0,
+      },
+    ],
+    recipe: [
+      {
+        id: "verify",
+        name: "Verify specialized throughput",
+        operationIds: ["verify-specialized-throughput"],
+      },
+    ],
+  },
+  rawCpuLeafTask(
+    "liveQueueTriage",
+    "Queue Triage",
+    {
+      id: "triage-live-queue",
+      name: "Triage Live Queue",
+      kind: "compute",
+      cycles: 1,
+      ramBits: 0,
+    },
+  ),
+  rawCpuLeafTask(
+    "liveCanaryValidation",
+    "Canary Validation",
+    {
+      id: "validate-live-canary",
+      name: "Validate Live Canary",
+      kind: "compute",
+      cycles: 1,
+      ramBits: 0,
+    },
+  ),
 ];
 
 const rawTaskById = new Map(rawTasks.map((task) => [task.id, task]));
@@ -1919,11 +2173,33 @@ const getScaledOperationCount = (
   workUnitCount: number,
   composition: TaskCompositionDefinition[],
   nodes: TaskSubtaskDefinition[],
+  parallelCoreCount: number,
 ) =>
   nodes.reduce(
     (total, node) =>
       total +
-      node.operationCount *
+      getOperationsInvocationCount(node.operations, parallelCoreCount) *
+        getRecipeNodeWorkScale(coreScaling, workUnitCount, composition, node),
+    0,
+  );
+
+/**
+ * Paid work mirrors runtime composition. CPU issue and cache transfer overlap
+ * for memory operations, so their shared slice counts once; sequential
+ * cache/CPU/RAM stages add normally.
+ */
+const getScaledPaidWorkUnits = (
+  coreScaling: TaskCoreScaling,
+  workUnitCount: number,
+  composition: TaskCompositionDefinition[],
+  nodes: TaskSubtaskDefinition[],
+  parallelCoreCount: number,
+) =>
+  nodes.reduce(
+    (total, node) =>
+      total +
+      (node.operationCount -
+        getMemoryIssueOverlapWork(node.operations, parallelCoreCount)) *
         getRecipeNodeWorkScale(coreScaling, workUnitCount, composition, node),
     0,
   );
@@ -1946,16 +2222,25 @@ const getPerWorkUnitOperationCount = (
   coreScaling: TaskCoreScaling,
   composition: TaskCompositionDefinition[],
   nodes: TaskSubtaskDefinition[],
+  parallelCoreCount: number,
 ) => {
   if (coreScaling !== "chunked") {
-    return nodes.reduce((total, node) => total + node.operationCount, 0);
+    return nodes.reduce(
+      (total, node) =>
+        total + getOperationsInvocationCount(node.operations, parallelCoreCount),
+      0,
+    );
   }
 
   return nodes
     .filter(
       (node) => getRecipeNodeCompositionEntry(composition, node)?.mode === "perWorkUnit",
     )
-    .reduce((total, node) => total + node.operationCount, 0);
+    .reduce(
+      (total, node) =>
+        total + getOperationsInvocationCount(node.operations, parallelCoreCount),
+      0,
+    );
 };
 
 const getPerWorkUnitCycles = (
@@ -2009,6 +2294,7 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     workUnitCount,
     composition,
     subtasks,
+    summaryCoreCount,
   );
   const requiredCycles = getScaledRequiredCycles(
     coreScaling,
@@ -2016,6 +2302,26 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     composition,
     subtasks,
   );
+  const paidWorkUnits = getScaledPaidWorkUnits(
+    coreScaling,
+    workUnitCount,
+    composition,
+    subtasks,
+    summaryCoreCount,
+  );
+  const operationCountExact = amount(operationCount);
+  const paidWorkUnitsExact = amount(paidWorkUnits);
+  const requiredCyclesExact = amount(requiredCycles);
+  const workUnitOperationCount = getPerWorkUnitOperationCount(
+    coreScaling,
+    composition,
+    subtasks,
+    summaryCoreCount,
+  );
+  const workUnitCycles = getPerWorkUnitCycles(coreScaling, composition, subtasks);
+  // Public job payout is one Credit per runtime-aligned paid work unit.
+  const rewardCreditsExact = paidWorkUnitsExact;
+  const rewardDataExact = amount(raw.rewardData);
   const definition: TaskDefinition = {
     id: raw.id,
     name: raw.name,
@@ -2023,18 +2329,21 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     category: raw.category,
     visibility: raw.visibility ?? "default",
     composition,
-    rewardData: raw.rewardData,
+    rewardData: amountToSafeNumber(rewardDataExact),
+    rewardDataExact,
+    firstCompletionData: amountToSafeNumber(rewardDataExact),
+    firstCompletionDataExact: rewardDataExact,
+    repeatRewardData: 0,
+    repeatRewardDataExact: amount(0),
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,
     coreScaling,
     workUnitCount,
     workUnitName,
-    workUnitOperationCount: getPerWorkUnitOperationCount(
-      coreScaling,
-      composition,
-      subtasks,
-    ),
-    workUnitCycles: getPerWorkUnitCycles(coreScaling, composition, subtasks),
+    workUnitOperationCount,
+    workUnitOperationCountExact: amount(workUnitOperationCount),
+    workUnitCycles,
+    workUnitCyclesExact: amount(workUnitCycles),
     workUnitCacheNeedBits: summary.cacheBits,
     workUnitRamNeedBits: summary.ramBits,
     minCores: raw.minCores,
@@ -2044,8 +2353,14 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     subtasks,
     operations,
     operationCount,
-    rewardCredits: operationCount,
+    operationCountExact,
+    paidWorkUnits,
+    paidWorkUnitsExact,
+    rewardCredits: amountToSafeNumber(rewardCreditsExact),
+    rewardCreditsExact,
+    aggregateBatch: raw.aggregateBatch ?? null,
     requiredCycles,
+    requiredCyclesExact,
     cacheNeedBits: summary.cacheBits,
     ramNeedBits: summary.ramBits,
     cacheNeedBytes: bitsToBytes(summary.cacheBits),

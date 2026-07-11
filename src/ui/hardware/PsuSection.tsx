@@ -5,17 +5,21 @@ import {
   type VisibleUpgrade,
 } from "../../game";
 import { formatWatts } from "../format";
+import { StatTile, StatTileRow } from "../StatTile";
 import type { Dispatch } from "../uiActions";
 import { DeadlockHelpCaption } from "./DeadlockHelp";
 import {
   formatCountdownSeconds,
-  formatHardwarePercent,
   formatPowerRate,
+  stripSharedUnit,
 } from "./display";
-import { PowerTransitionBanner, PsuHeaderWarning } from "./PowerControls";
+import {
+  IdlePowerPolicyControl,
+  PowerTransitionBanner,
+  PsuHeaderWarning,
+} from "./PowerControls";
 import { getStressTone } from "./stressTone";
 import { InlineUpgradeRow, UpgradeStepper } from "./UpgradeControls";
-import { getProgressStyle } from "./meters";
 
 type PowerLifecycleState = "on" | "off" | "booting" | "shuttingDown";
 
@@ -82,7 +86,15 @@ export function PsuSection({
   const bootButtonClass =
     power.state === "off" ? "go" : power.state === "booting" ? "active" : "";
 
-  const loadPercent = Math.min(100, Math.max(0, power.stress * 100));
+  const drawLabel = formatWatts(power.drawWatts);
+  const capacityLabel = formatWatts(power.capacityWatts);
+  const capacitySplit = capacityLabel.lastIndexOf(" ");
+  const capacityValue = capacityLabel.slice(0, capacitySplit);
+  const capacityUnit = capacityLabel.slice(capacitySplit + 1);
+  const drawValue = stripSharedUnit(drawLabel, capacityLabel);
+  const drawMeter = Number.isFinite(power.stress) ? power.stress : 0;
+  const drawAccent =
+    tone === "critical" ? "rose" : tone === "warn" ? "amber" : "cyan";
   const showOverloadFailure =
     power.overloadFailure.active || power.overloadFailure.progress > 0;
   const showCreditWarning = power.unpaidShutdownWarningSeconds > 0;
@@ -106,6 +118,7 @@ export function PsuSection({
         progress: creditWarningProgress,
         flashing: true,
         tripped: false,
+        snapKey: "credit-warning",
       }
     : showOverloadFailure
       ? {
@@ -113,6 +126,11 @@ export function PsuSection({
           progress: power.overloadFailure.progress,
           flashing: power.overloadFailure.active || power.overloadFailure.tripped,
           tripped: power.overloadFailure.tripped,
+          snapKey: power.overloadFailure.tripped
+            ? "overload-tripped"
+            : power.overloadFailure.active
+              ? "overload-active"
+              : "overload-resetting",
         }
       : null;
 
@@ -133,6 +151,7 @@ export function PsuSection({
             progress={headerWarning.progress}
             flashing={headerWarning.flashing}
             tripped={headerWarning.tripped}
+            snapKey={headerWarning.snapKey}
           />
         )}
         {powerControls.showControls && (
@@ -155,6 +174,10 @@ export function PsuSection({
             >
               Kill
             </button>
+            <IdlePowerPolicyControl
+              policy={visible.metrics.idlePowerPolicy}
+              dispatch={dispatch}
+            />
           </div>
         )}
       </div>
@@ -167,40 +190,22 @@ export function PsuSection({
         <PowerTransitionBanner power={power} surface="psu" />
       )}
 
-      <div className="psu-hero">
-        <span className="psu-hero-stat psu-hero-draw-stat">
-          <span className="psu-hero-draw">{formatWatts(power.drawWatts)}</span>
-          <span className="psu-hero-capacity">
-            <span className="psu-hero-divider">/</span>
-            {formatWatts(power.capacityWatts)}
-          </span>
-        </span>
-        <span className="psu-hero-stat psu-hero-cost-stat">
-          <span className="psu-hero-cost">
-            {formatPowerRate(power.costPerSecond)}
-          </span>
-          <span className="psu-hero-cost-unit">cr/s</span>
-        </span>
-      </div>
-
-      <div className="psu-load-row">
-        <span className="psu-load-label">
-          <strong>{formatHardwarePercent(power.stress)}</strong>
-          <small>load</small>
-        </span>
-        <div
-          className="psu-load-meter"
-          role="img"
-          aria-label={`PSU load ${formatHardwarePercent(power.stress)}`}
-        >
-          <div
-            className="psu-load-meter-fill progress-fill"
-            style={getProgressStyle(loadPercent / 100)}
-          />
-          <span className="psu-load-meter-tick" aria-hidden="true" />
-          <span className="psu-load-meter-tick critical" aria-hidden="true" />
-        </div>
-      </div>
+      <StatTileRow>
+        <StatTile
+          label="Draw"
+          value={`${drawValue} / ${capacityValue}`}
+          unit={capacityUnit}
+          accent={drawAccent}
+          meter={drawMeter}
+          title={`Power draw ${drawLabel} / ${capacityLabel} capacity`}
+        />
+        <StatTile
+          label="Cost"
+          value={formatPowerRate(power.costPerSecond)}
+          unit="cr/s"
+          accent="amber"
+        />
+      </StatTileRow>
 
       {power.billingGraceSeconds > 0 && (
         <div className="psu-meta-row">
@@ -211,23 +216,12 @@ export function PsuSection({
         </div>
       )}
 
-      {showCreditWarning && (
-        <div className="psu-meta-row">
-          <div className="psu-meta-cell psu-meta-credit-warning">
-            <small>credits</small>
-            <strong>
-              {formatCountdownSeconds(power.unpaidShutdownWarningSeconds)} cutoff
-            </strong>
-          </div>
-        </div>
-      )}
-
       {psuUpgrade && (
         <div className="power-upgrade-row">
           <UpgradeStepper
             upgrade={psuUpgrade}
             dispatch={dispatch}
-            label="PSU Capacity"
+            label="Capacity"
             className="inline-stepper"
             resources={visible.resources}
           />

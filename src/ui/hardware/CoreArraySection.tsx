@@ -3,12 +3,15 @@ import { X } from "lucide-react";
 import type { VisibleCore, VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
+import { SmoothFill } from "../SmoothProgress";
+import { StatTile } from "../StatTile";
 import { getCoreActiveTask } from "../tasks/taskData";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
+import { formatClockTick } from "./display";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCoreGridMetrics } from "./coreGrid";
-import { getCoreSegmentColor, getProgressStyle } from "./meters";
+import { getCoreSegmentColor } from "./meters";
 import type { CoreGridDensity } from "./visibleState";
 
 export function CoreArraySection({
@@ -76,9 +79,13 @@ export function CoreArraySection({
           </button>
         )}
         {showEfficiency && (
-          <span className="core-array-efficiency">
-            Eff <strong>{formatNumber(socket.efficiency)}</strong>
-          </span>
+          <div className="core-array-efficiency">
+            <StatTile
+              label="Eff"
+              value={formatNumber(socket.efficiency)}
+              title={`Efficiency ${formatNumber(socket.efficiency)}`}
+            />
+          </div>
         )}
         {coreUpgrade && (
           <div className="core-array-header-controls" aria-label="Core count">
@@ -185,7 +192,7 @@ function CoreDie({
       <span className="core-die-head">
         <span className="core-label">{coreLabel}</span>
         <span className="core-clock">
-          <strong>{formatClock(core.clockHz)}</strong>
+          <strong>{formatClockTick(core.clockHz)}</strong>
         </span>
         {active && (
           <button
@@ -204,8 +211,8 @@ function CoreDie({
           {work}
         </span>
       )}
-      <span className="die-progress" aria-hidden="true">
-        <span className="progress-fill" style={getProgressStyle(progress)} />
+      <span className="smooth-progress die-progress" aria-hidden="true">
+        <SmoothFill value={progress} />
       </span>
     </div>
   );

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createInitialGameState,
   deriveVisibleState,
+  exactResourceBag,
   type VisibleState
 } from "../game";
 import {
@@ -167,11 +168,19 @@ describe("HardwareBoard second CPU system management", () => {
     const ramSection = container.querySelector(".memory-section");
     const psuSection = container.querySelector(".psu-section");
 
-    expect(flow?.firstElementChild?.className).toContain("system-scheduler-section");
+    expect(flow?.firstElementChild?.className).toContain("system-work-summary");
+    expect(schedulerSection).not.toBeNull();
     expect(container.querySelector(".system-board-frame")).toBeNull();
     expect(cronSection).toBeNull();
-    expect(psuSection?.textContent).toContain("32 W");
-    expect(psuSection?.textContent).toContain("65 W");
+    // Draw / capacity fraction prints the shared watt unit once; the DRAW
+    // stat tile keeps the full wording in its tooltip/aria-label.
+    expect(psuSection?.textContent).toContain("32");
+    expect(psuSection?.textContent).not.toContain("32 W");
+    expect(
+      psuSection
+        ?.querySelector('.stat-tile[title^="Power draw"]')
+        ?.getAttribute("title"),
+    ).toContain("65 W");
     expect(psuSection?.textContent).toContain("Boot");
     expect(psuSection?.textContent).toContain("Kill");
     expect(psuSection?.textContent).toContain("cr/s");
@@ -190,6 +199,7 @@ describe("HardwareBoard second CPU system management", () => {
     const visible = deriveVisibleState({
       ...base,
       resources: { credits: 20_000, data: 20_000 },
+      exactResources: exactResourceBag(20_000, 20_000),
       flags: {
         ...base.flags,
         basicQueue: true,
@@ -472,18 +482,24 @@ describe("HardwareBoard second CPU system management", () => {
     expect(intervalInput?.value).toBe("45");
     expect(toggle?.checked).toBe(true);
     expect(container.querySelector(".cron-section")?.textContent).toContain(
+      "CRON",
+    );
+    expect(container.querySelector(".cron-section")?.textContent).not.toContain(
       "System Automation",
     );
-    expect(container.querySelector(".cron-section")?.textContent).toContain(
-      "Next job",
-    );
+    expect(
+      container.querySelector(".cron-next small")?.textContent,
+    ).toBe("Next");
     expect(container.querySelector(".cron-section")?.textContent).toContain("12s");
     expect(container.querySelector(".cron-section")?.textContent).not.toContain(
       "11.2s",
     );
-    expect(container.querySelector(".cron-section")?.textContent).toContain(
-      "Min 30s",
+    // The cadence floor is a MIN stat tile; its tooltip keeps the wording.
+    const minTile = container.querySelector(
+      '.cron-section .stat-tile[title^="Smallest interval"]',
     );
+    expect(minTile?.textContent).toContain("30s");
+    expect(minTile?.textContent).toContain("Min");
     expect(container.querySelector(".cron-section")?.textContent).toContain(
       "Min interval",
     );
@@ -705,12 +721,13 @@ describe("HardwareBoard second CPU system management", () => {
       card?.querySelectorAll(".cpu-summary-queue-state") ?? [],
     ).map((state) => state.textContent);
 
-    expect(queue?.classList.contains("slots-4")).toBe(true);
+    // Filled slots render individually; open capacity collapses to one chip.
+    expect(queue?.classList.contains("slots-2")).toBe(true);
     expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
     expect(card?.querySelector(".cpu-summary-active")).toBeNull();
     expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
-    expect(queueStates).toEqual(["CACHE", "Open", "Open", "Open"]);
-    expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(3);
+    expect(queueStates).toEqual(["CACHE", "3 open"]);
+    expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(1);
     expect(card?.querySelector(".cpu-summary-upgrades")).toBeNull();
 
     act(() => {
@@ -913,8 +930,15 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".psu-section")?.textContent).not.toContain(
       "System booting",
     );
-    expect(container.querySelector(".psu-section")?.textContent).toContain("42 W");
-    expect(container.querySelector(".psu-section")?.textContent).toContain("80 W");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("42");
+    expect(container.querySelector(".psu-section")?.textContent).not.toContain(
+      "42 W",
+    );
+    expect(
+      container
+        .querySelector('.psu-section .stat-tile[title^="Power draw"]')
+        ?.getAttribute("title"),
+    ).toContain("80 W");
     expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
     expect(container.querySelector(".psu-section")?.textContent).toContain("cr/s");
     expect(container.querySelector(".psu-section")?.textContent).toContain("4s");
@@ -926,7 +950,7 @@ describe("HardwareBoard second CPU system management", () => {
       "efficiency",
     );
     expect(container.querySelector(".psu-section")?.textContent).toContain(
-      "PSU Capacity",
+      "Capacity",
     );
     expect(container.querySelector(".thermal-section")).toBeNull();
 
@@ -956,26 +980,14 @@ describe("HardwareBoard second CPU system management", () => {
     expect(runningButtons[0]?.className).not.toContain("active");
     expect(runningButtons[0]?.disabled).toBe(true);
     expect(runningButtons[1]?.disabled).toBe(false);
-    expect(
-      container.querySelector(".system-shutdown-button")?.textContent,
-    ).toContain("Shutdown");
+    // The PSU is the single power-state home; no duplicate scheduler control.
+    expect(container.querySelector(".system-shutdown-button")).toBeNull();
 
     act(() => {
       runningButtons[1]?.click();
     });
 
     expect(dispatch).toHaveBeenCalledWith({ type: "killPower" });
-
-    act(() => {
-      container
-        .querySelector<HTMLButtonElement>(".system-shutdown-button")
-        ?.click();
-    });
-
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "setPowerState",
-      state: "off",
-    });
 
     (visible as unknown as { systemStatus: Record<string, unknown> }).systemStatus = {
       ...(visible as unknown as { systemStatus: Record<string, unknown> })
@@ -1005,17 +1017,10 @@ describe("HardwareBoard second CPU system management", () => {
     expect(updatedButtons[0]?.className).toContain("go");
     expect(updatedButtons[0]?.disabled).toBe(false);
     expect(updatedButtons[1]?.disabled).toBe(true);
-    expect(
-      container.querySelector(".system-shutdown-button")?.className,
-    ).toContain("start");
-    expect(
-      container.querySelector(".system-shutdown-button")?.textContent,
-    ).toContain("Start system");
+    expect(container.querySelector(".system-shutdown-button")).toBeNull();
 
     act(() => {
-      container
-        .querySelector<HTMLButtonElement>(".system-shutdown-button")
-        ?.click();
+      updatedButtons[0]?.click();
     });
 
     expect(dispatch).toHaveBeenCalledWith({
@@ -1024,4 +1029,3 @@ describe("HardwareBoard second CPU system management", () => {
     });
   });
 });
-

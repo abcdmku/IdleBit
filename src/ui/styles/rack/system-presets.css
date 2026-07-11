@@ -171,6 +171,13 @@
   text-transform: uppercase;
 }
 
+.premade-card-copy > span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
 .premade-card-buy {
   flex-shrink: 0;
   display: inline-flex;
@@ -244,6 +251,17 @@
 }
 
 .premade-card-spec .tone-amber { color: var(--amber); }
+
+.premade-card-projection-note {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 2px solid rgba(242, 194, 78, 0.5);
+  color: #c8b77d;
+  background: rgba(242, 194, 78, 0.045);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+}
 
 .premade-card-footer {
   display: flex;

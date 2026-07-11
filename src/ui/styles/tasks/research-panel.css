@@ -78,11 +78,12 @@
   letter-spacing: var(--tracking-tight);
 }
 
-.research-description {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  line-height: 1.35;
+/* Research descriptions live in the card's title tooltip; the visible
+   card is name + cost tokens + requirement checks + buy button. */
+
+.research-copy .stat-tile-row {
+  justify-content: start;
+  grid-auto-columns: max-content;
 }
 
 .research-buy-button {
@@ -144,6 +145,10 @@
 .research-requirement small {
   color: var(--muted);
   font-size: var(--fs-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20ch;
 }
 
 .research-requirement.met b { color: var(--green); }

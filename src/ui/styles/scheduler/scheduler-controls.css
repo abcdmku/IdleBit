@@ -11,41 +11,6 @@
   justify-content: flex-end;
 }
 
-.system-shutdown-button {
-  display: inline-flex;
-  grid-column: 4;
-  gap: 5px;
-  align-items: center;
-  justify-content: center;
-  justify-self: end;
-  min-height: 24px;
-  padding: 3px 8px;
-  border-color: rgba(242, 194, 78, 0.32);
-  color: var(--amber);
-  background: rgba(242, 194, 78, 0.06);
-  font-family: var(--font-mono);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.system-shutdown-button:hover:not(:disabled) {
-  border-color: rgba(242, 194, 78, 0.54);
-  background: rgba(242, 194, 78, 0.12);
-}
-
-.system-shutdown-button.start {
-  border-color: rgba(115, 240, 92, 0.46);
-  color: var(--green);
-  background: rgba(115, 240, 92, 0.08);
-}
-
-.system-shutdown-button.start:hover:not(:disabled) {
-  border-color: rgba(115, 240, 92, 0.68);
-  background: rgba(115, 240, 92, 0.14);
-}
-
 .scheduler-control {
   display: inline-flex;
   flex: 1 1 104px;
@@ -60,7 +25,7 @@
   background: rgba(4, 8, 7, 0.3);
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.54rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0;
   overflow: hidden;
 }
@@ -86,7 +51,7 @@
   border: 0;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -119,7 +84,7 @@
   background: rgba(255, 111, 145, 0.06);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0;
 }
 
@@ -155,14 +120,14 @@
   background: rgba(255, 111, 145, 0.08);
   font-style: normal;
   font-weight: 700;
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
 
 .scheduler-watchdog-copy strong {
   min-width: 0;
   color: var(--text);
-  font-size: 0.64rem;
+  font-size: var(--fs-2xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -170,7 +135,7 @@
 
 .scheduler-watchdog-copy small {
   color: var(--rose);
-  font-size: 0.58rem;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -203,11 +168,6 @@
     grid-column: 1;
     grid-row: 1;
     overflow: hidden;
-  }
-
-  .system-shutdown-button {
-    grid-column: 2;
-    grid-row: 1;
   }
 
   .scheduler-header-row > .scheduler-watchdog-status {

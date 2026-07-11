@@ -15,7 +15,7 @@ import { getRackComponentWarnings } from "./rackWarnings";
 import type { UiRackData } from "./types";
 
 const meta = {
-  title: "UI/Rack/SystemRackPanel",
+  title: "UI/Fleet/SystemFleetPanel",
   component: SystemRackPanel,
   parameters: {
     layout: "padded",
@@ -84,7 +84,7 @@ function RackPanelFrame({
   );
 }
 
-export const RackReady: Story = {
+export const FleetReady: Story = {
   args: {
     rack: rackStoryData,
     activeSystemId: "primary",
@@ -100,7 +100,7 @@ export const RackReady: Story = {
 };
 
 export const OfflineWarningState: Story = {
-  args: RackReady.args,
+  args: FleetReady.args,
   render: () => (
     <RackPanelFrame rack={rackStoryData} offlineFirstSystem />
   ),

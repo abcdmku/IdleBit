@@ -1,8 +1,120 @@
 # IdleBit QA Notes
 
-## Vertical Slice Scope
+## Current Target: Long-Form Planetary Campaign (July 9, 2026)
 
-Target scope from `game-spec.md` section 13.2:
+The active target is the Long-Form Planetary Campaign described in the current planning brief. It replaces the earlier vertical-slice and Multi-System Rack phase as the forward-looking acceptance target; those sections remain below as historical QA evidence for already-built mechanics.
+
+Target engagement and completion ranges:
+
+- Full idle: return near the unlocked Automation Buffer limit and complete the planetary campaign in approximately 8–12 months (32–52 weeks).
+- Regular check-ins: play for 5–20 minutes on most days and complete in approximately 4–6 months (16–26 weeks), with a post-CRON progression rate of 1.8–2.2x full idle.
+- Engaged play: add occasional 30–90 minute optimization sessions and complete in approximately 3–4 months (12–18 weeks).
+- Offline capacity is progressive: the Automation Buffer starts at 0, grows through 2/8/12/24/48/72/120 hours, and reaches 168 hours only with the late-game Global Scheduler.
+- The target spans Bootstrap Node, Coherent Machine, Workshop Fleet, Local Fabric, Rack and Facility, Resilient Cloud, and Planetary Commons, followed by endless postgame contracts without mandatory prestige.
+
+### Current implementation evidence
+
+- Exact `Amount` arithmetic for resources and all new campaign layers,
+  save-v7 clean reset/normalization, saved `xoshiro128**` state, and
+  delta-invariant `advanceGame` coverage are built; the final legacy
+  cost/reward/work interface migration is still under verification.
+  Focused tests cover one-shot, chunked, foreground, and offline advancement,
+  every 0/2/8/12/24/48/72/120/168-hour Automation Buffer boundary, departure
+  snapshots, harmless overflow, billing, blockers, and return reports.
+- Bootstrap Node through Workshop Fleet are playable. The opening uses finite
+  first-completion/benchmark Data, plausible physical clocks, finite queues,
+  safe CRON standing orders, an explicit 16-system fully simulated Fleet cap,
+  preset/Advanced builder
+  projections, explicit bounded hardware, per-system cooling/overclock state,
+  saved SSD/NVMe CapacityWork staging, and GPU/NPU routing.
+- Fresh Fetch Bit and Decode Bit now both fall inside the specified 5–30 second
+  onboarding band; a focused projection test guards the starter-hardware values.
+- Fetch Bit separates a one-bit cache read from explicit latch/verify CPU work.
+  Tests prove that its 1 b load takes exactly 1 second at 1 Hz while whole-task
+  duration remains emergent from the full operation path. Shared progress bars
+  visually bridge exact 500 ms state updates, snap backward batch resets, and
+  retain exact ARIA values.
+- PSU draw and headroom are visible from the opening, while energy is subsidized
+  and unsafe work pauses safely. PSU Management appears only after System
+  Scheduler plus Power Telemetry (300 Credits / 2 Data), then enables metered
+  billing, unpaid cutoff, and destructive foreground failure after the player
+  has countermeasures.
+- Local Fabric, Rack/Facility, Resilient Cloud, and Planetary Commons are real
+  saved simulation layers. Focused integration tests cover best-fit placement,
+  weighted fairness, distributed DAG barriers, exact rack-unit procurement,
+  facility reserve/billing/runway, SLA integration, explicit failover,
+  min-cost regional routing, the three-phase finale, charter swaps, and
+  postgame work.
+- Optional Open Foundry, The Archivist, and Grid Relief projects now unlock
+  advanced accelerator modules, rack/zone replica policies, and an exact 20%
+  productive-facility operating discount. Focused tests verify pre/post gates
+  and save stability without making any side arc a mainline requirement.
+- Work exposes Missions, Projects, managed Contracts, Standing Orders, Jobs,
+  and whole-world Active Work. Model-owned projections cover duration, exact
+  energy/operating cost and net value, cache/RAM/resource fit, runway, buffer
+  coverage, renewal, power policy, and predicted pause reason. Return reports
+  identify completed jobs, contracts, and project phases by name.
+- Work now reveals progressively through at most four focused destinations:
+  Jobs, Campaign, Market, and Automation. The opening withholds empty future
+  categories, departure planning, and Research. Active work is projected from
+  game-owned `activeWork` state onto its executing system, with focused tests
+  for cross-system exclusion and chapter-scoped mission/project visibility.
+- Spatial stability is a UI invariant: work lifecycle changes update reserved
+  system-status regions in place and never insert a new rail above Jobs. Task
+  cards keep stable structure and omit the redundant Duration/Net projection
+  grid; the game-owned projection data remains available for contextual
+  planning surfaces without changing card geometry.
+- Live Operations has focused coverage for alternating internal workloads,
+  exact reward and operating-cost projections, foreground allocation, offline
+  retention, PSU/thermal load, policy profiles, and public dispatch rejection.
+  Open Compute reserves its minimum shared-capacity charter remainder in
+  runtime routing and has a two-completion postgame SLA proof.
+- Browser persistence uses worker catch-up with a deterministic synchronous
+  fallback; Electron uses an atomic durable store and a renderer/main close
+  handshake. Save hydration, persistence failure, confirmed reset, and
+  departure-resume paths have targeted automated coverage.
+- `npm run build` passes. Electron Playwright passes 1/1 with the cached native
+  Linux Electron 42.2.0 binary, covering file rendering, preload isolation,
+  durable save/relaunch, close flush, and an offline return. Linux directory
+  packaging passes and produces `release/linux-unpacked/idlebit` plus an
+  `app.asar` containing the web and Electron entry assets.
+- The browser acceptance suite currently passes 31/31 flows. It includes every
+  buffer unlock, capped absence and overflow, standing-order renewal, accepted
+  contract completion, named Fleet routing, distributed completion, public
+  facility construction/billing, SLA/failover, all finale phases, charter
+  swapping, persistence failure/reset, 320–1920 responsive layouts, 200%
+  equivalent reflow, touch targets, reduced motion, and zero violations across
+  the configured WCAG 2.0/2.1/2.2 A/AA Axe tags. A focused strict-Axe rerun
+  passes 6/6 populated shell, return-summary, Work, infrastructure, and Cloud
+  states.
+- PR CI runs unit and balance tests, regenerates and checks balance evidence,
+  performs strict app/E2E/Electron typechecks, builds web/Electron/Storybook,
+  runs browser and Electron Playwright suites, and packages Linux and Windows
+  desktop directories.
+
+### Final integration still being measured
+
+- The four public-action campaign profiles are being recalibrated against the
+  required 32–52 / 16–26 / 12–18 week completion ranges, optimizer ten-week
+  floor, 1.8–2.2x rolling post-CRON ratio, and 75–90% regular offline-output
+  share. Generated CSVs are not acceptance evidence until those real runs pass.
+- Record the final combined `npm test`, balance generation/acceptance,
+  typecheck, production builds, Storybook, Electron Playwright, packaging, and
+  diff checks below after the remaining exact/offline integration and measured
+  profile calibration settle.
+- Linux packaging can require a native Linux output path when WSL-mounted
+  Windows metadata semantics reject Electron Builder output; that environment
+  limitation is distinct from an application packaging failure.
+
+### Offline catch-up terminology
+
+Historical CRON v1 checks below say that missed CRON runs did not “catch up.” That means the timer did not enqueue every missed interval after a duplicate, blocker, full queue, power transition, reload, or absence. It does **not** mean all elapsed game time must be discarded. The campaign target intentionally adds bounded whole-game offline simulation for `min(actual elapsed, Automation Buffer owned at departure)` while retaining safe pauses and no retroactive recovery beyond the departure buffer.
+
+## Historical Vertical Slice Scope
+
+The following checklist records the pre-campaign vertical slice. Its click-rate,
+Thermal, save-version, and later-stage boundaries are superseded by the current
+implementation evidence above and `game-spec.md` section 0.
 
 - Single-core start with 10 credits, one Hz tier level-1 CPU package, cache, bit-scale tasks, current task state, data, and PSU/power readouts visible.
 - Bit-scale startup keeps the first task choices tiny before byte-scale/cache-sensitive work appears.
@@ -42,7 +154,7 @@ Target scope from `game-spec.md` section 13.2:
 - PSU/power readouts, powered-on billing, power state behavior, cheap credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
 - Thermal Control research, Thermal UI, Cooling Loop upgrades, and Thermal Probe are deferred.
 - Five repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror and Shard Reconcile after the second CPU purchase.
-- CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses increasingly expensive `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, never catches up missed runs, and adds a power spike when queuing work.
+- CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses increasingly expensive `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, does not replay every missed timer firing, and adds a power spike when queuing work. This historical timer rule does not prohibit bounded whole-game offline advancement.
 - Power states are `on`, `shuttingDown`, `off`, and `booting`; `off` greys hardware while still allowing hardware edits and power/start controls, blocks work and CRON, and bills zero while startup/shutdown use visible delays.
 - Bootloader Research appears after System Scheduler research, unlocks for 100,000 credits, stays open as repeatable levels 1-36 starting at 10,000 credits with 1.2x cost growth to about 5.9M for level 36, reduces boot time from 9.20s at level 1 by 0.26s per level to 0.10s, and applies the same saved seconds to graceful shutdown from its 8.00s baseline.
 - kHz CPU Research unlocks after System Automation; completing each CPU tier research reveals the next MHz, GHz, THz, and PHz package tier plus the matching RAM tier from the CSV, and C-State Control appears after kHz CPU Research, then stays open as a global `Level up` research item until max C-State level while reducing idle CPU draw only across every system.
@@ -52,7 +164,11 @@ Target scope from `game-spec.md` section 13.2:
 - Broad auto-repeat outside CRON v1 remains deferred.
 - Networking, data centers, SLA contracts, availability zones, and regions remain out of scope for this slice.
 
-## Multi-System Rack Phase Scope
+## Historical Multi-System Rack Phase Scope
+
+This checklist records the former PC-scale checkpoint. Fleet naming, presets,
+Workshop, Local Fabric, true racks/facilities, Cloud, and Planetary behavior now
+supersede its old boundaries.
 
 Target scope from `game-spec.md` section 13.3:
 
@@ -66,7 +182,7 @@ Target scope from `game-spec.md` section 13.3:
 - Shared queues, networking, sharding, cluster scheduling, distributed computing, true rack-unit constraints, data centers, and SLA contracts remain out of scope.
 - `FEATURES.md` rows for this phase move to `Tested` as automated or smoke evidence lands.
 
-## Multi-System Rack QA Checklist
+## Historical Multi-System Rack QA Checklist
 
 - Fresh save/reset:
   - New or reset browser persistence starts from the rack-phase schema with no stale active tasks, queues, schedules, completed task IDs, or obsolete system state.
@@ -91,7 +207,7 @@ Target scope from `game-spec.md` section 13.3:
   - Render Frame can reward local multicore scheduling, but cannot distribute frames or tiles across systems yet.
   - Documentation and `FEATURES.md` status stay aligned after each implementation or verification pass.
 
-## Unit Coverage Checklist
+## Historical Unit Coverage Checklist
 
 - Task timing:
   - `required_cpu_operations / effective_clock` is the baseline for executable CPU operations.
@@ -157,7 +273,7 @@ Target scope from `game-spec.md` section 13.3:
   - A newly bought CRON entry defaults to the current minimum interval, starting at 60 seconds.
   - Each `cronInterval` upgrade lowers the minimum interval by 1 second, gets more expensive, and never below the intended implementation floor.
   - If a CRON tick finds the same task active or queued, the task blocked, the target queue full, or the system `off`, `booting`, or `shuttingDown`, the run is skipped without adding work.
-  - Time spent offline, blocked, or overfull does not catch up; only future due ticks can enqueue work.
+  - For historical CRON v1 scheduling, time spent offline, blocked, or overfull does not enqueue every missed timer firing; only future due ticks enqueue CRON work. Whole-game offline advancement is governed separately by the campaign Automation Buffer target.
   - CRON queue insertion adds the documented short power spike and uses the same queue capacity rules as manual scheduling.
 - Staging and reliability:
   - RAM extends the memory staging hierarchy after cache and stages larger active/intermediate work after RAM Control.
@@ -197,7 +313,7 @@ Target scope from `game-spec.md` section 13.3:
   - Upgrade purchases debit the correct currency and cannot underflow balances.
   - Unlock currency and spendable currency remain distinct.
 
-## CRON And Power Acceptance Checklist
+## Historical CRON And Power Acceptance Checklist
 
 - First screen shows PSU/power readouts alongside the starter CPU/cache economy.
 - PSU Capacity upgrades are buyable with credits from the first screen.
@@ -216,7 +332,7 @@ Target scope from `game-spec.md` section 13.3:
 - CRON can schedule only visible repeatable system tasks and never research benchmarks or hidden/locked tasks.
 - CRON entries require buying the first CRON Job Slot, support seconds and minutes modes, default to a 60s minimum, and respect `cronInterval` minimum-interval reductions of 1 second per upgrade.
 - CRON skips rather than queues when the same task is active/queued, requirements are blocked, the target queue is full, or the system is `off`, `booting`, or `shuttingDown`.
-- CRON does not catch up missed runs after blocked time, full queues, sleep, reload, shutdown, or offline simulation gaps.
+- CRON does not replay each missed timer firing after blocked time, full queues, sleep, reload, shutdown, or offline gaps; this assertion is scoped to CRON queue insertion and does not exclude bounded whole-game offline simulation.
 - CRON-created queue entries apply the short power spike and are visible in PSU draw/stress.
 - Power bills over time from scaled draw with no free threshold except the 0-credit bootstrap grace window.
 - `off` systems allow configuration but block work, scheduler dispatch, CRON, and billing.
@@ -227,7 +343,7 @@ Target scope from `game-spec.md` section 13.3:
 - Multi-CPU systems keep the CPU package add/remove stepper in the CPU bank header immediately before the Array/Tabs toggle, with the toggle staying the rightmost control.
 - Active cooling tradeoffs are deferred with Thermal Control.
 
-## Web Smoke Checklist
+## Historical Web Smoke Checklist
 
 - App boots to the first actionable CPU screen without console errors.
 - Starting state matches the spec: one Hz tier level-1 CPU core at 1 Hz, 0.1 uW CPU draw, 0.1 cr/s billing, 10 uW PSU capacity, 1 b cache, 1 Hz cache load rate, hidden 1 Hz RAM load rate with 0 b RAM capacity, Fetch Bit and Decode Bit visible, PSU/power readouts visible, and no visible RAM.
@@ -257,7 +373,7 @@ Target scope from `game-spec.md` section 13.3:
 - Second CPU flow reveals CRON Scheduler research without revealing locked automation, advanced PSU/tuning, or Thermal modules.
 - Memory Scrub, Queue Compaction, and Power Telemetry appear after Tiny Checksum, and Bus Mirror plus Shard Reconcile appear after the second CPU purchase.
 - CRON Scheduler research reveals the paid CRON Job Slot install; buying it unlocks CRON controls, seconds/minutes interval modes, and visible-task-only scheduling.
-- CRON skips duplicate active/queued tasks, blocked tasks, full target queues, and `off`/`booting`/`shuttingDown` system states without catch-up.
+- CRON skips duplicate active/queued tasks, blocked tasks, full target queues, and `off`/`booting`/`shuttingDown` system states without replaying each missed timer firing; campaign-level offline advancement is a separate requirement.
 - CRON queue insertion creates a short visible power spike.
 - PSU state, draw, billing, shutdown/startup behavior, basic power readouts, credits-only PSU Capacity upgrades, and overload failure pressure are available from the first screen; PSU Management research is deferred.
 - RAM readouts communicate active/intermediate staging, per-stick fixed block locations, active/max channel count, effective write bandwidth, and the RAM-stick add/remove control in the RAM header.
@@ -268,7 +384,7 @@ Target scope from `game-spec.md` section 13.3:
 - Deadlocked cache/RAM surfaces render red, affected hardware greys out only during post-failure lockout reset, the deadlock countdown appears as a wider fill/drain progress bar with a high-contrast time label in the affected Cores/CPU/RAM header rather than inside individual core cards, stays anchored there until pressure reaches 0, and the first deadlock plus cooldown help captions appear over the affected Cache or RAM section without a modal or layout shift while scrolling fully into view.
 - Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.
 
-## Electron Smoke Checklist
+## Historical Electron Smoke Checklist
 
 - Electron shell launches the same first actionable CPU screen as the web build.
 - App menu/window controls do not block gameplay controls.
@@ -277,7 +393,7 @@ Target scope from `game-spec.md` section 13.3:
 - Production package opens without dev-server-only assumptions.
 - Window resize keeps core stats, job controls, upgrade controls, and unlock messaging visible.
 
-## Responsive UI Checklist
+## Historical Responsive UI Checklist
 
 - Test at 390x844, 768x1024, 1366x768, and 1920x1080.
 - Core status, current job, currency, and primary action remain visible without overlap.
@@ -288,7 +404,7 @@ Target scope from `game-spec.md` section 13.3:
 - No hidden early systems appear due to responsive layout changes.
 - Keyboard, pointer, and touch input all operate the primary job and upgrade flow.
 
-## FEATURES.md Status Verification
+## Historical FEATURES.md Status Verification
 
 - Confirm `FEATURES.md` exists before release gating.
 - Cross-check every implemented feature against the vertical slice scope above.
@@ -300,7 +416,7 @@ Target scope from `game-spec.md` section 13.3:
 - Verify broad auto-repeat remains `Deferred`, while CRON v1 rows are `Tested` only with matching automation coverage.
 - Add check evidence: unit command, web smoke command, Electron smoke command, and responsive viewport pass date.
 
-Current `FEATURES.md` observations:
+Historical `FEATURES.md` observations at that checkpoint:
 
 - `FEATURES.md` exists and names `game-spec.md` as the source of truth.
 - Vertical slice simulation and responsive UI features that match the current operation-task build are marked `Tested` when existing notes cite automated or smoke evidence.
@@ -319,11 +435,10 @@ Current `FEATURES.md` observations:
 ## Checks Run
 
 - Task DAG chunk/staging correction on May 27, 2026: `npx vitest run src/game/simulation.test.ts -t "paid task operations|per-work-unit subtasks|resource needs|chunked system|chunked tasks|scheduler routing policies cap chunked|watchdog requeues one chunked|uses CPU scheduler policy"`, `npx vitest run src/ui/TaskBay.queueStatus.test.tsx -t "DAG|child stages"`, `npm test`, `npm run typecheck`, `npm run build`, and scoped `git diff --check` passed. Browser smoke at `http://127.0.0.1:6173/?seed=rack-ready` opened Compile Code's DAG modal and verified total and each labels for per-work-unit Stage Source Tree/Compile Units RAM/cache/compute, single Link Binary/Write Artifact totals, RAM held versus RAM load labels, and no console warnings/errors. A follow-up compact-summary/phase-chip pass reran `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check`; the in-app browser comment overlay intercepted pointer events during that final visual pass, so the modal regression coverage is from the component render assertions.
-- HUD graph/settings pass on May 25, 2026: `npx vitest run src/ui/ResourceHud.test.tsx src/ui/SystemWorkbench.hardwareToggle.test.tsx`, `npm run typecheck`, `git diff --check`, and `npm run build` passed. Mobile browser smoke at `http://127.0.0.1:6173/` verified repeated HUD credit taps keep the graph open on the R&D view, the settings menu sits to the right of the data readout with hardware purchase and keep-screen-awake toggles, a Shift-click credit gain flyout renders on the high z-index layer above mobile chrome, and the console has no warnings or errors.
+- HUD graph/settings pass on May 25, 2026: `npx vitest run src/ui/ResourceHud.test.tsx src/ui/SystemWorkbench.hardwareToggle.test.tsx`, `npm run typecheck`, `git diff --check`, and `npm run build` passed. Mobile browser smoke at `http://127.0.0.1:6173/` verified repeated HUD resource taps keep the graph open on the R&D view, the settings menu sits to the right of the data readout with hardware purchase and keep-screen-awake toggles, and the console has no warnings or errors.
 - System-to-CPU child scheduling on May 25, 2026: `npx vitest run src/game/simulation.test.ts`, `npx vitest run src/ui/TaskBay.queueStatus.test.tsx`, and `npx vitest run src/ui/App.failureModals.test.tsx` passed. Coverage verifies System Scheduler parent entries, CPU scheduler child entries with parent/chunk metadata, RAM-safe admission without idle-core requirements, CPU cache-policy waiting owned by CPU schedulers, parent-only rewards/completion, chunked per-work-unit child entries, parent/child cancellation behavior, CPU child labels with parent context, DAG modal child stage names, and save-v6 persistence keys.
 - Multi-CPU System Scheduler routing on May 25, 2026: `npx vitest run src/game/simulation.test.ts -t "FIFO system routing feeds|routes system children into CPU schedulers|least-queued system routing|most-headroom system routing"` passed. Coverage verifies FIFO system routing feeds open CPU schedulers instead of pinning all child entries to CPU A, and System Scheduler admission can reserve CPU child entries into a CPU scheduler that has queue slots but must wait because its CPU hardware cannot currently start that child task.
 - Bootloader Research on May 25, 2026: `npx vitest run src/game/simulation.test.ts -t "Bootloader|bootloader|current saves"`, `npx vitest run src/game/simulation.test.ts -t "Bootloader|bootloader|power transitions"`, `npx vitest run src/game/simulation.test.ts`, `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Browser smoke at `http://localhost:6173/` loaded the IdleBit app shell with no console errors. Coverage verifies Bootloader Research is hidden before System Scheduler, unlocks for 100,000 credits after System Scheduler, levels through the research card from 1 to 36, starts at a 10,000 credit level cost, reaches about 5.9M credits at level 36, persists through saves, changes startup from 9.20s at level 1 to 0.10s at level 36, and applies the same saved seconds to graceful shutdown from 7.20s at level 1 down to 0.10s at level 36.
-- Dev resource shortcut on May 25, 2026: `npx vitest run src/ui/ResourceHud.test.tsx src/game/simulation.test.ts -t "dev resource|ResourceHud"` passed, verifying Shift-click on the HUD credits readout grants 100B credits, Shift-click on the data readout grants 100B data, and neither shortcut toggles the resource graph.
 - RAM channel service group fix on May 24, 2026: `npx vitest run src/game/simulation.test.ts -t "unused dual-channel sticks|RAM channel|single, dual, quad, and oct|stripes system-scheduled RAM|single-channel RAM|serves one RAM stick"` and `npx vitest run src/game/simulation.test.ts` passed. Coverage verifies single, dual, quad, and oct RAM allocation mappings across 1-8 installed sticks, serviced-group arbitration that prevents a later lane from writing stick 4/8/16 while the lower pending group still has stick 3/5/9 waiting, and the mixed-size four-stick case where dual-channel Bus Mirror reserves R3/R4 before R1's spare capacity. Browser check on `http://localhost:6173/` reloaded the app, scheduled Bus Mirror on the rack-ready system with R1 512 b and R2-R4 256 b, and observed RAM at 1 Kb used across R1/R2/R3/R4 with R3 no longer empty.
 - RAM single-channel spillover, serviced-stick lane arbitration, shared-lane UI, and writer-core cap fix on May 24, 2026: `npx vitest run src/game/simulation.test.ts -t "single-channel RAM|serves one RAM stick|concurrent single-stick RAM|stripes system-scheduled RAM"` and `npx vitest run src/game/simulation.test.ts` passed. Coverage verifies a 512 b RAM task can stage across two 256 b sticks without a RAM deadlock while still writing only one stick on the single channel until channel research is unlocked, a second single-channel stick remains reserved rather than loading while the first stick is serviced, and two concurrent 256 b Tiny Checksum loads on one fast 512 b stick receive distinct address ranges, both display as loading, and use an effective write rate capped by the writer cores before RAM lane capacity.
 - RAM stick meter stacked-segment UI fix on May 24, 2026: browser check at `http://localhost:6173/?seed=trillion` upgraded R1 to 512 b, scheduled two Tiny Checksum RAM loads, and verified both R1 pressure segments render as `loading` at the same vertical position with separate 50% address ranges instead of the second segment flowing below the clipped 4px meter.
@@ -387,7 +502,7 @@ Current `FEATURES.md` observations:
 - Cache usability visual pass: passed on May 16, 2026 via isolated Chrome CDP against `http://127.0.0.1:4173`; seeded and screenshotted idle, buffering, loading/waiting, ready, mixed four-core, and mobile mixed cache states. A follow-up `http://localhost:5176/` seed verified partial cache buffer rendering: a 50% cache buffer displayed `0.5 b Buffer` and colored only half of the 1-bit footprint instead of snapping to the full bit. The May 17 automated UI pass verifies the cache module now uses `Buffer` and `Ready` lanes only, equal 1 Hz CPU/cache rates move committed bits directly into Ready, and faster CPU issue creates Buffer equal to the backlog over cache write speed. Completed Fetch Bit released cache to `0 b` with no held/resident segment. Overflow probe returned no overflowing nodes for core status, task status, cache state labels, or compact resource costs. CPU runtime labels stayed compact (`Read 1 b`, `Cache wait 1 b`, `Processing`) without increasing core card height.
 - Resource token visual pass: passed on May 16, 2026; HUD totals, gain flyouts, task payouts, upgrade costs, research costs, and inspect payout summaries use the shared data/credits icon-number-color treatment.
 - Electron launch smoke: not run interactively; Electron compile passed as part of `npm run build`.
-- Current save migration note: browser persistence writes save version 6, and incompatible v5-or-older saves reset to a clean v6 initial state because System Scheduler parents and CPU scheduler child work now use different queue-entry shapes.
+- Current save migration note: browser and Electron persistence write save-v7; incompatible pre-v7 prototypes clean-reset, while malformed v7 exact amounts, RNG, campaign, departure, Workshop, infrastructure, and Cloud fields normalize to safe defaults.
 
 ## Existing Verification Notes To Preserve
 
@@ -398,3 +513,16 @@ Current `FEATURES.md` observations:
 ## Current Repository Check
 
 Current files include the React/Vite app, pure `src/game` simulation, platform persistence adapter, Electron shell, feature tracker, QA notes, and reference PNGs.
+
+## July 10, 2026 — Hardware-Derived Work and UI Progression QA
+
+- Exact payout coverage passed: the closed-world payout ledger enumerates public Credit-producing workloads, base rewards remain tied to the same exact paid work volume, and named managed-work multipliers preserve that attribution.
+- Per-system Local Fabric hardware passed: NIC installs are campaign-gated, charge exact SKU costs, expose real ingress/egress rates only on the addressed machine, and retain their hardware provenance through save serialization.
+- Task reward projection passed: first-completion Data is shown while pending, paid once, removed from the task card after completion, and not paid on repeats.
+- Canonical operation accounting passed: UI `ops` count authored invocations independently from transferred cache/RAM bits and CPU cycles; opening coverage verifies Fetch Bit at 2 ops/2 paid work/2 Credits and Bit Flip at 3 ops.
+- Stable runtime UI passed: shared progress meters publish exact accessible values while smoothing forward motion and snapping semantic resets; Playwright verified starting work updates reserved status without shifting the interface across responsive and reduced-motion coverage.
+- Event delta invariance passed: foreground simulation matches across one-shot and partitioned advances at operation transitions, and Workshop accelerator/thermal work matches across event-boundary chunking.
+- `npm test`: passed — 93 test files, 807 tests (95.89s Vitest duration; 98.5s command wall time).
+- `npm run typecheck`: passed — app, E2E, and Electron TypeScript projects (27.1s).
+- `npm run build`: passed — Vite production build and Electron compile (69.5s). Vite emitted the existing non-blocking warning that a minified chunk exceeds 500 kB.
+- `npx playwright test` against `http://127.0.0.1:6173/`: passed — 34 Chromium tests (38.2s test duration; 41.7s command wall time), including 320–1920 px layouts, 200% reflow, reduced motion, accessibility, persistence, progressive campaign controls, Local Fabric/cluster/Cloud flows, project ownership, and no-shift work interactions.

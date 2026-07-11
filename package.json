@@ -1,6 +1,8 @@
 {
   "name": "idlebit",
   "version": "0.1.0",
+  "description": "An active-hybrid idle game about scaling compute from a single bit to planetary infrastructure.",
+  "author": "IdleBit contributors",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -10,32 +12,67 @@
     "dev:electron": "wait-on http://127.0.0.1:6173 && npm run electron:compile && electron dist-electron/main.js",
     "build": "npm run build:web && npm run electron:compile",
     "build:web": "tsc -p tsconfig.app.json && vite build",
+    "balance:csv": "node --import tsx scripts/generate-balance-csv.ts",
     "preview": "vite preview --host 127.0.0.1",
     "storybook": "storybook dev -p 6006 --host 127.0.0.1",
     "storybook:build": "storybook build",
     "test": "vitest run",
+    "test:balance": "vitest run src/game/balance",
+    "test:e2e": "playwright test",
+    "test:e2e:electron": "playwright test -c playwright.electron.config.ts",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:install": "playwright install chromium",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "electron:compile": "tsc -p electron/tsconfig.json"
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.e2e.json --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:package": "npm run build && electron-builder --dir",
+    "verify": "npm test && npm run test:balance && npm run typecheck && npm run build && npm run storybook:build && npm run test:e2e"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.1.1",
+    "decimal.js": "^10.6.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
     "@storybook/react-vite": "^10.4.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.1.2",
     "electron": "^42.2.0",
+    "electron-builder": "^26.15.3",
     "jsdom": "^25.0.1",
     "storybook": "^10.4.0",
+    "tsx": "^4.23.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^4.1.6",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.idlebit.game",
+    "productName": "IdleBit",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "!node_modules/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": "dir",
+      "category": "Game"
+    },
+    "win": {
+      "target": "portable"
+    }
   }
 }

@@ -1,4 +1,4 @@
-import type { DeadlockResource, VisibleCore, VisibleState } from "../../game";
+import type { Amount, DeadlockResource, VisibleCore, VisibleState } from "../../game";
 import type { DisplayCost } from "../format";
 
 export type TaskState =
@@ -23,6 +23,7 @@ export interface UiTaskGraphNode {
   memoryAction?: string | null;
   count?: number;
   operationCount?: number;
+  paidWorkUnits?: number;
   cycles?: number;
   requiredCycles?: number;
   cacheNeedBits?: number;
@@ -76,6 +77,7 @@ export interface UiTask {
     mode?: "single" | "perWorkUnit" | string;
   }>;
   operationCount?: number;
+  paidWorkUnits?: number;
   operations?: number | UiTaskOperation[];
   opCount?: number;
   requiredOps?: number;
@@ -88,6 +90,8 @@ export interface UiTask {
   workUnitName?: string;
   rewardCredits?: number;
   rewardData?: number;
+  firstCompletionData?: number;
+  repeatRewardData?: number;
   rewards?: Partial<Record<"credits" | "data", number>>;
   cacheNeedBits?: number;
   cacheBits?: number;
@@ -126,6 +130,17 @@ export interface UiTask {
   dagNodes?: UiTaskGraphNode[];
   tasks?: UiTaskGraphNode[];
   children?: UiTaskGraphNode[];
+  projection?: {
+    durationMs: number;
+    energyCostCredits: Amount;
+    netRewardCredits: Amount;
+    creditRunwayMs: number | null;
+    creditRunwayCovered: boolean;
+    bufferCovered: boolean;
+    cacheFits: boolean;
+    ramFits: boolean;
+    pauseReason: string | null;
+  };
 }
 
 export interface UiActiveTask {

@@ -10,14 +10,7 @@
   background: linear-gradient(180deg, rgba(8, 18, 17, 0.55), rgba(5, 11, 11, 0.55));
 }
 
-.system-board > .system-board-flow > .cpu-bank { margin: 0; }
-.system-board > .system-board-flow > .cpu-bank + .system-rail,
-.system-board > .system-board-flow > .cpu-bank + .hw-section,
-.system-board > .system-board-flow > .hw-section + .cpu-bank,
-.system-board > .system-board-flow > .cpu-bank + .empty-socket,
-.system-board > .system-board-flow > .empty-socket + .cpu-bank {
-  margin-top: 10px;
-}
+/* Inter-card spacing comes from the shared .system-board-flow > * + * rule. */
 
 .cpu-bank-header {
   display: flex;
@@ -36,7 +29,7 @@
   font-family: var(--font-display);
   font-size: 0.74rem;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--tracking-mid);
   text-transform: uppercase;
 }
 
@@ -50,7 +43,7 @@
   border-radius: 999px;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
 }
 
@@ -71,7 +64,7 @@
   font-family: var(--font-display);
   font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--tracking-mid);
   text-transform: uppercase;
   transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
 }
@@ -105,7 +98,7 @@
   color: var(--muted);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.64rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;

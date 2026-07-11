@@ -50,11 +50,11 @@
   --install-color: var(--amber);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto 18px;
-  gap: 7px;
+  gap: var(--s-3);
   align-items: center;
   min-width: 0;
   min-height: 44px;
-  padding: 6px 7px;
+  padding: var(--s-2) var(--s-3);
   border: 1px solid color-mix(in srgb, var(--install-color) 36%, transparent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--install-color) 6%, transparent);
@@ -69,10 +69,10 @@
 
 .cpu-install-options.header .cpu-install-option {
   grid-template-columns: minmax(0, auto) auto auto 14px;
-  gap: 5px;
+  gap: var(--s-2);
   min-height: 26px;
-  padding: 3px 5px;
-  border-radius: 4px;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--radius-sm);
 }
 
 .cpu-install-option:hover:not(:disabled) {
@@ -99,7 +99,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   letter-spacing: 0.05em;
   text-overflow: ellipsis;
@@ -110,7 +110,7 @@
 .cpu-install-copy small,
 .cpu-install-power small {
   color: var(--muted);
-  font-size: 0.54rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;

@@ -1,7 +1,7 @@
 import { serializeSave, type GameState } from "../../game";
 import { idleBitPersistence, type PersistedValue } from "../../platform";
 
-export const SAVE_KEY = "save-v6";
+export const SAVE_KEY = "save-v7";
 export const DEADLOCK_HELP_KEY = "ui.deadlock-help-seen-v1";
 export const DEADLOCK_COOLDOWN_HELP_KEY = "ui.deadlock-cooldown-help-seen-v1";
 export const PSU_FAILURE_HELP_KEY = "ui.psu-failure-help-seen-v1";
@@ -35,6 +35,7 @@ export const toStoredIds = (value: unknown) =>
     : [];
 
 export const isRackReadySeed = () =>
+  import.meta.env.DEV &&
   RACK_READY_SEED_ALIASES.has(
     new URLSearchParams(window.location.search)
       .get(SEED_PARAM)
@@ -49,13 +50,7 @@ export const clearRackReadySeed = () => {
   );
 };
 
-export const getSavedGame = async () => {
-  try {
-    return await idleBitPersistence.get<string>(SAVE_KEY);
-  } catch {
-    return null;
-  }
-};
+export const getSavedGame = () => idleBitPersistence.get<string>(SAVE_KEY);
 
 export const getUiPreference = async <T extends PersistedValue>(
   key: string,
@@ -107,13 +102,15 @@ export const getPinnedUnlockPreferences =
     };
   };
 
-export const saveGameState = async (state: GameState) => {
-  try {
-    await idleBitPersistence.set(SAVE_KEY, serializeSave(state));
-  } catch {
-    // A failed save should never crash the renderer or wipe the in-memory run.
-  }
-};
+export const saveGameState = (
+  state: GameState,
+  savedAtMs: number = Date.now(),
+) => idleBitPersistence.set(SAVE_KEY, serializeSave(state, savedAtMs));
+
+export const saveGameStateImmediate = (
+  state: GameState,
+  savedAtMs: number = Date.now(),
+) => idleBitPersistence.setImmediate(SAVE_KEY, serializeSave(state, savedAtMs));
 
 export const persistUiPreference = async <T extends PersistedValue>(
   key: string,

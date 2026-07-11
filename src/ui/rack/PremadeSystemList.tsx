@@ -5,6 +5,11 @@ import { firstBits, firstBoolean, firstNumber } from "../panels/uiNumbers";
 import { ResourceCost } from "../ResourceTokens";
 import type { Dispatch } from "../uiActions";
 import {
+  BuilderProjectionReadout,
+  getPresetComputePerSecond,
+  type FleetComputeBaseline,
+} from "./BuilderProjectionReadout";
+import {
   formatModuleStats,
   getBuilderOptionMap,
   getModuleSpecRows,
@@ -19,6 +24,7 @@ interface PremadeSystemListProps {
   builder?: UiCustomMachineBuilder | null;
   resources: VisibleState["resources"];
   dispatch: Dispatch;
+  fleetBaseline: FleetComputeBaseline | null;
 }
 
 export function PremadeSystemList({
@@ -26,6 +32,7 @@ export function PremadeSystemList({
   builder = null,
   resources,
   dispatch,
+  fleetBaseline,
 }: PremadeSystemListProps) {
   const { optionsById } = getBuilderOptionMap(builder);
 
@@ -44,6 +51,14 @@ export function PremadeSystemList({
         const ramBits = firstBits([preset.ramBits], [preset.ramBytes]);
         const cacheBits = firstBits([preset.cacheBits], [preset.cacheBytes]);
         const components = preset.components ?? {};
+        const cpuComponent =
+          typeof components.cpu === "string"
+            ? optionsById.get(components.cpu)
+            : null;
+        const computePerSecond = getPresetComputePerSecond(
+          preset,
+          cpuComponent,
+        );
         const componentEntries: Array<[string, string | undefined]> = [
           ["cpu", components.cpu],
           ["ram", components.ram ?? components.memory],
@@ -94,6 +109,7 @@ export function PremadeSystemList({
               <span className="premade-card-copy">
                 <strong>{label}</strong>
                 <small>{preset.role ?? preset.tier ?? "Preset"}</small>
+                {preset.description && <span>{preset.description}</span>}
               </span>
               <span className={`premade-card-buy ${canBuy ? "" : "blocked"}`}>
                 {canBuy ? (
@@ -123,6 +139,12 @@ export function PremadeSystemList({
                 </div>
               ))}
             </dl>
+            <BuilderProjectionReadout
+              computePerSecond={computePerSecond}
+              power={preset.projection ?? null}
+              baseline={fleetBaseline}
+              label={`${label} projections`}
+            />
             <footer className="premade-card-footer">
               <ResourceCost costs={costs} compact resources={resources} />
             </footer>

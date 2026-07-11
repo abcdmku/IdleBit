@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  amountToSafeNumber,
   createInitialGameState,
   deriveVisibleState,
   type VisibleState
@@ -18,7 +19,7 @@ const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
 
-describe("HardwareBoard multi-system rack", () => {
+describe("HardwareBoard multi-system fleet", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -196,6 +197,15 @@ describe("HardwareBoard multi-system rack", () => {
             cores: 2,
             ramBits: 1024,
             powerDeltaWatts: 18,
+            projection: {
+              idleWatts: 8,
+              peakWatts: 18,
+              psuCapacityWatts: 30,
+              idlePsuLoad: 8 / 30,
+              peakPsuLoad: 18 / 30,
+              powerCostPerSecond: 18_000_000,
+              safe: true,
+            },
             costs: [{ resource: "credits", amount: 500 }],
             canAfford: true,
           },
@@ -308,7 +318,28 @@ describe("HardwareBoard multi-system rack", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("renders one rack slot per owned system and selects the system scheduler", () => {
+  const enterAdvancedBuilder = () => {
+    const advancedButton = container.querySelector<HTMLButtonElement>(
+      ".builder-new-mode-advanced",
+    );
+    expect(advancedButton).not.toBeNull();
+    act(() => {
+      advancedButton?.click();
+    });
+  };
+
+  const openAdvancedBuilder = () => {
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".rack-build-new, .rack-strip-build",
+        )
+        ?.click();
+    });
+    enterAdvancedBuilder();
+  };
+
+  it("renders named fleet systems with explicit keyboard-ready actions", () => {
     const visible = makeRackVisible();
     const selectComponent = vi.fn();
     const dispatch = vi.fn();
@@ -327,12 +358,13 @@ describe("HardwareBoard multi-system rack", () => {
     const slots = Array.from(container.querySelectorAll(".system-rack-slot"));
 
     expect(slots).toHaveLength(2);
-    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Alpha");
-    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Beta");
-    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Starter");
-    expect(container.querySelector(".system-rack")?.textContent).not.toContain("Compute");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Fleet");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Alpha");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Beta");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Starter");
+    expect(container.querySelector(".system-rack")?.textContent).toContain("Compute");
     expect(container.querySelector(".system-rack")?.textContent).not.toContain("Empty");
-    expect(container.querySelector(".system-rack .system-rack-slot--row .rack-slot-copy")).toBeNull();
+    expect(container.querySelector(".system-rack .system-rack-slot--row .rack-slot-copy")).not.toBeNull();
     expect(container.querySelector(".system-rack .rack-slot-cost")).toBeNull();
     expect(container.querySelector(".system-rack .rack-slot-vitals")).toBeNull();
     expect(container.querySelectorAll(".system-rack .rack-gauge-strip").length).toBeGreaterThan(0);
@@ -340,12 +372,21 @@ describe("HardwareBoard multi-system rack", () => {
     expect(betaRackSlot.querySelector(".rack-component-bay")?.className).toContain(
       "rack-component-bay--scheduler",
     );
-    expect(betaRackSlot.querySelector(".rack-component-bay--power")?.textContent).toContain(
-      "cr/s",
-    );
     expect(
-      betaRackSlot.querySelectorAll(".rack-component-bay--power .rack-component-power-value"),
-    ).toHaveLength(2);
+      betaRackSlot.querySelector(".rack-component-bay--power")?.textContent,
+    ).not.toContain("cr/s");
+    // The PSU bay carries one utilization value; exact watts live in its
+    // tooltip and the header net rate carries the cost story.
+    const powerValues = betaRackSlot.querySelectorAll(
+      ".rack-component-bay--power .rack-component-power-value",
+    );
+    expect(powerValues).toHaveLength(1);
+    expect(powerValues[0]?.textContent).toMatch(/%$/);
+    expect(
+      betaRackSlot
+        .querySelector(".rack-component-bay--power")
+        ?.getAttribute("title"),
+    ).toContain("PSU");
     expect(betaRackSlot.querySelector(".rack-component-bay--power .rack-gauge-bar")).toBeNull();
     expect(
       betaRackSlot.querySelectorAll(".rack-component-bay .rack-gauge-bar"),
@@ -360,24 +401,59 @@ describe("HardwareBoard multi-system rack", () => {
     expect(betaRackSlot.querySelector(".rack-system-queue-slots")).not.toBeNull();
     expect(betaRackSlot.querySelectorAll(".rack-queue-slot-pip")).toHaveLength(1);
     const queuePip = betaRackSlot.querySelector<HTMLElement>(".rack-queue-slot-pip.active");
-    expect(queuePip?.style.getPropertyValue("--rack-queue-progress")).toBe("42%");
+    const queueFill = queuePip?.querySelector<HTMLElement>(".rack-queue-slot-fill");
+    expect(queueFill?.style.getPropertyValue("--meter-progress")).toBe("0.42");
+    expect(queueFill?.classList.contains("is-vertical")).toBe(true);
     expect(queuePip?.getAttribute("title")).toContain("42%");
     expect(betaRackSlot.querySelectorAll(".rack-memory-stick")).toHaveLength(4);
     expect(betaRackSlot.querySelectorAll(".rack-memory-stick.loading")).toHaveLength(1);
+    // The bays are the capacity story; no ledger and no stat-tile row remain.
+    expect(betaRackSlot.querySelector(".rack-slot-metrics")).toBeNull();
+    expect(betaRackSlot.querySelector(".rack-slot-copy .stat-tile")).toBeNull();
+    // One signed net rate in the header carries the economics; the full
+    // sentence (draw, capacity, run cost, output) lives in its tooltip/aria.
+    const netReadout = betaRackSlot.querySelector(".rack-slot-head .rack-slot-net");
+    expect(netReadout).not.toBeNull();
+    expect(netReadout?.textContent).toContain("cr/s");
+    expect(netReadout?.className).toMatch(/is-(gain|drain)\b/);
+    expect(netReadout?.getAttribute("title")).toContain("run cost");
+    expect(netReadout?.getAttribute("aria-label")).toContain("Net");
+    expect(betaRackSlot.textContent).not.toContain("Reward above");
+    expect(betaRackSlot.textContent).not.toContain("COMPUTE");
     expect(betaRackSlot.tagName).toBe("DIV");
     expect(betaRackSlot.querySelector("[role='button']")).toBeNull();
     expect(
       betaRackSlot.querySelector<HTMLButtonElement>(".rack-slot-power-button")?.tagName,
     ).toBe("BUTTON");
-    expect(
-      betaRackSlot.querySelector<HTMLButtonElement>(".rack-slot-config")?.tagName,
-    ).toBe("BUTTON");
+    // Exactly one explicit action remains (open details, in the left rail);
+    // the whole card body is the select control via a stretched button.
     expect(
       betaRackSlot.querySelector<HTMLButtonElement>(".rack-slot-detail")?.tagName,
     ).toBe("BUTTON");
     expect(
-      betaRackSlot.querySelector<HTMLButtonElement>(".rack-slot-visuals")?.tagName,
+      betaRackSlot.querySelector(".rack-slot-rail .rack-slot-detail"),
+    ).not.toBeNull();
+    expect(
+      betaRackSlot.querySelector<HTMLButtonElement>(".rack-slot-select")?.tagName,
     ).toBe("BUTTON");
+    expect(betaRackSlot.querySelector(".rack-slot-config")).toBeNull();
+    expect(betaRackSlot.querySelector(".rack-slot-visual-action")).toBeNull();
+    expect(betaRackSlot.querySelector(".rack-slot-actions")).toBeNull();
+    expect(
+      betaRackSlot
+        .querySelector<HTMLButtonElement>(".rack-slot-power-button")
+        ?.getAttribute("aria-label"),
+    ).toBe("Power off Beta");
+    expect(
+      betaRackSlot
+        .querySelector<HTMLButtonElement>(".rack-slot-select")
+        ?.getAttribute("aria-label"),
+    ).toBe("Select Beta scheduler");
+    expect(
+      betaRackSlot
+        .querySelector<HTMLButtonElement>(".rack-slot-detail")
+        ?.getAttribute("aria-label"),
+    ).toBe("Open Beta details");
 
     dispatch.mockClear();
     selectComponent.mockClear();
@@ -392,16 +468,13 @@ describe("HardwareBoard multi-system rack", () => {
       state: "off",
       systemId: "beta",
     });
-    expect(dispatch).toHaveBeenNthCalledWith(2, {
-      type: "selectSystem",
-      systemId: "alpha",
-    });
+    expect(dispatch).toHaveBeenCalledTimes(1);
     expect(selectComponent).not.toHaveBeenCalled();
 
     dispatch.mockClear();
     act(() => {
       betaRackSlot
-        .querySelector(".rack-slot-visuals")
+        .querySelector(".rack-slot-select")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -431,8 +504,8 @@ describe("HardwareBoard multi-system rack", () => {
     act(() => {
       container
         .querySelector(".system-rack-slot.selected")
-        ?.querySelector(".rack-slot-visuals")
-        ?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        ?.querySelector(".rack-slot-detail")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(container.querySelector(".system-board")).not.toBeNull();
@@ -537,6 +610,10 @@ describe("HardwareBoard multi-system rack", () => {
     expect(offSlot.className).toContain("status-off");
     expect(offSlot.className).not.toContain("status-warning");
     expect(offSlot.querySelector(".rack-component-bay--issue")).toBeNull();
+    // Off systems keep the net-rate slot (no layout shift) but it goes neutral.
+    expect(offSlot.querySelector(".rack-slot-net")?.className).toContain(
+      "is-off",
+    );
   });
 
   it("dispatches task actions with the selected system id", () => {
@@ -597,7 +674,7 @@ describe("HardwareBoard multi-system rack", () => {
     });
   });
 
-  it("opens a system-view custom builder without premade configs", () => {
+  it("lands on presets and keeps custom assembly in explicit Advanced mode", () => {
     const visible = {
       ...makeRackVisible(),
       resources: { credits: 20_000, data: 1_000 },
@@ -619,8 +696,39 @@ describe("HardwareBoard multi-system rack", () => {
       container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
     });
 
-    expect(container.querySelector(".builder-new-modes")).toBeNull();
+    expect(container.querySelector(".builder-new-modes")).not.toBeNull();
+    expect(container.querySelector(".fleet-builder-header")?.textContent).toContain(
+      "Fleet Builder",
+    );
+    expect(container.querySelector(".system-preset-card")?.textContent).toContain(
+      "Balanced Node",
+    );
+    const presetProjection = container.querySelector(
+      ".system-preset-card .builder-projection-grid",
+    );
+    expect(presetProjection?.textContent).toContain("Throughput");
+    expect(presetProjection?.textContent).toContain("5 Kop/s");
+    expect(presetProjection?.textContent).toContain("8 W idle · 18 W peak · safe margin");
+    expect(presetProjection?.textContent).toContain("Run cost");
+    expect(presetProjection?.textContent).toContain("18 M cr/s at peak");
+    expect(presetProjection?.textContent).toContain("Profitability");
+    expect(presetProjection?.textContent).toContain("Fleet comparison");
+    expect(container.querySelector(".custom-system-builder")).toBeNull();
+    enterAdvancedBuilder();
+
     expect(container.querySelector(".system-preset-card")).toBeNull();
+    expect(container.querySelector(".builder-projection-assumptions")?.textContent).toContain(
+      "reward rate needed to cover power",
+    );
+    const advancedProjection = container.querySelector(
+      ".custom-system-builder .builder-projection-grid",
+    );
+    expect(advancedProjection?.getAttribute("aria-label")).toBe(
+      "Advanced build projections",
+    );
+    expect(advancedProjection?.textContent).toContain("Throughput");
+    expect(advancedProjection?.textContent).toContain("Profitability");
+    expect(advancedProjection?.textContent).toContain("Fleet comparison");
     expect(container.querySelector(".custom-system-module-picker")).toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .custom-build-module")).toBeNull();
     expect(container.querySelector(".custom-builder-system-preview .custom-build-module-option")).toBeNull();
@@ -747,7 +855,9 @@ describe("HardwareBoard multi-system rack", () => {
     }
 
     const psuUpgradeCost = getPsuCapacityBuildCost(5, 13).reduce(
-      (total, cost) => total + (cost.resource === "credits" ? cost.amount : 0),
+      (total, cost) =>
+        total +
+        (cost.resource === "credits" ? amountToSafeNumber(cost.amount) : 0),
       0,
     );
     expect(psuState?.textContent).toContain("Met");
@@ -826,6 +936,49 @@ describe("HardwareBoard multi-system rack", () => {
     });
   });
 
+  it("uses the machine model for the Advanced power and break-even projection", () => {
+    const initial = createInitialGameState();
+    const visible = deriveVisibleState({
+      ...initial,
+      flags: {
+        ...initial.flags,
+        systemCatalog: true,
+        customMachineAssembly: true,
+      },
+      research: {
+        ...initial.research,
+        completed: [
+          ...initial.research.completed,
+          "systemCatalog",
+          "customMachineAssembly",
+        ],
+      },
+    });
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    openAdvancedBuilder();
+
+    const projection = container.querySelector(
+      ".custom-system-builder .builder-projection-grid",
+    );
+    expect(projection?.textContent).toContain("1 op/s");
+    expect(projection?.textContent).toContain("idle");
+    expect(projection?.textContent).toContain("peak");
+    expect(projection?.textContent).toContain("cr/s at peak");
+    expect(projection?.textContent).toContain("Needs reward above");
+    expect(projection?.textContent).not.toContain("Model estimate unavailable");
+  });
+
   it("lets the builder CPU scheduler match cores or use manual slots", () => {
     const visible = makeRackVisible();
     const dispatch = vi.fn();
@@ -841,9 +994,7 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     act(() => {
       container
@@ -952,9 +1103,7 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     const corePlus = container.querySelector<HTMLButtonElement>(
       ".custom-builder-cpu-config .upgrade-stepper-button.plus",
@@ -973,9 +1122,7 @@ describe("HardwareBoard multi-system rack", () => {
     });
     expect(container.querySelector(".custom-system-builder")).toBeNull();
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     expect(
       container.querySelector<HTMLElement>(
@@ -999,9 +1146,7 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     for (let index = 0; index < 10; index += 1) {
       act(() => {
@@ -1057,9 +1202,7 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     const cpuPlus = container.querySelector<HTMLButtonElement>(
       ".custom-builder-cpu-header-controls .upgrade-stepper-button.plus",
@@ -1119,9 +1262,7 @@ describe("HardwareBoard multi-system rack", () => {
       );
     });
 
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".rack-build-new")?.click();
-    });
+    openAdvancedBuilder();
 
     act(() => {
       container
@@ -1182,4 +1323,3 @@ describe("HardwareBoard multi-system rack", () => {
     });
   });
 });
-

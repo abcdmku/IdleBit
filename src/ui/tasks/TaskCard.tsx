@@ -1,15 +1,9 @@
-import { Cpu, Eye, HardDrive, MemoryStick, Pin, PinOff, Play, Zap } from "lucide-react";
-import { formatBits, formatNumber } from "../format";
+import { Eye, Pin, PinOff, Play } from "lucide-react";
+import { formatNumber } from "../format";
 import { ResourceCost } from "../ResourceTokens";
 import { PressRepeatButton } from "./PressRepeatButton";
-import {
-  getRequiredCoreCount,
-  getTaskCacheBits,
-  getTaskOperationCount,
-  getTaskRamBits,
-  getTaskRewardCosts,
-  isChunkedTask,
-} from "./taskData";
+import { getTaskRewardCosts } from "./taskData";
+import { TaskMetaLine } from "./TaskMetaLine";
 import type { QueueMode, TaskState, UiTask } from "./taskTypes";
 
 interface TaskCardProps {
@@ -41,10 +35,6 @@ export function TaskCard({
   pinned = false,
   onTogglePin,
 }: TaskCardProps) {
-  const operationCount = getTaskOperationCount(task);
-  const cacheBits = getTaskCacheBits(task);
-  const ramBits = getTaskRamBits(task);
-  const requiredCores = getRequiredCoreCount(task);
   const rewards = getTaskRewardCosts(task);
   const commandLabel =
     mode === "systemScheduler" ? "Schedule" : mode === "scheduler" ? "Queue" : "Assign";
@@ -52,11 +42,15 @@ export function TaskCard({
   const cardState = state === "deadlock" ? "active" : state;
   const isBlocked = Boolean(disabledReason);
 
-  const opCountText =
-    operationCount === undefined ? "-" : formatNumber(operationCount);
-  const cacheText = cacheBits > 0 ? formatBits(cacheBits) : null;
-  const showRam = (memoryUnlocked || ramBits > 0) && ramBits > 0;
-  const ramText = showRam ? formatBits(ramBits) : null;
+  const paidWorkTitle =
+    typeof task.paidWorkUnits === "number"
+      ? `Payout from ${formatNumber(task.paidWorkUnits)} paid work units${
+          (task.firstCompletionData ?? task.rewardData ?? 0) >
+            (task.repeatRewardData ?? 0)
+            ? "; Data pays on the next first completion only"
+            : ""
+        }`
+      : "Rewards";
 
   return (
     <article
@@ -81,7 +75,7 @@ export function TaskCard({
           {task.name}
         </strong>
         {rewards.length > 0 && (
-          <span className="task-rewards" title="Rewards">
+          <span className="task-rewards" title={paidWorkTitle}>
             <ResourceCost costs={rewards} compact />
           </span>
         )}
@@ -96,64 +90,7 @@ export function TaskCard({
         </button>
       </div>
 
-      <div className="task-meta-line" aria-label="Requirements">
-        <span className="meta-need">
-          <span
-            className="meta-chip ops"
-            title={`${opCountText} operations`}
-            aria-label={`${opCountText} operations`}
-          >
-            <Zap size={11} aria-hidden="true" />
-            <strong>{opCountText}</strong>
-            <em className="sr-only">{" "}ops</em>
-          </span>
-          {isChunkedTask(task) ? (
-            <span
-              className="meta-chip chunked"
-              title={`Chunked work: ${formatNumber(task.workUnitCount ?? 1)} chunks fill idle cores`}
-              aria-label={`Chunked work ${formatNumber(task.workUnitCount ?? 1)} chunks`}
-            >
-              <Cpu size={11} aria-hidden="true" />
-              <strong>{formatNumber(task.workUnitCount ?? 1)}</strong>
-              <em className="sr-only">{" "}chunks</em>
-            </span>
-          ) : (
-            requiredCores > 1 && (
-              <span
-                className="meta-chip"
-                title={`${formatNumber(requiredCores)} cores required`}
-                aria-label={`${formatNumber(requiredCores)} cores required`}
-              >
-                <Cpu size={11} aria-hidden="true" />
-                <strong>{formatNumber(requiredCores)}</strong>
-                <em className="sr-only">{" "}cores</em>
-              </span>
-            )
-          )}
-          {cacheText && (
-            <span
-              className="meta-chip"
-              title={`Cache: ${cacheText}`}
-              aria-label={`Cache ${cacheText}`}
-            >
-              <HardDrive size={11} aria-hidden="true" />
-              <em className="sr-only">cache{" "}</em>
-              <strong>{cacheText}</strong>
-            </span>
-          )}
-          {ramText && (
-            <span
-              className="meta-chip"
-              title={`RAM: ${ramText}`}
-              aria-label={`RAM ${ramText}`}
-            >
-              <MemoryStick size={11} aria-hidden="true" />
-              <em className="sr-only">ram{" "}</em>
-              <strong>{ramText}</strong>
-            </span>
-          )}
-        </span>
-      </div>
+      <TaskMetaLine task={task} memoryUnlocked={memoryUnlocked} />
 
       <PressRepeatButton
         className={`task-run-button ${isBlocked ? "blocked" : ""}`}
@@ -161,7 +98,6 @@ export function TaskCard({
         onPress={onRun}
         repeatMs={holdRepeatMs}
         maxHoldMs={holdMaxMs}
-        title={buttonLabel}
       >
         {!isBlocked && <Play size={11} />}
         <span>{buttonLabel}</span>

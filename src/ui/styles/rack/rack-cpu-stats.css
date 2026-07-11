@@ -2,11 +2,17 @@
 
 .rack-cpu-package-map {
   display: grid;
-  grid-template-columns: repeat(var(--rack-cpu-packages, 1), max-content);
+  /* Packages shrink evenly instead of overflowing the bay when a dense
+     build carries many sockets. */
+  grid-template-columns: repeat(var(--rack-cpu-packages, 1), minmax(0, 1fr));
   align-content: center;
   justify-content: center;
   gap: var(--s-1);
   justify-self: center;
+  width: 100%;
+  max-width: calc(
+    var(--rack-cpu-packages, 1) * (var(--rack-cpu-package-size) + var(--s-1))
+  );
   min-width: 0;
 }
 
@@ -19,8 +25,10 @@
   align-content: center;
   justify-items: center;
   gap: var(--s-1);
-  width: var(--rack-cpu-package-size);
-  height: var(--rack-cpu-package-size);
+  width: 100%;
+  max-width: var(--rack-cpu-package-size);
+  aspect-ratio: 1;
+  height: auto;
   min-width: 0;
   padding: 0;
   border: 1px solid rgba(120, 220, 200, 0.14);
@@ -39,16 +47,28 @@
 
 .rack-cpu-core-grid {
   display: grid;
-  grid-template-columns: repeat(var(--rack-core-columns, 4), var(--rack-core-size, 4px));
+  /* Dot columns compress with the package so dense builds never spill
+     past the bay edge; --rack-core-size is the ceiling, not a floor. */
+  grid-template-columns: repeat(
+    var(--rack-core-columns, 4),
+    minmax(2px, var(--rack-core-size, 4px))
+  );
   align-content: center;
   justify-content: center;
   gap: var(--rack-core-gap, 1px);
+  width: 100%;
+  max-width: calc(
+    var(--rack-core-columns, 4) *
+      (var(--rack-core-size, 4px) + var(--rack-core-gap, 1px))
+  );
   min-width: 0;
 }
 
 .rack-cpu-core-dot {
-  width: var(--rack-core-size, 4px);
-  height: var(--rack-core-size, 4px);
+  width: 100%;
+  max-width: var(--rack-core-size, 4px);
+  aspect-ratio: 1;
+  height: auto;
   border: 1px solid rgba(120, 220, 200, 0.22);
   border-radius: 1px;
   background: rgba(36, 231, 195, 0.06);
@@ -65,6 +85,31 @@
   background: var(--cyan);
   border-color: rgba(36, 231, 195, 0.72);
   box-shadow: 0 0 5px rgba(36, 231, 195, 0.5);
+}
+
+/* Managed work (contracts/projects) reserves the whole compute path without
+   per-core tasks — the dies breathe violet so the machine reads as working. */
+.rack-cpu-core-dot.managed {
+  background: rgba(184, 158, 255, 0.75);
+  border-color: rgba(184, 158, 255, 0.6);
+  box-shadow: 0 0 4px rgba(184, 158, 255, 0.4);
+  animation: rack-managed-breathe 2.2s ease-in-out infinite;
+}
+
+.rack-component-bay--managed .rack-gauge-bar-fill {
+  background: linear-gradient(90deg, var(--violet), rgba(184, 158, 255, 0.75));
+  box-shadow: 0 0 6px rgba(184, 158, 255, 0.45);
+}
+
+.rack-component-bay--managed .rack-gauge-value { color: var(--violet); }
+
+@keyframes rack-managed-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rack-cpu-core-dot.managed { animation: none; }
 }
 
 .rack-cpu-core-dot.deadlocked {

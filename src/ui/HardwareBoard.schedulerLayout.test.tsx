@@ -5,6 +5,7 @@ import {
   applyAction,
   createInitialGameState,
   deriveVisibleState,
+  exactResourceBag,
   type GameState,
   type VisibleState
 } from "../game";
@@ -256,14 +257,16 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     const systemSchedulerSlot = container.querySelector<HTMLElement>(
       ".system-scheduler-section .queue-empty",
     );
-    const shutdownButton = container.querySelector<HTMLButtonElement>(
-      ".system-shutdown-button",
+    const killButton = container.querySelector<HTMLButtonElement>(
+      ".psu-section .power-control-buttons button.danger",
     );
     const systemSchedulerUpgrade = container.querySelector<HTMLElement>(
       ".system-scheduler-section .inline-upgrade-row",
     );
 
     expect(systemSchedulerUpgrade?.textContent).toContain("System Queue Slot");
+    // Power state lives only on the PSU; the scheduler card has no shutdown.
+    expect(container.querySelector(".system-shutdown-button")).toBeNull();
 
     act(() => {
       cpuSchedulerSlot?.click();
@@ -277,14 +280,11 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     onSelectComponent.mockClear();
     act(() => {
-      shutdownButton?.click();
+      killButton?.click();
     });
 
     expect(onSelectComponent).not.toHaveBeenCalled();
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "setPowerState",
-      state: "off",
-    });
+    expect(dispatch).toHaveBeenCalledWith({ type: "killPower" });
   });
 
   it("shows scheduler watchdog victim and countdown", () => {
@@ -622,6 +622,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     let state: GameState = {
       ...initial,
       resources: { credits: 500, data: 500 },
+      exactResources: exactResourceBag(500, 500),
       flags: {
         ...initial.flags,
         multiCore: true,
@@ -930,7 +931,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       expect(container.querySelector(".queue-preview-list")).toBeNull();
       expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(0);
       expect(container.querySelector(".queue-empty")?.textContent).toBe(
-        `${slots} slots open`,
+        `${slots} open`,
       );
     }
   });
@@ -1029,7 +1030,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       ).toHaveLength(0);
       expect(
         container.querySelector(".system-scheduler-section .queue-empty")?.textContent,
-      ).toBe(`${slots} slot${slots === 1 ? "" : "s"} open`);
+      ).toBe(`${slots} open`);
     }
   });
 

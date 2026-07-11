@@ -1,15 +1,20 @@
 import type { Cost } from "../types";
+import { roundedGrowthCost } from "../exactCosts";
 
-const credits = (amount: number): Cost => ({
-  resource: "credits",
-  amount: Math.round(amount),
-});
+export const PSU_CAPACITY_COST_GROWTH = "1.32";
 
 export const getPsuCapacityUpgradeCost = (targetLevel: number): Cost[] => {
   const safeTargetLevel = Math.max(1, Math.trunc(targetLevel));
   if (safeTargetLevel <= 1) return [];
 
-  return [credits(24 * 1.42 ** (safeTargetLevel - 2))];
+  return [
+    roundedGrowthCost(
+      "credits",
+      "24",
+      PSU_CAPACITY_COST_GROWTH,
+      safeTargetLevel - 2,
+    ),
+  ];
 };
 
 export const getPsuCapacityBuildCost = (

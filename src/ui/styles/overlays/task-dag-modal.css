@@ -62,8 +62,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-h);
-  height: var(--control-h);
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-pill);
   color: var(--muted);
@@ -596,10 +596,10 @@
 
 .dag-stage-progress-fill {
   display: block;
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, var(--green), var(--cyan));
   border-radius: inherit;
-  transition: width var(--dur-1) var(--ease);
 }
 
 .dag-stage.is-deadlock .dag-stage-progress-fill {

@@ -118,6 +118,7 @@ export function HardwareBoard({
   const systemBoardNode = (
     <HardwareSystemBoard
       visible={boardVisible}
+      systemId={activeSystem.id}
       dispatch={systemDispatch}
       selectedComponent={boardSelection}
       onSelectComponent={selectComponent}

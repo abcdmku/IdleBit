@@ -1,10 +1,10 @@
 import type { SchedulerKillPolicy, SchedulerPolicy, SchedulerWatchdogPreview, VisibleCpuSocket, VisibleState } from "../../game";
 import { getSocketForCore } from "../panels/cpuLabels";
 import { clampMeter } from "../panels/uiNumbers";
+import { SmoothFill } from "../SmoothProgress";
 import type { Dispatch } from "../uiActions";
 import { formatCountdownSeconds } from "./display";
 import { getCoreTargetLabel } from "./coreTargets";
-import { getProgressStyle } from "./meters";
 
 const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
   none: "None",
@@ -79,7 +79,7 @@ export function SchedulerWatchdogStatus({
         aria-valuemax={100}
         aria-valuenow={progressPercent}
       >
-        <span className="progress-fill" style={getProgressStyle(progress)} />
+        <SmoothFill value={progress} snapKey={watchdog.victimInstanceId} />
       </div>
     </div>
   );

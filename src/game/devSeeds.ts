@@ -13,6 +13,9 @@ import {
   syncHardwarePackages,
   updateProgressionFlags,
 } from "./progression";
+import { amountToSafeNumber, exactResourceBag } from "./amount";
+import { updateCampaignProgress } from "./campaign";
+import { normalizeInfrastructureForGameState } from "./fleet";
 import { materializeSystem, syncSelectedSystemRuntime } from "./systems";
 import type { CpuHardwareState, GameState, RamStickState, ResearchId } from "./types";
 
@@ -77,6 +80,7 @@ const createSeedHardware = (
 
 export const createRackReadyGameState = (): GameState => {
   const base = createInitialGameState();
+  const exactResources = exactResourceBag(RACK_READY_SEED_CREDITS, 1_000_000);
   const workstationCpuLevel = 4;
   const workstationCpus = [
     createCpuHardwareState(1, [1, 2], {
@@ -137,7 +141,7 @@ export const createRackReadyGameState = (): GameState => {
   });
   const firstSystem = createSystemState(
     1,
-    "Rack-Ready Workstation",
+    "Fleet-Ready Workstation",
     "starterNode",
     hardware,
   );
@@ -149,9 +153,10 @@ export const createRackReadyGameState = (): GameState => {
   );
   const state: GameState = {
     ...base,
+    exactResources,
     resources: {
-      credits: RACK_READY_SEED_CREDITS,
-      data: 1_000_000,
+      credits: amountToSafeNumber(exactResources.credits),
+      data: amountToSafeNumber(exactResources.data),
     },
     selectedSystemId: 1,
     rack: {
@@ -187,11 +192,11 @@ export const createRackReadyGameState = (): GameState => {
         "systemBus",
         "cronScheduler",
         "systemCatalog",
+        "customMachineAssembly",
+        "psuManagement",
         "cpuTierKhz",
         "cpuTierMhz",
         "cpuTierGhz",
-        "cpuTierThz",
-        "cpuTierPhz",
       ] satisfies ResearchId[],
       clickRateLevel: 0,
     },
@@ -232,8 +237,10 @@ export const createRackReadyGameState = (): GameState => {
     queue: [],
   };
 
-  return materializeSystem(
-    syncSelectedSystemRuntime(updateProgressionFlags(syncCronSchedules(state))),
-    1,
-  );
+  return normalizeInfrastructureForGameState(updateCampaignProgress(
+    materializeSystem(
+      syncSelectedSystemRuntime(updateProgressionFlags(syncCronSchedules(state))),
+      1,
+    ),
+  ));
 };

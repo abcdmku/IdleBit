@@ -1,0 +1,303 @@
+baseRewards.credits,baseRewards.data,baseWorkMs,cacheNeedBits,capability,category,clockHz,costs,cStateCost,cStateIdleMultiplier,definitionType,description,efficiency,firstCompletionData,id,index,kind,level,maxOfflineMs,name,objectiveIds,operationCount,phases,ramNeedBits,renewsStandingOrders,repeatable,repeatRewardData,requiredChapter,requiredCores,requiredResearchId,rewardCredits,sideArcId,tierId,tierName,upgradeCost,workUnitCount
+,,,,Closing freezes simulation.,,,[],,,automation-buffer,,,,startingNode,,,,0,Starting Node,,,,,false,,,bootstrapNode,,,,,,,,
+,,,,Completes the existing finite queue only.,,,"[{""amount"":""120"",""resource"":""credits""},{""amount"":""8"",""resource"":""data""}]",,,automation-buffer,,,,localScheduler,,,,7200000,Local Scheduler,,,,,false,,,bootstrapNode,,localScheduler,,,,,,
+,,,,Renews one standing work order.,,,"[{""amount"":""600"",""resource"":""credits""},{""amount"":""40"",""resource"":""data""}]",,,automation-buffer,,,,cronRuntime,,,,28800000,CRON Runtime,,,,,true,,,coherentMachine,,cronScheduler,,,,,,
+,,,,Runs system policies and projects.,,,"[{""amount"":""1500"",""resource"":""credits""},{""amount"":""120"",""resource"":""data""}]",,,automation-buffer,,,,systemScheduler,,,,43200000,System Scheduler,,,,,true,,,coherentMachine,,systemScheduler,,,,,,
+,,,,Supports daily unattended Fleet work.,,,"[{""amount"":""20000"",""resource"":""credits""},{""amount"":""2000"",""resource"":""data""}]",,,automation-buffer,,,,fleetOrchestrator,,,,86400000,Fleet Orchestrator,,,,,true,,,workshopFleet,,systemCatalog,,,,,,
+,,,,Maintains distributed workloads.,,,"[{""amount"":""2000000"",""resource"":""credits""},{""amount"":""200000"",""resource"":""data""}]",,,automation-buffer,,,,clusterController,,,,172800000,Cluster Controller,,,,,true,,,localFabric,,,,,,,,
+,,,,Supports three-day infrastructure runs.,,,"[{""amount"":""200000000"",""resource"":""credits""},{""amount"":""20000000"",""resource"":""data""}]",,,automation-buffer,,,,rackController,,,,259200000,Rack Controller,,,,,true,,,rackAndFacility,,,,,,,,
+,,,,Supports five-day facility operations.,,,"[{""amount"":""20000000000"",""resource"":""credits""},{""amount"":""2000000000"",""resource"":""data""}]",,,automation-buffer,,,,dataCenterNoc,,,,432000000,Data Center NOC,,,,,true,,,rackAndFacility,,,,,,,,
+,,,,Final seven-day offline window.,,,"[{""amount"":""2000000000000"",""resource"":""credits""},{""amount"":""200000000000"",""resource"":""data""}]",,,automation-buffer,,,,globalScheduler,,,,604800000,Global Scheduler,,,,,true,,,planetaryCommons,,,,,,,,
+,,,,,,,,,,campaign-chapter,Bring a bit-scale machine from first operation to a measured node.,,,bootstrapNode,1,,,,Bootstrap Node,"[""bootstrap:first-operation"",""bootstrap:decode-logic"",""bootstrap:byte-copy"",""bootstrap:first-benchmark""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,"Unify cores, memory, and schedulers into one dependable system.",,,coherentMachine,2,,,,Coherent Machine,"[""coherent:multicore"",""coherent:local-scheduler"",""coherent:ram-control"",""coherent:system-scheduler"",""coherent:cron-runtime""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,Build named systems and specialize repeatable production.,,,workshopFleet,3,,,,Workshop Fleet,"[""fleet:catalog"",""fleet:second-system"",""fleet:open-foundry""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,Connect systems and coordinate distributed work.,,,localFabric,4,,,,Local Fabric,"[""fabric:cluster-controller"",""fabric:archivist""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,"Scale compute into powered, cooled, networked facilities.",,,rackAndFacility,5,,,,Rack and Facility,"[""facility:rack-controller"",""facility:grid-relief""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,Meet service guarantees across failure domains.,,,resilientCloud,6,,,,Resilient Cloud,"[""cloud:data-center-noc"",""cloud:availability""]",,,,,,,,,,,,,,,
+,,,,,,,,,,campaign-chapter,Route a shared compute commons and choose its enduring charter.,,,planetaryCommons,7,,,,Planetary Commons,"[""planetary:global-scheduler"",""planetary:finale"",""planetary:charter""]",,,,,,,,,,,,,,,
+180,4,1800000,,,,,,,,contract-template,Run a steady integrity audit over queued work.,,,ledgerAudit,,sustained,,,Ledger Audit,,,,,,,,bootstrapNode,,,,,,,,
+90,3,480000,,,,,,,,contract-template,Clear a short urgent scheduler backlog.,,,queueRecovery,,burst,,,Queue Recovery,,,,,,,,bootstrapNode,,,,,,,,
+900,12,7200000,,,,,,,,contract-template,Process a maintained build queue for an open toolchain.,,,compileBatch,,sustained,,,Compile Batch,,,,,,,,coherentMachine,,,,,,,,
+1400,18,1200000,,,,,,,,contract-template,Finish an urgent tile batch before the offer rotates.,,,renderBurst,,burst,,,Render Burst,,,,,,,,workshopFleet,,,,,,,,
+12000,80,28800000,,,,,,,,contract-template,Maintain a rolling civic demand forecast.,,,gridForecast,,sustained,,,Grid Forecast,,,,,,,,rackAndFacility,,,,,,,,
+25000,140,1800000,,,,,,,,contract-template,Sample replica health across a service window.,,,replicaSurvey,,burst,,,Replica Survey,,,,,,,,resilientCloud,,,,,,,,
+,,,,,,,,,,project,Turn the opening measurements into a repeatable node baseline.,,,bootstrapBenchmark,,,,,Bootstrap Benchmark,,,"[{""costs"":[{""amount"":""20"",""resource"":""credits""}],""durationMs"":30000,""id"":""instrument"",""name"":""Instrument the node"",""rewards"":{""credits"":""30"",""data"":""3""}},{""costs"":[{""amount"":""40"",""resource"":""credits""},{""amount"":""2"",""resource"":""data""}],""durationMs"":120000,""id"":""baseline"",""name"":""Publish the baseline"",""rewards"":{""credits"":""80"",""data"":""6""}}]",,,,,bootstrapNode,,,,,,,,
+,,,,,,,,,,project,Prove that queued compute and memory policies can share one plan.,,,schedulerIntegration,,,,,Scheduler Integration,,,"[{""costs"":[{""amount"":""240"",""resource"":""credits""},{""amount"":""12"",""resource"":""data""}],""durationMs"":600000,""id"":""queue-map"",""name"":""Map queue pressure"",""rewards"":{""credits"":""360"",""data"":""18""}},{""costs"":[{""amount"":""600"",""resource"":""credits""},{""amount"":""30"",""resource"":""data""}],""durationMs"":1800000,""id"":""policy-run"",""name"":""Run the policy trial"",""rewards"":{""credits"":""900"",""data"":""45""}}]",,,,,coherentMachine,,,,,,,,
+,,,,,,,,,,project,"Add integrity checks, snapshots, and replica-safe scheduling.",,,archivist,,,,,The Archivist,,,"[{""costs"":[{""amount"":""5000"",""resource"":""credits""},{""amount"":""200"",""resource"":""data""}],""durationMs"":7200000,""id"":""ecc"",""name"":""Validate ECC paths"",""rewards"":{""credits"":""7200"",""data"":""400""}},{""costs"":[{""amount"":""12000"",""resource"":""credits""},{""amount"":""500"",""resource"":""data""}],""durationMs"":21600000,""id"":""snapshots"",""name"":""Stage durable snapshots"",""rewards"":{""credits"":""18000"",""data"":""900""}},{""costs"":[{""amount"":""30000"",""resource"":""credits""},{""amount"":""1200"",""resource"":""data""}],""durationMs"":43200000,""id"":""replication"",""name"":""Prove replica recovery"",""rewards"":{""credits"":""48000"",""data"":""2400""}}]",,,,,localFabric,,,,archivist,,,,
+,,,,,,,,,,project,"Build open compilation, rendering, and accelerator batches.",,,openFoundry,,,,,Open Foundry,,,"[{""costs"":[{""amount"":""1800"",""resource"":""credits""},{""amount"":""80"",""resource"":""data""}],""durationMs"":3600000,""id"":""toolchain"",""name"":""Assemble the toolchain"",""rewards"":{""credits"":""2800"",""data"":""160""}},{""costs"":[{""amount"":""8000"",""resource"":""credits""},{""amount"":""300"",""resource"":""data""}],""durationMs"":14400000,""id"":""render"",""name"":""Render the reference corpus"",""rewards"":{""credits"":""13000"",""data"":""600""}},{""costs"":[{""amount"":""16000"",""resource"":""credits""},{""amount"":""600"",""resource"":""data""}],""durationMs"":28800000,""id"":""publish"",""name"":""Publish the open batch"",""rewards"":{""credits"":""26000"",""data"":""1200""}}]",,,,,workshopFleet,,,,openFoundry,,,,
+,,,,,,,,,,project,"Coordinate efficiency, renewables, and safe civic load shedding.",,,gridRelief,,,,,Grid Relief,,,"[{""costs"":[{""amount"":""12000"",""resource"":""credits""},{""amount"":""400"",""resource"":""data""}],""durationMs"":14400000,""id"":""heat-map"",""name"":""Map facility heat"",""rewards"":{""credits"":""18000"",""data"":""800""}},{""costs"":[{""amount"":""30000"",""resource"":""credits""},{""amount"":""1000"",""resource"":""data""}],""durationMs"":43200000,""id"":""load-shed"",""name"":""Trial safe load shedding"",""rewards"":{""credits"":""48000"",""data"":""2000""}},{""costs"":[{""amount"":""80000"",""resource"":""credits""},{""amount"":""2500"",""resource"":""data""}],""durationMs"":86400000,""id"":""relief-run"",""name"":""Complete the relief run"",""rewards"":{""credits"":""130000"",""data"":""5000""}}]",,,,,rackAndFacility,,,,gridRelief,,,,
+,,,,,,,,,,project,Commit the shared routing plan and bring the commons online.,,,planetaryFinale,,,,,Planetary Finale,,,"[{""costs"":[{""amount"":""1000000"",""resource"":""credits""},{""amount"":""50000"",""resource"":""data""}],""durationMs"":86400000,""id"":""route"",""name"":""Commit global routes"",""rewards"":{""credits"":""1400000"",""data"":""80000""}},{""costs"":[{""amount"":""5000000"",""resource"":""credits""},{""amount"":""200000"",""resource"":""data""}],""durationMs"":604800000,""id"":""commons"",""name"":""Bring the commons online"",""rewards"":{""credits"":""8000000"",""data"":""400000""}}]",,,,,planetaryCommons,,,,,,,,
+,,,,,,1,,1000000,0.72,cpu-tier-level,,10,,,,,1,,,,,,,,,,,,,,,hz,Hz CPU,8,
+,,,,,,1.5,,1400000,0.7,cpu-tier-level,,9.2,,,,,2,,,,,,,,,,,,,,,hz,Hz CPU,13,
+,,,,,,2.3,,1960000,0.68,cpu-tier-level,,8.5,,,,,3,,,,,,,,,,,,,,,hz,Hz CPU,22,
+,,,,,,3.5,,2744000,0.66,cpu-tier-level,,7.8,,,,,4,,,,,,,,,,,,,,,hz,Hz CPU,36,
+,,,,,,5.3,,3841600,0.64,cpu-tier-level,,7.2,,,,,5,,,,,,,,,,,,,,,hz,Hz CPU,59,
+,,,,,,8,,5378240,0.62,cpu-tier-level,,6.6,,,,,6,,,,,,,,,,,,,,,hz,Hz CPU,97,
+,,,,,,12,,7529536,0.6,cpu-tier-level,,6.1,,,,,7,,,,,,,,,,,,,,,hz,Hz CPU,158,
+,,,,,,18,,10541350,0.58,cpu-tier-level,,5.6,,,,,8,,,,,,,,,,,,,,,hz,Hz CPU,257,
+,,,,,,27,,14757891,0.56,cpu-tier-level,,5.1,,,,,9,,,,,,,,,,,,,,,hz,Hz CPU,418,
+,,,,,,40.5,,20661047,0.54,cpu-tier-level,,4.7,,,,,10,,,,,,,,,,,,,,,hz,Hz CPU,679,
+,,,,,,60.8,,28925465,0.52,cpu-tier-level,,4.3,,,,,11,,,,,,,,,,,,,,,hz,Hz CPU,1106,
+,,,,,,91.2,,40495652,0.5,cpu-tier-level,,4,,,,,12,,,,,,,,,,,,,,,hz,Hz CPU,1799,
+,,,,,,136.8,,56693912,0.48,cpu-tier-level,,3.7,,,,,13,,,,,,,,,,,,,,,hz,Hz CPU,2927,
+,,,,,,205.2,,79371477,0.46,cpu-tier-level,,3.4,,,,,14,,,,,,,,,,,,,,,hz,Hz CPU,4761,
+,,,,,,307.8,,111120068,0.44,cpu-tier-level,,3.1,,,,,15,,,,,,,,,,,,,,,hz,Hz CPU,7745,
+,,,,,,461.7,,155568096,0.42,cpu-tier-level,,2.9,,,,,16,,,,,,,,,,,,,,,hz,Hz CPU,12599,
+,,,,,,692.6,,217795334,0.4,cpu-tier-level,,2.6,,,,,17,,,,,,,,,,,,,,,hz,Hz CPU,20496,
+,,,,,,1038.9,,304913467,0.38,cpu-tier-level,,2.4,,,,,18,,,,,,,,,,,,,,,hz,Hz CPU,33341,
+,,,,,,1558.4,,426878854,0.36,cpu-tier-level,,2.2,,,,,19,,,,,,,,,,,,,,,hz,Hz CPU,54238,
+,,,,,,2337.6,,597630396,0.34,cpu-tier-level,,2.1,,,,,20,,,,,,,,,,,,,,,hz,Hz CPU,88230,
+,,,,,,3506.4,,836682554,0.32,cpu-tier-level,,1.9,,,,,21,,,,,,,,,,,,,,,hz,Hz CPU,143524,
+,,,,,,5259.6,,1171355576,0.3,cpu-tier-level,,1.7,,,,,22,,,,,,,,,,,,,,,hz,Hz CPU,233471,
+,,,,,,7889.4,,1639897806,0.28,cpu-tier-level,,1.6,,,,,23,,,,,,,,,,,,,,,hz,Hz CPU,379789,
+,,,,,,11834.1,,2295856929,0.26,cpu-tier-level,,1.5,,,,,24,,,,,,,,,,,,,,,hz,Hz CPU,617806,
+,,,,,,17751.2,,3214199700,0.24,cpu-tier-level,,1.4,,,,,25,,,,,,,,,,,,,,,hz,Hz CPU,1004993,
+,,,,,,26626.8,,4499879581,0.22,cpu-tier-level,,1.2,,,,,26,,,,,,,,,,,,,,,hz,Hz CPU,1634831,
+,,,,,,39940.2,,6299831413,0.2,cpu-tier-level,,1.1,,,,,27,,,,,,,,,,,,,,,hz,Hz CPU,2659391,
+,,,,,,59910.3,,8819763978,0.18,cpu-tier-level,,1.1,,,,,28,,,,,,,,,,,,,,,hz,Hz CPU,4326052,
+,,,,,,89865.5,,12347669569,0.16,cpu-tier-level,,1,,,,,29,,,,,,,,,,,,,,,hz,Hz CPU,7037227,
+,,,,,,134798.3,,17286737397,0.14,cpu-tier-level,,0.9,,,,,30,,,,,,,,,,,,,,,hz,Hz CPU,11447517,
+,,,,,,202197.4,,24201432355,0.12,cpu-tier-level,,0.8,,,,,31,,,,,,,,,,,,,,,hz,Hz CPU,18621769,
+,,,,,,303296.1,,33882005298,0.1,cpu-tier-level,,0.8,,,,,32,,,,,,,,,,,,,,,hz,Hz CPU,30292180,
+,,,,,,454944.2,,47434807417,0.08,cpu-tier-level,,0.7,,,,,33,,,,,,,,,,,,,,,hz,Hz CPU,49276527,
+,,,,,,682416.3,,66408730383,0.06,cpu-tier-level,,0.6,,,,,34,,,,,,,,,,,,,,,hz,Hz CPU,80158511,
+,,,,,,1023624.5,,92972222537,0.04,cpu-tier-level,,0.6,,,,,35,,,,,,,,,,,,,,,hz,Hz CPU,130394463,
+,,,,,,1535436.8,,130161111552,0.02,cpu-tier-level,,0.6,,,,,36,,,,,,,,,,,,,,,hz,Hz CPU,212113671,
+,,,,,,1000,,,,cpu-tier-level,,6,,,,,1,,,,,,,,,,,,,,,khz,kHz CPU,32000,
+,,,,,,1500,,,,cpu-tier-level,,5.6,,,,,2,,,,,,,,,,,,,,,khz,kHz CPU,51808,
+,,,,,,2250,,,,cpu-tier-level,,5.2,,,,,3,,,,,,,,,,,,,,,khz,kHz CPU,84277,
+,,,,,,3375,,,,cpu-tier-level,,4.8,,,,,4,,,,,,,,,,,,,,,khz,kHz CPU,137094,
+,,,,,,5063,,,,cpu-tier-level,,4.5,,,,,5,,,,,,,,,,,,,,,khz,kHz CPU,223012,
+,,,,,,7595,,,,cpu-tier-level,,4.2,,,,,6,,,,,,,,,,,,,,,khz,kHz CPU,362778,
+,,,,,,11393,,,,cpu-tier-level,,3.9,,,,,7,,,,,,,,,,,,,,,khz,kHz CPU,590134,
+,,,,,,17090,,,,cpu-tier-level,,3.6,,,,,8,,,,,,,,,,,,,,,khz,kHz CPU,959979,
+,,,,,,25635,,,,cpu-tier-level,,3.4,,,,,9,,,,,,,,,,,,,,,khz,kHz CPU,1561608,
+,,,,,,38453,,,,cpu-tier-level,,3.1,,,,,10,,,,,,,,,,,,,,,khz,kHz CPU,2540280,
+,,,,,,57680,,,,cpu-tier-level,,2.9,,,,,11,,,,,,,,,,,,,,,khz,kHz CPU,4132293,
+,,,,,,86520,,,,cpu-tier-level,,2.7,,,,,12,,,,,,,,,,,,,,,khz,kHz CPU,6722037,
+,,,,,,129780,,,,cpu-tier-level,,2.5,,,,,13,,,,,,,,,,,,,,,khz,kHz CPU,10934789,
+,,,,,,194670,,,,cpu-tier-level,,2.3,,,,,14,,,,,,,,,,,,,,,khz,kHz CPU,17787710,
+,,,,,,292005,,,,cpu-tier-level,,2.2,,,,,15,,,,,,,,,,,,,,,khz,kHz CPU,28935410,
+,,,,,,438008,,,,cpu-tier-level,,2,,,,,16,,,,,,,,,,,,,,,khz,kHz CPU,47069459,
+,,,,,,657012,,,,cpu-tier-level,,1.9,,,,,17,,,,,,,,,,,,,,,khz,kHz CPU,76568249,
+,,,,,,985518,,,,cpu-tier-level,,1.7,,,,,18,,,,,,,,,,,,,,,khz,kHz CPU,124554165,
+,,,,,,1478277,,,,cpu-tier-level,,1.6,,,,,19,,,,,,,,,,,,,,,khz,kHz CPU,202613222,
+,,,,,,2217416,,,,cpu-tier-level,,1.5,,,,,20,,,,,,,,,,,,,,,khz,kHz CPU,329592480,
+,,,,,,3326124,,,,cpu-tier-level,,1.4,,,,,21,,,,,,,,,,,,,,,khz,kHz CPU,536150621,
+,,,,,,4989186,,,,cpu-tier-level,,1.3,,,,,22,,,,,,,,,,,,,,,khz,kHz CPU,872160331,
+,,,,,,7483779,,,,cpu-tier-level,,1.2,,,,,23,,,,,,,,,,,,,,,khz,kHz CPU,1418749888,
+,,,,,,11225669,,,,cpu-tier-level,,1.1,,,,,24,,,,,,,,,,,,,,,khz,kHz CPU,2307891306,
+,,,,,,16838504,,,,cpu-tier-level,,1.1,,,,,25,,,,,,,,,,,,,,,khz,kHz CPU,3754264473,
+,,,,,,25257756,,,,cpu-tier-level,,1,,,,,26,,,,,,,,,,,,,,,khz,kHz CPU,6107090778,
+,,,,,,37886634,,,,cpu-tier-level,,0.9,,,,,27,,,,,,,,,,,,,,,khz,kHz CPU,9934451345,
+,,,,,,56829951,,,,cpu-tier-level,,0.8,,,,,28,,,,,,,,,,,,,,,khz,kHz CPU,16160448068,
+,,,,,,85244927,,,,cpu-tier-level,,0.8,,,,,29,,,,,,,,,,,,,,,khz,kHz CPU,26288324629,
+,,,,,,127867391,,,,cpu-tier-level,,0.7,,,,,30,,,,,,,,,,,,,,,khz,kHz CPU,42763418958,
+,,,,,,191801087,,,,cpu-tier-level,,0.7,,,,,31,,,,,,,,,,,,,,,khz,kHz CPU,69563581050,
+,,,,,,287701631,,,,cpu-tier-level,,0.6,,,,,32,,,,,,,,,,,,,,,khz,kHz CPU,113159609928,
+,,,,,,431552447,,,,cpu-tier-level,,0.6,,,,,33,,,,,,,,,,,,,,,khz,kHz CPU,184077603935,
+,,,,,,647328671,,,,cpu-tier-level,,0.5,,,,,34,,,,,,,,,,,,,,,khz,kHz CPU,299440447766,
+,,,,,,970993007,,,,cpu-tier-level,,0.5,,,,,35,,,,,,,,,,,,,,,khz,kHz CPU,487102069135,
+,,,,,,1456489511,,,,cpu-tier-level,,0.5,,,,,36,,,,,,,,,,,,,,,khz,kHz CPU,792372665537,
+,,,,,,1000000,,,,cpu-tier-level,,3,,,,,1,,,,,,,,,,,,,,,mhz,MHz CPU,126000000,
+,,,,,,1500000,,,,cpu-tier-level,,2.8,,,,,2,,,,,,,,,,,,,,,mhz,MHz CPU,206252631,
+,,,,,,2250000,,,,cpu-tier-level,,2.7,,,,,3,,,,,,,,,,,,,,,mhz,MHz CPU,335512735,
+,,,,,,3375000,,,,cpu-tier-level,,2.5,,,,,4,,,,,,,,,,,,,,,mhz,MHz CPU,545781134,
+,,,,,,5062500,,,,cpu-tier-level,,2.3,,,,,5,,,,,,,,,,,,,,,mhz,MHz CPU,887826350,
+,,,,,,7593750,,,,cpu-tier-level,,2.2,,,,,6,,,,,,,,,,,,,,,mhz,MHz CPU,1444233922,
+,,,,,,11390625,,,,cpu-tier-level,,2.1,,,,,7,,,,,,,,,,,,,,,mhz,MHz CPU,2349346379,
+,,,,,,17085938,,,,cpu-tier-level,,1.9,,,,,8,,,,,,,,,,,,,,,mhz,MHz CPU,3821699742,
+,,,,,,25628907,,,,cpu-tier-level,,1.8,,,,,9,,,,,,,,,,,,,,,mhz,MHz CPU,6216788248,
+,,,,,,38443361,,,,cpu-tier-level,,1.7,,,,,10,,,,,,,,,,,,,,,mhz,MHz CPU,10112897059,
+,,,,,,57665042,,,,cpu-tier-level,,1.6,,,,,11,,,,,,,,,,,,,,,mhz,MHz CPU,16450727095,
+,,,,,,86497563,,,,cpu-tier-level,,1.5,,,,,12,,,,,,,,,,,,,,,mhz,MHz CPU,26760523744,
+,,,,,,129746345,,,,cpu-tier-level,,1.4,,,,,13,,,,,,,,,,,,,,,mhz,MHz CPU,43531548874,
+,,,,,,194619518,,,,cpu-tier-level,,1.3,,,,,14,,,,,,,,,,,,,,,mhz,MHz CPU,70813103887,
+,,,,,,291929277,,,,cpu-tier-level,,1.3,,,,,15,,,,,,,,,,,,,,,mhz,MHz CPU,115192218294,
+,,,,,,437893916,,,,cpu-tier-level,,1.2,,,,,16,,,,,,,,,,,,,,,mhz,MHz CPU,187384063528,
+,,,,,,656840874,,,,cpu-tier-level,,1.1,,,,,17,,,,,,,,,,,,,,,mhz,MHz CPU,304819090903,
+,,,,,,985261311,,,,cpu-tier-level,,1,,,,,18,,,,,,,,,,,,,,,mhz,MHz CPU,495851549141,
+,,,,,,1477891967,,,,cpu-tier-level,,1,,,,,19,,,,,,,,,,,,,,,mhz,MHz CPU,806605511621,
+,,,,,,2216837951,,,,cpu-tier-level,,0.9,,,,,20,,,,,,,,,,,,,,,mhz,MHz CPU,1312111361769,
+,,,,,,3325256927,,,,cpu-tier-level,,0.9,,,,,21,,,,,,,,,,,,,,,mhz,MHz CPU,2134421598759,
+,,,,,,4987885391,,,,cpu-tier-level,,0.8,,,,,22,,,,,,,,,,,,,,,mhz,MHz CPU,3472079957575,
+,,,,,,7481828087,,,,cpu-tier-level,,0.8,,,,,23,,,,,,,,,,,,,,,mhz,MHz CPU,5648059052042,
+,,,,,,11222742131,,,,cpu-tier-level,,0.7,,,,,24,,,,,,,,,,,,,,,mhz,MHz CPU,9187740906045,
+,,,,,,16834113197,,,,cpu-tier-level,,0.7,,,,,25,,,,,,,,,,,,,,,mhz,MHz CPU,14945768480580,
+,,,,,,25251169796,,,,cpu-tier-level,,0.6,,,,,26,,,,,,,,,,,,,,,mhz,MHz CPU,24312396024068,
+,,,,,,37876754694,,,,cpu-tier-level,,0.6,,,,,27,,,,,,,,,,,,,,,mhz,MHz CPU,39549160767485,
+,,,,,,56815132041,,,,cpu-tier-level,,0.6,,,,,28,,,,,,,,,,,,,,,mhz,MHz CPU,64334922640413,
+,,,,,,85222698062,,,,cpu-tier-level,,0.5,,,,,29,,,,,,,,,,,,,,,mhz,MHz CPU,104654111258647,
+,,,,,,127834047093,,,,cpu-tier-level,,0.5,,,,,30,,,,,,,,,,,,,,,mhz,MHz CPU,170241644099758,
+,,,,,,191751070640,,,,cpu-tier-level,,0.5,,,,,31,,,,,,,,,,,,,,,mhz,MHz CPU,276933385962709,
+,,,,,,287626605960,,,,cpu-tier-level,,0.4,,,,,32,,,,,,,,,,,,,,,mhz,MHz CPU,450489659368133,
+,,,,,,431439908940,,,,cpu-tier-level,,0.4,,,,,33,,,,,,,,,,,,,,,mhz,MHz CPU,732814978201810,
+,,,,,,647159863410,,,,cpu-tier-level,,0.4,,,,,34,,,,,,,,,,,,,,,mhz,MHz CPU,1192075736056190,
+,,,,,,970739795115,,,,cpu-tier-level,,0.4,,,,,35,,,,,,,,,,,,,,,mhz,MHz CPU,1939158727323980,
+,,,,,,1456109692673,,,,cpu-tier-level,,0.3,,,,,36,,,,,,,,,,,,,,,mhz,MHz CPU,3154444349481770,
+,,,,,,1000000000,,,,cpu-tier-level,,2,,,,,1,,,,,,,,,,,,,,,ghz,GHz CPU,500000000000,
+,,,,,,1500000000,,,,cpu-tier-level,,1.9,,,,,2,,,,,,,,,,,,,,,ghz,GHz CPU,821106514702,
+,,,,,,2250000000,,,,cpu-tier-level,,1.8,,,,,3,,,,,,,,,,,,,,,ghz,GHz CPU,1335700254512,
+,,,,,,3375000000,,,,cpu-tier-level,,1.8,,,,,4,,,,,,,,,,,,,,,ghz,GHz CPU,2172793831200,
+,,,,,,5062500000,,,,cpu-tier-level,,1.7,,,,,5,,,,,,,,,,,,,,,ghz,GHz CPU,3534500361853,
+,,,,,,7593750000,,,,cpu-tier-level,,1.6,,,,,6,,,,,,,,,,,,,,,ghz,GHz CPU,5749598801576,
+,,,,,,11390625000,,,,cpu-tier-level,,1.6,,,,,7,,,,,,,,,,,,,,,ghz,GHz CPU,9352916394032,
+,,,,,,17085937500,,,,cpu-tier-level,,1.5,,,,,8,,,,,,,,,,,,,,,ghz,GHz CPU,15214460711549,
+,,,,,,25628906250,,,,cpu-tier-level,,1.4,,,,,9,,,,,,,,,,,,,,,ghz,GHz CPU,24749479733507,
+,,,,,,38443359375,,,,cpu-tier-level,,1.4,,,,,10,,,,,,,,,,,,,,,ghz,GHz CPU,40260168184227,
+,,,,,,57665039063,,,,cpu-tier-level,,1.3,,,,,11,,,,,,,,,,,,,,,ghz,GHz CPU,65491523849199,
+,,,,,,86497558595,,,,cpu-tier-level,,1.3,,,,,12,,,,,,,,,,,,,,,ghz,GHz CPU,106535563300840,
+,,,,,,129746337893,,,,cpu-tier-level,,1.2,,,,,13,,,,,,,,,,,,,,,ghz,GHz CPU,173302216542609,
+,,,,,,194619506840,,,,cpu-tier-level,,1.2,,,,,14,,,,,,,,,,,,,,,ghz,GHz CPU,281912042589762,
+,,,,,,291929260260,,,,cpu-tier-level,,1.1,,,,,15,,,,,,,,,,,,,,,ghz,GHz CPU,458588478224015,
+,,,,,,437893890390,,,,cpu-tier-level,,1.1,,,,,16,,,,,,,,,,,,,,,ghz,GHz CPU,745989388845682,
+,,,,,,656840835585,,,,cpu-tier-level,,1,,,,,17,,,,,,,,,,,,,,,ghz,GHz CPU,1213506650724360,
+,,,,,,985261253378,,,,cpu-tier-level,,1,,,,,18,,,,,,,,,,,,,,,ghz,GHz CPU,1974020560306850,
+,,,,,,1477891880067,,,,cpu-tier-level,,1,,,,,19,,,,,,,,,,,,,,,ghz,GHz CPU,3211154360124960,
+,,,,,,2216837820101,,,,cpu-tier-level,,0.9,,,,,20,,,,,,,,,,,,,,,ghz,GHz CPU,5223609384770890,
+,,,,,,3325256730152,,,,cpu-tier-level,,0.9,,,,,21,,,,,,,,,,,,,,,ghz,GHz CPU,8497285382321270,
+,,,,,,4987885095228,,,,cpu-tier-level,,0.8,,,,,22,,,,,,,,,,,,,,,ghz,GHz CPU,13822599193407600,
+,,,,,,7481827642842,,,,cpu-tier-level,,0.8,,,,,23,,,,,,,,,,,,,,,ghz,GHz CPU,22485327944745800,
+,,,,,,11222741464263,,,,cpu-tier-level,,0.8,,,,,24,,,,,,,,,,,,,,,ghz,GHz CPU,36577055133299700,
+,,,,,,16834112196395,,,,cpu-tier-level,,0.8,,,,,25,,,,,,,,,,,,,,,ghz,GHz CPU,59500175648408200,
+,,,,,,25251168294593,,,,cpu-tier-level,,0.7,,,,,26,,,,,,,,,,,,,,,ghz,GHz CPU,96789391308005700,
+,,,,,,37876752441890,,,,cpu-tier-level,,0.7,,,,,27,,,,,,,,,,,,,,,ghz,GHz CPU,157448043937411000,
+,,,,,,56815128662835,,,,cpu-tier-level,,0.7,,,,,28,,,,,,,,,,,,,,,ghz,GHz CPU,256121938620626000,
+,,,,,,85222692994253,,,,cpu-tier-level,,0.6,,,,,29,,,,,,,,,,,,,,,ghz,GHz CPU,416635518627747000,
+,,,,,,127834039491380,,,,cpu-tier-level,,0.6,,,,,30,,,,,,,,,,,,,,,ghz,GHz CPU,677744188245157000,
+,,,,,,191751059237070,,,,cpu-tier-level,,0.6,,,,,31,,,,,,,,,,,,,,,ghz,GHz CPU,1102491660367760000,
+,,,,,,287626588855605,,,,cpu-tier-level,,0.6,,,,,32,,,,,,,,,,,,,,,ghz,GHz CPU,1793431625474580000,
+,,,,,,431439883283408,,,,cpu-tier-level,,0.5,,,,,33,,,,,,,,,,,,,,,ghz,GHz CPU,2917388957100570000,
+,,,,,,647159824925112,,,,cpu-tier-level,,0.5,,,,,34,,,,,,,,,,,,,,,ghz,GHz CPU,4745738954369200000,
+,,,,,,970739737387668,,,,cpu-tier-level,,0.5,,,,,35,,,,,,,,,,,,,,,ghz,GHz CPU,7719929894230030000,
+,,,,,,1456109606081502,,,,cpu-tier-level,,0.5,,,,,36,,,,,,,,,,,,,,,ghz,GHz CPU,12558069068876600000,
+,,,,,,1000000000000,,,,cpu-tier-level,,1,,,,,1,,,,,,,,,,,,,,,thz,THz CPU,2000000000000000,
+,,,,,,1500000000000,,,,cpu-tier-level,,1,,,,,2,,,,,,,,,,,,,,,thz,THz CPU,3268883912911990,
+,,,,,,2250000000000,,,,cpu-tier-level,,1,,,,,3,,,,,,,,,,,,,,,thz,THz CPU,5317518490312990,
+,,,,,,3375000000000,,,,cpu-tier-level,,0.9,,,,,4,,,,,,,,,,,,,,,thz,THz CPU,8650048043349370,
+,,,,,,5062500000000,,,,cpu-tier-level,,0.9,,,,,5,,,,,,,,,,,,,,,thz,THz CPU,14071099383774400,
+,,,,,,7593750000000,,,,cpu-tier-level,,0.9,,,,,6,,,,,,,,,,,,,,,thz,THz CPU,22889565107131000,
+,,,,,,11390625000000,,,,cpu-tier-level,,0.9,,,,,7,,,,,,,,,,,,,,,thz,THz CPU,37234630820513500,
+,,,,,,17085937500000,,,,cpu-tier-level,,0.9,,,,,8,,,,,,,,,,,,,,,thz,THz CPU,60569859053722300,
+,,,,,,25628906250000,,,,cpu-tier-level,,0.9,,,,,9,,,,,,,,,,,,,,,thz,THz CPU,98529453493777800,
+,,,,,,38443359375000,,,,cpu-tier-level,,0.8,,,,,10,,,,,,,,,,,,,,,thz,THz CPU,160278616418308000,
+,,,,,,57665039062500,,,,cpu-tier-level,,0.8,,,,,11,,,,,,,,,,,,,,,thz,THz CPU,260726452548419000,
+,,,,,,86497558593750,,,,cpu-tier-level,,0.8,,,,,12,,,,,,,,,,,,,,,thz,THz CPU,424125716689914000,
+,,,,,,129746337890625,,,,cpu-tier-level,,0.8,,,,,13,,,,,,,,,,,,,,,thz,THz CPU,689928550783808000,
+,,,,,,194619506835938,,,,cpu-tier-level,,0.8,,,,,14,,,,,,,,,,,,,,,thz,THz CPU,1122312056202570000,
+,,,,,,291929260253907,,,,cpu-tier-level,,0.8,,,,,15,,,,,,,,,,,,,,,thz,THz CPU,1825673615139800000,
+,,,,,,437893890380861,,,,cpu-tier-level,,0.7,,,,,16,,,,,,,,,,,,,,,thz,THz CPU,2969837248559350000,
+,,,,,,656840835571292,,,,cpu-tier-level,,0.7,,,,,17,,,,,,,,,,,,,,,thz,THz CPU,4831056991671090000,
+,,,,,,985261253356938,,,,cpu-tier-level,,0.7,,,,,18,,,,,,,,,,,,,,,thz,THz CPU,7858717398771860000,
+,,,,,,1477891880035407,,,,cpu-tier-level,,0.7,,,,,19,,,,,,,,,,,,,,,thz,THz CPU,12783835765182400000,
+,,,,,,2216837820053111,,,,cpu-tier-level,,0.7,,,,,20,,,,,,,,,,,,,,,thz,THz CPU,20795563522451800000,
+,,,,,,3325256730079667,,,,cpu-tier-level,,0.7,,,,,21,,,,,,,,,,,,,,,thz,THz CPU,33828302409371300000,
+,,,,,,4987885095119500,,,,cpu-tier-level,,0.7,,,,,22,,,,,,,,,,,,,,,thz,THz CPU,55028758545753400000,
+,,,,,,7481827642679250,,,,cpu-tier-level,,0.6,,,,,23,,,,,,,,,,,,,,,thz,THz CPU,89515702870385600000,
+,,,,,,11222741464018876,,,,cpu-tier-level,,0.6,,,,,24,,,,,,,,,,,,,,,thz,THz CPU,145615879262780000000,
+,,,,,,16834112196028314,,,,cpu-tier-level,,0.6,,,,,25,,,,,,,,,,,,,,,thz,THz CPU,236874465747927000000,
+,,,,,,25251168294042470,,,,cpu-tier-level,,0.6,,,,,26,,,,,,,,,,,,,,,thz,THz CPU,385325507131745000000,
+,,,,,,37876752441063710,,,,cpu-tier-level,,0.6,,,,,27,,,,,,,,,,,,,,,thz,THz CPU,626811952810222000000,
+,,,,,,56815128661595570,,,,cpu-tier-level,,0.6,,,,,28,,,,,,,,,,,,,,,thz,THz CPU,1.01963980300798e+21,
+,,,,,,85222692992393340,,,,cpu-tier-level,,0.6,,,,,29,,,,,,,,,,,,,,,thz,THz CPU,1.65865587472761e+21,
+,,,,,,127834039488590020,,,,cpu-tier-level,,0.6,,,,,30,,,,,,,,,,,,,,,thz,THz CPU,2.69814821140999e+21,
+,,,,,,191751059232885020,,,,cpu-tier-level,,0.5,,,,,31,,,,,,,,,,,,,,,thz,THz CPU,4.38909835467254e+21,
+,,,,,,287626588849327550,,,,cpu-tier-level,,0.5,,,,,32,,,,,,,,,,,,,,,thz,THz CPU,7.13977989997896e+21,
+,,,,,,431439883273991300,,,,cpu-tier-level,,0.5,,,,,33,,,,,,,,,,,,,,,thz,THz CPU,1.16143346311379e+22,
+,,,,,,647159824910987000,,,,cpu-tier-level,,0.5,,,,,34,,,,,,,,,,,,,,,thz,THz CPU,1.88931270730693e+22,
+,,,,,,970739737366480500,,,,cpu-tier-level,,0.5,,,,,35,,,,,,,,,,,,,,,thz,THz CPU,3.07335944705919e+22,
+,,,,,,1456109606049720800,,,,cpu-tier-level,,0.5,,,,,36,,,,,,,,,,,,,,,thz,THz CPU,4.99945734461918e+22,
+,,,,,,1000000000000000,,,,cpu-tier-level,,0.5,,,,,1,,,,,,,,,,,,,,,phz,PHz CPU,7999999999999990000,
+,,,,,,1500000000000000,,,,cpu-tier-level,,0.5,,,,,2,,,,,,,,,,,,,,,phz,PHz CPU,13013661254372400000,
+,,,,,,2250000000000000,,,,cpu-tier-level,,0.5,,,,,3,,,,,,,,,,,,,,,phz,PHz CPU,21169422405444100000,
+,,,,,,3375000000000000,,,,cpu-tier-level,,0.5,,,,,4,,,,,,,,,,,,,,,phz,PHz CPU,34436461516896300000,
+,,,,,,5062500000000000,,,,cpu-tier-level,,0.5,,,,,5,,,,,,,,,,,,,,,phz,PHz CPU,56018055622514900000,
+,,,,,,7593750000000000,,,,cpu-tier-level,,0.5,,,,,6,,,,,,,,,,,,,,,phz,PHz CPU,91124999999999900000,
+,,,,,,11390625000000000,,,,cpu-tier-level,,0.5,,,,,7,,,,,,,,,,,,,,,phz,PHz CPU,148233735225585000000,
+,,,,,,17085937500000000,,,,cpu-tier-level,,0.5,,,,,8,,,,,,,,,,,,,,,phz,PHz CPU,241132952087012000000,
+,,,,,,25628906250000000,,,,cpu-tier-level,,0.5,,,,,9,,,,,,,,,,,,,,,phz,PHz CPU,392252819465897000000,
+,,,,,,38443359375000000,,,,cpu-tier-level,,0.5,,,,,10,,,,,,,,,,,,,,,phz,PHz CPU,638080664825208000000,
+,,,,,,57665039062500000,,,,cpu-tier-level,,0.5,,,,,11,,,,,,,,,,,,,,,phz,PHz CPU,1.037970703125e+21,
+,,,,,,86497558593750000,,,,cpu-tier-level,,0.5,,,,,12,,,,,,,,,,,,,,,phz,PHz CPU,1.68847489030393e+21,
+,,,,,,129746337890625000,,,,cpu-tier-level,,0.5,,,,,13,,,,,,,,,,,,,,,phz,PHz CPU,2.74665503236612e+21,
+,,,,,,194619506835937470,,,,cpu-tier-level,,0.5,,,,,14,,,,,,,,,,,,,,,phz,PHz CPU,4.46800477172874e+21,
+,,,,,,291929260253906200,,,,cpu-tier-level,,0.5,,,,,15,,,,,,,,,,,,,,,phz,PHz CPU,7.26813757277466e+21,
+,,,,,,437893890380859260,,,,cpu-tier-level,,0.5,,,,,16,,,,,,,,,,,,,,,phz,PHz CPU,1.18231350402832e+22,
+,,,,,,656840835571288800,,,,cpu-tier-level,,0.5,,,,,17,,,,,,,,,,,,,,,phz,PHz CPU,1.92327842973683e+22,
+,,,,,,985261253356933200,,,,cpu-tier-level,,0.5,,,,,18,,,,,,,,,,,,,,,phz,PHz CPU,3.12861174780455e+22,
+,,,,,,1477891880035400000,,,,cpu-tier-level,,0.5,,,,,19,,,,,,,,,,,,,,,phz,PHz CPU,5.0893366852973e+22,
+,,,,,,2216837820053100000,,,,cpu-tier-level,,0.5,,,,,20,,,,,,,,,,,,,,,phz,PHz CPU,8.2788629539887e+22,
+,,,,,,3325256730079650000,,,,cpu-tier-level,,0.5,,,,,21,,,,,,,,,,,,,,,phz,PHz CPU,1.34672897568227e+23,
+,,,,,,4987885095119475000,,,,cpu-tier-level,,0.5,,,,,22,,,,,,,,,,,,,,,phz,PHz CPU,2.19073433637212e+23,
+,,,,,,7481827642679212000,,,,cpu-tier-level,,0.5,,,,,23,,,,,,,,,,,,,,,phz,PHz CPU,3.56368431898363e+23,
+,,,,,,11222741464018817000,,,,cpu-tier-level,,0.5,,,,,24,,,,,,,,,,,,,,,phz,PHz CPU,5.79707256809645e+23,
+,,,,,,16834112196028226000,,,,cpu-tier-level,,0.5,,,,,25,,,,,,,,,,,,,,,phz,PHz CPU,9.4301423335277e+23,
+,,,,,,25251168294042337000,,,,cpu-tier-level,,0.5,,,,,26,,,,,,,,,,,,,,,phz,PHz CPU,1.53400847386308e+24,
+,,,,,,37876752441063510000,,,,cpu-tier-level,,0.5,,,,,27,,,,,,,,,,,,,,,phz,PHz CPU,2.49538333002386e+24,
+,,,,,,56815128661595260000,,,,cpu-tier-level,,0.5,,,,,28,,,,,,,,,,,,,,,phz,PHz CPU,4.05925916959229e+24,
+,,,,,,85222692992392890000,,,,cpu-tier-level,,0.5,,,,,29,,,,,,,,,,,,,,,phz,PHz CPU,6.60322797209737e+24,
+,,,,,,127834039488589330000,,,,cpu-tier-level,,0.5,,,,,30,,,,,,,,,,,,,,,phz,PHz CPU,1.07415215017839e+25,
+,,,,,,191751059232884000000,,,,cpu-tier-level,,0.5,,,,,31,,,,,,,,,,,,,,,phz,PHz CPU,1.74733152725966e+25,
+,,,,,,287626588849326000000,,,,cpu-tier-level,,0.5,,,,,32,,,,,,,,,,,,,,,phz,PHz CPU,2.84239757435529e+25,
+,,,,,,431439883273989000000,,,,cpu-tier-level,,0.5,,,,,33,,,,,,,,,,,,,,,phz,PHz CPU,4.62374989786368e+25,
+,,,,,,647159824910983500000,,,,cpu-tier-level,,0.5,,,,,34,,,,,,,,,,,,,,,phz,PHz CPU,7.52148936196711e+25,
+,,,,,,970739737366475300000,,,,cpu-tier-level,,0.5,,,,,35,,,,,,,,,,,,,,,phz,PHz CPU,1.22352643356257e+26,
+,,,,,,1.456109606049713e+21,,,,cpu-tier-level,,0.5,,,,,36,,,,,,,,,,,,,,,phz,PHz CPU,1.99031981776921e+26,
+,,,1,,cpu,,,,,task,,,0,fetchBit,,task,,,Fetch Bit,,2,,0,,true,0,,,,2,,,,,1
+,,,2,,cpu,,,,,task,,,0,decodeBit,,task,,,Decode Bit,,6,,0,,true,0,,,,6,,,,,1
+,,,1,,cpu,,,,,task,,,1,bitFlip,,task,,,Bit Flip,,4,,0,,true,0,,,,4,,,,,1
+,,,1,,cpu,,,,,task,,,1,bitShift,,task,,,Bit Shift,,4,,0,,true,0,,,,4,,,,,1
+,,,16,,cpu,,,,,task,,,2,byteCopy,,task,,,Byte Copy,,32,,0,,true,0,,,,32,,,,,1
+,,,2,,cpu,,,,,task,,,1,packetCheck,,task,,,Packet Check,,50,,0,,true,0,,,,50,,,,,1
+,,,8,,cpu,,,,,task,,,0,readRamPage,,task,,,Read RAM Page,,288,,256,,true,0,,,,288,,,,,1
+,,,8,,cpu,,,,,task,,,0,writeRamPage,,task,,,Write RAM Page,,296,,256,,true,0,,,,296,,,,,1
+,,,8,,cpu,,,,,task,,,0,overwriteRamPage,,task,,,Overwrite RAM Page,,280,,256,,true,0,,,,280,,,,,1
+,,,8,,cpu,,,,,task,,,0,stageChecksumPage,,task,,,Stage Checksum Page,,288,,256,,true,0,,,,288,,,,,1
+,,,8,,cpu,,,,,task,,,0,checksumStep,,task,,,Checksum Step,,300,,256,,true,0,,,,300,,,,,1
+,,,16,,cpu,,,,,task,,,0,scanRamPage,,task,,,Scan RAM Page,,560,,512,,true,0,,,,560,,,,,1
+,,,16,,cpu,,,,,task,,,0,repairRamDrift,,task,,,Repair Drift,,560,,512,,true,0,,,,560,,,,,1
+,,,8,,cpu,,,,,task,,,0,readQueueTable,,task,,,Read Queue Table,,288,,256,,true,0,,,,288,,,,,1
+,,,8,,cpu,,,,,task,,,0,compactQueueEntries,,task,,,Compact Queue Entries,,318,,256,,true,0,,,,318,,,,,1
+,,,8,,cpu,,,,,task,,,0,samplePowerRails,,task,,,Sample Power Rails,,296,,256,,true,0,,,,296,,,,,1
+,,,8,,cpu,,,,,task,,,0,normalizeDrawTrace,,task,,,Normalize Draw Trace,,312,,256,,true,0,,,,312,,,,,1
+,,,16,,cpu,,,,,task,,,0,readBusWindow,,task,,,Read Bus Window,,1120,,1024,,true,0,,,,1120,,,,,1
+,,,16,,cpu,,,,,task,,,0,mirrorBusState,,task,,,Mirror Bus State,,1184,,1024,,true,0,,,,1184,,,,,1
+,,,12,,cpu,,,,,task,,,0,sampleThermalSensors,,task,,,Sample Thermal Sensors,,444,,384,,true,0,,,,444,,,,,1
+,,,12,,cpu,,,,,task,,,0,fitHeatCurve,,task,,,Fit Heat Curve,,480,,384,,true,0,,,,480,,,,,1
+,,,32,,cpu,,,,,task,,,0,loadShards,,task,,,Load Shards,,4320,,4096,,true,0,,,,4320,,,,,1
+,,,32,,cpu,,,,,task,,,0,reconcileShards,,task,,,Reconcile Shards,,4560,,4096,,true,0,,,,4560,,,,,1
+,,,0,,cpu,,,,,task,,,0,mergeShardBarrier,,task,,,Merge Barrier,,0,,0,,true,0,,,,0,,,,,1
+,,,16,,cpu,,,,,task,,,0,commitShards,,task,,,Commit Shards,,1124,,1024,,true,0,,,,1124,,,,,1
+,,,16,,cpu,,,,,task,,,0,stageSourceTree,,task,,,Stage Source Tree,,608,,512,,true,0,,,,608,,,,,1
+,,,8,,cpu,,,,,task,,,0,compileUnits,,task,,,Compile Units,,680,,512,,true,0,,,,680,,,,,1
+,,,0,,cpu,,,,,task,,,0,linkBarrier,,task,,,Link Barrier,,0,,0,,true,0,,,,0,,,,,1
+,,,16,,cpu,,,,,task,,,0,linkBinary,,task,,,Link Binary,,648,,512,,true,0,,,,648,,,,,1
+,,,8,,cpu,,,,,task,,,0,writeArtifact,,task,,,Write Artifact,,552,,512,,true,0,,,,552,,,,,1
+,,,24,,cpu,,,,,task,,,0,loadSceneTiles,,task,,,Load Scene Tiles,,680,,512,,true,0,,,,680,,,,,1
+,,,8,,cpu,,,,,task,,,0,shadeTiles,,task,,,Shade Tiles,,740,,512,,true,0,,,,740,,,,,1
+,,,0,,cpu,,,,,task,,,0,compositeBarrier,,task,,,Composite Barrier,,0,,0,,true,0,,,,0,,,,,1
+,,,16,,cpu,,,,,task,,,0,compositeFrame,,task,,,Composite Frame,,1220,,1024,,true,0,,,,1220,,,,,1
+,,,16,,cpu,,,,,task,,,0,writeFrameBuffer,,task,,,Write Frame Buffer,,1120,,1024,,true,0,,,,1120,,,,,1
+,,,32,,cpu,,,,,task,,,0,stageTestFixtures,,task,,,Stage Test Fixtures,,672,,512,,true,0,,,,672,,,,,1
+,,,8,,cpu,,,,,task,,,0,runRegressionCases,,task,,,Run Cases,,720,,512,,true,0,,,,720,,,,,1
+,,,8,,cpu,,,,,task,,,0,compareResults,,task,,,Compare Results,,660,,512,,true,0,,,,660,,,,,1
+,,,0,,cpu,,,,,task,,,0,reportBarrier,,task,,,Report Barrier,,0,,0,,true,0,,,,0,,,,,1
+,,,16,,cpu,,,,,task,,,0,summarizeReport,,task,,,Summarize Report,,1200,,1024,,true,0,,,,1200,,,,,1
+,,,16,,cpu,,,,,task,,,0,writeReport,,task,,,Write Report,,1120,,1024,,true,0,,,,1120,,,,,1
+,,,8,,cpu,,,,,task,,,0,scatterShards,,task,,,Scatter Shards,,176,,0,,true,0,,,,176,,,,,1
+,,,8,,cpu,,,,,task,,,0,decodeShards,,task,,,Decode Shards,,200,,0,,true,0,,,,200,,,,,1
+,,,8,,cpu,,,,,task,,,0,hashShards,,task,,,Hash Shards,,488,,0,,true,0,,,,488,,,,,1
+,,,4,,cpu,,,,,task,,,0,commitBenchmarkResult,,task,,,Commit Result,,64,,0,,true,0,,,,64,,,,,1
+,,,8,,system,,,,,task,,,2,tinyChecksum,,task,,,Tiny Checksum,,332,,256,,true,0,,,,332,,,,,1
+,,,16,,system,,,,,task,,,3,memoryScrub,,task,,,Memory Scrub,,608,,512,,true,0,,,,608,,,,,1
+,,,8,,system,,,,,task,,,2,queueCompaction,,task,,,Queue Compaction,,350,,256,,true,0,,,,350,,,,,1
+,,,8,,system,,,,,task,,,2,powerTelemetry,,task,,,Power Telemetry,,352,,256,,true,0,,,,352,,,,,1
+,,,16,,system,,,,,task,,,5,busMirror,,task,,,Bus Mirror,,1280,,1024,,true,0,,,,1280,,,,,1
+,,,12,,system,,,,,task,,,4,thermalProbe,,task,,,Thermal Probe,,540,,384,,true,0,,,,540,,,,,1
+,,,40,,system,,,,,task,,,8,shardReconcile,,task,,,Shard Reconcile,,5908,,4096,,true,0,,,,5908,,,,,1
+,,,24,,system,,,,,task,,,12,compileCode,,task,,,Compile Code,,13616,,512,,true,0,,,,13616,,,,,16
+,,,40,,system,,,,,task,,,18,renderFrame,,task,,,Render Frame,,24132,,1024,,true,0,,,,24132,,,,,24
+,,,48,,system,,,,,task,,,24,regressionTest,,task,,,Regression Test,,51600,,1024,,true,0,,,,51600,,,,,32
+,,,4,,cpu,,,,,task,,,4,microBenchmark,,benchmark,,,Micro Benchmark,,84,,0,,false,0,,,,84,,,,,1
+,,,4,,cpu,,,,,task,,,8,parallelismBenchmark,,benchmark,,,Parallelism Benchmark,,114,,0,,false,0,,,,114,,,,,1
+,,,10,,system,,,,,task,,,14,multiCoreBenchmark,,benchmark,,,Multi-Core Benchmark,,928,,0,,false,0,,,,928,,,,,1

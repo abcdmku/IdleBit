@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceGame,
+  amountToSafeNumber,
+  amount,
+  amountSubtract,
   applyAction,
-  CLICK_RATE_MAX_LEVEL,
   createInitialGameState,
   createRackReadyGameState,
-  DEV_RESOURCE_GRANT_AMOUNT,
   deriveVisibleState,
-  getClickRateHz,
-  getClickRateUpgradeCost,
   deserializeSave,
+  exactResourceBag,
   RACK_READY_SEED_CREDITS,
   serializeSave,
+  sumAmounts,
   tickGame,
 } from "./index";
+import { getTaskBatchProjection } from "./taskBatches";
 import {
   BOOTLOADER_MAX_LEVEL,
   getBootSeconds,
@@ -20,6 +23,7 @@ import {
   getGlobalBootloaderLevel,
 } from "./bootloader";
 import { getGlobalCStateLevel } from "./cState";
+import { projectExactCosts } from "./economy";
 import { getTaskDefinition, taskDefinitions } from "./content/tasks";
 import {
   componentSkus,
@@ -42,7 +46,10 @@ import {
   getRamTierFirstGlobalLevel,
   getRamTierLevelDefinition,
 } from "./content/ramTiers";
-import { getPsuCapacityBuildCost } from "./content/psu";
+import {
+  getPsuCapacityBuildCost,
+  getPsuCapacityUpgradeCost,
+} from "./content/psu";
 import { getCpuSchedulerSlotBuildCost } from "./content/scheduler";
 import {
   allocateRamBlocksForOperation,
@@ -221,20 +228,6 @@ const getOperationAssignedCoreCount = (
     isOperationAssignedToCoreIndex(operation, coreIndex),
   ).length;
 
-const getExpectedCpuWork = (task: TaskDefinition) =>
-  task.operations.reduce(
-    (total, operation) =>
-      total + operation.cycles * getOperationAssignedCoreCount(task, operation),
-    0,
-  );
-
-const getExpectedCacheLoadWork = (task: TaskDefinition) =>
-  task.operations.reduce(
-    (total, operation) =>
-      total + operation.cacheBits * getOperationAssignedCoreCount(task, operation),
-    0,
-  );
-
 const getExpectedCacheNeedBits = (task: TaskDefinition) => {
   const coreSegments = getCoreIndexes(task).map((): number[] => []);
   let peakBits = 0;
@@ -313,11 +306,19 @@ const getExpectedTaskOperationCount = (task: TaskDefinition) =>
           (entry) => entry.taskId === subtask.sourceTaskId,
         );
         const scale = composition?.mode === "perWorkUnit" ? task.workUnitCount : 1;
-        return total + subtask.operationCount * scale;
+        return total + subtask.operations.reduce(
+          (operationTotal, operation) =>
+            operationTotal +
+            operation.count * getOperationAssignedCoreCount(task, operation),
+          0,
+        ) * scale;
       }, 0)
-    : getExpectedCpuWork(task) +
-      getExpectedCacheLoadWork(task) +
-      getExpectedRamProfile(task).loadWork;
+    : task.operations.reduce(
+        (total, operation) =>
+          total +
+          operation.count * getOperationAssignedCoreCount(task, operation),
+        0,
+      );
 
 const tickSeconds = (state: GameState, seconds: number) => {
   let nextState = state;
@@ -347,11 +348,41 @@ const research = (state: GameState, researchId: ResearchId) =>
   applyAction(state, { type: "buyResearch", researchId });
 
 const fund = (state: GameState): GameState => ({
-  ...state,
-  resources: { credits: 1_000_000_000_000, data: 1_000_000_000_000 },
+  ...withExactResourceValues(
+    state,
+    1_000_000_000_000,
+    1_000_000_000_000,
+  ),
   hardware: {
     ...state.hardware,
     psuWatts: Math.max(state.hardware.psuWatts, 1),
+  },
+});
+
+const withExactResourceValues = (
+  state: GameState,
+  credits: string | number,
+  data: string | number,
+): GameState => {
+  const exactResources = exactResourceBag(credits, data);
+  return {
+    ...state,
+    exactResources,
+    resources: {
+      credits: amountToSafeNumber(exactResources.credits),
+      data: amountToSafeNumber(exactResources.data),
+    },
+  };
+};
+
+const withPsuManagement = (state: GameState): GameState => ({
+  ...state,
+  flags: { ...state.flags, psuManagement: true },
+  research: {
+    ...state.research,
+    completed: Array.from(
+      new Set([...state.research.completed, "psuManagement" as const]),
+    ),
   },
 });
 
@@ -368,9 +399,19 @@ const withPsuStress = (state: GameState, psuStress: number): GameState => ({
 });
 
 const costAmount = (
-  costs: Array<{ resource: "credits" | "data"; amount: number }>,
+  costs: ReadonlyArray<{
+    resource: "credits" | "data";
+    amount: number | ReturnType<typeof amount>;
+  }>,
   resource: "credits" | "data",
-) => costs.find((cost) => cost.resource === resource)?.amount ?? 0;
+) =>
+  amountToSafeNumber(
+    sumAmounts(
+      costs
+        .filter((cost) => cost.resource === resource)
+        .map((cost) => cost.amount),
+    ),
+  );
 
 const withSchedulerSlots = (state: GameState, schedulerSlots: number): GameState => ({
   ...state,
@@ -511,14 +552,16 @@ const createLoadingRamOperation = (
     operationName: "Test RAM Load",
     status: "loadingRam",
     memoryState: "ramLoad",
-    remainingCycles: 0,
-    totalCycles: 0,
-    remainingLoadCycles: ramBlocks.reduce(
-      (total, block) =>
-        total + Math.max(0, block.lengthBits - block.loadedBits),
-      0,
+    remainingCycles: amount(0),
+    totalCycles: amount(0),
+    remainingLoadCycles: amount(
+      ramBlocks.reduce(
+        (total, block) =>
+          total + Math.max(0, block.lengthBits - block.loadedBits),
+        0,
+      ),
     ),
-    totalLoadCycles: memoryReservedBits,
+    totalLoadCycles: amount(memoryReservedBits),
     memoryReservedBits,
     memoryReservedBytes: Math.ceil(memoryReservedBits / 8),
     ramBlocks,
@@ -677,27 +720,6 @@ const withSystemCatalog = (state: GameState): GameState => ({
 });
 
 describe("IdleBit simulation", () => {
-  it("grants 100B of the requested resource through the dev resource action", () => {
-    const state = createInitialGameState();
-    const credited = applyAction(state, {
-      type: "grantDevResource",
-      resource: "credits",
-    });
-    const dataGranted = applyAction(state, {
-      type: "grantDevResource",
-      resource: "data",
-    });
-
-    expect(credited.resources.credits).toBe(
-      state.resources.credits + DEV_RESOURCE_GRANT_AMOUNT,
-    );
-    expect(credited.resources.data).toBe(state.resources.data);
-    expect(dataGranted.resources.credits).toBe(state.resources.credits);
-    expect(dataGranted.resources.data).toBe(
-      state.resources.data + DEV_RESOURCE_GRANT_AMOUNT,
-    );
-  });
-
   it("starts at 1 Hz with bit-scale cache before the system catalog", () => {
     const state = createInitialGameState();
     const visible = deriveVisibleState(state);
@@ -727,7 +749,7 @@ describe("IdleBit simulation", () => {
     ).toHaveLength(1);
     expect(visible.metrics.powerUsedWatts).toBeGreaterThan(0);
     expect(visible.metrics.billedPowerWatts).toBe(visible.metrics.powerUsedWatts);
-    expect(visible.metrics.powerCostPerSecond).toBeGreaterThan(0);
+    expect(visible.metrics.powerCostPerSecond).toBe(0);
     expect(visible.metrics.powerBootstrapGraceSeconds).toBe(0);
     expect(visible.tasks.map((task) => task.id)).toEqual([
       "fetchBit",
@@ -767,20 +789,28 @@ describe("IdleBit simulation", () => {
       ["khz", CPU_TIER_MAX_LEVEL],
       ["mhz", CPU_TIER_MAX_LEVEL],
       ["ghz", CPU_TIER_MAX_LEVEL],
-      ["thz", CPU_TIER_MAX_LEVEL],
-      ["phz", CPU_TIER_MAX_LEVEL],
     ]);
     expect(getCpuTierLevelDefinition("hz", 1)).toEqual(
-      expect.objectContaining({ upgradeCost: 8, clockHz: 1, efficiency: 10 }),
+      expect.objectContaining({
+        upgradeCost: amount(8),
+        clockHz: 1,
+        efficiency: 10,
+      }),
     );
     expect(getCpuTierLevelDefinition("khz", 1)).toEqual(
-      expect.objectContaining({ upgradeCost: 32_000, clockHz: 1_000, efficiency: 6 }),
+      expect.objectContaining({
+        upgradeCost: amount(32_000),
+        clockHz: 1_000,
+        efficiency: 6,
+      }),
     );
-    expect(getCpuTierLevelDefinition("mhz", 1).upgradeCost).toBe(126_000_000);
+    expect(getCpuTierLevelDefinition("mhz", 1).upgradeCost).toBe(
+      amount(126_000_000),
+    );
     expect(state.hardware.psuWatts).toBe(0.00001);
     expect(getPsuWatts(2)).toBe(0.000017);
     expect(getHardwareDrawWatts(state)).toBe(0.0000001);
-    expect(getPowerCostPerSecond(state)).toBe(0.1);
+    expect(getPowerCostPerSecond(state)).toBe(0);
     expect(socket).toEqual(
       expect.objectContaining({
         tierId: "hz",
@@ -879,18 +909,14 @@ describe("IdleBit simulation", () => {
     expect(khzResearch?.canBuy).toBe(true);
 
     state = research(state, "cpuTierKhz");
-    let chainState: GameState = {
-      ...state,
-      resources: {
-        ...state.resources,
-        credits: RACK_READY_SEED_CREDITS,
-      },
-    };
+    let chainState = withExactResourceValues(
+      state,
+      RACK_READY_SEED_CREDITS,
+      state.exactResources.data,
+    );
     const chainedTierResearch: ResearchId[] = [
       "cpuTierMhz",
       "cpuTierGhz",
-      "cpuTierThz",
-      "cpuTierPhz",
     ];
     chainedTierResearch.forEach((researchId) => {
       const nextResearch = deriveVisibleState(chainState).research.find(
@@ -942,7 +968,7 @@ describe("IdleBit simulation", () => {
       expect.objectContaining({
         completed: false,
         actionLabel: "Level up",
-        costs: getCStateUpgradeCost(1),
+        costs: projectExactCosts(getCStateUpgradeCost(1)),
       }),
     );
     expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("cState");
@@ -981,7 +1007,7 @@ describe("IdleBit simulation", () => {
     expect(activeSocket.activeDrawWatts).toBe(after.activeDrawWatts);
   });
 
-  it("applies C-State levels globally across rack systems", () => {
+  it("applies C-State levels globally across Fleet systems", () => {
     let state = createRackReadyGameState();
     state = fund({
       ...state,
@@ -1033,97 +1059,27 @@ describe("IdleBit simulation", () => {
     expect(afterSocket.idleDrawWatts).toBeLessThan(beforeSocket.idleDrawWatts);
     expect(
       visible.research.find((item) => item.id === "cStateControl")?.costs,
-    ).toEqual(getCStateUpgradeCost(2));
+    ).toEqual(projectExactCosts(getCStateUpgradeCost(2)));
   });
 
-  it("unlocks and levels manual click rate tuning after Local Scheduler", () => {
+  it("keeps hold-repeat as a fixed accessibility default without click progression", () => {
     let state = fund(unlockMultiCore());
-
-    expect(
-      deriveVisibleState(state).research.map((item) => item.id),
-    ).not.toContain("clickRateTuning");
-
     state = buy(state, "core");
     state = research(state, "localScheduler");
+    const before = state;
+    state = research(state, "clickRateTuning");
+    const visible = deriveVisibleState(state);
 
-    let visible = deriveVisibleState(state);
-    let clickRateResearch = visible.research.find(
-      (item) => item.id === "clickRateTuning",
+    expect(state).toEqual(before);
+    expect(visible.research.map((item) => item.id)).not.toContain(
+      "clickRateTuning",
     );
-
-    expect(clickRateResearch).toEqual(
-      expect.objectContaining({
-        canBuy: true,
-        completed: false,
-        costs: [{ resource: "credits", amount: 500_000 }],
-      }),
-    );
+    expect(visible.input?.clickRateLevel).toBe(0);
     expect(visible.input?.taskHoldRepeatMs).toBe(110);
     expect(visible.input?.taskHoldRateHz).toBeCloseTo(1000 / 110);
-
-    state = research(state, "clickRateTuning");
-    visible = deriveVisibleState(state);
-    clickRateResearch = visible.research.find(
-      (item) => item.id === "clickRateTuning",
-    );
-
-    expect(state.research.completed).toContain("clickRateTuning");
-    expect(state.research.clickRateLevel ?? 0).toBe(0);
-    expect(clickRateResearch).toEqual(
-      expect.objectContaining({
-        actionLabel: "Level up",
-        completed: false,
-        costs: getClickRateUpgradeCost(1),
-      }),
-    );
-
-    state = research(state, "clickRateTuning");
-    visible = deriveVisibleState(state);
-
-    expect(state.research.clickRateLevel).toBe(1);
-    expect(visible.input).toEqual(
-      expect.objectContaining({
-        clickRateLevel: 1,
-        taskHoldRateHz: 10,
-        taskHoldRepeatMs: 100,
-        taskHoldMaxMs: 30_000,
-      }),
-    );
-    expect(
-      visible.research.find((item) => item.id === "clickRateTuning")?.costs,
-    ).toEqual([{ resource: "credits", amount: 140_000 }]);
-
-    state = research(state, "clickRateTuning");
-    visible = deriveVisibleState(state);
-
-    expect(state.research.clickRateLevel).toBe(2);
-    expect(visible.input?.taskHoldRateHz).toBe(12);
-    expect(
-      visible.research.find((item) => item.id === "clickRateTuning")?.costs,
-    ).toEqual([{ resource: "credits", amount: 196_000 }]);
-
-    while ((state.research.clickRateLevel ?? 0) < CLICK_RATE_MAX_LEVEL) {
-      state = research(state, "clickRateTuning");
-    }
-
-    visible = deriveVisibleState(state);
-    clickRateResearch = visible.research.find(
-      (item) => item.id === "clickRateTuning",
-    );
-
-    expect(state.research.clickRateLevel).toBe(CLICK_RATE_MAX_LEVEL);
-    expect(getClickRateHz(CLICK_RATE_MAX_LEVEL)).toBe(80);
-    expect(visible.input?.taskHoldRateHz).toBe(80);
-    expect(clickRateResearch).toEqual(
-      expect.objectContaining({
-        completed: true,
-        canBuy: false,
-        costs: [],
-      }),
-    );
   });
 
-  it("normalizes click rate tuning levels from saves", () => {
+  it("removes legacy click-rate levels from saves", () => {
     const savedState: GameState = {
       ...createInitialGameState(),
       research: {
@@ -1134,12 +1090,13 @@ describe("IdleBit simulation", () => {
 
     const restored = deserializeSave(serializeSave(savedState));
 
-    expect(restored.research.clickRateLevel).toBe(7);
-    expect(deriveVisibleState(restored).input?.taskHoldRateHz).toBe(22);
+    expect(restored.research.clickRateLevel).toBe(0);
+    expect(restored.research.completed).not.toContain("clickRateTuning");
+    expect(deriveVisibleState(restored).input?.taskHoldRepeatMs).toBe(110);
 
     const restoredMissing = deserializeSave(
       JSON.stringify({
-        version: 6,
+        version: 7,
         state: {
           ...savedState,
           research: {
@@ -1150,7 +1107,7 @@ describe("IdleBit simulation", () => {
     );
     const restoredClamped = deserializeSave(
       JSON.stringify({
-        version: 6,
+        version: 7,
         state: {
           ...savedState,
           research: {
@@ -1162,7 +1119,7 @@ describe("IdleBit simulation", () => {
     );
     const restoredInvalid = deserializeSave(
       JSON.stringify({
-        version: 6,
+        version: 7,
         state: {
           ...savedState,
           research: {
@@ -1175,8 +1132,8 @@ describe("IdleBit simulation", () => {
 
     expect(restoredMissing.research.clickRateLevel).toBe(0);
     expect(restoredInvalid.research.clickRateLevel).toBe(0);
-    expect(restoredClamped.research.clickRateLevel).toBe(CLICK_RATE_MAX_LEVEL);
-    expect(deriveVisibleState(restoredClamped).input?.taskHoldRateHz).toBe(80);
+    expect(restoredClamped.research.clickRateLevel).toBe(0);
+    expect(deriveVisibleState(restoredClamped).input?.taskHoldRepeatMs).toBe(110);
   });
 
   it("reveals grouped starter tasks and research", () => {
@@ -1287,7 +1244,7 @@ describe("IdleBit simulation", () => {
     expect(decodeBit?.dagNodes[4]?.dependsOn).toEqual([
       "decodeBit:cache:decode-token",
     ]);
-    expect(decodeBit?.operationCount).toBe(6);
+    expect(decodeBit?.operationCount).toBe(2);
     expect(decodeBit?.subtaskCount).toBe(decodeBit?.subtasks.length);
   });
 
@@ -1351,20 +1308,22 @@ describe("IdleBit simulation", () => {
       "Read 8 Bits",
       "Write 8 Bits",
     ]);
-    expect(task.operationCount).toBe(32);
+    expect(task.operationCount).toBe(16);
+    expect(task.paidWorkUnits).toBe(16);
     expect(task.requiredCycles).toBe(16);
-    expect(task.rewardCredits).toBe(32);
+    expect(task.rewardCredits).toBe(16);
     expect(task.cacheNeedBits).toBe(16);
     expect(task.subtasks.map((node) => node.cacheBits)).toEqual([8, 8]);
   });
 
-  it("counts cache and RAM loading as paid task operations", () => {
+  it("counts staged work without double-paying concurrent memory issue", () => {
     const task = getTaskDefinition("tinyChecksum");
     const ramLoadNodes = task.dagNodes.filter((node) => node.kind === "ramLoad");
 
     expect(task.requiredCycles).toBe(60);
-    expect(task.operationCount).toBe(332);
-    expect(task.rewardCredits).toBe(332);
+    expect(task.operationCount).toBe(9);
+    expect(task.paidWorkUnits).toBe(324);
+    expect(task.rewardCredits).toBe(324);
     expect(task.subtasks.map((node) => [node.name, node.operationCount])).toEqual([
       ["Stage checksum page", 288],
       ["Fold checksum", 44],
@@ -1399,10 +1358,15 @@ describe("IdleBit simulation", () => {
       ["linkBinary", 648],
       ["writeArtifact", 552],
     ]);
-    expect(task.workUnitOperationCount).toBe(776);
-    expect(task.operationCount).toBe(13_616);
-    expect(task.requiredCycles).toBe(3_992);
-    expect(task.rewardCredits).toBe(task.operationCount);
+    expect(task.workUnitOperationCount).toBe(17);
+    expect(task.workUnitCount).toBe(2);
+    expect(task.operationCount).toBe(44);
+    expect(task.requiredCycles).toBe(632);
+    expect(task.rewardCredits).toBe(task.paidWorkUnits);
+    expect(task.aggregateBatch).toEqual({
+      workUnitMultiplier: 64,
+      maximumMultiplier: 1_000_000_000,
+    });
   });
 
   it("sums write cache footprints while reusing overwrite footprints", () => {
@@ -1541,6 +1505,7 @@ describe("IdleBit simulation", () => {
 
     state = applyAction(state, { type: "startTask", taskId: "bitFlip" });
     state = tickGame(state, 1000);
+    state = tickGame(state, 1000);
 
     const visible = deriveVisibleState(state);
     const residency = visible.metrics.cacheResidency;
@@ -1582,7 +1547,11 @@ describe("IdleBit simulation", () => {
   });
 
   it("commits equal-rate memory writes directly to ready cache", () => {
-    let state = applyAction(createInitialGameState(), {
+    const initial = createInitialGameState();
+    const fetchDurationMs = deriveVisibleState(initial).tasks.find(
+      (task) => task.id === "fetchBit",
+    )!.projection.durationMs;
+    let state = applyAction(initial, {
       type: "startTask",
       taskId: "fetchBit",
     });
@@ -1616,6 +1585,10 @@ describe("IdleBit simulation", () => {
     );
 
     state = tickGame(state, 500);
+    expect(state.activeTasks[0]?.coreOperations[0]?.operationName).toBe(
+      "Latch Bit",
+    );
+    state = tickGame(state, fetchDurationMs - 1_000);
     expect(state.activeTasks).toHaveLength(0);
   });
 
@@ -1682,12 +1655,21 @@ describe("IdleBit simulation", () => {
       .sort((left, right) => left.coreId - right.coreId);
     const loadDeltas = afterOperations.map(
       (operation, index) =>
-        (beforeOperations[index]?.remainingLoadCycles ?? 0) -
-        operation.remainingLoadCycles,
+        amountToSafeNumber(
+          amountSubtract(
+            beforeOperations[index]?.remainingLoadCycles ?? amount(0),
+            operation.remainingLoadCycles,
+          ),
+        ),
     );
     const cpuIssueDeltas = afterOperations.map(
       (operation, index) =>
-        (beforeOperations[index]?.remainingCycles ?? 0) - operation.remainingCycles,
+        amountToSafeNumber(
+          amountSubtract(
+            beforeOperations[index]?.remainingCycles ?? amount(0),
+            operation.remainingCycles,
+          ),
+        ),
     );
     const expectedPerCoreCacheRate = getCacheLoadRate(state, 1) / coreIds.length;
     const expectedCoreIssueRate = getCoreClockHz(state, 1);
@@ -1758,7 +1740,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(6);
+    expect(restored.version).toBe(7);
     expect(restored.research.completed).toEqual([]);
     expect(restored.flags.scheduler).toBe(false);
     expect(restored.systems).toHaveLength(1);
@@ -1799,7 +1781,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(6);
+    expect(restored.version).toBe(7);
     expect(restored.hardware.ramSticks).toEqual([]);
     expect(restored.hardware.ramBits).toBe(0);
     expect(restored.hardware.ramBytes).toBe(0);
@@ -1823,20 +1805,24 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(6);
+    expect(restored.version).toBe(7);
     expect(restored.queue).toEqual([]);
     expect(restored.queueEntries).toEqual([]);
     expect(restored.systems[0]?.queue).toEqual([]);
     expect(restored.systems[0]?.queueEntries).toEqual([]);
   });
 
-  it("creates a rack-ready seed with a dense visual stress node", () => {
+  it("creates a Fleet-ready seed with a dense visual stress node", () => {
     const state = createRackReadyGameState();
-    const restored = deserializeSave(serializeSave(state));
+    const savedAtMs = 1_700_000_000_000;
+    const restored = deserializeSave(serializeSave(state, savedAtMs));
     const visible = deriveVisibleState(state);
 
-    expect(state.version).toBe(6);
-    expect(restored).toEqual(state);
+    expect(state.version).toBe(7);
+    expect(restored).toEqual({
+      ...state,
+      time: { ...state.time, lastSavedAtMs: savedAtMs },
+    });
     expect(state.resources.credits).toBe(RACK_READY_SEED_CREDITS);
     expect(state.resources.data).toBeGreaterThan(20_000);
     expect(state.flags.systemCatalog).toBe(true);
@@ -1851,7 +1837,7 @@ describe("IdleBit simulation", () => {
     expect(state.rack.nextSystemId).toBe(3);
     expect(visible.rack.unlocked).toBe(true);
     expect(visible.rack.systems).toHaveLength(2);
-    expect(visible.rack.systems[0]?.name).toBe("Rack-Ready Workstation");
+    expect(visible.rack.systems[0]?.name).toBe("Fleet-Ready Workstation");
     expect(visible.rack.systems[1]?.coreCount).toBe(128);
     expect(visible.rack.systems[1]?.ramBits).toBe(state.systems[1]?.hardware.ramBits);
     expect(visible.machineBuilder.templates.map((template) => template.id)).toEqual([
@@ -1930,7 +1916,7 @@ describe("IdleBit simulation", () => {
       }),
     );
 
-    expect(restored.version).toBe(6);
+    expect(restored.version).toBe(7);
     expect(restored.completedTasks).toEqual({});
     expect(restored.completedJobs).toEqual({});
     expect(restored.completedBenchmarks).toEqual([]);
@@ -2059,7 +2045,7 @@ describe("IdleBit simulation", () => {
     ).toBe("RAM capacity too low.");
   });
 
-  it("buys preconfigured and custom systems as one visible rack slot per owned system", () => {
+  it("buys preconfigured and custom systems as one visible Fleet entry per owned system", () => {
     let state = fund({
       ...createInitialGameState(),
       flags: {
@@ -2086,7 +2072,7 @@ describe("IdleBit simulation", () => {
       (template) => template.id === "compileBox",
     );
 
-    expect(visibleCompileBox?.cost).toEqual(compileBoxCost);
+    expect(visibleCompileBox?.cost).toEqual(projectExactCosts(compileBoxCost));
 
     state = applyAction(state, {
       type: "buyMachineTemplate",
@@ -2118,10 +2104,7 @@ describe("IdleBit simulation", () => {
       "slotCount",
     );
 
-    state = {
-      ...state,
-      resources: { credits: 5_000_000_000_000, data: 100_000 },
-    };
+    state = withExactResourceValues(state, 5_000_000_000_000, 100_000);
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
@@ -2150,27 +2133,24 @@ describe("IdleBit simulation", () => {
     const cost = getMachineSelectionCost(selection);
     const before = 200_000;
     const state = applyAction(
-      {
+      withExactResourceValues({
         ...createInitialGameState(),
         flags: {
           ...createInitialGameState().flags,
           systemCatalog: true,
+          customMachineAssembly: true,
         },
         research: {
-          completed: ["systemCatalog", "cpuTierKhz"],
+          completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
         },
-        resources: {
-          credits: before,
-          data: 0,
-        },
-      },
+      }, before, 0),
       {
         type: "buyCustomMachine",
         components: selection,
       },
     );
 
-    expect(cost).toEqual([{ resource: "credits", amount: 128_002 }]);
+    expect(cost).toEqual([{ resource: "credits", amount: amount(128_002) }]);
     expect(state.systems.at(-1)?.hardware.cpus).toHaveLength(4);
     expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
   });
@@ -2184,23 +2164,23 @@ describe("IdleBit simulation", () => {
       psuLevel: 5,
     } as const;
     const cost = getMachineSelectionCost(selection);
-    const psuUpgradeCost = getPsuCapacityBuildCost(1, 5).reduce(
-      (total, item) => total + (item.resource === "credits" ? item.amount : 0),
-      0,
+    const psuUpgradeCost = costAmount(
+      getPsuCapacityBuildCost(1, 5),
+      "credits",
     );
     const before = 10_000;
     const state = applyAction(
-      {
+      withExactResourceValues({
         ...createInitialGameState(),
         flags: {
           ...createInitialGameState().flags,
           systemCatalog: true,
+          customMachineAssembly: true,
         },
-        resources: {
-          credits: before,
-          data: 0,
+        research: {
+          completed: ["systemCatalog", "customMachineAssembly"],
         },
-      },
+      }, before, 0),
       {
         type: "buyCustomMachine",
         components: selection,
@@ -2213,6 +2193,15 @@ describe("IdleBit simulation", () => {
     expect(before - state.resources.credits).toBe(costAmount(cost, "credits"));
   });
 
+  it("keeps the mandatory Workshop PSU path within the onboarding budget", () => {
+    const total = costAmount(getPsuCapacityBuildCost(14, 34), "credits");
+
+    expect(total).toBe(711_727);
+    expect(getPsuCapacityUpgradeCost(34)).toEqual([
+      { resource: "credits", amount: amount(173_212) },
+    ]);
+  });
+
   it("keeps the selected store PSU base level when a custom payload has a stale lower level", () => {
     const selection = {
       cpu: "cpu-barebones-1",
@@ -2223,52 +2212,46 @@ describe("IdleBit simulation", () => {
     } as const;
     const before = 10_000;
     const state = applyAction(
-      {
+      withExactResourceValues({
         ...createInitialGameState(),
         flags: {
           ...createInitialGameState().flags,
           systemCatalog: true,
+          customMachineAssembly: true,
         },
-        resources: {
-          credits: before,
-          data: 0,
+        research: {
+          completed: ["systemCatalog", "customMachineAssembly"],
         },
-      },
+      }, before, 0),
       {
         type: "buyCustomMachine",
         components: selection,
       },
     );
 
-    expect(state.systems.at(-1)?.hardware.psuLevel).toBe(18);
-    expect(state.systems.at(-1)?.hardware.psuWatts).toBe(getPsuWatts(18));
+    expect(state.systems.at(-1)?.hardware.psuLevel).toBe(23);
+    expect(state.systems.at(-1)?.hardware.psuWatts).toBe(getPsuWatts(23));
   });
 
-  it("keeps catalog CPUs at package level 1 and offers only RAM tier modules", () => {
+  it("keeps early catalog CPUs simple and offers only physical RAM tier modules", () => {
     const cpuModules = componentSkus.filter((module) => module.type === "cpu");
     const ramModules = componentSkus.filter((module) => module.type === "ram");
     const ramTierModules = ramModules.filter((module) => module.id !== "ram-none");
+    const workstation = getComponentSku("cpu-workstation-16");
 
-    expect(cpuModules.every((module) => module.cpuLevel === 1)).toBe(true);
-    expect(cpuModules.every((module) => module.clockLevel === 1)).toBe(true);
-    expect(cpuModules.every((module) => module.coreCount === 1)).toBe(true);
+    expect(cpuModules.slice(0, 4).every((module) => module.cpuLevel === 1)).toBe(true);
+    expect(cpuModules.slice(0, 4).every((module) => module.coreCount === 1)).toBe(true);
+    expect(workstation).toEqual(
+      expect.objectContaining({ cpuTierId: "ghz", cpuLevel: 28, coreCount: 16 }),
+    );
     expect(ramModules.map((module) => module.id)).toEqual([
       "ram-none",
       "ram-hz-tier",
       "ram-khz-tier",
       "ram-mhz-tier",
       "ram-ghz-tier",
-      "ram-thz-tier",
-      "ram-phz-tier",
     ]);
-    expect(ramTierModules.map((module) => module.ramLevel)).toEqual([
-      1,
-      37,
-      73,
-      109,
-      145,
-      181,
-    ]);
+    expect(ramTierModules.map((module) => module.ramLevel)).toEqual([1, 37, 73, 109]);
 
     for (let index = 1; index < ramModules.length; index += 1) {
       const previous = ramModules[index - 1]!;
@@ -2300,25 +2283,20 @@ describe("IdleBit simulation", () => {
           "cpuTierKhz",
           "cpuTierMhz",
           "cpuTierGhz",
-          "cpuTierThz",
-          "cpuTierPhz",
         ],
       },
     });
-    state = {
-      ...state,
-      resources: { credits: 1e30, data: 1e30 },
-    };
+    state = withExactResourceValues(state, "1e30", "1e30");
     const visible = deriveVisibleState(state);
     const cpuModules = visible.machineBuilder.components.cpu;
     const ramModules = visible.machineBuilder.components.ram;
 
-    expect(cpuModules).toHaveLength(11);
+    expect(cpuModules).toHaveLength(5);
     expect(cpuModules[0]?.id).toBe("cpu-barebones-1");
     expect(cpuModules.every((module) => (module.cpuPackageCount ?? 1) === 1)).toBe(
       true,
     );
-    expect(Math.max(...cpuModules.map((module) => module.coreCount ?? 0))).toBe(1);
+    expect(Math.max(...cpuModules.map((module) => module.coreCount ?? 0))).toBe(16);
     expect(Math.max(...cpuModules.map((module) => module.clockHz ?? 0))).toBeGreaterThan(
       100_000,
     );
@@ -2328,29 +2306,27 @@ describe("IdleBit simulation", () => {
       "ram-khz-tier",
       "ram-mhz-tier",
       "ram-ghz-tier",
-      "ram-thz-tier",
-      "ram-phz-tier",
     ]);
 
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
-        cpu: "cpu-server-64",
-        cpuPackageCount: 8,
-        ram: "ram-phz-tier",
+        cpu: "cpu-workstation-16",
+        cpuPackageCount: 2,
+        ram: "ram-ghz-tier",
         scheduler: "scheduler-24-slot",
-        psu: "psu-server",
+        psu: "psu-workstation",
       },
     });
 
     const custom = state.systems.at(-1);
-    const cpu = getComponentSku("cpu-server-64");
-    const ram = getComponentSku("ram-phz-tier");
+    const cpu = getComponentSku("cpu-workstation-16");
+    const ram = getComponentSku("ram-ghz-tier");
     const scheduler = getComponentSku("scheduler-24-slot");
     const template = getMachineTemplate("workstationTower");
 
-    expect(custom?.hardware.cpus).toHaveLength(8);
-    expect(custom?.hardware.cores).toBe(8);
+    expect(custom?.hardware.cpus).toHaveLength(2);
+    expect(custom?.hardware.cores).toBe(32);
     expect(custom?.hardware.secondCpu).toBe(true);
     expect(custom?.hardware.cacheLevel).toBe(cpu.cacheLevel);
     expect(custom?.hardware.cacheSpeedLevel).toBe(cpu.cacheSpeedLevel);
@@ -2364,7 +2340,7 @@ describe("IdleBit simulation", () => {
       ),
     ).toBe(true);
     expect(custom?.hardware.clockHz).toBeGreaterThan(100_000);
-    expect(template.components.cpu).toBe("cpu-ghz-16");
+    expect(template.components.cpu).toBe("cpu-workstation-16");
   });
 
   it("applies custom builder core, RAM, frequency, and size modifiers", () => {
@@ -2379,10 +2355,7 @@ describe("IdleBit simulation", () => {
         completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
       },
     });
-    state = {
-      ...state,
-      resources: { credits: 1e18, data: 1e18 },
-    };
+    state = withExactResourceValues(state, "1e18", "1e18");
     const ramBaseLevel = getRamTierFirstGlobalLevel("khz");
     const components = {
       cpu: "cpu-sip-core",
@@ -2445,10 +2418,7 @@ describe("IdleBit simulation", () => {
         completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
       },
     });
-    state = {
-      ...state,
-      resources: { credits: 1e18, data: 1e18 },
-    };
+    state = withExactResourceValues(state, "1e18", "1e18");
     const components = {
       cpu: "cpu-sip-core",
       cpuPackageCount: 2,
@@ -2514,10 +2484,7 @@ describe("IdleBit simulation", () => {
         completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
       },
     });
-    state = {
-      ...state,
-      resources: { credits: 1e18, data: 1e18 },
-    };
+    state = withExactResourceValues(state, "1e18", "1e18");
     const baseComponents = {
       cpu: "cpu-sip-core",
       cpuPackageCount: 2,
@@ -2539,14 +2506,8 @@ describe("IdleBit simulation", () => {
     const baseCost = getMachineSelectionCost(baseComponents);
     const cost = getMachineSelectionCost(components);
     const extraSlotCost = getCpuSchedulerSlotBuildCost(2, 4);
-    const extraSlotCredits = extraSlotCost.reduce(
-      (total, item) => total + (item.resource === "credits" ? item.amount : 0),
-      0,
-    );
-    const extraSlotData = extraSlotCost.reduce(
-      (total, item) => total + (item.resource === "data" ? item.amount : 0),
-      0,
-    );
+    const extraSlotCredits = costAmount(extraSlotCost, "credits");
+    const extraSlotData = costAmount(extraSlotCost, "data");
 
     expect(costAmount(cost, "credits")).toBe(
       costAmount(baseCost, "credits") + extraSlotCredits,
@@ -2569,7 +2530,7 @@ describe("IdleBit simulation", () => {
     expect(custom?.hardware.schedulerSlots).toBe(5);
   });
 
-  it("routes selected-system upgrades without mutating other rack systems", () => {
+  it("routes selected-system upgrades without mutating other Fleet systems", () => {
     let state = fund({
       ...createInitialGameState(),
       flags: {
@@ -2578,7 +2539,12 @@ describe("IdleBit simulation", () => {
         systemCatalog: true,
       },
       research: {
-        completed: ["systemScheduler", "systemCatalog"],
+        completed: [
+          "systemScheduler",
+          "systemCatalog",
+          "cpuTierKhz",
+          "cpuTierMhz",
+        ],
       },
     });
 
@@ -2647,7 +2613,7 @@ describe("IdleBit simulation", () => {
     expect(compileDefinition.coreScaling).toBe("chunked");
 
     const selectedCpu = state.hardware.cpus[0]!;
-    const singleCoreIds = selectedCpu.coreIds.slice(0, 2);
+    const singleCoreIds = selectedCpu.coreIds.slice(0, 1);
     const singleCoreState: GameState = {
       ...state,
       hardware: {
@@ -2713,10 +2679,7 @@ describe("IdleBit simulation", () => {
         ],
       },
     });
-    state = {
-      ...state,
-      resources: { credits: 1_000_000_000_000, data: 50_000 },
-    };
+    state = withExactResourceValues(state, 1_000_000_000_000, 50_000);
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
@@ -3111,10 +3074,10 @@ describe("IdleBit simulation", () => {
       getCpuTierLevelDefinition("khz", 2).upgradeCost,
     );
     expect(getRamTierLevelDefinition(2).calculatedCost).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost * 2,
+      amount(Number(getCpuTierLevelDefinition("hz", 2).upgradeCost) * 2),
     );
     expect(getRamTierLevelDefinition(3).calculatedCost).toBe(
-      getCpuTierLevelDefinition("hz", 3).upgradeCost * 4,
+      amount(Number(getCpuTierLevelDefinition("hz", 3).upgradeCost) * 4),
     );
   });
 
@@ -3167,7 +3130,7 @@ describe("IdleBit simulation", () => {
       }),
     );
     expect(state.resources.credits - khzInstalled.resources.credits).toBe(
-      getRamTierLevelDefinition(37).upgradeCost,
+      amountToSafeNumber(getRamTierLevelDefinition(37).upgradeCost),
     );
     expect(deriveVisibleState(khzInstalled).metrics.ramInstallOptions).toEqual([]);
 
@@ -3194,7 +3157,7 @@ describe("IdleBit simulation", () => {
     const lockedTierIgnored = applyAction(state, {
       type: "buyUpgrade",
       upgradeId: "ram",
-      ramTierId: "phz",
+      ramTierId: "ghz",
     });
     expect(lockedTierIgnored.hardware.ramSticks).toHaveLength(0);
   });
@@ -3614,7 +3577,7 @@ describe("IdleBit simulation", () => {
     const cancelledCoreId = activeCompile?.coreOperations[0]?.coreId;
     const cancelledWorkUnit = activeChildEntry?.workUnitIndex;
 
-    expect(activeCompileChildren).toHaveLength(4);
+    expect(activeCompileChildren).toHaveLength(compileCode.workUnitCount);
     expect(cancelledCoreId).toBeDefined();
     expect(cancelledWorkUnit).toBe(0);
 
@@ -3900,16 +3863,16 @@ describe("IdleBit simulation", () => {
       task.instanceId === cpuTaskInstanceId
         ? {
             ...task,
-            remainingCycles: 10_000,
-            totalCycles: 10_000,
+            remainingCycles: amount(10_000),
+            totalCycles: amount(10_000),
             coreOperations: task.coreOperations.map((operation) => ({
               ...operation,
               status: "running" as const,
               memoryState: "ready" as const,
-              remainingCycles: 10_000,
-              totalCycles: 10_000,
-              remainingLoadCycles: 0,
-              totalLoadCycles: 0,
+              remainingCycles: amount(10_000),
+              totalCycles: amount(10_000),
+              remainingLoadCycles: amount(0),
+              totalLoadCycles: amount(0),
             })),
           }
         : task,
@@ -3940,10 +3903,12 @@ describe("IdleBit simulation", () => {
       .find((task) => task.instanceId === cpuTaskInstanceId)
       ?.coreOperations[0];
 
-    expect(cpuOperationAfter?.remainingCycles).toBeLessThan(
-      cpuOperationBefore?.remainingCycles ?? Number.POSITIVE_INFINITY,
+    expect(amountToSafeNumber(cpuOperationAfter?.remainingCycles ?? 0)).toBeLessThan(
+      amountToSafeNumber(
+        cpuOperationBefore?.remainingCycles ?? Number.POSITIVE_INFINITY,
+      ),
     );
-    expect(cpuOperationAfter?.remainingLoadCycles).toBe(0);
+    expect(cpuOperationAfter?.remainingLoadCycles).toBe(amount(0));
     expect(
       deriveVisibleState(state).activeTasks.find(
         (task) => task.instanceId === cpuTaskInstanceId,
@@ -4469,14 +4434,15 @@ describe("IdleBit simulation", () => {
           cpu.id === 1
             ? {
                 ...cpu,
-                level: 30,
+                tierId: "mhz",
+                level: 1,
                 coreIds,
                 schedulerSlots: coreIds.length,
                 cacheBits: 4096,
                 cacheBytes: 512,
-                cacheSpeedLevel: 20,
+                cacheSpeedLevel: 1,
               }
-            : cpu,
+            : { ...cpu, schedulerSlots: 0 },
         ),
       },
       power: {
@@ -4488,11 +4454,15 @@ describe("IdleBit simulation", () => {
 
     state = applyAction(state, { type: "queueTask", taskId: "compileCode" });
     state = tickGame(state, 16);
+    const projectedDurationMs = getTaskBatchProjection(
+      state,
+      compileCode,
+    ).durationMs;
 
     const firstWaveEntries = getLocalQueueEntries(state);
-    expect(firstWaveEntries).toHaveLength(coreIds.length);
+    expect(firstWaveEntries).toHaveLength(compileCode.workUnitCount);
     expect(new Set(firstWaveEntries.map((entry) => entry.workUnitIndex)).size).toBe(
-      coreIds.length,
+      compileCode.workUnitCount,
     );
     expect(firstWaveEntries).toEqual(
       firstWaveEntries.map(() =>
@@ -4507,13 +4477,11 @@ describe("IdleBit simulation", () => {
     expect(state.completedTasks.compileCode).toBeUndefined();
     expect(state.completedTasks.stageSourceTree).toBeUndefined();
 
-    let guard = 0;
-    while ((state.activeTasks.length > 0 || state.queue.length > 0) && guard < 100) {
-      state = tickGame(state, 2000);
-      guard += 1;
-    }
-
-    expect(guard).toBeLessThan(100);
+    state = advanceGame(
+      state,
+      Math.ceil(projectedDurationMs * 4 + 60_000),
+      "foreground",
+    ).state;
     expect(state.queue).toEqual([]);
     expect(state.activeTasks).toEqual([]);
     expect(state.completedTasks.compileCode).toBe(1);
@@ -4709,7 +4677,7 @@ describe("IdleBit simulation", () => {
       expect.objectContaining({
         completed: false,
         actionLabel: "Level up",
-        costs: getBootloaderUpgradeCost(1),
+        costs: projectExactCosts(getBootloaderUpgradeCost(1)),
       }),
     );
     expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain("bootloader");
@@ -4741,7 +4709,9 @@ describe("IdleBit simulation", () => {
     visible = deriveVisibleState(state);
     bootloaderResearch = visible.research.find((item) => item.id === "bootloader");
     expect(getGlobalBootloaderLevel(state)).toBe(35);
-    expect(bootloaderResearch?.costs).toEqual(getBootloaderUpgradeCost(36));
+    expect(bootloaderResearch?.costs).toEqual(
+      projectExactCosts(getBootloaderUpgradeCost(36)),
+    );
     expect(bootloaderResearch?.costs).toEqual([
       { resource: "credits", amount: 5_906_682 },
     ]);
@@ -4848,16 +4818,16 @@ describe("IdleBit simulation", () => {
     const loading = state.activeTasks[0]?.coreOperations[0];
     expect(loading?.status).toBe("loadingCache");
     expect(loading?.memoryReservedBits).toBe(0);
-    expect(loading?.remainingCycles).toBe(8);
+    expect(loading?.remainingCycles).toBe(amount(8));
 
     state = tickGame(state, 10);
 
     const stillLoading = state.activeTasks[0]?.coreOperations[0];
     expect(stillLoading?.status).toBe("loadingCache");
     expect(stillLoading?.memoryReservedBits).toBe(0);
-    expect(stillLoading?.remainingCycles).toBeLessThan(8);
-    expect(stillLoading?.remainingLoadCycles).toBeLessThan(
-      loading?.remainingLoadCycles ?? 0,
+    expect(amountToSafeNumber(stillLoading?.remainingCycles ?? 0)).toBeLessThan(8);
+    expect(amountToSafeNumber(stillLoading?.remainingLoadCycles ?? 0)).toBeLessThan(
+      amountToSafeNumber(loading?.remainingLoadCycles ?? 0),
     );
   });
 
@@ -4872,7 +4842,7 @@ describe("IdleBit simulation", () => {
     expect(firstLoad?.operationName).toBe("Fetch Token");
     expect(firstLoad?.status).toBe("loadingCache");
     expect(firstLoad?.totalLoadCycles).toBe(
-      getCacheLoadCycles(state, task.operations[0]!),
+      amount(getCacheLoadCycles(state, task.operations[0]!)),
     );
 
     state = tickGame(state, 1000);
@@ -4881,7 +4851,7 @@ describe("IdleBit simulation", () => {
     expect(secondLoad?.operationName).toBe("Decode Bit");
     expect(secondLoad?.status).toBe("loadingCache");
     expect(secondLoad?.totalLoadCycles).toBe(
-      getCacheLoadCycles(state, task.operations[1]!),
+      amount(getCacheLoadCycles(state, task.operations[1]!)),
     );
   });
 
@@ -5681,20 +5651,20 @@ describe("IdleBit simulation", () => {
     expect(state.flags.memoryVoltageModifier).toBe(true);
     expect(state.hardware.memoryVoltageLevel).toBe(0);
     expect(getMemoryVoltageCost(2)).toEqual([
-      { resource: "credits", amount: 180_000 },
+      { resource: "credits", amount: amount(180_000) },
     ]);
     expect(getMemoryVoltageCost(3)).toEqual([
-      { resource: "credits", amount: 324_000 },
+      { resource: "credits", amount: amount(324_000) },
     ]);
     expect(getMemoryVoltageCost(9)).toEqual([
-      { resource: "credits", amount: 11_019_960 },
+      { resource: "credits", amount: amount(11_019_960) },
     ]);
     expect(getMemoryVoltageIdleMultiplier(1)).toBeLessThan(1);
     expect(visible.research.find((item) => item.id === "memoryVoltageModifier")).toEqual(
       expect.objectContaining({
         completed: false,
         actionLabel: "Level up",
-        costs: getMemoryVoltageCost(1),
+        costs: projectExactCosts(getMemoryVoltageCost(1)),
       }),
     );
     expect(visible.upgrades.map((upgrade) => upgrade.id)).not.toContain(
@@ -5853,10 +5823,10 @@ describe("IdleBit simulation", () => {
       deriveVisibleState(upgradeThenCore).metrics.cpuSockets[0]?.coreUpgrade;
 
     expect(upgradeThenCoreStartCredits - upgradeThenCore.resources.credits).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 2).upgradeCost),
     );
     expect(costAmount(upgradeThenCoreCost?.costs ?? [], "credits")).toBe(161);
-    expect(costAmount(upgradeThenCoreCost?.costs ?? [], "data")).toBe(5);
+    expect(costAmount(upgradeThenCoreCost?.costs ?? [], "data")).toBe(2);
 
     upgradeThenCore = buy(upgradeThenCore, "core", undefined, 1);
 
@@ -5925,10 +5895,10 @@ describe("IdleBit simulation", () => {
       deriveVisibleState(cacheThenCore).metrics.cpuSockets[0]?.coreUpgrade;
 
     expect(cacheThenCoreStartCredits - cacheThenCore.resources.credits).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 2).upgradeCost),
     );
     expect(costAmount(cacheThenCoreCost?.costs ?? [], "credits")).toBe(161);
-    expect(costAmount(cacheThenCoreCost?.costs ?? [], "data")).toBe(5);
+    expect(costAmount(cacheThenCoreCost?.costs ?? [], "data")).toBe(2);
 
     cacheThenCore = buy(cacheThenCore, "core", undefined, 1);
 
@@ -5972,9 +5942,9 @@ describe("IdleBit simulation", () => {
       expect.objectContaining({ tierId: "hz", level: 1 }),
     );
     expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "credits")).toBe(
-      140 + getCpuTierLevelDefinition("hz", 1).upgradeCost,
+      140 + amountToSafeNumber(getCpuTierLevelDefinition("hz", 1).upgradeCost),
     );
-    expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "data")).toBe(5);
+    expect(costAmount(secondCpuCoreUpgrade?.costs ?? [], "data")).toBe(2);
   });
 
   it("scales CPU package installs exponentially and allows removal", () => {
@@ -6011,7 +5981,7 @@ describe("IdleBit simulation", () => {
       ),
     ).toBe(true);
     expect(costAmount(visibleCpuUpgrade?.costs ?? [], "credits")).toBe(
-      baseCpuCredits * 4,
+      amountToSafeNumber(baseCpuCredits) * 4,
     );
     expect(visibleCpuUpgrade?.canAfford).toBe(true);
     expect(visibleCpuUpgrade?.canDowngrade).toBe(true);
@@ -6074,7 +6044,7 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.cacheLevel).toBe(1);
     expect(state.hardware.cacheBits).toBe(1);
     expect(state.resources.credits - afterBuy.credits).toBe(1);
-    expect(state.resources.data - afterBuy.data).toBe(3);
+    expect(state.resources.data - afterBuy.data).toBe(0);
   });
 
   it("blocks downgrades that would remove occupied scheduler capacity", () => {
@@ -6130,7 +6100,7 @@ describe("IdleBit simulation", () => {
     expect(visibleTask?.blockedReason).toBe("No idle core available.");
   });
 
-  it("prices cache capacity with data-heavy costs and RAM upgrades with CPU-style credit costs", () => {
+  it("prices cache capacity with opening Data costs and RAM upgrades with CPU-style credit costs", () => {
     const starterVisible = deriveVisibleState(createInitialGameState());
     const cacheUpgrade = starterVisible.upgrades.find(
       (upgrade) => upgrade.id === "cache",
@@ -6157,9 +6127,8 @@ describe("IdleBit simulation", () => {
     );
 
     expect(cacheUpgrade).toBeDefined();
-    expect(costAmount(cacheUpgrade?.costs ?? [], "data")).toBeGreaterThan(
-      costAmount(cacheUpgrade?.costs ?? [], "credits"),
-    );
+    expect(costAmount(cacheUpgrade?.costs ?? [], "credits")).toBe(3);
+    expect(costAmount(cacheUpgrade?.costs ?? [], "data")).toBe(1);
 
     for (const upgrade of [ramUpgrade, ramCapacityUpgrade]) {
       expect(upgrade).toBeDefined();
@@ -6176,22 +6145,22 @@ describe("IdleBit simulation", () => {
       ]);
     }
     expect(costAmount(cacheSpeedUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 2).upgradeCost),
     );
     expect(costAmount(ramUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 1).upgradeCost,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 1).upgradeCost),
     );
     expect(costAmount(secondRamUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 1).upgradeCost * 2,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 1).upgradeCost) * 2,
     );
     expect(costAmount(thirdRamUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 1).upgradeCost * 4,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 1).upgradeCost) * 4,
     );
     expect(costAmount(ramCapacityUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost * 2,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 2).upgradeCost) * 2,
     );
     expect(costAmount(ramSpeedUpgrade?.costs ?? [], "credits")).toBe(
-      getCpuTierLevelDefinition("hz", 2).upgradeCost,
+      amountToSafeNumber(getCpuTierLevelDefinition("hz", 2).upgradeCost),
     );
   });
 
@@ -6203,9 +6172,9 @@ describe("IdleBit simulation", () => {
 
     state = runTask(state, "multiCoreBenchmark");
 
-    expect(task.rewardCredits).toBe(task.operationCount);
+    expect(task.rewardCredits).toBe(task.paidWorkUnits);
     expect(state.resources.credits - beforeCredits).toBeGreaterThan(0);
-    expect(state.resources.credits - beforeCredits).toBeLessThan(task.rewardCredits);
+    expect(state.resources.credits - beforeCredits).toBe(task.rewardCredits);
     expect(state.resources.data - beforeData).toBe(task.rewardData);
     expect(state.completedTasks.multiCoreBenchmark).toBe(1);
   });
@@ -6427,8 +6396,12 @@ describe("IdleBit simulation", () => {
             lockResource: "ram" as const,
             lockReason: "Deadlock: RAM full.",
             deadlockSeconds: 3.1,
-            remainingLoadCycles: Math.max(1, operation.remainingLoadCycles),
-            totalLoadCycles: Math.max(1, operation.totalLoadCycles),
+            remainingLoadCycles: amount(
+              Math.max(1, amountToSafeNumber(operation.remainingLoadCycles)),
+            ),
+            totalLoadCycles: amount(
+              Math.max(1, amountToSafeNumber(operation.totalLoadCycles)),
+            ),
             memoryReservedBits: 0,
             memoryReservedBytes: 0,
             ramBlocks: [],
@@ -6588,11 +6561,10 @@ describe("IdleBit simulation", () => {
     expect(state.power.state).toBe("on");
   });
 
-  it("idle power billing drains positive credits from the first screen", () => {
+  it("subsidizes idle power on the first screen", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
-      resources: { credits: 10, data: 0 },
       power: {
         ...initial.power,
         bootstrapGraceSeconds: 0,
@@ -6600,7 +6572,7 @@ describe("IdleBit simulation", () => {
     };
     const expectedCostPerSecond = getPowerCostPerSecond(state);
 
-    expect(expectedCostPerSecond).toBeGreaterThan(0);
+    expect(expectedCostPerSecond).toBe(0);
     expect(deriveVisibleState(state).metrics.powerCostPerSecond).toBe(
       expectedCostPerSecond,
     );
@@ -6608,20 +6580,19 @@ describe("IdleBit simulation", () => {
     state = tickSeconds(state, 5);
 
     expect(state.power.state).toBe("on");
-    expect(10 - state.resources.credits).toBeCloseTo(expectedCostPerSecond * 5);
+    expect(state.resources.credits).toBe(10);
   });
 
   it("clamps credits at 0 when power billing overruns the balance", () => {
-    const initial = createInitialGameState();
+    const initial = withPsuManagement(createInitialGameState());
     const costPerSecond = getPowerCostPerSecond(initial);
-    let state: GameState = {
+    let state = withExactResourceValues({
       ...initial,
-      resources: { credits: costPerSecond / 2, data: 0 },
       power: {
         ...initial.power,
         bootstrapGraceSeconds: 0,
       },
-    };
+    }, costPerSecond / 2, 0);
 
     state = tickSeconds(state, 1);
 
@@ -6630,18 +6601,14 @@ describe("IdleBit simulation", () => {
   });
 
   it("warns for ten seconds before auto-shutdown on an unpaid bill", () => {
-    let state = createInitialGameState();
-    state = {
+    let state = withPsuManagement(createInitialGameState());
+    state = withExactResourceValues({
       ...state,
-      resources: {
-        credits: getPowerCostPerSecond(state) / 2,
-        data: 0,
-      },
       power: {
         ...state.power,
         bootstrapGraceSeconds: 0,
       },
-    };
+    }, getPowerCostPerSecond(state) / 2, 0);
 
     state = tickSeconds(state, 1);
 
@@ -6674,18 +6641,21 @@ describe("IdleBit simulation", () => {
   });
 
   it("clears the unpaid shutdown warning when active work earns credits", () => {
-    let state: GameState = {
-      ...createInitialGameState(),
-      resources: { credits: 0, data: 0 },
+    const managed = withPsuManagement(createInitialGameState());
+    let state = withExactResourceValues({
+      ...managed,
       power: {
-        ...createInitialGameState().power,
+        ...managed.power,
         bootstrapGraceSeconds: 0,
         unpaidShutdownWarningSeconds: POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
       },
-    };
+    }, 0, 0);
 
+    const fetchDurationMs = deriveVisibleState(state).tasks.find(
+      (task) => task.id === "fetchBit",
+    )!.projection.durationMs;
     state = applyAction(state, { type: "startTask", taskId: "fetchBit" });
-    state = tickSeconds(state, 1);
+    state = advanceGame(state, fetchDurationMs, "foreground").state;
 
     expect(state.power.state).toBe("on");
     expect(state.resources.credits).toBeGreaterThan(0);
@@ -6693,17 +6663,16 @@ describe("IdleBit simulation", () => {
   });
 
   it("grants bootstrap grace when starting up at 0 credits", () => {
-    const initial = createInitialGameState();
-    let state: GameState = {
+    const initial = withPsuManagement(createInitialGameState());
+    let state = withExactResourceValues({
       ...initial,
-      resources: { credits: 0, data: 0 },
       power: {
         ...initial.power,
         state: "off",
         transitionSeconds: 0,
         bootstrapGraceSeconds: 0,
       },
-    };
+    }, 0, 0);
 
     state = applyAction(state, { type: "requestPowerOn" });
 
@@ -6719,15 +6688,14 @@ describe("IdleBit simulation", () => {
   });
 
   it("exits bootstrap grace after earning credits", () => {
-    const initial = createInitialGameState();
-    let state: GameState = {
+    const initial = withPsuManagement(createInitialGameState());
+    let state = withExactResourceValues({
       ...initial,
-      resources: { credits: 0, data: 0 },
       power: {
         ...initial.power,
         bootstrapGraceSeconds: POWER_BOOTSTRAP_GRACE_SECONDS,
       },
-    };
+    }, 0, 0);
 
     expect(state.power.bootstrapGraceSeconds).toBeGreaterThan(0);
 
@@ -6743,15 +6711,14 @@ describe("IdleBit simulation", () => {
   });
 
   it("expires bootstrap grace into an unpaid shutdown warning at 0 credits", () => {
-    const initial = createInitialGameState();
-    let state: GameState = {
+    const initial = withPsuManagement(createInitialGameState());
+    let state = withExactResourceValues({
       ...initial,
-      resources: { credits: 0, data: 0 },
       power: {
         ...initial.power,
         bootstrapGraceSeconds: 1,
       },
-    };
+    }, 0, 0);
 
     state = tickSeconds(state, 1);
 
@@ -6769,7 +6736,7 @@ describe("IdleBit simulation", () => {
   });
 
   it("increases power draw and billing cost with core clock upgrades", () => {
-    let state = fund(createInitialGameState());
+    let state = withPsuManagement(fund(createInitialGameState()));
     const before = deriveVisibleState(state).metrics;
 
     state = buy(state, "clock");
@@ -6781,7 +6748,10 @@ describe("IdleBit simulation", () => {
   });
 
   it("builds PSU overload failure pressure then hard-powers off at ten seconds", () => {
-    let state = withPsuStress(fund(createInitialGameState()), 1.001);
+    let state = withPsuStress(
+      withPsuManagement(fund(createInitialGameState())),
+      1.001,
+    );
 
     expect(getPsuStress(state)).toBeGreaterThan(1);
 
@@ -6806,8 +6776,14 @@ describe("IdleBit simulation", () => {
   });
 
   it("hits PSU overload failure faster when draw is farther over capacity", () => {
-    let slowOverload = withPsuStress(fund(createInitialGameState()), 1.1);
-    let fastOverload = withPsuStress(fund(createInitialGameState()), 1.3);
+    let slowOverload = withPsuStress(
+      withPsuManagement(fund(createInitialGameState())),
+      1.1,
+    );
+    let fastOverload = withPsuStress(
+      withPsuManagement(fund(createInitialGameState())),
+      1.3,
+    );
 
     slowOverload = tickSeconds(slowOverload, 8);
     fastOverload = tickSeconds(fastOverload, 8);
@@ -6818,7 +6794,10 @@ describe("IdleBit simulation", () => {
   });
 
   it("cools PSU overload failure pressure when draw returns under capacity", () => {
-    let state = withPsuStress(fund(createInitialGameState()), 1.3);
+    let state = withPsuStress(
+      withPsuManagement(fund(createInitialGameState())),
+      1.3,
+    );
 
     state = tickSeconds(state, 4);
     expect(state.power.overloadFailureSeconds).toBeCloseTo(5.2);
@@ -6845,7 +6824,9 @@ describe("IdleBit simulation", () => {
   });
 
   it("clears active and queued work on PSU failure", () => {
-    let state = withSchedulerSlots(fund(createInitialGameState()), 1);
+    let state = withPsuManagement(
+      withSchedulerSlots(fund(createInitialGameState()), 1),
+    );
     state = {
       ...state,
       flags: { ...state.flags, basicQueue: true },

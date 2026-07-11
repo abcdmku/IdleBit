@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { toGameAction } from "./uiActions";
 
 describe("ui action mapping", () => {
+  it("passes automation buffer purchases through unchanged", () => {
+    expect(
+      toGameAction({
+        type: "purchaseAutomationBuffer",
+        levelId: "localScheduler",
+      }),
+    ).toEqual({
+      type: "purchaseAutomationBuffer",
+      levelId: "localScheduler",
+    });
+  });
+
   it("maps custom store power selections onto the game PSU selection", () => {
     expect(
       toGameAction({

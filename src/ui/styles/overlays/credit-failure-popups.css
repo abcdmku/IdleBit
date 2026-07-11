@@ -11,6 +11,12 @@
   backdrop-filter: blur(6px);
 }
 
+.credit-failure-repeat-overlay {
+  place-items: start end;
+  padding-top: 68px;
+  background: rgba(7, 5, 0, 0.58);
+}
+
 .credit-failure-modal {
   display: grid;
   gap: var(--s-5);
@@ -40,7 +46,7 @@
 }
 
 .credit-failure-header span,
-.credit-failure-toast > span {
+.credit-failure-repeat-modal > span {
   display: inline-flex;
   gap: var(--s-3);
   align-items: center;
@@ -56,8 +62,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-h);
-  height: var(--control-h);
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
   border: 1px solid rgba(242, 194, 78, 0.32);
   border-radius: var(--radius-pill);
   color: var(--amber);
@@ -65,7 +71,7 @@
 }
 
 .credit-failure-modal p,
-.credit-failure-toast p {
+.credit-failure-repeat-modal p {
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-sm);
@@ -73,7 +79,7 @@
 }
 
 .credit-failure-primary,
-.credit-failure-toast button {
+.credit-failure-repeat-modal button {
   display: inline-flex;
   gap: var(--s-2);
   align-items: center;
@@ -90,7 +96,7 @@
 }
 
 .credit-failure-primary:hover,
-.credit-failure-toast button:hover {
+.credit-failure-repeat-modal button:hover {
   background: #ffd683;
   border-color: #ffd683;
 }
@@ -101,11 +107,8 @@
   padding: var(--s-2) var(--s-5);
 }
 
-.credit-failure-toast {
-  position: fixed;
-  z-index: 142;
-  top: 68px;
-  right: 18px;
+.credit-failure-repeat-modal {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--s-2) var(--s-4);
@@ -120,15 +123,15 @@
     var(--shadow-2);
 }
 
-.credit-failure-toast > span,
-.credit-failure-toast p { min-width: 0; }
+.credit-failure-repeat-modal > span,
+.credit-failure-repeat-modal p { min-width: 0; }
 
-.credit-failure-toast p {
+.credit-failure-repeat-modal p {
   grid-column: 1;
   font-size: var(--fs-xs);
 }
 
-.credit-failure-toast button {
+.credit-failure-repeat-modal button {
   grid-column: 2;
   grid-row: 1 / span 2;
   min-height: var(--control-h);
@@ -138,10 +141,11 @@
 @media (max-width: 560px) {
   .credit-failure-modal { padding: var(--s-5); }
 
-  .credit-failure-toast {
-    top: 58px;
-    right: 12px;
-    left: 12px;
-    width: auto;
+  .credit-failure-repeat-overlay {
+    padding: 58px 12px 12px;
+  }
+
+  .credit-failure-repeat-modal {
+    width: 100%;
   }
 }

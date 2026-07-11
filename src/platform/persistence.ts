@@ -1,3 +1,8 @@
+import {
+  getIdleBitPlatformBridge,
+  type StringPersistenceBridge,
+} from "./platformBridge";
+
 export type PersistenceDriver = "browser" | "electron" | "memory";
 
 export type PersistedValue =
@@ -19,26 +24,7 @@ export interface PersistenceAdapter {
   get<T extends PersistedValue>(key: string): Promise<T | null>;
   remove(key: string): Promise<void>;
   set<T extends PersistedValue>(key: string, value: T): Promise<void>;
-}
-
-interface StringPersistenceBridge {
-  clear(keyPrefix?: string): Promise<void>;
-  getItem(key: string): Promise<string | null>;
-  removeItem(key: string): Promise<void>;
-  setItem(key: string, value: string): Promise<void>;
-}
-
-interface IdleBitPlatformBridge {
-  persistence?: StringPersistenceBridge;
-  runtime?: {
-    kind?: string;
-  };
-}
-
-declare global {
-  interface Window {
-    idleBitPlatform?: IdleBitPlatformBridge;
-  }
+  setImmediate<T extends PersistedValue>(key: string, value: T): boolean;
 }
 
 const DEFAULT_NAMESPACE = "idlebit";
@@ -47,11 +33,7 @@ const MAX_KEY_LENGTH = 160;
 const memoryStore = new Map<string, string>();
 
 function bridge(): StringPersistenceBridge | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.idleBitPlatform?.persistence ?? null;
+  return getIdleBitPlatformBridge()?.persistence ?? null;
 }
 
 function browserStorage(): Storage | null {
@@ -121,6 +103,10 @@ function createMemoryPersistenceAdapter(namespace: string): PersistenceAdapter {
     async set<T extends PersistedValue>(key: string, value: T) {
       memoryStore.set(storageKey(namespace, key), stringifyPersistedValue(value));
     },
+    setImmediate<T extends PersistedValue>(key: string, value: T) {
+      memoryStore.set(storageKey(namespace, key), stringifyPersistedValue(value));
+      return true;
+    },
   };
 }
 
@@ -159,6 +145,16 @@ function createBrowserPersistenceAdapter(
     async set<T extends PersistedValue>(key: string, value: T) {
       storage.setItem(storageKey(namespace, key), stringifyPersistedValue(value));
     },
+    setImmediate<T extends PersistedValue>(key: string, value: T) {
+      const resolvedKey = storageKey(namespace, key);
+      const serializedValue = stringifyPersistedValue(value);
+      try {
+        storage.setItem(resolvedKey, serializedValue);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
@@ -191,6 +187,11 @@ function createElectronPersistenceAdapter(
         storageKey(namespace, key),
         stringifyPersistedValue(value),
       );
+    },
+    setImmediate<T extends PersistedValue>(key: string, value: T) {
+      storageKey(namespace, key);
+      stringifyPersistedValue(value);
+      return false;
     },
   };
 }

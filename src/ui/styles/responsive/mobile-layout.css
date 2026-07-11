@@ -13,6 +13,17 @@
     grid-template-rows: 1fr 1fr;
   }
 
+  /* No right column rendered: single row, no empty cell under the work panel. */
+  .board-stage.no-right-rail {
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .board-stage.no-right-rail .tasks-panel,
+  .board-stage.no-right-rail .hw-panel {
+    grid-row: 1;
+  }
+
   .core-grid {
     --core-grid-active-columns: var(--core-grid-tablet-columns, var(--core-grid-columns, 2));
   }
@@ -38,6 +49,10 @@
 }
 
 @media (max-width: 760px) {
+  .workbench {
+    --mobile-bottom-nav-height: calc(52px + env(safe-area-inset-bottom, 0px));
+  }
+
   .topbar {
     gap: var(--s-2);
     padding: var(--s-2) var(--s-3);
@@ -49,6 +64,37 @@
   }
 
   .topbar-stage { display: none; }
+
+  .topbar-persistence-slot { flex-basis: 24px; }
+
+  .topbar-persistence {
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+  }
+
+  .topbar-persistence:not(.error) .topbar-persistence-message { display: none; }
+
+  .topbar-persistence.error {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + var(--s-1));
+    right: var(--s-3);
+    justify-content: flex-start;
+    width: min(280px, calc(100vw - (2 * var(--s-3))));
+    height: auto;
+    min-height: 32px;
+    padding: var(--s-2) var(--s-3);
+    background: rgba(24, 7, 11, 0.98);
+    box-shadow: var(--shadow-2);
+  }
+
+  .topbar-persistence.error .topbar-persistence-message {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .topbar-alert-badge {
     min-height: 24px;
@@ -68,19 +114,27 @@
   .resource-readout > strong { font-size: var(--fs-xs); }
 
   .resource-settings-button {
-    width: 24px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
   }
 
-  /* ----- Bottom-style section tabs ----- */
+  /* ----- Fixed bottom navigation ----- */
   .section-tabs {
+    position: fixed;
+    z-index: 120;
+    right: 0;
+    bottom: 0;
+    left: 0;
     display: flex;
     gap: 0;
-    padding: 0;
-    border-bottom: 1px solid var(--line-soft);
+    min-height: var(--mobile-bottom-nav-height);
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--line);
+    border-bottom: 0;
     background:
-      linear-gradient(180deg, rgba(8, 16, 15, 0.85), rgba(6, 12, 11, 0.5));
-    backdrop-filter: blur(8px);
+      linear-gradient(180deg, rgba(8, 18, 17, 0.98), rgba(4, 10, 9, 0.98));
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(12px);
   }
 
   .section-tab {
@@ -90,7 +144,7 @@
     gap: var(--s-1);
     align-items: center;
     justify-content: center;
-    min-height: 44px;
+    min-height: 52px;
     padding: var(--s-2) var(--s-1);
     border: 0;
     border-radius: 0;
@@ -168,6 +222,7 @@
     grid-template-rows: auto;
     min-height: 0;
     flex: 1 1 auto;
+    padding-bottom: var(--mobile-bottom-nav-height);
     overflow: hidden;
   }
 
@@ -185,6 +240,7 @@
   .panel-body {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    scroll-padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--s-6));
   }
 
   /* section tabs already label the panel - hide the in-panel title chrome */
@@ -258,6 +314,57 @@
   .task-card { padding: var(--s-2) var(--s-3); }
   .task-card-head { gap: var(--s-2); }
   .task-run-button { padding: 0 var(--s-2); }
+
+  .task-group-toggle,
+  .task-route-select,
+  .task-pin-button,
+  .task-inspect-button,
+  .task-run-button,
+  .pinned-task-bar-toggle,
+  .pinned-task-bar-clear,
+  .pinned-task-bar-edit,
+  .pinned-task-unpin,
+  .pinned-task-action,
+  .research-buy-button,
+  .research-compute-button,
+  .system-shutdown-button,
+  .power-control-buttons button,
+  .hw-section-header,
+  .cron-toggle-button,
+  .cron-control select,
+  .cron-control input,
+  .cron-mode-control,
+  .resource-settings-row,
+  .resource-graph-close {
+    min-height: 44px;
+  }
+
+  .task-pin-button,
+  .task-inspect-button,
+  .pinned-task-bar-clear,
+  .pinned-task-bar-edit,
+  .pinned-task-unpin,
+  .cron-toggle-button,
+  .resource-graph-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .upgrade-stepper,
+  .custom-builder-system-preview .custom-builder-cpu-scheduler .custom-builder-stepper {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    min-height: 44px;
+  }
+
+  .upgrade-stepper-button,
+  .custom-builder-cpu-scheduler .upgrade-stepper-button {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .cron-mode-control {
+    height: 44px;
+  }
 }
 
 @media (max-width: 420px) {

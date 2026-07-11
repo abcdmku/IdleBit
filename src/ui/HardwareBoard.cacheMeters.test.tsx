@@ -5,6 +5,7 @@ import {
   applyAction,
   createInitialGameState,
   deriveVisibleState,
+  exactResourceBag,
   tickGame,
   type GameState
 } from "../game";
@@ -104,11 +105,12 @@ describe("HardwareBoard cache and upgrade meters", () => {
     const loadedBadge = container.querySelector<HTMLElement>(
       ".cache-state-badge.loaded",
     );
+    // Lane badges read "LABEL value": caption first, mono value second.
     expect(
       Array.from(bufferBadge?.children ?? []).map((child) =>
         child.tagName.toLowerCase(),
       ),
-    ).toEqual(["strong", "span", "small"]);
+    ).toEqual(["small", "strong"]);
     expect(loadedBadge?.querySelector("small")?.textContent).toBe("Loaded");
   });
 
@@ -210,19 +212,23 @@ describe("HardwareBoard cache and upgrade meters", () => {
       expect.stringContaining("Size"),
       expect.stringContaining("Freq"),
     ]);
-    expect(container.querySelector(".cache-stat-row")?.textContent).toContain(
-      "0 b / 1 b",
-    );
-    expect(container.querySelector(".cache-capacity-stat strong")).not.toBeNull();
+    // Capacity/frequency live in the header meta as "used / capacity @ clock",
+    // with the shared bit unit printed once; the separate stat row is gone.
+    const cacheMeta = container.querySelector(".cache-section .hw-section-meta");
+
+    expect(cacheMeta?.textContent).toContain("0 / 1 b");
+    expect(cacheMeta?.textContent).toContain("@");
+    expect(cacheMeta?.querySelector("strong")).not.toBeNull();
+    expect(container.querySelector(".cache-stat-row")).toBeNull();
     expect(container.querySelectorAll(".cache-pipeline-row")).toHaveLength(2);
     expect(controls[0]?.querySelector(".resource-token.dimmed")).not.toBeNull();
-    expect(container.querySelector(".cache-stat-row .upgrade-chips")).toBeNull();
   });
 
   it("uses one +/- spec control for reversible upgrades", () => {
     const funded: GameState = {
       ...createInitialGameState(),
       resources: { credits: 100, data: 100 },
+      exactResources: exactResourceBag(100, 100),
     };
     const state = applyAction(funded, {
       type: "buyUpgrade",

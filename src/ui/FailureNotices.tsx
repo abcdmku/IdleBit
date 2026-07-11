@@ -1,17 +1,21 @@
 import { Check, TriangleAlert, X } from "lucide-react";
+import { useDialogFocus } from "./hooks/useDialogFocus";
 
 export function PsuFailureModal({ onDismiss }: { onDismiss: () => void }) {
   const titleId = "psu-failure-title";
   const bodyId = "psu-failure-body";
+  const dialogRef = useDialogFocus<HTMLElement>(onDismiss);
 
   return (
     <div className="psu-failure-overlay">
       <section
+        ref={dialogRef}
         className="psu-failure-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
+        tabIndex={-1}
       >
         <div className="psu-failure-header">
           <span id={titleId}>
@@ -52,38 +56,46 @@ export function CreditFailurePopup({
 }) {
   const titleId = "credit-failure-title";
   const bodyId = "credit-failure-body";
+  const dialogRef = useDialogFocus<HTMLElement>(onDismiss);
 
   if (!firstTime) {
     return (
-      <aside
-        className="credit-failure-toast"
-        role="dialog"
-        aria-labelledby={titleId}
-        aria-describedby={bodyId}
-      >
-        <span id={titleId}>
-          <TriangleAlert size={16} />
-          Out of credits
-        </span>
-        <p id={bodyId}>
-          The power bill drained your balance. Reboot for a brief grace period
-          before billing resumes.
-        </p>
-        <button type="button" onClick={onDismiss}>
-          Got it
-        </button>
-      </aside>
+      <div className="credit-failure-overlay credit-failure-repeat-overlay">
+        <section
+          ref={dialogRef}
+          className="credit-failure-repeat-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={bodyId}
+          tabIndex={-1}
+        >
+          <span id={titleId}>
+            <TriangleAlert size={16} />
+            Out of credits
+          </span>
+          <p id={bodyId}>
+            The power bill drained your balance. Reboot for a brief grace period
+            before billing resumes.
+          </p>
+          <button type="button" onClick={onDismiss}>
+            Got it
+          </button>
+        </section>
+      </div>
     );
   }
 
   return (
     <div className="credit-failure-overlay">
       <section
+        ref={dialogRef}
         className="credit-failure-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
+        tabIndex={-1}
       >
         <div className="credit-failure-header">
           <span id={titleId}>

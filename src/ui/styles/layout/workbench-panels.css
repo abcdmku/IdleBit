@@ -9,6 +9,19 @@
   overflow: hidden;
 }
 
+/* Right column (graph/research) not rendered: drop its track so no void remains. */
+.board-stage.no-right-rail {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+}
+
+/* Pre-Fleet opening (compact + no rail): work rail ~340px, hardware takes the rest
+   inside the centered ~1080px bench. Tablet widths keep their own two-column split. */
+@media (min-width: 1081px) {
+  .board-stage.stage-compact.no-right-rail {
+    grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+  }
+}
+
 .section-tabs { display: none; }
 
 .panel {
@@ -79,13 +92,15 @@
   flex-direction: column;
   gap: var(--s-3);
   min-height: 0;
-  padding: var(--s-4);
+  /* Slightly deeper bottom padding so short early-game content ends gracefully
+     instead of slamming into the panel edge; content still flows from the top. */
+  padding: var(--s-4) var(--s-4) var(--s-6);
   overflow-y: auto;
   overscroll-behavior: contain;
   contain: layout paint;
 }
 
-.hw-panel .panel-body { padding: var(--s-3); gap: var(--s-3); }
+.hw-panel .panel-body { padding: var(--s-3) var(--s-3) var(--s-5); gap: var(--s-3); }
 .tasks-panel .panel-body { gap: var(--s-3); }
 .research-panel .panel-body { gap: var(--s-2); }
 

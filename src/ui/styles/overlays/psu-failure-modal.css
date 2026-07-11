@@ -55,8 +55,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-h);
-  height: var(--control-h);
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
   border: 1px solid rgba(255, 111, 145, 0.32);
   border-radius: var(--radius-pill);
   color: var(--rose);

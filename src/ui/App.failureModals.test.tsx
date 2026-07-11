@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createInitialGameState,
   deserializeSave,
+  exactResourceBag,
+  recordDeparture,
   RACK_READY_SEED_CREDITS,
   serializeSave,
   type GameState,
@@ -148,7 +150,7 @@ describe("App failure modals", () => {
       });
       await flushEffects();
 
-      const rawSave = await idleBitPersistence.get<string>("save-v6");
+      const rawSave = await idleBitPersistence.get<string>("save-v7");
       const restored = deserializeSave(rawSave);
 
       expect(window.location.search).toBe("");
@@ -157,13 +159,13 @@ describe("App failure modals", () => {
       expect(restored.flags.systemCatalog).toBe(true);
       expect(restored.flags.customMachineAssembly).toBe(true);
       expect(restored.systems).toHaveLength(2);
-      expect(restored.systems[0]?.name).toBe("Rack-Ready Workstation");
+      expect(restored.systems[0]?.name).toBe("Fleet-Ready Workstation");
       expect(restored.systems[1]?.hardware.cores).toBe(128);
       expect(restored.systems[1]?.hardware.ramSticks).toHaveLength(32);
       const rackPanel = container.querySelector(".system-rack");
-      expect(rackPanel?.textContent).toContain("Rack");
-      expect(rackPanel?.textContent).not.toContain("Rack-Ready Workstation");
-      expect(rackPanel?.textContent).not.toContain("Dense Compute Node");
+      expect(rackPanel?.textContent).toContain("Fleet");
+      expect(rackPanel?.textContent).toContain("Fleet-Ready Workstation");
+      expect(rackPanel?.textContent).toContain("Dense Compute Node");
     },
   );
 
@@ -174,9 +176,10 @@ describe("App failure modals", () => {
         credits: 123,
         data: 45,
       },
+      exactResources: exactResourceBag(123, 45),
     };
 
-    await idleBitPersistence.set("save-v6", serializeSave(savedState));
+    await idleBitPersistence.set("save-v7", serializeSave(savedState));
     window.localStorage.setItem("idlebit:ui.pinned-tasks-v1", "{bad-json");
 
     await act(async () => {
@@ -194,7 +197,7 @@ describe("App failure modals", () => {
 
   it("shows and dismisses a compact PSU failure popup after overload cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v6",
+      "save-v7",
       serializeSave(makePsuFailureSaveState()),
     );
 
@@ -224,7 +227,7 @@ describe("App failure modals", () => {
 
   it("uses a topbar badge instead of the popup after the first PSU failure", async () => {
     await idleBitPersistence.set(
-      "save-v6",
+      "save-v7",
       serializeSave(makePsuFailureSaveState()),
     );
     await idleBitPersistence.set("ui.psu-failure-modal-seen-v1", true);
@@ -250,7 +253,7 @@ describe("App failure modals", () => {
 
   it("explains the first out-of-credits power cutoff", async () => {
     await idleBitPersistence.set(
-      "save-v6",
+      "save-v7",
       serializeSave(makeCreditFailureSaveState()),
     );
 
@@ -266,7 +269,7 @@ describe("App failure modals", () => {
     expect(modal?.textContent).toContain("idle hardware draws cr/s");
     expect(modal?.textContent).toContain("brief grace period before billing resumes");
     expect(modal?.textContent).toContain("avoid another cutoff");
-    expect(container.querySelector(".credit-failure-toast")).toBeNull();
+    expect(container.querySelector(".credit-failure-repeat-modal")).toBeNull();
 
     act(() => {
       modal?.querySelector<HTMLButtonElement>(".credit-failure-primary")?.click();
@@ -279,9 +282,9 @@ describe("App failure modals", () => {
     ).resolves.toBe(true);
   });
 
-  it("uses a quick popup for later out-of-credits cutoffs", async () => {
+  it("uses a blocking modal for later out-of-credits cutoffs", async () => {
     await idleBitPersistence.set(
-      "save-v6",
+      "save-v7",
       serializeSave(makeCreditFailureSaveState()),
     );
     await idleBitPersistence.set("ui.credit-failure-modal-seen-v1", true);
@@ -291,21 +294,124 @@ describe("App failure modals", () => {
     });
     await flushEffects();
 
-    const toast = container.querySelector(".credit-failure-toast");
+    const repeatModal = container.querySelector(".credit-failure-repeat-modal");
+    const overlay = container.querySelector(".credit-failure-repeat-overlay");
 
     expect(container.querySelector(".credit-failure-modal")).toBeNull();
-    expect(toast?.textContent).toContain("Out of credits");
-    expect(toast?.textContent).toContain("The power bill drained your balance");
-    expect(toast?.textContent).toContain("brief grace period before billing resumes");
+    expect(overlay?.contains(repeatModal)).toBe(true);
+    expect(repeatModal?.getAttribute("aria-modal")).toBe("true");
+    expect(repeatModal?.textContent).toContain("Out of credits");
+    expect(repeatModal?.textContent).toContain("The power bill drained your balance");
+    expect(repeatModal?.textContent).toContain("brief grace period before billing resumes");
 
     act(() => {
-      toast?.querySelector<HTMLButtonElement>("button")?.click();
+      overlay?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector(".credit-failure-repeat-modal")).not.toBeNull();
+
+    act(() => {
+      repeatModal?.querySelector<HTMLButtonElement>("button")?.click();
     });
 
-    expect(container.querySelector(".credit-failure-toast")).toBeNull();
+    expect(container.querySelector(".credit-failure-repeat-modal")).toBeNull();
   });
 
-  it("marks mobile task and research tab notifications viewed when opened", async () => {
+  it("keeps the return summary behind a credit failure dialog", async () => {
+    // Sub-minute absences no longer surface a return report; use a real one.
+    const departedAtMs = Date.now() - 120_000;
+    const departed = recordDeparture(
+      makeCreditFailureSaveState(),
+      departedAtMs,
+    );
+    await idleBitPersistence.set(
+      "save-v7",
+      serializeSave(departed, departedAtMs),
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const creditModal = container.querySelector(".credit-failure-modal");
+    expect(creditModal).not.toBeNull();
+    expect(container.querySelector(".return-summary-dialog")).toBeNull();
+
+    act(() => {
+      creditModal
+        ?.querySelector<HTMLButtonElement>(".credit-failure-primary")
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector(".credit-failure-modal")).toBeNull();
+    expect(container.querySelector(".return-summary-dialog")).not.toBeNull();
+  });
+
+  it("confirmed reset clears game, pinned, and notice state in storage", async () => {
+    const base = createInitialGameState();
+    const progressed: GameState = {
+      ...base,
+      resources: { credits: 321, data: 45 },
+      exactResources: exactResourceBag(321, 45),
+    };
+    await idleBitPersistence.set("save-v7", serializeSave(progressed));
+    await idleBitPersistence.set("ui.pinned-tasks-v1", ["fetchBit"]);
+    for (const key of [
+      "ui.deadlock-help-seen-v1",
+      "ui.deadlock-cooldown-help-seen-v1",
+      "ui.psu-failure-help-seen-v1",
+      "ui.psu-failure-modal-seen-v1",
+      "ui.credit-failure-modal-seen-v1",
+    ]) {
+      await idleBitPersistence.set(key, true);
+    }
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".resource-settings-button")
+        ?.click();
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reset save"]')
+        ?.click();
+    });
+    const resetDialog = container.querySelector(".reset-confirmation-dialog");
+    act(() => {
+      Array.from(resetDialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent?.includes("Reset progress"))
+        ?.click();
+    });
+    await flushEffects();
+    await flushEffects();
+
+    const saved = deserializeSave(
+      await idleBitPersistence.get<string>("save-v7"),
+    );
+    expect(saved.resources).toEqual(base.resources);
+    await expect(
+      idleBitPersistence.get<string[]>("ui.pinned-tasks-v1", []),
+    ).resolves.toEqual([]);
+    for (const key of [
+      "ui.deadlock-help-seen-v1",
+      "ui.deadlock-cooldown-help-seen-v1",
+      "ui.psu-failure-help-seen-v1",
+      "ui.psu-failure-modal-seen-v1",
+      "ui.credit-failure-modal-seen-v1",
+    ]) {
+      await expect(idleBitPersistence.get<boolean>(key, true)).resolves.toBe(
+        false,
+      );
+    }
+  });
+
+  it("marks default mobile Work viewed and research viewed when opened", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       writable: true,
@@ -321,7 +427,7 @@ describe("App failure modals", () => {
       })),
     });
     await idleBitPersistence.set(
-      "save-v6",
+      "save-v7",
       serializeSave(makeUnlockNoticeSaveState()),
     );
     await idleBitPersistence.set("ui.seen-tasks-v1", ["fetchBit", "decodeBit"]);
@@ -332,31 +438,20 @@ describe("App failure modals", () => {
     });
     await flushEffects();
 
-    let tabs = Array.from(
+    const tabs = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".section-tab"),
     );
-    let tasksTab = tabs[0];
+    const tasksTab = tabs[0];
     let researchTab = tabs[2];
 
-    expect(tasksTab?.className).toContain("has-notification");
-    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks, 4 new");
-    expect(tasksTab?.title).toBe("4 new tasks");
+    expect(tasksTab?.className).not.toContain("has-notification");
+    expect(tasksTab?.getAttribute("aria-label")).toBe(
+      "Work, 0 active work items",
+    );
+    expect(tasksTab?.title).toBe("0 active work items");
     expect(researchTab?.className).toContain("has-notification");
     expect(researchTab?.getAttribute("aria-label")).toBe("Research, 3 new");
     expect(researchTab?.title).toBe("3 new research");
-
-    await act(async () => {
-      tasksTab?.click();
-    });
-    await flushEffects();
-
-    tabs = Array.from(container.querySelectorAll<HTMLButtonElement>(".section-tab"));
-    tasksTab = tabs[0];
-    researchTab = tabs[2];
-
-    expect(tasksTab?.className).not.toContain("has-notification");
-    expect(tasksTab?.getAttribute("aria-label")).toBe("Tasks");
-    expect(researchTab?.className).toContain("has-notification");
     await expect(
       idleBitPersistence.get<string[]>("ui.seen-tasks-v1", []),
     ).resolves.toEqual(
@@ -385,4 +480,3 @@ describe("App failure modals", () => {
     );
   });
 });
-

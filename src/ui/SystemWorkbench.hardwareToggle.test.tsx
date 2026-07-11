@@ -244,4 +244,78 @@ describe("SystemWorkbench hardware upgrade toggle", () => {
     expect(container.querySelector(".right-column")?.classList.contains("active"))
       .toBe(true);
   });
+
+  it("opens mobile on Work with the Work panel active", () => {
+    mockMatchMedia(true);
+    const baseVisible = makeWorkbenchVisible();
+    const visible: VisibleState = {
+      ...baseVisible,
+      activeWork: [
+        {
+          id: "job:local",
+          kind: "job",
+          name: "Local job",
+          progress: 0.2,
+          remainingMs: 1_000,
+          systemId: 1,
+        },
+        {
+          id: "infrastructure:facility",
+          kind: "facilityWorkload",
+          name: "Facility workload",
+          progress: 0.4,
+          remainingMs: 2_000,
+          systemId: null,
+        },
+        {
+          id: "sla:regional",
+          kind: "sla",
+          name: "Regional SLA",
+          progress: 0.6,
+          remainingMs: 3_000,
+          systemId: null,
+        },
+        {
+          id: "finale:planetary",
+          kind: "finale",
+          name: "Planetary finale",
+          progress: 0.8,
+          remainingMs: 4_000,
+          systemId: null,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <SystemWorkbench
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+          onReset={() => undefined}
+          animateResourceGains={false}
+          pinnedTaskIds={[]}
+          onTogglePinnedTask={() => undefined}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".section-tab"),
+    );
+
+    expect(tabs[0]?.textContent).toContain("Work");
+    expect(tabs[0]?.querySelector(".count")?.textContent).toContain("4");
+    expect(tabs[0]?.getAttribute("aria-label")).toBe(
+      "Work, 4 active work items",
+    );
+    expect(tabs[0]?.classList.contains("active")).toBe(true);
+    expect(container.querySelector(".tasks-panel")?.classList.contains("active"))
+      .toBe(true);
+    expect(container.querySelector(".hw-panel")?.classList.contains("active"))
+      .toBe(false);
+  });
 });

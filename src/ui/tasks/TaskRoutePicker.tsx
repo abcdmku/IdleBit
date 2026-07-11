@@ -24,14 +24,19 @@ export function getRouteTargetLabel(
     : `Core ${selectedCore.id}`;
 }
 
-export function TaskGroupRoutePicker({
+/**
+ * Single bay-level route selector (game-spec 4.1): one compact layer-plus-target
+ * control for the whole task panel instead of one picker per group. Options are
+ * built from the task categories currently on screen so the list stays relevant.
+ */
+export function TaskBayRoutePicker({
   visible,
-  category,
+  categories,
   selection,
   onSelectComponent,
 }: {
   visible: VisibleState;
-  category: TaskCategoryId;
+  categories: ReadonlySet<TaskCategoryId>;
   selection: SelectedComponent;
   onSelectComponent: (component: SelectedComponent) => void;
 }) {
@@ -41,13 +46,13 @@ export function TaskGroupRoutePicker({
     getSelectedSystemId(selection) ?? rack.selectedSystemId ?? routeSystems[0]?.id ?? null;
   const routeSelection =
     getSelectedSystemComponent(selection) ??
-    (category === "system" ? "scheduler" : ("core:1" as SelectedComponent));
-  const options =
-    category === "cpu"
-      ? getCpuRouteOptions(visible, routeSystems)
-      : category === "system"
-        ? getSystemRouteOptions(visible, routeSystems)
-        : [];
+    (categories.has("cpu") ? ("core:1" as SelectedComponent) : "scheduler");
+  const options = [
+    ...(categories.has("cpu") ? getCpuRouteOptions(visible, routeSystems) : []),
+    ...(categories.has("system")
+      ? getSystemRouteOptions(visible, routeSystems)
+      : []),
+  ];
 
   if (options.length === 0) return null;
 
@@ -58,15 +63,15 @@ export function TaskGroupRoutePicker({
   );
 
   return (
-    <div className="task-route-picker" aria-label="Task route">
+    <div className="task-route-picker task-bay-route" aria-label="Task route">
       <select
         className="task-route-select task-route-combo-select"
         value={selectedValue}
         onChange={(event) =>
           onSelectComponent(event.currentTarget.value as SelectedComponent)
         }
-        aria-label={category === "system" ? "System target" : "Task route target"}
-        title={category === "system" ? "System target" : "Task route target"}
+        aria-label="Task route target"
+        title="Task route target"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value} title={option.title}>

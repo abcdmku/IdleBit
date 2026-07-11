@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { applyAction, deriveVisibleState } from "../game";
 import { SystemWorkbench } from "./components";
 import { CreditFailurePopup, PsuFailureModal } from "./FailureNotices";
@@ -7,9 +7,16 @@ import { useGamePersistence } from "./hooks/useGamePersistence";
 import { useNoticePreferences } from "./hooks/useNoticePreferences";
 import { usePinnedUnlockPreferences } from "./hooks/usePinnedUnlockPreferences";
 import { toGameAction, type UiGameAction } from "./uiActions";
+import {
+  getReturnReportKey,
+  ReturnSummaryDialog,
+} from "./commandDeck/ReturnSummaryDialog";
 
 export function App() {
-  const seedRackReady = useMemo(() => isRackReadySeed(), []);
+  const seedRackReady = useMemo(
+    () => import.meta.env.DEV && isRackReadySeed(),
+    [],
+  );
   const game = useGamePersistence({ seedRackReady });
   const noticePreferences = useNoticePreferences({ seedRackReady });
   const {
@@ -18,6 +25,8 @@ export function App() {
     selectedComponent,
     setSelectedComponent,
     ready: gameReady,
+    persistenceStatus,
+    mutationsBlocked,
     setPaused,
     resetGame,
   } = game;
@@ -33,8 +42,12 @@ export function App() {
     dismissPsuFailureHelp,
     dismissPsuFailureModal: markPsuFailureModalSeen,
     dismissCreditFailurePopup: markCreditFailurePopupSeen,
+    resetNoticePreferences,
   } = noticePreferences;
   const visible = useMemo(() => deriveVisibleState(state), [state]);
+  const [dismissedReturnKey, setDismissedReturnKey] = useState<string | null>(
+    null,
+  );
   const pinnedUnlockPreferences = usePinnedUnlockPreferences({
     seedRackReady,
     trackingReady: gameReady && noticesReady,
@@ -62,9 +75,10 @@ export function App() {
 
   const dispatch = useCallback(
     (action: UiGameAction) => {
+      if (mutationsBlocked) return;
       setState((current) => applyAction(current, toGameAction(action)));
     },
-    [setState],
+    [mutationsBlocked, setState],
   );
 
   const primaryDeadlockResource =
@@ -95,24 +109,41 @@ export function App() {
   const watchdogActive =
     Boolean(visible.metrics.systemSchedulerWatchdog) ||
     visible.metrics.cpuSockets.some((socket) => Boolean(socket.watchdog));
+  const showDeadlockFailureUi = Boolean(
+    (primaryDeadlockResource || cooldownHelpResource) && !watchdogActive,
+  );
+  const blockingFailureUiActive = Boolean(
+    showPsuFailureModal ||
+      showCreditFailurePopup ||
+      showDeadlockFailureUi ||
+      showPsuFailureHelp,
+  );
+  const returnReportKey = visible.offlineReport
+    ? getReturnReportKey(visible.offlineReport)
+    : null;
+  const showReturnSummary = Boolean(
+    resourceEffectsReady &&
+      visible.offlineReport &&
+      !blockingFailureUiActive &&
+      returnReportKey !== dismissedReturnKey,
+  );
+
+  useEffect(() => {
+    if (returnReportKey === null && dismissedReturnKey !== null) {
+      setDismissedReturnKey(null);
+    }
+  }, [dismissedReturnKey, returnReportKey]);
 
   useEffect(() => {
     setPaused(
       Boolean(
-        showPsuFailureModal ||
-          showCreditFailurePopup ||
-          ((primaryDeadlockResource || cooldownHelpResource) && !watchdogActive) ||
-          showPsuFailureHelp,
+        blockingFailureUiActive || showReturnSummary,
       ),
     );
   }, [
-    cooldownHelpResource,
-    primaryDeadlockResource,
+    blockingFailureUiActive,
     setPaused,
-    showCreditFailurePopup,
-    showPsuFailureHelp,
-    showPsuFailureModal,
-    watchdogActive,
+    showReturnSummary,
   ]);
 
   const dismissPsuFailureModal = useCallback(() => {
@@ -132,9 +163,13 @@ export function App() {
   }, [creditFailureModalSeen, dispatch, markCreditFailurePopupSeen]);
 
   const reset = useCallback(async () => {
-    await resetGame();
-    await resetPinnedUnlockPreferences();
-  }, [resetGame, resetPinnedUnlockPreferences]);
+    const freshState = await resetGame();
+    if (!freshState) return;
+    await Promise.all([
+      resetPinnedUnlockPreferences(),
+      resetNoticePreferences(),
+    ]);
+  }, [resetGame, resetNoticePreferences, resetPinnedUnlockPreferences]);
 
   return (
     <div className="app-shell">
@@ -160,7 +195,16 @@ export function App() {
         newTaskUnlockCount={newTaskUnlockCount}
         newResearchUnlockCount={newResearchUnlockCount}
         onSectionViewed={markVisibleUnlocksSeen}
+        persistenceStatus={persistenceStatus}
+        mutationsBlocked={mutationsBlocked}
       />
+      {showReturnSummary && visible.offlineReport && (
+        <ReturnSummaryDialog
+          report={visible.offlineReport}
+          visible={visible}
+          onDismiss={() => setDismissedReturnKey(returnReportKey)}
+        />
+      )}
       {showPsuFailureModal && (
         <PsuFailureModal onDismiss={dismissPsuFailureModal} />
       )}

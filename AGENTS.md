@@ -10,6 +10,17 @@
 
 Game rules belong in `src/game`. React and Electron call game functions; they do not own progression, unlocks, rewards, timers, or balancing rules.
 
+All simulation timing is hardware-derived: explicit bit/operation/work volumes
+advance through real component rates. Do not add wall-clock task timers where a
+cache, CPU, RAM, storage, network, accelerator, cluster, or Cloud capacity lane
+can own the work.
+
+Fixed clocks are only deadlines, offer expiry, observation windows, or physical
+latencies, and must be named as such. Never reverse-engineer workload size from
+a target duration. Repeatable Credit payouts derive from the same exact paid
+bit/cycle work volume; managed-work premiums multiply that volume instead of
+replacing it with a hand-authored task payout.
+
 ## Pre-Live Design Policy
 
 IdleBit is pre-live. Breaking save schema, UI, and mechanic changes are allowed when they move the prototype toward the current spec. Keep `game-spec.md`, `FEATURES.md`, and `docs/qa-notes.md` aligned with those changes, and prefer clear migration/reset notes over preserving obsolete behavior.
@@ -36,6 +47,12 @@ IdleBit is pre-live. Breaking save schema, UI, and mechanic changes are allowed 
 - Keep controls discoverable through familiar buttons, icons, tabs, toggles, and concise labels.
 - Use the reference images for tone only: dark hardware console, neon accents, visible compute systems.
 - Keep the interface readable on desktop and mobile.
+- Count real operation invocations as `ops`; show cache/RAM bits and CPU cycles
+  separately instead of adding unlike units and labeling the sum as operations.
+- Never move controls, cards, menus, or hardware regions in response to starting,
+  queueing, completing, pausing, or failing work. Reserve stable geometry for
+  runtime status and update content in place; overflow must scroll or clip
+  inside that reserved region rather than reflow neighboring UI.
 
 ## Subagent Ownership
 

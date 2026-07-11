@@ -96,8 +96,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -144,7 +144,7 @@
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   background: rgba(6, 14, 13, 0.7);
-  min-height: 30px;
+  min-height: 40px;
 }
 
 .pinned-task-bar.editing .pinned-task-row {
@@ -169,8 +169,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -189,7 +189,7 @@
   gap: var(--s-1);
   align-items: center;
   justify-content: center;
-  height: 24px;
+  min-height: 36px;
   padding: 0 var(--s-3);
   border: 1px solid rgba(36, 231, 195, 0.42);
   border-radius: var(--radius-sm);
@@ -224,7 +224,11 @@
 
 @media (max-width: 760px) {
   .pinned-task-bar.floating {
-    position: static;
+    position: fixed;
+    z-index: 110;
+    right: 0;
+    bottom: var(--mobile-bottom-nav-height);
+    left: 0;
     flex: 0 0 auto;
     margin: 0;
     border-radius: 0;
@@ -232,6 +236,10 @@
     border-right: 0;
     border-bottom: 0;
     max-height: min(45vh, 280px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.32);
+  }
+
+  .workbench:has(> .pinned-task-bar.floating) .board-stage {
+    padding-bottom: calc(var(--mobile-bottom-nav-height) + 52px);
   }
 }

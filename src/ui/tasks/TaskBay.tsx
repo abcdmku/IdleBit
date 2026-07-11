@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, ListTodo } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { VisibleState } from "../../game";
 import type { Dispatch } from "../uiActions";
 import type { SelectedComponent } from "../workbenchData";
@@ -21,7 +21,7 @@ import {
   taskGroups,
 } from "./taskData";
 import {
-  TaskGroupRoutePicker,
+  TaskBayRoutePicker,
   getRouteTargetLabel,
 } from "./TaskRoutePicker";
 import type { TaskCategoryId, UiTask } from "./taskTypes";
@@ -33,6 +33,7 @@ export function TaskBay({
   dispatch,
   pinnedTaskIds = [],
   onTogglePinnedTask,
+  embedded = false,
 }: {
   visible: VisibleState;
   selectedComponent: SelectedComponent;
@@ -40,6 +41,7 @@ export function TaskBay({
   dispatch: Dispatch;
   pinnedTaskIds?: string[];
   onTogglePinnedTask?: (taskId: string) => void;
+  embedded?: boolean;
 }) {
   const tasks = getTasks(visible);
   const activeTasks = getActiveTasks(visible);
@@ -58,6 +60,9 @@ export function TaskBay({
       tasks: tasks.filter((task) => getTaskCategory(task) === group.id),
     }))
     .filter((group) => group.tasks.length > 0);
+  const presentCategories = new Set<TaskCategoryId>(
+    groupedTasks.map((group) => group.id),
+  );
 
   const toggleGroup = (id: TaskCategoryId) => {
     setCollapsedGroups((prev) => {
@@ -73,14 +78,19 @@ export function TaskBay({
 
   return (
     <>
-      <div className="panel-header task-panel-header">
-        <ListTodo size={14} />
-        <span>Tasks</span>
-      </div>
-      <div className="panel-body">
-        {tasks.length === 0 ? (
+      <div className={embedded ? "work-jobs-content" : "panel-body"}>
+        {tasks.length === 0 && (
           <div className="research-empty">No tasks available</div>
-        ) : (
+        )}
+        {tasks.length > 0 && onSelectComponent && (
+          <TaskBayRoutePicker
+            visible={visible}
+            categories={presentCategories}
+            selection={selectedComponent}
+            onSelectComponent={onSelectComponent}
+          />
+        )}
+        {tasks.length > 0 &&
           groupedTasks.map((group) => {
             const collapsed = collapsedGroups.has(group.id);
             const groupRoute = resolveTaskRoute(
@@ -115,14 +125,6 @@ export function TaskBay({
                     <span>{group.label}</span>
                     <small>{group.tasks.length}</small>
                   </button>
-                  {onSelectComponent && (
-                    <TaskGroupRoutePicker
-                      visible={visible}
-                      category={group.id}
-                      selection={selectedComponent}
-                      onSelectComponent={onSelectComponent}
-                    />
-                  )}
                 </div>
                 {!collapsed &&
                   group.tasks.map((task, taskIndex) => {
@@ -159,8 +161,7 @@ export function TaskBay({
                   })}
               </section>
             );
-          })
-        )}
+          })}
       </div>
       {inspectedTask && (
         <TaskDagModal

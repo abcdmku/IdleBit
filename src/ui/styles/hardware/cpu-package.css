@@ -7,16 +7,20 @@
   padding: 12px;
   border: 1px solid rgba(36, 231, 195, 0.2);
   border-radius: var(--radius-lg);
-  background:
-    radial-gradient(140% 80% at 50% -20%, rgba(36, 231, 195, 0.08), transparent 60%),
-    rgba(6, 15, 14, 0.72);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.45) inset,
-    0 12px 28px rgba(0, 0, 0, 0.25);
+  background: rgba(6, 15, 14, 0.72);
+}
+
+/* One frame per package: the nested core array drops its own card chrome
+   and keeps it only when rendered standalone (pre-RAM). */
+.cpu-package .core-array-section {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .resource-token.dimmed > span {
-  color: rgba(140, 169, 164, 0.58);
+  color: #91a7a1;
 }
 
 .cpu-package.selected {
@@ -26,18 +30,14 @@
 
 .cpu-package.deadlocked {
   border-color: rgba(255, 111, 145, 0.72);
-  background:
-    radial-gradient(140% 80% at 50% -20%, rgba(255, 111, 145, 0.12), transparent 60%),
-    rgba(20, 8, 12, 0.64);
+  background: rgba(20, 8, 12, 0.64);
 }
 
 .cpu-package.deadlocked .cpu-package-header { color: var(--rose); }
 
 .cpu-package.cooling-down:not(.deadlocked) {
   border-color: rgba(140, 169, 164, 0.38);
-  background:
-    radial-gradient(140% 80% at 50% -20%, rgba(140, 169, 164, 0.08), transparent 60%),
-    rgba(9, 13, 13, 0.76);
+  background: rgba(9, 13, 13, 0.76);
 }
 
 .cpu-package.cooling-down:not(.deadlocked) .cpu-package-header {
@@ -72,7 +72,7 @@
   font-family: var(--font-display);
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-mid);
   text-transform: uppercase;
 }
 

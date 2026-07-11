@@ -1,18 +1,29 @@
 import type {
+  AutomationBufferLevelId,
   CronIntervalMode,
   CpuTierId,
   GameAction,
-  ResourceId,
   SchedulerKillPolicy,
   SchedulerPolicy,
   TaskId,
+  ProjectId,
 } from "../game";
 
-type WithSystem<T> = Omit<T, "systemId"> & { systemId?: string | number };
+type WithSystem<T> = T extends unknown
+  ? Omit<T, "systemId"> & { systemId?: string | number }
+  : never;
 
 export type UiGameAction =
   | WithSystem<GameAction>
-  | WithSystem<{ type: "grantDevResource"; resource: ResourceId }>
+  | { type: "configureLiveOperations"; systemId: number; maxCoreCount: number }
+  | { type: "setLiveOperationsEnabled"; enabled: boolean }
+  | { type: "purchaseAutomationBuffer"; levelId: AutomationBufferLevelId }
+  | { type: "refreshContractMarket" }
+  | { type: "acceptContract"; contractId: string }
+  | { type: "declineContract"; contractId: string }
+  | { type: "startProjectPhase"; projectId: ProjectId; systemId?: number }
+  | { type: "setStandingOrder"; taskId: TaskId | null; systemId?: number }
+  | { type: "setStandingOrderEnabled"; enabled: boolean }
   | WithSystem<{ type: "startTask"; taskId: string }>
   | WithSystem<{ type: "startTaskOnCore"; taskId: string; coreId: number }>
   | WithSystem<{ type: "queueTask"; taskId: string; cpuId?: number }>

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { formatBits } from "../format";
-import { SmoothFill } from "../SmoothProgress";
+import { SmoothFill, useMeterSnap } from "../SmoothProgress";
 
 export type CacheSegmentKind = "read" | "write" | "overwrite" | "compute";
 export type CacheSegmentState = "buffering" | "loading" | "loaded";
@@ -177,35 +177,63 @@ export function RamPressureMeter({
   return (
     <span className="module-meter ram-pressure-meter" aria-hidden="true">
       {visibleSegments.map((segment, index) => (
-        <span
+        <RamPressureSegment
           key={`${segment.coreId}-${segment.state}-${index}`}
-          className={`ram-pressure-segment ${segment.state}`}
-          style={
-            {
-              width: `${(segment.bits / capacity) * 100}%`,
-              left: `${((segment.startBit ?? 0) / capacity) * 100}%`,
-              "--ram-core-color": getCoreSegmentColor(
-                segment.coreId,
-                segment.state === "loaded" ? 0.9 : 0.58,
-              ),
-              "--ram-core-solid-color": getCoreSegmentColor(
-                segment.coreId,
-                segment.state === "loaded" ? 0.94 : 0.82,
-              ),
-              "--ram-load-progress": `${
-                (segment.state === "loaded" ? 1 : clampMeter(segment.progress)) * 100
-              }%`,
-              "--ram-load-progress-ratio":
-                segment.state === "loaded" ? 1 : clampMeter(segment.progress),
-            } as CSSProperties
-          }
-        >
-          <SmoothFill
-            className="ram-pressure-fill"
-            value={segment.state === "loaded" ? 1 : segment.progress}
-          />
-        </span>
+          segment={segment}
+          capacity={capacity}
+        />
       ))}
+    </span>
+  );
+}
+
+/**
+ * One RAM occupancy block. The outer span's inline width/left carry the
+ * runtime motion (bits reserved grow every 500ms snapshot), so they interpolate
+ * via the CSS width/left transition and snap — never animate backward — when
+ * either extent shrinks or the block moves left (frees/repacking).
+ */
+function RamPressureSegment({
+  segment,
+  capacity,
+}: {
+  segment: RamSegment;
+  capacity: number;
+}) {
+  const widthRatio = segment.bits / capacity;
+  const leftRatio = (segment.startBit ?? 0) / capacity;
+  const widthSnap = useMeterSnap(widthRatio);
+  const leftSnap = useMeterSnap(leftRatio);
+
+  return (
+    <span
+      className={`ram-pressure-segment ${segment.state} ${
+        widthSnap || leftSnap ? "is-snapping" : ""
+      }`}
+      style={
+        {
+          width: `${widthRatio * 100}%`,
+          left: `${leftRatio * 100}%`,
+          "--ram-core-color": getCoreSegmentColor(
+            segment.coreId,
+            segment.state === "loaded" ? 0.9 : 0.58,
+          ),
+          "--ram-core-solid-color": getCoreSegmentColor(
+            segment.coreId,
+            segment.state === "loaded" ? 0.94 : 0.82,
+          ),
+          "--ram-load-progress": `${
+            (segment.state === "loaded" ? 1 : clampMeter(segment.progress)) * 100
+          }%`,
+          "--ram-load-progress-ratio":
+            segment.state === "loaded" ? 1 : clampMeter(segment.progress),
+        } as CSSProperties
+      }
+    >
+      <SmoothFill
+        className="ram-pressure-fill"
+        value={segment.state === "loaded" ? 1 : segment.progress}
+      />
     </span>
   );
 }
@@ -230,50 +258,77 @@ function CachePressureMeter({
   return (
     <span className="module-meter cache-pressure-meter" aria-hidden="true">
       {visibleSegments.map((segment, index) => (
-        <span
+        <CachePressureSegment
           key={`${segment.kind}-${segment.state}-${index}`}
-          className={`cache-pressure-segment cache-pressure-${segment.kind} ${segment.state}`}
-          style={
-            {
-              width: `${(segment.bits / capacity) * 100}%`,
-              "--cache-core-color": getCoreSegmentColor(
-                segment.coreId,
-                getCacheSegmentAlpha(segment.state),
-              ),
-              "--cache-core-solid-color": getCoreSegmentColor(
-                segment.coreId,
-                segment.state === "loaded" ? 0.94 : 0.86,
-              ),
-              "--cache-buffer-progress": `${
-                (segment.state === "loading" || segment.state === "loaded"
-                  ? 1
-                  : clampMeter(segment.bufferProgress)) * 100
-              }%`,
-              "--cache-buffer-progress-ratio":
-                segment.state === "loading" || segment.state === "loaded"
-                  ? 1
-                  : clampMeter(segment.bufferProgress),
-              "--cache-write-progress": getProgressPercent(
-                getCacheSegmentWriteProgress(segment),
-              ),
-              "--cache-write-progress-ratio": getCacheSegmentWriteProgress(segment),
-            } as CSSProperties
-          }
-        >
-          <SmoothFill
-            className="cache-pressure-buffer"
-            value={
-              segment.state === "loading" || segment.state === "loaded"
-                ? 1
-                : segment.bufferProgress
-            }
-          />
-          <SmoothFill
-            className="cache-pressure-fill"
-            value={getCacheSegmentWriteProgress(segment)}
-          />
-        </span>
+          segment={segment}
+          capacity={capacity}
+        />
       ))}
+    </span>
+  );
+}
+
+/**
+ * One cache lane extent. The pipeline lanes pin the inner SmoothFills to
+ * constants, so ALL runtime motion is the outer span's inline width (bits
+ * accrue every 500ms snapshot). The CSS width transition interpolates that
+ * growth at display FPS; batch commits/consumption shrink the extent and must
+ * snap instead of animating backward.
+ */
+function CachePressureSegment({
+  segment,
+  capacity,
+}: {
+  segment: CacheSegment;
+  capacity: number;
+}) {
+  const widthRatio = segment.bits / capacity;
+  const snapping = useMeterSnap(widthRatio);
+
+  return (
+    <span
+      className={`cache-pressure-segment cache-pressure-${segment.kind} ${segment.state} ${
+        snapping ? "is-snapping" : ""
+      }`}
+      style={
+        {
+          width: `${widthRatio * 100}%`,
+          "--cache-core-color": getCoreSegmentColor(
+            segment.coreId,
+            getCacheSegmentAlpha(segment.state),
+          ),
+          "--cache-core-solid-color": getCoreSegmentColor(
+            segment.coreId,
+            segment.state === "loaded" ? 0.94 : 0.86,
+          ),
+          "--cache-buffer-progress": `${
+            (segment.state === "loading" || segment.state === "loaded"
+              ? 1
+              : clampMeter(segment.bufferProgress)) * 100
+          }%`,
+          "--cache-buffer-progress-ratio":
+            segment.state === "loading" || segment.state === "loaded"
+              ? 1
+              : clampMeter(segment.bufferProgress),
+          "--cache-write-progress": getProgressPercent(
+            getCacheSegmentWriteProgress(segment),
+          ),
+          "--cache-write-progress-ratio": getCacheSegmentWriteProgress(segment),
+        } as CSSProperties
+      }
+    >
+      <SmoothFill
+        className="cache-pressure-buffer"
+        value={
+          segment.state === "loading" || segment.state === "loaded"
+            ? 1
+            : segment.bufferProgress
+        }
+      />
+      <SmoothFill
+        className="cache-pressure-fill"
+        value={getCacheSegmentWriteProgress(segment)}
+      />
     </span>
   );
 }

@@ -19,7 +19,7 @@ export type UiGameAction =
   | { type: "setLiveOperationsEnabled"; enabled: boolean }
   | { type: "purchaseAutomationBuffer"; levelId: AutomationBufferLevelId }
   | { type: "refreshContractMarket" }
-  | { type: "acceptContract"; contractId: string }
+  | { type: "acceptContract"; contractId: string; systemId?: number }
   | { type: "declineContract"; contractId: string }
   | { type: "startProjectPhase"; projectId: ProjectId; systemId?: number }
   | { type: "setStandingOrder"; taskId: TaskId | null; systemId?: number }

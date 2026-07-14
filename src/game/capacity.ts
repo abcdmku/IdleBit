@@ -21,6 +21,7 @@ import {
   getCoreClockHz,
   getEffectiveCpuEfficiency,
   getCpuForCore,
+  getExactRamCapacityBits,
 } from "./progression";
 import { materializeSystem } from "./systems";
 import type {
@@ -176,11 +177,48 @@ const getPhysicalComputeRate = (state: GameState) => {
   return { compute, activeCpuWatts };
 };
 
+/**
+ * The measured system profile is a pure function of (state, systemId, SKUs)
+ * and is requested repeatedly per snapshot/tick — once per contract, project,
+ * fleet node and work projection touching the system — while each computation
+ * re-materializes the system and runs per-core exact math. Cache by state
+ * identity (game state is updated immutably) so repeated requests within one
+ * state generation are free.
+ */
+const systemCapacityProfileCache = new WeakMap<
+  GameState,
+  Map<string, CapacityProfile>
+>();
+
 export const deriveSystemCapacityProfile = (
   state: GameState,
   systemId: number,
   storageSkuId: FleetNodeState["storageSkuId"] = "storageNone",
   networkSkuId: FleetNodeState["networkSkuId"] = "networkNone",
+): CapacityProfile => {
+  let byKey = systemCapacityProfileCache.get(state);
+  if (!byKey) {
+    byKey = new Map();
+    systemCapacityProfileCache.set(state, byKey);
+  }
+  const key = `${systemId}|${storageSkuId}|${networkSkuId}`;
+  const cached = byKey.get(key);
+  if (cached) return cached;
+  const profile = computeSystemCapacityProfile(
+    state,
+    systemId,
+    storageSkuId,
+    networkSkuId,
+  );
+  byKey.set(key, profile);
+  return profile;
+};
+
+const computeSystemCapacityProfile = (
+  state: GameState,
+  systemId: number,
+  storageSkuId: FleetNodeState["storageSkuId"],
+  networkSkuId: FleetNodeState["networkSkuId"],
 ): CapacityProfile => {
   const local = materializeSystem(state, systemId);
   if (!local.systems.some((system) => system.id === systemId)) {
@@ -213,7 +251,9 @@ export const deriveSystemCapacityProfile = (
   const base = normalizeCapacityProfile({
     ...createEmptyCapacityProfile(),
     rates: { ...createEmptyCapacityProfile().rates, compute },
-    memoryBits: amount(idleState.hardware.ramBits),
+    // Exact stick aggregation: hardware.ramBits is a Number projection that
+    // silently rounds away small sticks once any stick reaches ~2^53 bits.
+    memoryBits: getExactRamCapacityBits(idleState.hardware.ramSticks),
     idleWatts,
     // Conservative until component-level peak profiles arrive: retain the full
     // measured idle/non-CPU baseline, then add every core's active draw.

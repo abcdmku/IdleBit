@@ -109,7 +109,9 @@ export const acceleratorSkuDefinitions: readonly AcceleratorSkuDefinition[] = [
     supportedWorkloadClasses: ["inference", "mlBatch"],
     expansionSlots: 1,
     deviceMemoryBits: amount("137438953472"),
-    minimumBatchSize: amount(32),
+    // Inference Batch (the only authored inference workload) runs at batch
+    // size 16; a 32 minimum made this SKU dead content (C-DES-12).
+    minimumBatchSize: amount(16),
     computeOperationsPerSecond: amount("24000000000"),
     throughputMultiplierBps: 120_000,
     idlePowerWatts: amount("10"),

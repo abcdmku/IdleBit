@@ -5,7 +5,7 @@ import {
   SEEN_RESEARCH_KEY,
   SEEN_TASKS_KEY,
   getPinnedUnlockPreferences,
-  persistUiPreference,
+  persistUiPreferenceWithRetry,
   resetPinnedUnlockPreferenceStorage,
   type PinnedUnlockPreferenceSnapshot,
 } from "../app/persistence";
@@ -117,7 +117,7 @@ export function usePinnedUnlockPreferences({
   }, [applySnapshot, seedRackReady]);
 
   const persistPinnedTaskIds = useCallback((next: string[]) => {
-    void persistUiPreference(PINNED_TASKS_KEY, next);
+    void persistUiPreferenceWithRetry(PINNED_TASKS_KEY, next);
   }, []);
 
   const togglePinnedTask = useCallback(
@@ -160,7 +160,7 @@ export function usePinnedUnlockPreferences({
         setSeenTaskIds((current) => {
           const next = appendUnseenIds(current, visibleTaskIds);
           if (next === current) return current;
-          void persistUiPreference(SEEN_TASKS_KEY, next);
+          void persistUiPreferenceWithRetry(SEEN_TASKS_KEY, next);
           return next;
         });
         return;
@@ -169,7 +169,7 @@ export function usePinnedUnlockPreferences({
       setSeenResearchIds((current) => {
         const next = appendUnseenIds(current, visibleResearchIds);
         if (next === current) return current;
-        void persistUiPreference(SEEN_RESEARCH_KEY, next);
+        void persistUiPreferenceWithRetry(SEEN_RESEARCH_KEY, next);
         return next;
       });
     },

@@ -158,6 +158,7 @@ import {
   deriveWorkshopThermalSnapshot,
   getAcceleratorInstallBlockedReason,
   getCoolingInstallBlockedReason,
+  getCoolingTierRefund,
   getOverclockSelectionBlockedReason,
   getThermalStatusThroughputModifierBps,
   getWorkshopAcceleratorRoutes,
@@ -187,6 +188,42 @@ import {
   getLocalNetworkSkuId,
   isLocalNetworkUnlocked,
 } from "./localNetwork";
+
+/**
+ * deriveVisibleState materializes every rack system for its summary, and each
+ * materializeSystem/ensureSystems call re-normalizes the whole fleet — one
+ * snapshot was O(systems^2) on the render thread. Both functions are pure, so
+ * their results are cached by state identity: within a snapshot every summary
+ * shares one ensured fleet and one materialization per system, and repeated
+ * lookups return reference-equal sub-trees.
+ */
+const ensuredSystemsCache = new WeakMap<GameState, GameState>();
+
+const ensureSystemsMemo = (state: GameState): GameState => {
+  const cached = ensuredSystemsCache.get(state);
+  if (cached) return cached;
+  const ensured = ensureSystems(state);
+  ensuredSystemsCache.set(state, ensured);
+  return ensured;
+};
+
+const materializedSystemCache = new WeakMap<GameState, Map<number, GameState>>();
+
+const materializeSystemMemo = (
+  state: GameState,
+  systemId: number,
+): GameState => {
+  let byId = materializedSystemCache.get(state);
+  if (!byId) {
+    byId = new Map();
+    materializedSystemCache.set(state, byId);
+  }
+  const cached = byId.get(systemId);
+  if (cached) return cached;
+  const materialized = materializeSystem(state, systemId);
+  byId.set(systemId, materialized);
+  return materialized;
+};
 
 const getCacheFit = (
   state: GameState,
@@ -1403,6 +1440,25 @@ const getCpuSockets = (
     state.flags.cStateControl || cStateLevel > 0
       ? getCStateIdleMultiplier(cStateLevel)
       : 1;
+  // Index task/job assignments once; the previous per-core find over every
+  // active task was O(cores^2) per snapshot at wide sockets. First-wins
+  // insertion preserves the find-by-array-order result exactly.
+  const activeTaskByCoreId = new Map<number, VisibleActiveTask>();
+  for (const task of activeTasks) {
+    for (const assignedCoreId of task.assignedCoreIds) {
+      if (!activeTaskByCoreId.has(assignedCoreId)) {
+        activeTaskByCoreId.set(assignedCoreId, task);
+      }
+    }
+  }
+  const activeJobByCoreId = new Map<number, VisibleActiveJob>();
+  for (const job of activeJobs) {
+    for (const assignedCoreId of job.assignedCoreIds) {
+      if (!activeJobByCoreId.has(assignedCoreId)) {
+        activeJobByCoreId.set(assignedCoreId, job);
+      }
+    }
+  }
 
   return state.hardware.cpus.map((cpu) => {
     const socketId = cpu.id;
@@ -1465,10 +1521,8 @@ const getCpuSockets = (
           ? getVisibleUpgrade(state, schedulerSlotUpgrade, { cpuId: cpu.id })
           : null,
       cores: cpu.coreIds.map((coreId) => {
-          const activeTask =
-            activeTasks.find((task) => task.assignedCoreIds.includes(coreId)) ?? null;
-          const activeJob =
-            activeJobs.find((task) => task.assignedCoreIds.includes(coreId)) ?? null;
+          const activeTask = activeTaskByCoreId.get(coreId) ?? null;
+          const activeJob = activeJobByCoreId.get(coreId) ?? null;
           const coreDeadlock =
             activeTask?.coreProgress.find(
               (operation) =>
@@ -1943,6 +1997,7 @@ const getVisibleWorkshopState = (state: GameState) => {
         capacityWatts: definition.capacityWatts,
         powerDrawWatts: definition.powerDrawWatts,
         costs: [...definition.costs],
+        refunds: getCoolingTierRefund(state, definition.id),
         installed: state.workshop.coolingTierId === definition.id,
         canInstall: blockedReason === null,
         blockedReason,
@@ -2114,7 +2169,7 @@ const getVisibleSystemSummary = (
   systemId: number,
   selectedSystemId: number,
 ) => {
-  const systemState = materializeSystem(state, systemId);
+  const systemState = materializeSystemMemo(state, systemId);
   const busyCoreIds = getBusyCoreIds(systemState);
   const activeTasks = systemState.activeTasks.map((activeTask) =>
     getVisibleActiveTask(systemState, activeTask),
@@ -2131,7 +2186,7 @@ const getVisibleSystemSummary = (
   const powerUsedWatts = getHardwareDrawWatts(systemState);
   const psuCapacityWatts = getPsuCapacityWatts(systemState);
   const visibleWorkshop = getVisibleWorkshopState(systemState);
-  const system = ensureSystems(state).systems.find((item) => item.id === systemId);
+  const system = ensureSystemsMemo(state).systems.find((item) => item.id === systemId);
 
   const exactPurchaseCosts = system?.purchaseCosts ?? [];
   const purchaseCosts = projectExactCosts(exactPurchaseCosts);
@@ -2262,7 +2317,7 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
     ),
     "foreground",
   );
-  const rackSystems = ensureSystems(syncedState).systems;
+  const rackSystems = ensureSystemsMemo(syncedState).systems;
   const systemSummaries = rackSystems.map((system) =>
     getVisibleSystemSummary(syncedState, system.id, syncedState.selectedSystemId),
   );

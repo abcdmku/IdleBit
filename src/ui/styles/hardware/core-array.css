@@ -45,6 +45,27 @@
 
 .core-array-header strong { color: var(--text); font-weight: 800; }
 
+/* Reserved deadlock-countdown slot: fixed chip footprint whether or not
+   pressure is ticking, so deadlock onset never pushes the header controls
+   or wraps the row. */
+.core-array-deadlock-slot {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 174px;
+  height: 28px;
+}
+
+.core-array-deadlock-slot.is-idle {
+  visibility: hidden;
+}
+
+.core-array-deadlock-slot .deadlock-countdown.compact {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  margin-left: 0;
+}
+
 .core-array-efficiency {
   display: inline-flex;
   align-items: baseline;
@@ -164,10 +185,25 @@
 
 .core-die:hover { border-color: var(--line-hot); }
 
-.core-die:focus-visible {
-  outline: none;
+/* Whole-die select: an invisible stretched button underneath the content
+   (no interactive descendants inside a button role). The absolutely
+   positioned cancel button (z-index 2) stays clickable above it. */
+.core-die > .core-die-select {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.core-die:has(> .core-die-select:focus-visible) {
   box-shadow: var(--ring-focus);
 }
+
+.core-die > .core-die-select:focus-visible { outline: none; }
 
 /* Roomier dies only for small (<= 4 core) full arrays. */
 .core-grid.normal:not(.cpu-summary-cores-grid) .core-die {

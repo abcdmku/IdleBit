@@ -1,5 +1,5 @@
 import { amount } from "../amount";
-import type { AdvanceReport, GameState } from "../types";
+import type { AdvanceReport, GameState, VisibleState } from "../types";
 import { describe, expect, it } from "vitest";
 import {
   bootstrapMilestoneAdapter,
@@ -107,6 +107,71 @@ describe("campaign runner", () => {
     // most decisions, so the reachable compression floor sits just above half.
     expect(batched.intervalCount).toBeLessThan(legacy.intervalCount * 0.55);
   }, 30_000);
+
+  it("keeps post-CRON sessions decision-capable at public event boundaries", () => {
+    const boundaryMs = 2 * 60_000;
+    const sessionMs = 12 * 60_000;
+    const runWith = (activeWork: VisibleState["activeWork"]) => {
+      const checkpoints: CampaignProgressCheckpoint[] = [];
+      runCampaign({
+        runtime: {
+          ...bootstrapSmokeRuntime,
+          observe: (state) => {
+            const visible = bootstrapSmokeRuntime.observe(state);
+            return {
+              ...visible,
+              automationBuffer: {
+                ...visible.automationBuffer,
+                ownedLevelId: "cronRuntime" as const,
+              },
+              activeWork,
+              contracts: [],
+              contractMarket: {
+                ...visible.contractMarket,
+                refreshAvailableInMs: 0,
+              },
+            };
+          },
+        },
+        profile: sessionCadenceProfiles.regular,
+        seed: 11,
+        scheduleMode: "deterministic",
+        actionPolicy: { selectActions: () => [] },
+        completion: { isComplete: () => false },
+        milestones: { getReachedMilestones: () => [] },
+        maximumCalendarMs: sessionMs,
+        progress: {
+          minimumIntervalMs: Number.MAX_SAFE_INTEGER,
+          includeBeforeAdvance: true,
+          onCheckpoint: (checkpoint) => checkpoints.push(checkpoint),
+        },
+      });
+      return checkpoints
+        .filter((checkpoint) => checkpoint.phase === "before-active-advance")
+        .map((checkpoint) => checkpoint.requestedAdvanceMs);
+    };
+
+    // A pending completion boundary keeps the visit decision-capable: the
+    // session is stepped so later policy passes can react to the completion.
+    const steps = runWith([
+      {
+        id: "contract:1",
+        kind: "contract",
+        name: "Ledger Audit",
+        progress: 0,
+        remainingMs: boundaryMs,
+        systemId: 1,
+      },
+    ]);
+    expect(steps.length).toBeGreaterThan(1);
+    expect(Math.max(...steps.map((step) => step ?? 0))).toBeLessThanOrEqual(
+      boundaryMs,
+    );
+
+    // With no public event pending, the remaining visit still batches wholly
+    // so long-campaign evidence does not scale with idle UI refreshes.
+    expect(runWith([])).toEqual([sessionMs]);
+  });
 
   it("emits periodic public-only progress and terminal diagnostic counters", () => {
     const checkpoints: CampaignProgressCheckpoint[] = [];

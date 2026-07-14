@@ -9,6 +9,7 @@ import {
   getCoreActiveTask,
   getTaskActionDisabledReason,
   getTaskCanUseAction,
+  getTaskCategory,
   getTasks,
   hasValue,
   resolveTaskRoute,
@@ -47,13 +48,6 @@ export function PinnedTaskBar({
 
   const holdRepeatMs = visible.input?.taskHoldRepeatMs ?? 110;
   const holdMaxMs = visible.input?.taskHoldMaxMs ?? 30_000;
-  const { mode: routeMode, selectedCore: routeSelectedCore } = resolveTaskRoute(
-    visible,
-    selectedComponent,
-  );
-  const routeCoreBusy =
-    routeMode === "core" &&
-    Boolean(routeSelectedCore && getCoreActiveTask(routeSelectedCore));
 
   return (
     <aside
@@ -102,6 +96,14 @@ export function PinnedTaskBar({
       {expanded && (
         <ul className="pinned-task-bar-body">
           {pinned.map((task) => {
+            // Resolve the route per task category (mirrors TaskBay's
+            // per-group resolution): system/distributed tasks route through
+            // the system scheduler regardless of the CPU/core selection.
+            const { mode: routeMode, selectedCore: routeSelectedCore } =
+              resolveTaskRoute(visible, selectedComponent, getTaskCategory(task));
+            const routeCoreBusy =
+              routeMode === "core" &&
+              Boolean(routeSelectedCore && getCoreActiveTask(routeSelectedCore));
             const canUseRoute = getTaskCanUseAction(task, routeMode) === true;
             const disabled = routeCoreBusy || !canUseRoute;
             const disabledReason = disabled
@@ -141,6 +143,16 @@ export function PinnedTaskBar({
                   }
                   repeatMs={holdRepeatMs}
                   maxHoldMs={holdMaxMs}
+                  // The fixed-width button clips long blocker labels; the full
+                  // reason stays readable here.
+                  title={
+                    disabledReason ?? `${commandLabel} ${task.name}`
+                  }
+                  aria-label={
+                    disabledReason
+                      ? `${task.name}: ${disabledReason}`
+                      : `${commandLabel} ${task.name}`
+                  }
                 >
                   {!disabledReason && <Play size={10} />}
                   <span>{buttonLabel}</span>

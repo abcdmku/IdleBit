@@ -17,6 +17,8 @@ export interface JsonPersistenceStoreOptions {
 
 export interface ElectronPersistenceStore {
   clear(keyPrefix?: unknown): Promise<void>;
+  /** Resolves once every write enqueued so far has settled (never rejects). */
+  flush(): Promise<void>;
   get(key: unknown): Promise<string | null>;
   remove(key: unknown): Promise<void>;
   set(key: unknown, value: unknown): Promise<void>;
@@ -159,6 +161,12 @@ export function createJsonPersistenceStore({
         }
         await writeStore(store);
       });
+    },
+
+    async flush() {
+      // writeQueue already swallows write failures, so this resolves once
+      // every write enqueued before the flush call has settled.
+      await writeQueue;
     },
 
     async get(key: unknown) {

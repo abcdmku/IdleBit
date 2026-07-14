@@ -98,7 +98,11 @@ describe("HardwareBoard power telemetry", () => {
     expect(drawTile).not.toBeNull();
     expect(drawTile?.getAttribute("title")).toContain(formatWatts(capacityWatts));
     expect(drawTile?.querySelector(".stat-tile-meter")).not.toBeNull();
-    expect(psuSection?.textContent).not.toContain("grace");
+    // Reserved geometry: the single status slot stays mounted but hidden
+    // until a warning, transition, or grace countdown swaps in.
+    const statusSlot = psuSection?.querySelector(".psu-status-slot");
+    expect(statusSlot?.className).toContain("is-idle");
+    expect(statusSlot?.getAttribute("aria-hidden")).toBe("true");
     expect(psuSection?.textContent).not.toContain("stress");
     expect(psuSection?.textContent).not.toContain("headroom");
     expect(psuSection?.textContent).not.toContain("efficiency");
@@ -329,6 +333,119 @@ describe("HardwareBoard power telemetry", () => {
     } finally {
       scroll.restore();
     }
+  });
+
+  it("swaps warning, transition, and grace through one reserved status slot with fixed card structure", () => {
+    const initial = deriveVisibleState(createInitialGameState());
+
+    const renderVisible = (visible: VisibleState) => {
+      act(() => {
+        root.render(
+          <HardwareBoard
+            visible={visible}
+            dispatch={() => undefined}
+            selectedComponent={null}
+            onSelectComponent={() => undefined}
+          />,
+        );
+      });
+    };
+
+    // Geometry fingerprint: the card's row list and the header row's cell
+    // list. Every PSU state must render the exact same skeleton — content
+    // only ever swaps inside the pinned-height status slot (jsdom cannot
+    // measure pixels; the slot height itself is pinned in psu-section.css).
+    const cardStructure = () => {
+      const psuSection = container.querySelector(".psu-section")!;
+      const rows = Array.from(psuSection.children).map(
+        (child) => `${child.tagName}.${child.className.split(" ")[0]}`,
+      );
+      const headerCells = Array.from(
+        psuSection.querySelector(".psu-header-row")!.children,
+      ).map((child) => `${child.tagName}.${child.className.split(" ")[0]}`);
+      return { rows, headerCells };
+    };
+
+    renderVisible(initial);
+
+    const psuSection = container.querySelector(".psu-section")!;
+    const slot = psuSection.querySelector(".psu-status-slot")!;
+
+    // Idle: the slot stays mounted with a hidden placeholder chip so its
+    // arrival never rewraps the header row.
+    expect(slot.className).toContain("is-idle");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.querySelector(".psu-header-warning")).not.toBeNull();
+
+    // The old stacked reserved rows are gone: no per-state card rows.
+    expect(psuSection.querySelector(".psu-transition-slot")).toBeNull();
+    expect(psuSection.querySelector(".psu-grace-row")).toBeNull();
+
+    const idleStructure = cardStructure();
+
+    // A live overload fills the same slot in place.
+    const overloaded = {
+      ...initial,
+      metrics: {
+        ...initial.metrics,
+        powerUsedWatts: 0.014,
+        powerHeadroomWatts: -0.002,
+        psuStress: 1.18,
+        powerOverloadFailure: {
+          seconds: 5,
+          limitSeconds: 10,
+          remainingSeconds: 5,
+          progress: 0.5,
+          rate: 1.18,
+          active: true,
+          tripped: false,
+        },
+      },
+    } as VisibleState;
+
+    renderVisible(overloaded);
+    expect(container.querySelector(".psu-status-slot")).toBe(slot);
+    expect(slot.className).not.toContain("is-idle");
+    expect(slot.textContent).toContain("5s to fail");
+    expect(cardStructure()).toEqual(idleStructure);
+
+    // A boot countdown swaps into the same slot.
+    const booting = {
+      ...initial,
+      metrics: {
+        ...initial.metrics,
+        powerState: "booting",
+        powerTransitionSeconds: 7,
+      },
+    } as VisibleState;
+
+    renderVisible(booting);
+    expect(container.querySelector(".psu-status-slot")).toBe(slot);
+    expect(slot.className).not.toContain("is-idle");
+    expect(slot.textContent).toContain("System booting");
+    expect(cardStructure()).toEqual(idleStructure);
+
+    // The billing grace countdown swaps into the same slot.
+    const grace = {
+      ...initial,
+      metrics: {
+        ...initial.metrics,
+        powerBootstrapGraceSeconds: 12,
+      },
+    } as VisibleState;
+
+    renderVisible(grace);
+    expect(container.querySelector(".psu-status-slot")).toBe(slot);
+    expect(slot.className).not.toContain("is-idle");
+    expect(slot.textContent).toContain("Grace");
+    expect(slot.textContent).toContain("12s");
+    expect(cardStructure()).toEqual(idleStructure);
+
+    // Back to idle: same skeleton, slot hides in place.
+    renderVisible(initial);
+    expect(container.querySelector(".psu-status-slot")).toBe(slot);
+    expect(slot.className).toContain("is-idle");
+    expect(cardStructure()).toEqual(idleStructure);
   });
 
   it("shows boot and shutdown transitions on the PSU before the system card unlocks", () => {

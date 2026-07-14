@@ -20,6 +20,7 @@ import {
 } from "./ramTiers";
 import { getPsuCapacityBuildCost } from "./psu";
 import { getCpuSchedulerSlotBuildCost } from "./scheduler";
+import { cacheCapacityCosts, coreCosts } from "./componentCosts";
 import { normalizeMachineComponentSelection } from "../machineSelection";
 import {
   amountMultiply,
@@ -29,7 +30,6 @@ import {
 import {
   combineCostsExact,
   roundedCost,
-  roundedGrowthCost,
   scaleCostsExact,
 } from "../exactCosts";
 
@@ -59,23 +59,16 @@ const RAM_TIER_STICK_COUNT = 4;
 
 const ramTierLevel = (tierId: CpuTierId) => getRamTierFirstGlobalLevel(tierId);
 
+// Preset RAM tiers price sticks exactly like the in-place install ladder
+// (each additional stick doubles), so a preset never undercuts the identical
+// Advanced selection (F-BAL-4): sum(2^i, i < stickCount) = 2^stickCount - 1.
 const ramTierCost = (tierId: CpuTierId, stickCount = RAM_TIER_STICK_COUNT) => [
   credits(
     amountMultiply(
       getRamTierLevelDefinition(ramTierLevel(tierId)).upgradeCost,
-      stickCount,
+      2 ** Math.max(0, stickCount) - 1,
     ),
   ),
-];
-
-const coreCosts = (purchaseCount: number): Cost[] => [
-  roundedGrowthCost("credits", "140", "2.05", purchaseCount),
-  roundedGrowthCost("data", "5", "1.45", purchaseCount),
-];
-
-const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
-  roundedGrowthCost("credits", "3", "1.45", purchaseCount),
-  roundedGrowthCost("data", "6", "1.78", purchaseCount),
 ];
 
 const getPositiveInteger = (value: number | undefined, fallback: number) =>
@@ -389,7 +382,10 @@ export const componentSkus: CatalogComponentSkuDefinition[] = [
     offTheShelf: true,
     description: "Power supply for the current server-preview ceiling.",
     cost: [credits(540_000)],
-    psuLevel: 32,
+    // Level 64 (the v1 hardware ceiling) keeps the SKU ladder monotonic in
+    // both credits and capacity; level 32 was strictly dominated by the
+    // cheaper Workstation PSU (C-DES-10 / F-BAL-2).
+    psuLevel: 64,
   },
 ];
 
@@ -605,14 +601,18 @@ export const getMachineSelectionCost = (selection: MachineComponentSelection) =>
     : costLevels(baseCpuLevel, targetCpuLevel, (level) =>
         scaleCosts(getCpuTierUpgradeCost(cpuTierId, level), baseCoreCount),
       );
+  // costLevels yields each step's TARGET level; the shared ladder indexes by
+  // purchaseCount (level L -> L + 1 costs cacheCapacityCosts(L - 1)), so the
+  // step reaching `level` costs cacheCapacityCosts(level - 2). Matches the
+  // in-place upgrade screen exactly (C-DES-9 / F-BAL-4).
   const cacheLevelCosts = hasCpuPackageConfigs
     ? cpuPackageConfigs.flatMap((config) =>
         costLevels(baseCacheLevel, config.cacheLevel, (level) =>
-          scaleCosts(cacheCapacityCosts(level - 1), 1),
+          scaleCosts(cacheCapacityCosts(level - 2), 1),
         ),
       )
     : costLevels(baseCacheLevel, targetCacheLevel, (level) =>
-        scaleCosts(cacheCapacityCosts(level - 1), cpuPackageCount),
+        scaleCosts(cacheCapacityCosts(level - 2), cpuPackageCount),
       );
   const cacheSpeedCosts = hasCpuPackageConfigs
     ? cpuPackageConfigs.flatMap((config) =>

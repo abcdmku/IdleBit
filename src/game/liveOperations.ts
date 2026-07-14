@@ -292,7 +292,8 @@ interface LiveProjection {
   allocatedCoreIds: number[];
   rates: ReturnType<typeof createRateVector>;
   durationMs: Amount | null;
-  totalPowerWatts: Amount;
+  /** Additional draw from the reserved cores, over the same system at rest. */
+  lanePowerWatts: Amount;
   operatingCostCredits: Amount;
   rewardCredits: Amount;
   netRewardCredits: Amount;
@@ -309,7 +310,7 @@ const emptyProjection = (
   allocatedCoreIds: [],
   rates: createRateVector(),
   durationMs: null,
-  totalPowerWatts: ZERO_AMOUNT,
+  lanePowerWatts: ZERO_AMOUNT,
   operatingCostCredits: ZERO_AMOUNT,
   rewardCredits: runtime?.plan.reward.credits ?? ZERO_AMOUNT,
   netRewardCredits: runtime?.plan.reward.credits ?? ZERO_AMOUNT,
@@ -366,19 +367,16 @@ const projectLiveOperations = (
     return emptyProjection(runtime, "Waiting for an idle core.");
   }
 
+  const laneState: GameState = {
+    ...local,
+    liveOperations: { ...lane, runtime },
+  };
   const candidateCoreIds: number[] = [];
   for (const coreId of idleCoreIds) {
     const candidate = [...candidateCoreIds, coreId];
     if (
-      getPsuStress(
-        withAllocation(
-          {
-            ...local,
-            liveOperations: { ...lane, runtime },
-          },
-          candidate,
-        ),
-      ) <= LIVE_OPERATIONS_MAX_PSU_STRESS
+      getPsuStress(withAllocation(laneState, candidate)) <=
+      LIVE_OPERATIONS_MAX_PSU_STRESS
     ) {
       candidateCoreIds.push(coreId);
     }
@@ -390,13 +388,7 @@ const projectLiveOperations = (
     );
   }
 
-  const projectedState = withAllocation(
-    {
-      ...local,
-      liveOperations: { ...lane, runtime },
-    },
-    candidateCoreIds,
-  );
+  const projectedState = withAllocation(laneState, candidateCoreIds);
   const rates = createRateVector({
     compute: getLiveComputeRate(projectedState, candidateCoreIds),
   });
@@ -408,9 +400,25 @@ const projectLiveOperations = (
   if (durationMs === null || amountCompare(rates.compute, 0) <= 0) {
     return emptyProjection(runtime, "The selected idle cores have no compute rate.");
   }
-  const totalPowerWatts = getHardwareDrawWattsExact(projectedState);
+  // The lane's economics are scoped to the draw it ADDS: the system bills its
+  // resting draw with or without Live Operations, so cost, net, and margin
+  // charge only the increment from waking the reserved cores — never the
+  // whole system's operating cost.
+  const restingState = withAllocation(laneState, []);
+  const lanePowerWatts = amountClampMin(
+    amountSubtract(
+      getHardwareDrawWattsExact(projectedState),
+      getHardwareDrawWattsExact(restingState),
+    ),
+  );
+  const laneCostPerSecond = amountClampMin(
+    amountSubtract(
+      getPowerCostPerSecondExact(projectedState),
+      getPowerCostPerSecondExact(restingState),
+    ),
+  );
   const operatingCostCredits = amountMultiply(
-    getPowerCostPerSecondExact(projectedState),
+    laneCostPerSecond,
     amountDivide(durationMs, 1000),
   );
   const rewardCredits = runtime.plan.reward.credits;
@@ -431,7 +439,7 @@ const projectLiveOperations = (
     allocatedCoreIds: hasRunway ? candidateCoreIds : [],
     rates,
     durationMs,
-    totalPowerWatts,
+    lanePowerWatts,
     operatingCostCredits,
     rewardCredits,
     netRewardCredits,
@@ -703,7 +711,7 @@ export const getVisibleLiveOperations = (
       projection.durationMs === null
         ? null
         : amountToSafeNumber(projection.durationMs),
-    projectedPowerWatts: projection.totalPowerWatts,
+    projectedPowerWatts: projection.lanePowerWatts,
     projectedOperatingCostCredits: projection.operatingCostCredits,
     projectedRewardCredits: projection.rewardCredits,
     projectedNetRewardCredits: projection.netRewardCredits,

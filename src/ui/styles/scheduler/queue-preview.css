@@ -1,5 +1,8 @@
 /* ============ Scheduler queue preview ============ */
 
+/* Reserved geometry: the preview height derives from purchased slot capacity
+   (see QueuePreview.tsx), so queue occupancy changes never resize it. Height
+   only changes when capacity is bought, so there is no runtime transition. */
 .queue-preview {
   display: flex;
   flex-direction: column;
@@ -8,7 +11,6 @@
   min-height: 0;
   overflow: hidden;
   contain: layout paint;
-  transition: height 180ms var(--ease);
 }
 
 .queue-preview-list {
@@ -20,7 +22,6 @@
   width: 100%;
   height: var(--scheduler-grid-height, 144px);
   overflow: hidden;
-  transition: height 180ms var(--ease);
 }
 
 /* ---------- Slot cell ---------- */
@@ -300,14 +301,10 @@
   font-style: italic;
 }
 
+/* The all-open label fills the capacity-reserved footprint instead of
+   collapsing to a shorter row. */
 .queue-preview .queue-open-empty {
-  height: 30px;
+  flex: 1 1 auto;
+  height: auto;
   color: var(--muted-2);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .queue-preview,
-  .queue-preview-list {
-    transition: none;
-  }
 }

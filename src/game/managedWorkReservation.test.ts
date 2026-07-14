@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { advanceGame } from "./advance";
-import { amount, amountAdd, amountMultiply, exactResourceBag } from "./amount";
+import {
+  amount,
+  amountAdd,
+  amountDivide,
+  amountMultiply,
+  amountSubtract,
+  exactResourceBag,
+} from "./amount";
+import { getPowerCostPerSecondExact } from "./math";
 import { acceptContract } from "./contracts";
 import {
   createInitialGameState,
@@ -37,6 +45,17 @@ const getFetchRewardCredits = (
   deriveVisibleState(materializeSystem(state, systemId)).tasks.find(
     (task) => task.id === "fetchBit",
   )!.projection.rewardCredits!;
+
+/**
+ * Metered power billed over `elapsedMs`. The starter fixture's hardware draw
+ * is load-independent (no C-State research), so rate x elapsed is exact in
+ * both foreground and offline modes.
+ */
+const getPowerBilledCredits = (state: GameState, elapsedMs: number) =>
+  amountMultiply(
+    getPowerCostPerSecondExact(state),
+    amountDivide(amount(elapsedMs), amount(1000)),
+  );
 
 const funded = (state: GameState): GameState => ({
   ...state,
@@ -412,7 +431,10 @@ describe("per-system managed-work reservations", () => {
       );
       expect(standingResumed.state.exactResources).toEqual(
         exactResourceBag(
-          amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
+          amountSubtract(
+            amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
+            getPowerBilledCredits(initial, fetchDurationMs * 2 + 1_000),
+          ),
           "1002",
         ),
       );
@@ -665,7 +687,10 @@ describe("per-system managed-work reservations", () => {
       expect(oneShot.state.contracts.active).toEqual([]);
       expect(oneShot.state.exactResources).toEqual(
         exactResourceBag(
-          amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
+          amountSubtract(
+            amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
+            getPowerBilledCredits(initial, horizonMs),
+          ),
           "1002",
         ),
       );

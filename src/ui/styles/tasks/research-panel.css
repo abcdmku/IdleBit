@@ -49,18 +49,26 @@
 .research-action.cyan  { border-color: rgba(36, 231, 195, 0.34); }
 .research-action.green { border-color: rgba(115, 240, 92, 0.34); }
 .research-action.amber { border-color: rgba(242, 194, 78, 0.4); }
-.research-action.purchased { opacity: 0.45; }
 
+/* Purchased ("Built") cards dim only their frame and fill — never the copy.
+   The 0.70-0.82rem text on these cards needs >= 4.5:1 contrast, so no
+   whole-card opacity multiplier. */
+.research-action.purchased {
+  border-color: rgba(184, 158, 255, 0.14);
+  background: rgba(14, 12, 22, 0.24);
+}
+.research-action.purchased.cyan  { border-color: rgba(36, 231, 195, 0.14); }
+.research-action.purchased.green { border-color: rgba(115, 240, 92, 0.14); }
+.research-action.purchased.amber { border-color: rgba(242, 194, 78, 0.16); }
+
+/* Reserved geometry: the button column is a fixed width in every state, so
+   blocked/affordability flips recolor and relabel the button in place. Long
+   blocker strings ellipsize; the full reason stays in the button title. */
 .research-action-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 110px;
   gap: var(--s-3);
   align-items: center;
-}
-
-.research-action-main.blocked {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
 }
 
 .research-copy {
@@ -91,8 +99,11 @@
   gap: var(--s-1);
   align-items: center;
   justify-content: center;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
   min-height: var(--control-h);
-  padding: var(--s-1) var(--s-4);
+  padding: var(--s-1) var(--s-2);
   border: 1px solid rgba(184, 158, 255, 0.5);
   border-radius: var(--radius-sm);
   color: var(--violet);
@@ -110,9 +121,13 @@
   box-shadow: 0 0 12px rgba(184, 158, 255, 0.18);
 }
 
-.research-action-main.blocked .research-buy-button {
-  justify-content: flex-start;
-  width: 100%;
+.research-buy-button svg { flex: 0 0 auto; }
+
+.research-buy-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .research-requirements {
@@ -161,20 +176,17 @@
   gap: var(--s-1);
 }
 
+/* Reserved geometry: same fixed button column in ready/blocked/running
+   states; the row never regrids when a blocker or run state flips. */
 .research-compute {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 96px;
   gap: var(--s-2);
   align-items: center;
   padding: var(--s-2) var(--s-3);
   border: 1px solid rgba(36, 231, 195, 0.22);
   border-radius: var(--radius-sm);
   background: var(--cyan-soft);
-}
-
-.research-compute.blocked {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
 }
 
 .research-compute-copy {
@@ -207,6 +219,9 @@
   gap: var(--s-1);
   align-items: center;
   justify-content: center;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h-sm);
   min-height: var(--control-h-sm);
   padding: var(--s-1) var(--s-2);
   border: 1px solid rgba(36, 231, 195, 0.4);
@@ -225,9 +240,13 @@
   background: rgba(36, 231, 195, 0.16);
 }
 
-.research-compute.blocked .research-compute-button {
-  justify-content: flex-start;
-  width: 100%;
+.research-compute-button svg { flex: 0 0 auto; }
+
+.research-compute-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .research-cost-line {

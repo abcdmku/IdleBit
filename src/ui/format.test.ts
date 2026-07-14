@@ -2,17 +2,29 @@ import { describe, expect, it } from "vitest";
 import { amount, amountAdd } from "../game";
 import {
   formatCost,
+  formatCurrencyAmount,
+  formatExactCurrencyAmount,
   formatExactResourceAmount,
   formatExactResourceRate,
+  formatQuantity,
   formatResourceAmount,
   formatResourceRate,
   formatResources,
+  formatWatts,
 } from "./format";
 
 describe("resource formatting", () => {
-  it("keeps resource amounts unscaled below 100,000", () => {
-    expect(formatResourceAmount(99.5)).toBe("99.5");
+  it("keeps resource amounts unscaled below 100,000 and never shows decimals", () => {
+    expect(formatResourceAmount(99.5)).toBe("99");
     expect(formatResourceAmount(99_999)).toBe("99999");
+  });
+
+  it("floors currency amounts to whole units at render time", () => {
+    expect(formatCurrencyAmount(0)).toBe("0");
+    expect(formatCurrencyAmount(0.999)).toBe("0");
+    expect(formatCurrencyAmount(24_374.3316083554)).toBe("24374");
+    expect(formatCurrencyAmount(-12.7)).toBe("-12");
+    expect(formatCurrencyAmount(999.999)).toBe("999");
   });
 
   it("truncates resource amounts with current RuneScape-style stack suffixes", () => {
@@ -50,9 +62,26 @@ describe("resource formatting", () => {
     ]);
   });
 
-  it("preserves fractional credit rates until they reach the resource scale", () => {
-    expect(formatResourceRate(0.125)).toBe("0.125");
+  it("clamps rates to at most one decimal place", () => {
+    expect(formatResourceRate(0.125)).toBe("0.1");
+    expect(formatResourceRate(53.333333333)).toBe("53.3");
     expect(formatResourceRate(100_000)).toBe("100 K");
+  });
+
+  it("clamps generic quantities to tenths, including negatives", () => {
+    expect(formatQuantity(-1_028.4321)).toBe("-1,028");
+    expect(formatQuantity(-10.28)).toBe("-10.3");
+    expect(formatQuantity(0)).toBe("0");
+  });
+
+  it("scales watts so the mantissa is >= 1 before rounding to tenths", () => {
+    expect(formatWatts(0.000979116887)).toBe("979.1 uW");
+    expect(formatWatts(-0.000979116887)).toBe("-979.1 uW");
+    expect(formatWatts(0.0000005)).toBe("500 nW");
+    expect(formatWatts(0.25)).toBe("250 mW");
+    expect(formatWatts(0)).toBe("0 W");
+    expect(formatWatts(1_234)).toBe("1.2 kW");
+    expect(formatWatts(2_500_000)).toBe("2.5 MW");
   });
 });
 
@@ -77,7 +106,7 @@ describe("exact resource formatting", () => {
 
   it.each([
     ["53.333333333333333", "53.3"],
-    ["0.12549", "0.125"],
+    ["0.12549", "0.1"],
     ["100000", "100 K"],
     ["1e309", "1e309"],
   ])("compacts the exact rate %s as %s", (raw, expected) => {
@@ -91,11 +120,24 @@ describe("exact resource formatting", () => {
     expect(formatExactResourceRate(repeatingRate)).toBe("19,080");
   });
 
-  it("preserves zero, fractional digits, and negative truncation", () => {
+  it("clamps exact fractional tails to tenths and keeps negative truncation", () => {
     expect(formatExactResourceAmount(amount("0"))).toBe("0");
-    expect(formatExactResourceAmount(amount("0.125"))).toBe("0.125");
-    expect(formatExactResourceAmount(amount("-0.125"))).toBe("-0.125");
+    expect(formatExactResourceAmount(amount("0.125"))).toBe("0.1");
+    expect(formatExactResourceAmount(amount("-0.125"))).toBe("-0.1");
+    expect(formatExactResourceAmount(amount("53.333333333333333"))).toBe("53.3");
+    expect(formatExactResourceAmount(amount("2.04"))).toBe("2");
     expect(formatExactResourceAmount(amount("-100999.75"))).toBe("-100 K");
+  });
+
+  it("never shows decimals on exact currency amounts", () => {
+    expect(formatExactCurrencyAmount(amount("0"))).toBe("0");
+    expect(formatExactCurrencyAmount(amount("0.999"))).toBe("0");
+    expect(formatExactCurrencyAmount(amount("-0.999"))).toBe("0");
+    expect(formatExactCurrencyAmount(amount("24374.3316083554"))).toBe("24374");
+    expect(formatExactCurrencyAmount(amount("-12.7"))).toBe("-12");
+    expect(formatExactCurrencyAmount(amount("100000.5"))).toBe("100 K");
+    expect(formatExactCurrencyAmount(amount("-100999.75"))).toBe("-100 K");
+    expect(formatExactCurrencyAmount(amount("1e309"))).toBe("1e309");
   });
 
   it("formats values beyond Number range and distinguishes a huge balance plus one", () => {

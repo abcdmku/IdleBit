@@ -36,7 +36,6 @@ export interface WorkshopCoolingTierDefinition
   costs: readonly ExactCost[];
   /** Scales heat generated before the thermal kernel sees it. */
   heatBuildupModifierBps: number;
-  maxOverclockBps: number;
 }
 
 export interface OverclockPresetDefinition {
@@ -46,7 +45,6 @@ export interface OverclockPresetDefinition {
   clockMultiplierBps: number;
   powerMultiplierBps: number;
   heatMultiplierBps: number;
-  minimumCoolingTierId: WorkshopCoolingTierId;
 }
 
 const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
@@ -59,7 +57,6 @@ const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
     powerDrawWatts: ZERO_AMOUNT,
     costs: [],
     heatBuildupModifierBps: 10_000,
-    maxOverclockBps: 10_000,
   },
   {
     id: "passiveHeatsink",
@@ -73,7 +70,6 @@ const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
       exactCost("data", "40"),
     ],
     heatBuildupModifierBps: 10_000,
-    maxOverclockBps: 10_000,
   },
   {
     id: "fanCooling",
@@ -87,7 +83,6 @@ const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
       exactCost("data", "120"),
     ],
     heatBuildupModifierBps: 10_000,
-    maxOverclockBps: 11_000,
   },
   {
     id: "caseAirflow",
@@ -101,12 +96,11 @@ const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
       exactCost("data", "260"),
     ],
     heatBuildupModifierBps: 8_500,
-    maxOverclockBps: 12_500,
   },
   {
     id: "liquidCooling",
     name: "Liquid Cooling",
-    description: "Moves dense heat efficiently and enables the strongest overclock.",
+    description: "Moves dense heat efficiently to keep the heaviest overclocks in budget.",
     level: 4,
     capacityWatts: amountClampMin("6000"),
     powerDrawWatts: amountClampMin("95"),
@@ -115,7 +109,6 @@ const rawCoolingTierDefinitions: readonly WorkshopCoolingTierDefinition[] = [
       exactCost("data", "600"),
     ],
     heatBuildupModifierBps: 7_000,
-    maxOverclockBps: 15_000,
   },
 ] as const;
 
@@ -142,34 +135,33 @@ export const overclockPresetDefinitions: readonly OverclockPresetDefinition[] = 
     clockMultiplierBps: 10_000,
     powerMultiplierBps: 10_000,
     heatMultiplierBps: 10_000,
-    minimumCoolingTierId: "none",
   },
   {
     id: "boost",
     name: "Boost",
-    description: "A mild active-cooling overclock for short and sustained work.",
+    description:
+      "A mild overclock — expect throttling without at least fan cooling.",
     clockMultiplierBps: 11_000,
     powerMultiplierBps: 12_500,
     heatMultiplierBps: 13_000,
-    minimumCoolingTierId: "fanCooling",
   },
   {
     id: "performance",
     name: "Performance",
-    description: "A stronger case-airflow overclock with a steep power curve.",
+    description:
+      "A strong overclock with a steep power curve; weak cooling will run hot and throttle.",
     clockMultiplierBps: 12_500,
     powerMultiplierBps: 17_000,
     heatMultiplierBps: 18_500,
-    minimumCoolingTierId: "caseAirflow",
   },
   {
     id: "extreme",
     name: "Extreme",
-    description: "The liquid-cooled ceiling for deliberate burst tuning.",
+    description:
+      "Burst tuning far past rated heat — anything short of liquid cooling throttles hard.",
     clockMultiplierBps: 15_000,
     powerMultiplierBps: 25_000,
     heatMultiplierBps: 29_000,
-    minimumCoolingTierId: "liquidCooling",
   },
 ] as const;
 
@@ -222,25 +214,6 @@ export const getNextWorkshopCoolingTier = (
     ) ?? null
   );
 };
-
-export const getOverclockBlockedReason = (
-  coolingTierId: WorkshopCoolingTierId,
-  presetId: OverclockPresetId,
-) => {
-  const cooling = getWorkshopCoolingTierDefinition(coolingTierId);
-  const preset = getOverclockPresetDefinition(presetId);
-  if (preset.clockMultiplierBps <= cooling.maxOverclockBps) return null;
-  return `Requires ${getWorkshopCoolingTierDefinition(
-    preset.minimumCoolingTierId,
-  ).name}.`;
-};
-
-export const getAllowedOverclockPresets = (
-  coolingTierId: WorkshopCoolingTierId,
-) =>
-  overclockPresetDefinitions.filter(
-    (preset) => getOverclockBlockedReason(coolingTierId, preset.id) === null,
-  );
 
 const scaleExactByBps = (value: Amount | string | number, bps: number) =>
   amountDivide(

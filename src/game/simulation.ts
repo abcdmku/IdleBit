@@ -638,6 +638,20 @@ const getActiveDeadlockPressureScope = (state: GameState) => {
 const isDeadlockStartBlocked = (state: GameState) =>
   hasActiveDeadlock(state) || state.deadlockProcessLockout === true;
 
+/**
+ * A non-repeatable task (benchmarks and other one-shots) admits at most one
+ * pending instance: a second copy accepted while the first is active or queued
+ * would either double-pay or strand an entry that turns ineligible the moment
+ * the unique completion settles (C-SIM-5).
+ */
+const hasPendingNonRepeatableInstance = (
+  state: GameState,
+  task: TaskDefinition,
+) =>
+  !task.repeatable &&
+  (state.activeTasks.some((activeTask) => activeTask.taskId === task.id) ||
+    state.queue.includes(task.id));
+
 const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
   const task = getTaskDefinition(taskId);
 
@@ -646,6 +660,7 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
     (isPsuManagementUnlocked(state) || getPsuStress(state) <= 1) &&
     !isDeadlockStartBlocked(state) &&
     canAcceptTask(state, taskId) &&
+    !hasPendingNonRepeatableInstance(state, task) &&
     taskFitsCpuHardware(state, task, cpuId)
   );
 };
@@ -891,6 +906,26 @@ const cpuCanProvisionTask = (
   return state.flags.scheduler && getCpuSchedulerWidth(state, cpuId) >= task.minCores;
 };
 
+/**
+ * Whether the CPU could ever start this task once fully idle: permanent core
+ * count, scheduler width, and cache capacity — not current occupancy. Queue
+ * reservations must never be parked on a CPU that fails this check, because
+ * dispatch requires the same conditions on that exact CPU and local queue
+ * entries are never migrated afterwards.
+ */
+const cpuCanEverProvisionTask = (
+  state: GameState,
+  task: TaskDefinition,
+  cpuId: number,
+) =>
+  taskFitsCpuHardware(state, task, cpuId) &&
+  cpuCanProvisionTask(
+    state,
+    task,
+    cpuId,
+    getCpuHardware(state, cpuId).coreIds.length,
+  );
+
 const hasCpuThatCanProvisionTask = (
   state: GameState,
   task: TaskDefinition,
@@ -922,6 +957,7 @@ const canQueueTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
 
   if (!canAcceptPoweredWork(state)) return false;
   if (!canAcceptTask(state, taskId)) return false;
+  if (hasPendingNonRepeatableInstance(state, task)) return false;
   if (systemScheduled && cpuId !== undefined) return false;
   if (systemScheduled && !state.flags.scheduler) return false;
   if (!systemScheduled && !state.flags.basicQueue && !state.flags.scheduler) {
@@ -1538,10 +1574,12 @@ const selectQueueCoreId = (
   state: GameState,
   cpuId?: number,
   slotCount = 1,
-  options: { allowBlockedDispatch?: boolean } = {},
-) => {
+  options: { allowBlockedDispatch?: boolean; task?: TaskDefinition } = {},
+): number | undefined => {
   const canUseCpu = (candidateCpuId: number) =>
     getAvailableSchedulerSlots(state, candidateCpuId) >= slotCount &&
+    (options.task === undefined ||
+      cpuCanEverProvisionTask(state, options.task, candidateCpuId)) &&
     (options.allowBlockedDispatch || schedulerCanDispatchOnCpu(state, candidateCpuId));
   const candidateCoreIds =
     cpuId === undefined
@@ -1556,11 +1594,35 @@ const selectQueueCoreId = (
     .filter((scheduler): scheduler is NonNullable<typeof scheduler> =>
       Boolean(scheduler),
     );
-  if (schedulers.length === 0) return 1;
+  // No usable scheduler means the reservation has no legal home; callers must
+  // fail the reservation instead of silently parking entries on core 1
+  // (possibly a different CPU), which produced permanent orphans (F-SCH-1).
+  if (schedulers.length === 0) return undefined;
 
   return schedulers.reduce((best, candidate) =>
     candidate.localQueue.length < best.localQueue.length ? candidate : best,
   ).coreId;
+};
+
+/**
+ * Picks the CPU a new top-level reservation should be parked on. Prefers a
+ * CPU the scheduler could dispatch to right now, but falls back to any CPU
+ * that can ever provision the task — reservations are legal while dispatch is
+ * deadlock-blocked (reserveReadySystemChildWork already relies on this), and
+ * they dispatch once the lockout clears.
+ */
+const selectReservationCpuId = (
+  state: GameState,
+  task: TaskDefinition,
+  slotCount: number,
+) => {
+  const coreId =
+    selectQueueCoreId(state, undefined, slotCount, { task }) ??
+    selectQueueCoreId(state, undefined, slotCount, {
+      task,
+      allowBlockedDispatch: true,
+    });
+  return coreId === undefined ? undefined : getCpuIdForCore(state, coreId);
 };
 
 const reserveTaskOnCpuScheduler = (
@@ -1573,11 +1635,13 @@ const reserveTaskOnCpuScheduler = (
   const reservedSlots = Math.max(1, Math.trunc(slotCount));
   if (getAvailableSchedulerSlots(state, cpuId) < reservedSlots) return state;
 
+  const task = getTaskDefinition(taskId);
   const coreId = selectQueueCoreId(state, cpuId, reservedSlots, {
     allowBlockedDispatch: options.allowBlockedDispatch,
+    task,
   });
+  if (coreId === undefined) return state;
   const scheduler = state.coreSchedulers[coreId] ?? createCoreSchedulerState(coreId);
-  const task = getTaskDefinition(taskId);
   const firstQueueEntrySequence = getNextQueueEntryNumber(state, "cpu");
   const reservationId =
     options.reservationId ?? getQueueEntryId("cpu", firstQueueEntrySequence);
@@ -1641,23 +1705,32 @@ const enqueueTask = (
 
   const schedulerSlotCount = getSchedulerSlotReservationCount(task);
   const queueEntry = createQueueEntry(state, task, "cpu", { workOrigin });
+  const targetCpuId =
+    cpuId ?? selectReservationCpuId(state, task, schedulerSlotCount);
+  if (targetCpuId === undefined) return state;
 
-  return reserveTaskOnCpuScheduler(
-    {
-      ...state,
-      queue: [...state.queue, taskId],
-      queueEntries: [...(state.queueEntries ?? []), queueEntry],
-    },
+  const staged: GameState = {
+    ...state,
+    queue: [...state.queue, taskId],
+    queueEntries: [...(state.queueEntries ?? []), queueEntry],
+  };
+  const reserved = reserveTaskOnCpuScheduler(
+    staged,
     taskId,
-    cpuId ?? getCpuIdForCore(state, selectQueueCoreId(state, cpuId, schedulerSlotCount)),
+    targetCpuId,
     schedulerSlotCount,
     {
       reservationId: queueEntry.id,
       workOrigin,
       batchMultiplier: queueEntry.batchMultiplier,
       projectedRewardCredits: queueEntry.projectedRewardCredits,
+      allowBlockedDispatch: true,
     },
   );
+
+  // A reservation that no-ops must not commit the top-level entry — an entry
+  // without a matching local reservation can never dispatch (F-SCH-1).
+  return reserved === staged ? state : reserved;
 };
 
 const removeQueuedTaskFromLocalScheduler = (
@@ -2142,6 +2215,10 @@ const getSystemChildCpuCandidates = (
   return state.hardware.cpus.flatMap((cpu, index): SystemChildCpuCandidate[] => {
     const normalizedCpu = getCpuHardware(state, cpu.id);
     if (getAvailableSchedulerSlots(state, normalizedCpu.id) < slotCount) return [];
+    // Never park a child on a CPU that can't ever provision it: dispatch
+    // requires minCores idle cores and cache fit on this exact CPU, and local
+    // entries are not migrated afterwards (C-SIM-4 / F-SCH-2).
+    if (!cpuCanEverProvisionTask(state, task, normalizedCpu.id)) return [];
 
     const queuedSlots = getCpuLocalQueueEntries(state, normalizedCpu.id).length;
     const queuedCacheBits = getQueuedCpuCacheFootprintBits(
@@ -2316,7 +2393,15 @@ const canStartQueuedCpuEntry = (
   canAcceptPoweredWork(state) &&
   !isDeadlockStartBlocked(state) &&
   taskFitsCpuHardware(state, task, cpuId) &&
-  (systemOwned || canAcceptTask(state, task.id));
+  (systemOwned ||
+    (canAcceptTask(state, task.id) &&
+      // Legacy duplicate reservations of a non-repeatable task (from saves
+      // predating the admission gate) must not dual-run alongside an active
+      // copy; the settle path releases them instead (C-SIM-5).
+      (task.repeatable ||
+        !state.activeTasks.some(
+          (activeTask) => activeTask.taskId === task.id,
+        ))));
 
 const canCpuQueuePolicyDispatchTask = (
   state: GameState,
@@ -2394,6 +2479,56 @@ const getCpuQueueDispatchCandidates = (state: GameState) => {
   );
 };
 
+/**
+ * Why a waiting queue reservation cannot dispatch right now, in the same
+ * order the dispatcher itself checks. Returns null for entries that are
+ * already running or merely waiting their rank turn. Exposed so the UI can
+ * label queued work that sits behind RAM/cache staging pressure instead of
+ * showing an unexplained idle entry (F-PLAY-2).
+ */
+export const getQueueEntryDispatchBlockedReason = (
+  state: GameState,
+  queueEntryId: string,
+): string | null => {
+  const located = getCpuQueueEntries(state).find(
+    ({ entry }) =>
+      entry.id === queueEntryId ||
+      (entry.reservationId ?? entry.id) === queueEntryId,
+  );
+  if (!located) return null;
+
+  const reservationId = located.entry.reservationId ?? located.entry.id;
+  if (getActiveQueueReservationIds(state).has(reservationId)) return null;
+
+  const task = getTaskDefinition(located.entry.taskId);
+  const systemOwned = Boolean(located.entry.parentQueueEntryId);
+  const cpuId = located.cpuId;
+
+  if (!canAcceptPoweredWork(state)) return "System is powered off.";
+  if (isDeadlockStartBlocked(state)) return "Deadlock recovery in progress.";
+  if (!taskFitsCpuHardware(state, task, cpuId)) {
+    return "This CPU cannot fit the task.";
+  }
+  if (!systemOwned && !canAcceptTask(state, task.id)) {
+    return "Task requirements are no longer met.";
+  }
+  if (selectCoreIdsForQueuedCpuEntry(state, task, cpuId).length < task.minCores) {
+    return "Waiting for idle cores.";
+  }
+
+  const policy = getCpuHardware(state, cpuId).schedulerConfig.policy;
+  if (policy !== "none") {
+    if (!taskFitsFreeCacheStaging(state, task, cpuId)) {
+      return "Waiting for free cache staging.";
+    }
+    if (!systemOwned && !taskFitsFreeMemoryStaging(state, task)) {
+      return "Waiting for free RAM staging.";
+    }
+  }
+
+  return null;
+};
+
 const selectCpuQueueDispatchCandidate = (state: GameState) => {
   const candidates = getCpuQueueDispatchCandidates(state);
   if (candidates.length === 0) return null;
@@ -2440,11 +2575,59 @@ const assignCpuQueueCandidateToCores = (
   });
 };
 
+/**
+ * Releases waiting local reservations parked on a CPU that can never provision
+ * their task (hardware downgrades, or entries persisted before placement was
+ * provisioning-checked). System-child units simply drop their reservation so
+ * the parent re-reserves them on a capable CPU; direct entries migrate to a
+ * capable CPU, or are released entirely when none exists (C-SIM-4 / F-SCH-2).
+ */
+const rehomeUnprovisionableReservations = (state: GameState): GameState => {
+  const activeReservations = getActiveQueueReservationIds(state);
+  const handledReservations = new Set<string>();
+  let nextState = state;
+
+  for (const { entry, cpuId } of getCpuQueueEntries(state)) {
+    const reservationId = entry.reservationId ?? entry.id;
+    if (handledReservations.has(reservationId)) continue;
+    handledReservations.add(reservationId);
+    if (activeReservations.has(reservationId)) continue;
+
+    const task = getTaskDefinition(entry.taskId);
+    if (cpuCanEverProvisionTask(nextState, task, cpuId)) continue;
+
+    nextState = removeLocalQueueReservationById(nextState, reservationId);
+    // System children re-reserve automatically once their work unit is free.
+    if (entry.parentQueueEntryId) continue;
+
+    const slotCount = getSchedulerSlotReservationCount(task);
+    const targetCpuId = selectReservationCpuId(nextState, task, slotCount);
+    const migrated =
+      targetCpuId === undefined
+        ? nextState
+        : reserveTaskOnCpuScheduler(nextState, task.id, targetCpuId, slotCount, {
+            reservationId,
+            workOrigin: entry.workOrigin,
+            batchMultiplier: entry.batchMultiplier,
+            projectedRewardCredits: entry.projectedRewardCredits,
+            allowBlockedDispatch: true,
+          });
+    nextState =
+      migrated === nextState
+        ? removeTopLevelQueueEntryById(nextState, reservationId)
+        : migrated;
+  }
+
+  return nextState;
+};
+
 const pullQueue = (state: GameState): GameState => {
   if (!canAcceptPoweredWork(state)) return syncCoreSchedulers(state);
   if (!state.flags.basicQueue && !state.flags.scheduler) return syncCoreSchedulers(state);
 
-  let nextState = reserveReadySystemChildWork(state);
+  let nextState = reserveReadySystemChildWork(
+    rehomeUnprovisionableReservations(state),
+  );
   let startedQueuedTask = true;
 
   while (startedQueuedTask) {
@@ -2531,6 +2714,42 @@ const recordTaskCompletionEconomics = (
   };
 };
 
+/**
+ * Once a non-repeatable task settles, any still-waiting duplicate entry can
+ * never dispatch again (canAcceptTask now rejects it), so its reservation is
+ * released instead of leaking scheduler slots forever (C-SIM-5). Entries with
+ * running work are left alone.
+ */
+const releaseNonRepeatableQueueDuplicates = (
+  state: GameState,
+  task: TaskDefinition,
+): GameState => {
+  if (task.repeatable) return state;
+
+  const activeReservations = getActiveQueueReservationIds(state);
+  let nextState = state;
+  for (const entry of state.queueEntries ?? []) {
+    if (entry.taskId !== task.id) continue;
+    if (activeReservations.has(entry.id)) continue;
+    if (
+      state.activeTasks.some(
+        (activeTask) => activeTask.parentQueueEntryId === entry.id,
+      )
+    ) {
+      continue;
+    }
+    nextState =
+      entry.target === "system"
+        ? cancelSystemParentReservation(nextState, entry.id)
+        : removeLocalQueueReservationById(
+            removeTopLevelQueueEntryById(nextState, entry.id),
+            entry.id,
+          );
+  }
+
+  return nextState;
+};
+
 const completeParentTask = (
   state: GameState,
   parentTask: TaskDefinition,
@@ -2565,7 +2784,10 @@ const completeParentTask = (
     workCycles,
     parentEntry?.workOrigin,
   );
-  const withoutQueue = removeTopLevelQueueEntryById(rewarded, parentQueueEntryId);
+  const withoutQueue = releaseNonRepeatableQueueDuplicates(
+    removeTopLevelQueueEntryById(rewarded, parentQueueEntryId),
+    parentTask,
+  );
 
   return recordWorkshopCompletionEvidence(updateProgressionFlags({
     ...withoutQueue,
@@ -2682,15 +2904,19 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
           getSchedulerSlotReservationCount(task, activeTask.assignedCoreIds),
         )
     : rewarded;
+  const duplicatesReleased = releaseNonRepeatableQueueDuplicates(
+    queueReleased,
+    task,
+  );
 
   return recordWorkshopCompletionEvidence(updateProgressionFlags({
-    ...queueReleased,
+    ...duplicatesReleased,
     completedTasks: {
-      ...queueReleased.completedTasks,
+      ...duplicatesReleased.completedTasks,
       [task.id]: completedAmount + 1,
     },
     completedJobs: {
-      ...queueReleased.completedJobs,
+      ...duplicatesReleased.completedJobs,
       [task.id]: completedAmount + 1,
     },
     completedBenchmarks: nextBenchmarks,
@@ -2849,6 +3075,7 @@ const tickLoad = (
   operation: ActiveCoreOperation,
   deltaSeconds: number,
   exactDeltaSeconds: Amount,
+  rateState: GameState = state,
 ): ActiveCoreOperation => {
   const operationDefinition = getOperation(task, operation.operationIndex);
   if (!operationDefinition) return operation;
@@ -2881,16 +3108,20 @@ const tickLoad = (
       allocatedOperation,
       deltaSeconds,
       exactDeltaSeconds,
+      rateState,
     );
   }
 
+  // Load and contention rates are sampled from the common pre-slice state so
+  // every operation in the slice shares one piecewise-constant rate set; the
+  // staged state remains authoritative for allocation and capacity decisions.
   const ramLoadDeltas =
     operation.status === "loadingRam"
-      ? getRamBlockLoadDeltasForOperationTick(state, operation, deltaSeconds)
+      ? getRamBlockLoadDeltasForOperationTick(rateState, operation, deltaSeconds)
       : [];
   const requestedRamLoadCycles =
     operation.status === "loadingRam"
-      ? getRamBlockLoadRatesForOperation(state, operation).reduce(
+      ? getRamBlockLoadRatesForOperation(rateState, operation).reduce(
           (total, rate) => total + rate * deltaSeconds,
           0,
         )
@@ -2899,20 +3130,25 @@ const tickLoad = (
     amountToSafeNumber(operation.remainingLoadCycles),
     operation.status === "loadingCache"
       ? getCacheLoadRateForOperationTick(
-          state,
+          rateState,
           operation,
           operationDefinition,
         ) * deltaSeconds
       : (operation.ramBlocks ?? []).length > 0
         ? requestedRamLoadCycles
-        : getRamLoadCyclesForOperationTick(state, task, operation, deltaSeconds),
+        : getRamLoadCyclesForOperationTick(
+            rateState,
+            task,
+            operation,
+            deltaSeconds,
+          ),
   );
   const requestedCpuCycles =
     operation.status === "loadingCache" && operationDefinition.memoryAction
       ? amountMin(
           operation.remainingCycles,
           amountMultiply(
-            getEffectiveCoreClockHz(state, operation.coreId),
+            getEffectiveCoreClockHz(rateState, operation.coreId),
             exactDeltaSeconds,
           ),
         )
@@ -3359,6 +3595,7 @@ const tickActiveTask = (
           operation,
           deltaSeconds,
           exactDeltaSeconds,
+          rateState,
         ),
       );
       return;
@@ -3854,10 +4091,12 @@ const applySchedulerWatchdogs = (state: GameState): GameState => {
           deadlockedOperation.lockResource,
         )
       : null;
+    // Any system child (chunked or composed parent) loses only its own work
+    // unit: the unreserved childWorkKey is re-reserved automatically, so the
+    // parent keeps its completed-child progress. Cancelling the whole parent
+    // here destroyed non-chunked composition jobs outright (F-SCH-3).
     const systemChildRequeued =
-      !chunkRequeued &&
-      liveVictim?.parentTaskId &&
-      isChunkedTask(getTaskDefinition(liveVictim.parentTaskId))
+      !chunkRequeued && liveVictim?.parentQueueEntryId
         ? cancelSystemChildWorkUnit(nextState, liveVictim)
         : null;
     nextState =
@@ -3881,6 +4120,17 @@ const cancelAllActiveTasksForDeadlockFailure = (state: GameState): GameState => 
   for (let index = state.activeTasks.length - 1; index >= 0; index -= 1) {
     const activeTask = state.activeTasks[index];
     if (!activeTask?.schedulerQueued) continue;
+
+    if (activeTask.queueEntryId) {
+      // Release exactly this instance's reservation by id. Occurrence counting
+      // over taskIds can remove another queued copy's local entries, leaving a
+      // stale ghost reservation plus an undispatchable orphan (F-SCH-4).
+      nextState = removeLocalQueueReservationById(
+        removeTopLevelQueueEntryById(nextState, activeTask.queueEntryId),
+        activeTask.queueEntryId,
+      );
+      continue;
+    }
 
     const occurrenceIndex =
       state.activeTasks
@@ -3965,6 +4215,7 @@ const updateDeadlockPressure = (
 const updatePowerOverloadFailure = (
   state: GameState,
   deltaSeconds: number,
+  stressState: GameState = state,
 ): GameState => {
   const currentSeconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
   if (!isPsuManagementUnlocked(state)) {
@@ -3978,9 +4229,12 @@ const updatePowerOverloadFailure = (
           },
         };
   }
-  const psuStress = getPsuStress(state);
+  // Stress is integrated from the state that held over the slice (pre-slice),
+  // not the settled endpoint, so a task completing exactly at the boundary
+  // still contributes its overload pressure for the interval it ran.
+  const psuStress = getPsuStress(stressState);
   const overloadRate =
-    canRunPoweredWork(state) ? getPowerOverloadRate(psuStress) : 0;
+    canRunPoweredWork(stressState) ? getPowerOverloadRate(psuStress) : 0;
 
   if (overloadRate > 0) {
     const overloadFailureSeconds = Math.min(
@@ -4074,10 +4328,13 @@ const tickActiveTasks = (
   const activeTasks: ActiveTask[] = [];
 
   state.activeTasks.forEach((activeTask, index) => {
+    // One staged array shared by both aliases; building it twice per task made
+    // staging O(tasks^2) allocations per system per tick (F-PERF-7).
+    const stagedActiveTasks = [...activeTasks, ...state.activeTasks.slice(index)];
     const stagedState = {
       ...state,
-      activeTasks: [...activeTasks, ...state.activeTasks.slice(index)],
-      activeJobs: [...activeTasks, ...state.activeTasks.slice(index)],
+      activeTasks: stagedActiveTasks,
+      activeJobs: stagedActiveTasks,
     };
     activeTasks.push(
       tickActiveTask(
@@ -4193,22 +4450,45 @@ const applyPowerBilling = (
   deltaSeconds: number,
   deltaMs: number,
   costPerSecondOverride?: Amount,
+  deferUnpaidCutoff = false,
 ): GameState => {
   if (!isPsuManagementUnlocked(state)) {
-    if (
-      state.power.bootstrapGraceSeconds <= 0 &&
-      state.power.unpaidShutdownWarningSeconds <= 0
-    ) {
-      return state;
+    // Metered billing charges from the first tick, but the unpaid-cutoff
+    // warning stays locked behind PSU Management: before the player has
+    // countermeasures, an empty wallet safely idles at 0 credits (bootstrap
+    // grace still counts down, nothing destructive ever starts).
+    const base =
+      state.power.unpaidShutdownWarningSeconds > 0
+        ? {
+            ...state,
+            power: { ...state.power, unpaidShutdownWarningSeconds: 0 },
+          }
+        : state;
+    const funded = clearBillingGraceIfFunded(base);
+    if (amountCompare(funded.exactResources.credits, 0) <= 0) {
+      const graceSeconds = Math.max(0, funded.power.bootstrapGraceSeconds ?? 0);
+      if (graceSeconds <= 0) return funded;
+      return {
+        ...funded,
+        power: {
+          ...funded.power,
+          bootstrapGraceSeconds: Math.max(0, graceSeconds - deltaSeconds),
+        },
+      };
     }
-    return {
-      ...state,
-      power: {
-        ...state.power,
-        bootstrapGraceSeconds: 0,
-        unpaidShutdownWarningSeconds: 0,
-      },
-    };
+    const costPerSecond =
+      costPerSecondOverride ?? getPowerCostPerSecondExact(funded);
+    const exactPowerCost = amountMultiply(
+      costPerSecond,
+      amountDivide(amount(deltaMs), amount(1000)),
+    );
+    if (amountCompare(exactPowerCost, 0) <= 0) return funded;
+    if (amountCompare(funded.exactResources.credits, exactPowerCost) < 0) {
+      // Pay what remains and stop at zero; no warning timer before PSU
+      // Management.
+      return setExactResource(funded, "credits", 0);
+    }
+    return spendExact(funded, [exactCost("credits", exactPowerCost)]);
   }
   const fundedState = clearBillingGraceIfFunded(state);
   const warningSeconds = Math.max(
@@ -4235,7 +4515,19 @@ const applyPowerBilling = (
     );
 
     if (unpaidShutdownWarningSeconds <= 0) {
-      return forcePowerOffForUnpaidBill(fundedState);
+      // The caller advances work through the pre-cutoff interval and applies
+      // the hard shutdown at the slice endpoint, so a slice that reaches the
+      // deadline performs the same work as any partition of the same span.
+      return deferUnpaidCutoff
+        ? {
+            ...setExactResource(fundedState, "credits", 0),
+            power: {
+              ...fundedState.power,
+              bootstrapGraceSeconds: 0,
+              unpaidShutdownWarningSeconds: 0,
+            },
+          }
+        : forcePowerOffForUnpaidBill(fundedState);
     }
 
       return {
@@ -4256,13 +4548,40 @@ const applyPowerBilling = (
       bootstrapGraceSeconds <= 0 &&
       amountCompare(costPerSecond, 0) > 0
     ) {
-      return beginUnpaidShutdownWarning({
+      // Any slice time past grace expiry keeps counting against the unpaid
+      // warning, so crossing the boundary mid-slice matches slicing exactly
+      // at it instead of granting a fresh full warning at the slice end.
+      const overshootSeconds = Math.max(0, deltaSeconds - graceSeconds);
+      const warned = beginUnpaidShutdownWarning({
         ...fundedState,
         power: {
           ...fundedState.power,
           bootstrapGraceSeconds: 0,
         },
       });
+      if (overshootSeconds <= 0) return warned;
+      const remainingWarningSeconds = Math.max(
+        0,
+        warned.power.unpaidShutdownWarningSeconds - overshootSeconds,
+      );
+      if (remainingWarningSeconds <= 0) {
+        return deferUnpaidCutoff
+          ? {
+              ...warned,
+              power: {
+                ...warned.power,
+                unpaidShutdownWarningSeconds: 0,
+              },
+            }
+          : forcePowerOffForUnpaidBill(warned);
+      }
+      return {
+        ...warned,
+        power: {
+          ...warned.power,
+          unpaidShutdownWarningSeconds: remainingWarningSeconds,
+        },
+      };
     }
 
     return {
@@ -4521,6 +4840,37 @@ interface OfflineSystemActivity {
   storageWorkSystemIds: Set<number>;
 }
 
+/**
+ * Hoists one system's slices from an ensureSystems-normalized fleet onto the
+ * top level without re-normalizing every other system. materializeSystem runs
+ * ensureSystems (O(fleet) hardware re-normalization) on every call, so calling
+ * it per system inside per-tick loops and event queries made each tick
+ * O(fleet^2) (F-PERF-4). Callers must pass a state whose `systems` array came
+ * from ensureSystems (or normalizeGameForSimulation).
+ */
+const hoistEnsuredSystem = (
+  ensured: GameState,
+  system: GameState["systems"][number],
+): GameState =>
+  syncCoreSchedulers({
+    ...ensured,
+    selectedSystemId: system.id,
+    hardware: system.hardware,
+    workshop: system.workshop,
+    power: system.power,
+    cron: system.cron,
+    activeTasks: system.activeTasks,
+    activeJobs: system.activeTasks,
+    cacheResidency: system.cacheResidency,
+    coreSchedulers: system.coreSchedulers,
+    queue: system.queue,
+    queueEntries: system.queueEntries ?? [],
+    deadlockPressureSeconds: system.deadlockPressureSeconds,
+    deadlockPressureResource: system.deadlockPressureResource,
+    deadlockPressureCpuId: system.deadlockPressureCpuId,
+    deadlockProcessLockout: system.deadlockProcessLockout,
+  });
+
 const getOfflineSystemActivity = (state: GameState): OfflineSystemActivity => {
   const departureLevelIndex = getAutomationBufferLevelIndex(
     state.automationBuffer.departureLevelId,
@@ -4559,8 +4909,9 @@ const getOfflineSystemActivity = (state: GameState): OfflineSystemActivity => {
     localWorkSystemIds: new Set<number>(),
     storageWorkSystemIds: new Set<number>(),
   };
-  for (const system of ensureSystems(state).systems) {
-    const local = materializeSystem(state, system.id);
+  const ensured = ensureSystems(state);
+  for (const system of ensured.systems) {
+    const local = hoistEnsuredSystem(ensured, system);
     const queueWouldStart =
       local.queue.length > 0 &&
       pullQueue(local).activeTasks.length > local.activeTasks.length;
@@ -4607,6 +4958,30 @@ const getOfflineProductiveSystemIdSet = (state: GameState) =>
 /** Physical systems whose automated work can advance during this absence slice. */
 export const getOfflineProductiveSystemIds = (state: GameState) =>
   [...getOfflineProductiveSystemIdSet(state)].sort((left, right) => left - right);
+
+/**
+ * Soonest deadlock-recovery boundary (lockout pressure decaying to zero)
+ * across all systems, in milliseconds. Offline advancement pauses only up to
+ * this boundary so queued work resumes after the same ~10 s cooldown that
+ * foreground play observes, instead of stalling for the whole absence.
+ */
+export const getOfflineDeadlockRecoveryEventMs = (
+  state: GameState,
+): number | null => {
+  let soonestMs: number | null = null;
+  const ensured = ensureSystems(state);
+  for (const system of ensured.systems) {
+    const local = hoistEnsuredSystem(ensured, system);
+    const pressureSeconds = Math.max(0, local.deadlockPressureSeconds ?? 0);
+    if (pressureSeconds <= 0) continue;
+    if (getActiveDeadlockPressureScope(local) !== null) continue;
+    const cooldownRate = getDeadlockCooldownRate(local);
+    if (cooldownRate <= 0) continue;
+    const eventMs = (pressureSeconds / cooldownRate) * 1000;
+    soonestMs = soonestMs === null ? eventMs : Math.min(soonestMs, eventMs);
+  }
+  return soonestMs;
+};
 
 const projectSystemAutomatedLoad = (
   state: GameState,
@@ -4671,6 +5046,48 @@ const getSingleSystemEventSeconds = (
   if (policy.productive && state.power.unpaidShutdownWarningSeconds > 0) {
     candidates.push(state.power.unpaidShutdownWarningSeconds);
   }
+  if (
+    policy.productive &&
+    isPsuManagementUnlocked(state) &&
+    (state.power.bootstrapGraceSeconds ?? 0) > 0 &&
+    amountCompare(state.exactResources.credits, 0) <= 0
+  ) {
+    candidates.push(state.power.bootstrapGraceSeconds);
+  }
+  if (
+    policy.productive &&
+    isPsuManagementUnlocked(state) &&
+    canRunPoweredWork(state)
+  ) {
+    const overloadRate = getPowerOverloadRate(getPsuStress(thermalEventState));
+    if (overloadRate > 0) {
+      candidates.push(
+        Math.max(
+          0,
+          POWER_OVERLOAD_FAILURE_SECONDS -
+            Math.max(0, state.power.overloadFailureSeconds ?? 0),
+        ) / overloadRate,
+      );
+    }
+  }
+  {
+    const deadlockPressureSeconds = Math.max(
+      0,
+      state.deadlockPressureSeconds ?? 0,
+    );
+    if (getActiveDeadlockPressureScope(state) !== null) {
+      if (policy.advanceAutomatedWork) {
+        candidates.push(
+          Math.max(0, DEADLOCK_FAILURE_SECONDS - deadlockPressureSeconds),
+        );
+      }
+    } else if (deadlockPressureSeconds > 0) {
+      const cooldownRate = getDeadlockCooldownRate(state);
+      if (cooldownRate > 0) {
+        candidates.push(deadlockPressureSeconds / cooldownRate);
+      }
+    }
+  }
   if (policy.advanceAutomatedWork && state.cron.queuePowerSpikeSeconds > 0) {
     candidates.push(state.cron.queuePowerSpikeSeconds);
   }
@@ -4701,15 +5118,23 @@ export const getSystemPowerOperatingCostPerSecond = (
 ) => {
   const offlineActivity =
     mode === "offline" ? getOfflineSystemActivity(state) : null;
-  return ensureSystems(state).systems.reduce((total, system) => {
+  const ensured = ensureSystems(state);
+  return ensured.systems.reduce((total, system) => {
     if (
       offlineActivity &&
       !offlineActivity.productiveSystemIds.has(system.id)
     ) {
       return total;
     }
-    const local = materializeSystem(state, system.id);
-    if (!isPsuManagementUnlocked(local)) return total;
+    const local = hoistEnsuredSystem(ensured, system);
+    // Pre-PSU-Management billing collects only while credits remain (the
+    // safe path never overdraws), so a broke wallet contributes no rate.
+    if (
+      !isPsuManagementUnlocked(local) &&
+      amountCompare(local.exactResources.credits, 0) <= 0
+    ) {
+      return total;
+    }
     // Offline safety checks need the full productive rate even if a warning
     // was saved at departure, so absence advancement pauses before failure.
     if (mode === "offline") {
@@ -4777,8 +5202,9 @@ const getNextSimulationEventMsFromNormalizedState = (
           ),
         )
       : maximumMs;
+  const ensuredFleet = ensureSystems(ensured);
   const eventMs = Math.min(
-    ...ensureSystems(ensured).systems.map(
+    ...ensuredFleet.systems.map(
       (system) => {
         const productive =
           mode !== "offline" ||
@@ -4787,7 +5213,7 @@ const getNextSimulationEventMsFromNormalizedState = (
           mode !== "offline" ||
           offlineActivity?.localWorkSystemIds.has(system.id) === true;
         return (
-          getSingleSystemEventSeconds(materializeSystem(ensured, system.id), {
+          getSingleSystemEventSeconds(hoistEnsuredSystem(ensuredFleet, system), {
             productive,
             advanceAutomatedWork,
             advanceStorage:
@@ -4898,24 +5324,48 @@ const tickSingleSystem = (
       elapsedMs,
       thermalEnvironment,
     );
+  // Destructive pressure integrates the load that actually held over the
+  // slice: thermalLoadState is the projected pre-slice state, shared with
+  // thermal heating and power billing.
   const applyDestructivePressure = (nextState: GameState) =>
     policy.accrueDestructivePressure
-      ? updatePowerOverloadFailure(nextState, deltaSeconds)
+      ? updatePowerOverloadFailure(nextState, deltaSeconds, thermalLoadState)
       : nextState;
   const wasPoweredOn = canRunPoweredWork(ticked);
   const transitioned = advancePowerTransition(ticked, deltaSeconds);
+  // Billing uses the pre-transition rate so a slice ending exactly at a
+  // boot/shutdown boundary bills the state that held over the interval.
+  const preSliceCostPerSecond = getPowerCostPerSecondExact(thermalLoadState);
+  const warningSecondsAtStart = Math.max(
+    0,
+    ticked.power.unpaidShutdownWarningSeconds ?? 0,
+  );
+  const graceSecondsAtStart = Math.max(
+    0,
+    ticked.power.bootstrapGraceSeconds ?? 0,
+  );
+  const unpaidRunwaySeconds =
+    warningSecondsAtStart > 0
+      ? warningSecondsAtStart
+      : graceSecondsAtStart > 0
+        ? graceSecondsAtStart + POWER_UNPAID_SHUTDOWN_WARNING_SECONDS
+        : Number.POSITIVE_INFINITY;
+  // The unpaid cutoff belongs to the slice endpoint: work advances through
+  // the interval that reaches the deadline, then the hard shutdown applies.
+  const unpaidCutoffAtSliceEnd =
+    policy.billPower &&
+    wasPoweredOn &&
+    isPsuManagementUnlocked(ticked) &&
+    amountCompare(ticked.exactResources.credits, 0) <= 0 &&
+    amountCompare(preSliceCostPerSecond, 0) > 0 &&
+    deltaSeconds >= unpaidRunwaySeconds;
   const billed = policy.billPower
     ? applyPowerBilling(
         transitioned,
         deltaSeconds,
         elapsedMs,
-        getPowerCostPerSecondExact(
-          projectSystemAutomatedLoad(
-            transitioned,
-            policy.advanceAutomatedWork,
-            policy.advanceWorkshopStorage,
-          ),
-        ),
+        preSliceCostPerSecond,
+        unpaidCutoffAtSliceEnd,
       )
     : transitioned;
   const powered = policy.advanceAutomatedWork
@@ -4955,13 +5405,24 @@ const tickSingleSystem = (
   const funded = policy.billPower
     ? clearBillingGraceIfFunded(settled)
     : settled;
+  // A settlement that lands funding exactly at the deadline saves the system;
+  // otherwise the deferred unpaid cutoff applies at the slice endpoint.
+  const cutoffApplied =
+    unpaidCutoffAtSliceEnd &&
+    amountCompare(funded.exactResources.credits, 0) <= 0
+      ? forcePowerOffForUnpaidBill(funded)
+      : funded;
   const watched = policy.advanceAutomatedWork
-    ? applySchedulerWatchdogs(funded)
-    : funded;
+    ? applySchedulerWatchdogs(cutoffApplied)
+    : cutoffApplied;
   const overloadChecked = applyDestructivePressure(watched);
-  const pressured = policy.advanceAutomatedWork
-    ? updateDeadlockPressure(overloadChecked, deltaSeconds)
-    : overloadChecked;
+  // Deadlock recovery pressure cools whenever no live deadlock holds it, even
+  // during paused/offline slices, so a lockout never outlasts an absence.
+  const pressured =
+    policy.advanceAutomatedWork ||
+    getActiveDeadlockPressureScope(overloadChecked) === null
+      ? updateDeadlockPressure(overloadChecked, deltaSeconds)
+      : overloadChecked;
 
   const progressed = updateProgressionFlags(pressured);
   return policy.advanceAutomatedWork && canAcceptPoweredWork(progressed)
@@ -4969,12 +5430,13 @@ const tickSingleSystem = (
     : syncCoreSchedulers(progressed);
 };
 
-const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState =>
-  replaceSystems(
+const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState => {
+  const ensured = ensureSystems(state);
+  return replaceSystems(
     setExactResource(state, "credits", 0),
-    ensureSystems(state).systems.map((system) => {
+    ensured.systems.map((system) => {
       if (system.power.state === "off") return system;
-      const localState = materializeSystem(state, system.id);
+      const localState = hoistEnsuredSystem(ensured, system);
       const poweredOff = forcePowerOffForUnpaidBill(localState);
       return {
         ...system,
@@ -4988,6 +5450,7 @@ const hardPowerOffAllSystemsForUnpaidBill = (state: GameState): GameState =>
       };
     }),
   );
+};
 
 /** Canonicalizes a public simulation input before an event-sliced advance. */
 export const normalizeGameForSimulation = (state: GameState) =>
@@ -5053,14 +5516,16 @@ export const tickNormalizedGame = (
     mode === "offline" ? getOfflineSystemActivity(scheduled) : null;
 
   const systems = scheduled.systems.map((system) => {
-    const localInput = materializeSystem(
+    // scheduled.systems came from normalizeGameForSimulation, so each system
+    // is hoisted directly; re-running materializeSystem here re-normalized the
+    // whole fleet once per system, making ticks O(fleet^2) (F-PERF-4).
+    const localInput = hoistEnsuredSystem(
       {
         ...workingState,
         systems: scheduled.systems,
-        selectedSystemId: system.id,
         tick: baseTick,
       },
-      system.id,
+      system,
     );
     const productive =
       mode !== "offline" ||
@@ -5530,8 +5995,11 @@ export const setIdlePowerPolicy = (
   },
 });
 
-const hasIdlePowerReservation = (state: GameState, systemId: number) => {
-  const local = materializeSystem(state, systemId);
+const hasIdlePowerReservation = (
+  state: GameState,
+  systemId: number,
+  local: GameState = materializeSystem(state, systemId),
+) => {
   return (
     local.activeTasks.length > 0 ||
     local.activeJobs.length > 0 ||
@@ -5561,11 +6029,15 @@ export const applyOfflineIdlePowerPolicies = (state: GameState): GameState => {
       system.power.idlePolicy !== "shutdown-when-idle" ||
       system.power.state !== "on" ||
       isSystemManaged(ensured, system.id) ||
-      hasIdlePowerReservation(ensured, system.id)
+      hasIdlePowerReservation(
+        ensured,
+        system.id,
+        hoistEnsuredSystem(ensured, system),
+      )
     ) {
       return system;
     }
-    const local = requestPowerOff(materializeSystem(ensured, system.id));
+    const local = requestPowerOff(hoistEnsuredSystem(ensured, system));
     return { ...system, power: local.power };
   });
   return replaceSystems(ensured, systems, ensured.selectedSystemId);
@@ -5927,7 +6399,9 @@ export const applyAction = (state: GameState, action: GameAction): GameState => 
     return finalizeGameMutation(refreshContractMarket(ensured));
   }
   if (action.type === "acceptContract") {
-    return finalizeGameMutation(acceptContract(ensured, action.contractId));
+    return finalizeGameMutation(
+      acceptContract(ensured, action.contractId, action.systemId),
+    );
   }
   if (action.type === "declineContract") {
     return finalizeGameMutation(declineContract(ensured, action.contractId));

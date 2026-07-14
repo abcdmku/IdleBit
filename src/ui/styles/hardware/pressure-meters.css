@@ -23,10 +23,17 @@
   flex: 0 0 auto;
 }
 
+/* Lane motion lives on the segment's inline width: interpolate it across
+   500ms snapshots; .is-snapping (decrease = batch commit/consumption) and
+   remounts render at the exact value with no backward animation. */
 .module-meter.cache-pressure-meter .cache-pressure-segment {
   position: relative;
   overflow: hidden;
   background: color-mix(in srgb, var(--cache-core-color) 48%, transparent);
+  transition: width var(--runtime-meter-duration) linear;
+}
+
+.module-meter.cache-pressure-meter .cache-pressure-segment.is-snapping {
   transition: none;
 }
 
@@ -80,10 +87,19 @@
   height: 100%;
 }
 
+/* Block extents grow via inline width/left: interpolate both in lockstep so
+   packed blocks track their growing neighbours; .is-snapping (shrink or move
+   left = free/repack) renders at the exact value with no backward animation. */
 .module-meter.ram-pressure-meter .ram-pressure-segment {
   position: relative;
   overflow: hidden;
   background: color-mix(in srgb, var(--ram-core-color) 28%, transparent);
+  transition:
+    width var(--runtime-meter-duration) linear,
+    left var(--runtime-meter-duration) linear;
+}
+
+.module-meter.ram-pressure-meter .ram-pressure-segment.is-snapping {
   transition: none;
 }
 

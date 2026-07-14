@@ -1,5 +1,6 @@
 .cpu-summary-card {
   container-type: inline-size;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -20,9 +21,33 @@
   border-color: var(--cyan);
 }
 
-.cpu-summary-card:focus-visible {
+/* Whole-card select: an invisible stretched button underneath the content.
+   Real controls and tooltip-bearing readouts sit above it (z-index 1), so
+   the card exposes no interactive descendants inside a button. */
+.cpu-summary-card > .cpu-summary-select {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cpu-summary-card > .cpu-summary-select:focus-visible { outline: none; }
+
+.cpu-summary-card:has(> .cpu-summary-select:focus-visible) {
   outline: 2px solid rgba(36, 231, 195, 0.75);
   outline-offset: 2px;
+}
+
+.cpu-summary-card .cpu-summary-open,
+.cpu-summary-card .cpu-summary-scheduler,
+.cpu-summary-card .cpu-summary-cores-grid,
+.cpu-summary-card .cpu-summary-cache {
+  position: relative;
+  z-index: 1;
 }
 
 .cpu-summary-card.selected {

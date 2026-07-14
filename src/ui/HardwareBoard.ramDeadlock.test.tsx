@@ -526,6 +526,31 @@ describe("HardwareBoard RAM and deadlock surfaces", () => {
     expect(container.querySelector(".cpu-package-header .deadlock-countdown")).toBeNull();
   });
 
+  it("pre-reserves the core-array countdown slot while deadlock pressure is idle", () => {
+    const base = deriveVisibleState(createInitialGameState());
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={base}
+          dispatch={() => undefined}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    // The chip's footprint is reserved before any pressure ticks, so deadlock
+    // onset only toggles visibility instead of rewrapping the header.
+    const slot = container.querySelector(
+      ".core-array-header .core-array-deadlock-slot",
+    );
+    expect(slot).not.toBeNull();
+    expect(slot?.className).toContain("is-idle");
+    expect(slot?.getAttribute("aria-hidden")).toBe("true");
+    expect(slot?.querySelector(".deadlock-countdown")).toBeNull();
+  });
+
   it("moves the CPU deadlock countdown to the CPU header after RAM unlocks", () => {
     const base = deriveVisibleState(createInitialGameState());
     const socket = base.metrics.cpuSockets[0]!;

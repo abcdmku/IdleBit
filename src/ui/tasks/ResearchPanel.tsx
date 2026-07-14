@@ -283,9 +283,9 @@ function ResearchAction({
                 <span className="research-compute-copy">
                   <strong>{task.name}</strong>
                   <TaskMetaLine task={task} memoryUnlocked={memoryUnlocked} showRewards />
-                  {(active || completed) && (
-                    <ModuleMeter value={completed ? 1 : task.progress ?? 0} />
-                  )}
+                  {/* Always mounted so starting work fills the reserved meter
+                      row instead of inserting one (no reflow on Run). */}
+                  <ModuleMeter value={completed ? 1 : task.progress ?? 0} />
                 </span>
                 <button
                   type="button"

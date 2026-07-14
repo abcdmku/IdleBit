@@ -27,8 +27,10 @@ Target engagement and completion ranges:
   preset/Advanced builder
   projections, explicit bounded hardware, per-system cooling/overclock state,
   saved SSD/NVMe CapacityWork staging, and GPU/NPU routing.
-- Fresh Fetch Bit and Decode Bit now both fall inside the specified 5–30 second
-  onboarding band; a focused projection test guards the starter-hardware values.
+- Opening task durations are emergent from starter hardware rates, not a fixed
+  band (designer ruling, July 11 2026: "all time is based off how fast systems
+  can process bits"). Fetch Bit's exact 2 s at 1 Hz starter rates is the
+  canonical opening timing; a focused projection test guards those values.
 - Fetch Bit separates a one-bit cache read from explicit latch/verify CPU work.
   Tests prove that its 1 b load takes exactly 1 second at 1 Hz while whole-task
   duration remains emergent from the full operation path. Shared progress bars
@@ -138,6 +140,7 @@ implementation evidence above and `game-spec.md` section 0.
 - After CPU Operation Scheduler unlock, the Cores header can select all cores on that CPU for upgrade tuning only, retargeting the package-level +/- control to a combined buy/downgrade cost without creating an all-core task route.
 - Cache upgrades affect cache operation queue capacity/load behavior.
 - Reversible hardware specs expose one +/- control, refund half of the last purchase cost on downgrade, and dim unaffordable credit/data tokens instead of disabling the full spec row.
+- Workshop cooling tiers follow the same reversibility rule: the tier ladder lives inside the Thermal section under the heat/stress readout, lower tiers stay clickable as downgrades refunding half of the installed tier's cost (shown as +tokens, never dimmed), no thermal gate blocks the downgrade (throttling is the deterrent, like overclock presets), and reinstalling a higher tier pays its full price again.
 - Cache-required tasks wait for cache fill before required operations execute.
 - Active and queued tasks can be canceled without granting rewards.
 - Multi-core unlock is gated by early benchmark progression.

@@ -1034,7 +1034,8 @@ const guardedManagedSystemActionTypes = new Set<GameAction["type"]>([
 
 const getActionTargetSystemId = (state: GameState, action: GameAction) => {
   if (action.type === "acceptContract") {
-    return state.contracts.offers.find((offer) => offer.id === action.contractId)?.systemId ??
+    return action.systemId ??
+      state.contracts.offers.find((offer) => offer.id === action.contractId)?.systemId ??
       null;
   }
   if (action.type === "sellSystem" || action.type === "setSystemManaged") {

@@ -3,6 +3,9 @@ import {
   advanceGame,
   amountToSafeNumber,
   amount,
+  amountAdd,
+  amountDivide,
+  amountMultiply,
   amountSubtract,
   applyAction,
   createInitialGameState,
@@ -58,6 +61,7 @@ import {
   getCacheLoadRate,
   getHardwareDrawWatts,
   getPowerCostPerSecond,
+  getPowerCostPerSecondExact,
   getPsuStress,
   getRamBlockLoadDeltasForOperationTick,
   getRamLoadCycles,
@@ -749,7 +753,8 @@ describe("IdleBit simulation", () => {
     ).toHaveLength(1);
     expect(visible.metrics.powerUsedWatts).toBeGreaterThan(0);
     expect(visible.metrics.billedPowerWatts).toBe(visible.metrics.powerUsedWatts);
-    expect(visible.metrics.powerCostPerSecond).toBe(0);
+    // Metered billing is live from the first screen: 0.1 uW = 0.1 cr/s.
+    expect(visible.metrics.powerCostPerSecond).toBe(0.1);
     expect(visible.metrics.powerBootstrapGraceSeconds).toBe(0);
     expect(visible.tasks.map((task) => task.id)).toEqual([
       "fetchBit",
@@ -810,7 +815,8 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.psuWatts).toBe(0.00001);
     expect(getPsuWatts(2)).toBe(0.000017);
     expect(getHardwareDrawWatts(state)).toBe(0.0000001);
-    expect(getPowerCostPerSecond(state)).toBe(0);
+    // Billing is metered from the first tick: 0.1 uW = 0.1 cr/s.
+    expect(getPowerCostPerSecond(state)).toBe(0.1);
     expect(socket).toEqual(
       expect.objectContaining({
         tierId: "hz",
@@ -1320,22 +1326,25 @@ describe("IdleBit simulation", () => {
     const task = getTaskDefinition("tinyChecksum");
     const ramLoadNodes = task.dagNodes.filter((node) => node.kind === "ramLoad");
 
+    // Each composition child runs as a fresh ActiveTask with empty ramBlocks,
+    // so the ledger stages the RAM page once per child (C-SIM-1 / F-ECO-2).
     expect(task.requiredCycles).toBe(60);
     expect(task.operationCount).toBe(9);
-    expect(task.paidWorkUnits).toBe(324);
-    expect(task.rewardCredits).toBe(324);
+    expect(task.paidWorkUnits).toBe(580);
+    expect(task.rewardCredits).toBe(580);
     expect(task.subtasks.map((node) => [node.name, node.operationCount])).toEqual([
       ["Stage checksum page", 288],
-      ["Fold checksum", 44],
+      ["Fold checksum", 300],
     ]);
-    expect(ramLoadNodes).toHaveLength(1);
-    expect(ramLoadNodes[0]?.operationCount).toBe(256);
+    expect(ramLoadNodes).toHaveLength(2);
+    expect(ramLoadNodes.map((node) => node.operationCount)).toEqual([256, 256]);
     expect(task.dagNodes.map((node) => [node.kind, node.operationCount])).toEqual([
       ["accept", 0],
       ["cacheLoad", 8],
       ["ramLoad", 256],
       ["execute", 24],
       ["cacheLoad", 8],
+      ["ramLoad", 256],
       ["execute", 36],
       ["complete", 0],
     ]);
@@ -1353,7 +1362,10 @@ describe("IdleBit simulation", () => {
     ]);
     expect(task.subtasks.map((node) => [node.sourceTaskId, node.operationCount])).toEqual([
       ["stageSourceTree", 608],
-      ["compileUnits", 168],
+      // compileUnits re-stages its 512-bit source page: children start with
+      // empty ramBlocks at runtime, so paid work counts the second staging
+      // (C-SIM-1 / F-ECO-2).
+      ["compileUnits", 680],
       ["linkBarrier", 0],
       ["linkBinary", 648],
       ["writeArtifact", 552],
@@ -2104,7 +2116,9 @@ describe("IdleBit simulation", () => {
       "slotCount",
     );
 
-    state = withExactResourceValues(state, 5_000_000_000_000, 100_000);
+    // The GHz RAM preset now prices its four sticks on the doubling install
+    // ladder (15x one install, F-BAL-4), so fund the full amount.
+    state = withExactResourceValues(state, 10_000_000_000_000, 100_000);
     state = applyAction(state, {
       type: "buyCustomMachine",
       components: {
@@ -2355,7 +2369,9 @@ describe("IdleBit simulation", () => {
         completed: ["systemCatalog", "customMachineAssembly", "cpuTierKhz"],
       },
     });
-    state = withExactResourceValues(state, "1e18", "1e18");
+    // Cross-tier RAM capacity upgrade credits continue from the previous
+    // tier's ladder (F-BAL-3), so kHz capacity levels are no longer cheap.
+    state = withExactResourceValues(state, "1e24", "1e24");
     const ramBaseLevel = getRamTierFirstGlobalLevel("khz");
     const components = {
       cpu: "cpu-sip-core",
@@ -2840,7 +2856,11 @@ describe("IdleBit simulation", () => {
     expect(secondCpuChildren).toHaveLength(1);
   });
 
-  it("routes system children into CPU schedulers that must wait for hardware fit", () => {
+  // C-SIM-4 / F-SCH-2: a child must never be parked on a CPU that cannot fit
+  // it — dispatch requires cache fit on that exact CPU and local entries are
+  // not migrated. The parent waits unreserved instead, and the child reserves
+  // as soon as an eligible CPU exists (e.g. after a cache upgrade).
+  it("keeps system children unreserved until a CPU can actually fit them", () => {
     let state = createRackReadyGameState();
     const [firstCpu, secondCpu] = state.hardware.cpus;
     const parentTask = getTaskDefinition("tinyChecksum");
@@ -2911,16 +2931,54 @@ describe("IdleBit simulation", () => {
 
     state = tickGame(state, 16);
 
+    // The 1-bit cache CPU can never dispatch checksumStep, so no reservation
+    // may be parked there; the parent keeps waiting in the system queue.
+    expect(
+      getLocalQueueEntriesForCpu(state, secondCpu!.id).filter(
+        (entry) => entry.parentTaskId === "tinyChecksum",
+      ),
+    ).toHaveLength(0);
+    expect(
+      (state.queueEntries ?? []).some((entry) => entry.taskId === "tinyChecksum"),
+    ).toBe(true);
+    expect(state.activeTasks.some((task) => task.taskId === "checksumStep")).toBe(
+      false,
+    );
+
+    // Once the CPU's cache fits the child again, the reservation lands there.
+    const upgradedHardware = {
+      ...state.hardware,
+      cpus: state.hardware.cpus.map((cpu) =>
+        cpu.id === secondCpu!.id
+          ? {
+              ...cpu,
+              cacheBits: checksumStep.cacheNeedBits,
+              cacheBytes: Math.ceil(checksumStep.cacheNeedBits / 8),
+            }
+          : cpu,
+      ),
+      cacheBits: checksumStep.cacheNeedBits,
+      cacheBytes: Math.ceil(checksumStep.cacheNeedBits / 8),
+    };
+    state = tickGame(
+      {
+        ...state,
+        hardware: upgradedHardware,
+        systems: state.systems.map((system) =>
+          system.id === state.selectedSystemId
+            ? { ...system, hardware: upgradedHardware }
+            : system,
+        ),
+      },
+      16,
+    );
+
     const secondCpuChildren = getLocalQueueEntriesForCpu(
       state,
       secondCpu!.id,
     ).filter((entry) => entry.parentTaskId === "tinyChecksum");
-
     expect(secondCpuChildren).toHaveLength(1);
     expect(secondCpuChildren[0]?.taskId).toBe("checksumStep");
-    expect(state.activeTasks.some((task) => task.taskId === "checksumStep")).toBe(
-      false,
-    );
   });
 
   it("least-queued system routing spreads child entries after the first CPU has reserved work", () => {
@@ -3047,14 +3105,16 @@ describe("IdleBit simulation", () => {
     expect(visible.tasks.some((task) => task.id === "stageChecksumPage")).toBe(false);
   });
 
-  it("derives RAM tiers from CPU unlocks, 1024x tier size jumps, and CPU-style costs", () => {
+  it("derives RAM tiers from CPU unlocks, continuous capacity doubling, and CPU-style costs", () => {
     let state = createInitialGameState();
 
     expect(getRamBits(1)).toBe(256);
     expect(getRamBits(2)).toBe(512);
     expect(getRamBits(3)).toBe(1024);
-    expect(getRamBits(37)).toBe(getRamBits(1) * 1024);
-    expect(getRamBits(73)).toBe(getRamBits(37) * 1024);
+    // Capacity doubles per global level so a cross-tier capacity upgrade
+    // never shrinks a stick (F-BAL-3).
+    expect(getRamBits(37)).toBe(getRamBits(36) * 2);
+    expect(getRamBits(73)).toBe(getRamBits(72) * 2);
     expect(getMaxUnlockedRamLevel(state)).toBe(36);
     expect(getRamInstallLevel(state)).toBe(1);
 
@@ -5236,8 +5296,9 @@ describe("IdleBit simulation", () => {
     );
 
     expect(dualChannelResearch?.canBuy).toBe(true);
-    expect(costAmount(dualChannelResearch?.costs ?? [], "credits")).toBe(200_000);
-    expect(costAmount(dualChannelResearch?.costs ?? [], "data")).toBe(20_000);
+    // Era-scaled channel pricing (C-DES-11 / F-BAL-5).
+    expect(costAmount(dualChannelResearch?.costs ?? [], "credits")).toBe(2_000);
+    expect(costAmount(dualChannelResearch?.costs ?? [], "data")).toBe(20);
     expect(dualChannelResearch?.requirements.map((item) => item.label)).not.toContain(
       "Install 2 RAM sticks",
     );
@@ -5251,8 +5312,8 @@ describe("IdleBit simulation", () => {
     expect(state.hardware.ramSticks).toHaveLength(1);
     expect(state.research.completed).toContain("dualChannelRam");
     expect(quadChannelResearch?.canBuy).toBe(true);
-    expect(costAmount(quadChannelResearch?.costs ?? [], "credits")).toBe(50_000_000);
-    expect(costAmount(quadChannelResearch?.costs ?? [], "data")).toBe(5_000_000);
+    expect(costAmount(quadChannelResearch?.costs ?? [], "credits")).toBe(2_000_000);
+    expect(costAmount(quadChannelResearch?.costs ?? [], "data")).toBe(2_000);
     expect(quadChannelResearch?.requirements.map((item) => item.label)).not.toContain(
       "Install 4 RAM sticks",
     );
@@ -5267,9 +5328,9 @@ describe("IdleBit simulation", () => {
     expect(state.research.completed).toContain("quadChannelRam");
     expect(octChannelResearch?.canBuy).toBe(true);
     expect(costAmount(octChannelResearch?.costs ?? [], "credits")).toBe(
-      1_000_000_000,
+      2_000_000_000,
     );
-    expect(costAmount(octChannelResearch?.costs ?? [], "data")).toBe(100_000_000);
+    expect(costAmount(octChannelResearch?.costs ?? [], "data")).toBe(20_000);
     expect(octChannelResearch?.requirements.map((item) => item.label)).not.toContain(
       "Install 8 RAM sticks",
     );
@@ -5969,7 +6030,8 @@ describe("IdleBit simulation", () => {
 
     expect(state.hardware.cpus).toHaveLength(2);
     expect(
-      twoCpuVisible.metrics.cpuSockets.every((socket) => socket.efficiency === 7.5),
+      // 2 sockets: base 10 x 0.95 dual-socket multiplier (designer ruling 2026-07-11)
+      twoCpuVisible.metrics.cpuSockets.every((socket) => socket.efficiency === 9.5),
     ).toBe(true);
     expect(getHardwareDrawWatts(state)).toBeGreaterThan(2 / 10 / 1_000_000);
     expect(threeCpuState.hardware.cpus).toHaveLength(3);
@@ -5977,7 +6039,8 @@ describe("IdleBit simulation", () => {
     expect(threeCpuState.hardware.cpus.at(-1)?.level).toBe(1);
     expect(
       threeCpuVisible.metrics.cpuSockets.every(
-        (socket) => socket.efficiency === 5.625,
+        // 3 sockets: base 10 x 0.88 triple-socket multiplier
+        (socket) => socket.efficiency === 8.8,
       ),
     ).toBe(true);
     expect(costAmount(visibleCpuUpgrade?.costs ?? [], "credits")).toBe(
@@ -6167,14 +6230,37 @@ describe("IdleBit simulation", () => {
   it("pays a multicore parent task once after all operation shards complete", () => {
     let state = unlockSystemScheduler();
     const task = getTaskDefinition("multiCoreBenchmark");
-    const beforeCredits = state.resources.credits;
+    const beforeCredits = state.exactResources.credits;
     const beforeData = state.resources.data;
 
-    state = runTask(state, "multiCoreBenchmark");
+    state = applyAction(state, {
+      type: "startTask",
+      taskId: "multiCoreBenchmark",
+    });
+    expect(state.activeTasks.length).toBeGreaterThan(0);
+    // Without C-State research the hardware draw (and so the metered billing
+    // rate) is load-independent, so the exact power spend over the run is
+    // rate x elapsed regardless of when shards finish.
+    const billingRate = getPowerCostPerSecondExact(state);
+    let elapsedMs = 0;
+    while (state.activeTasks.length > 0 && elapsedMs < 3_000_000) {
+      state = tickGame(state, 500);
+      elapsedMs += 500;
+    }
+    expect(state.activeTasks).toHaveLength(0);
+    const billedCredits = amountMultiply(
+      billingRate,
+      amountDivide(amount(elapsedMs), amount(1000)),
+    );
 
     expect(task.rewardCredits).toBe(task.paidWorkUnits);
-    expect(state.resources.credits - beforeCredits).toBeGreaterThan(0);
-    expect(state.resources.credits - beforeCredits).toBe(task.rewardCredits);
+    // Paid exactly once: wallet delta is the single reward minus power billed.
+    expect(state.exactResources.credits).toBe(
+      amountSubtract(
+        amountAdd(beforeCredits, amount(task.rewardCredits)),
+        billedCredits,
+      ),
+    );
     expect(state.resources.data - beforeData).toBe(task.rewardData);
     expect(state.completedTasks.multiCoreBenchmark).toBe(1);
   });
@@ -6561,7 +6647,7 @@ describe("IdleBit simulation", () => {
     expect(state.power.state).toBe("on");
   });
 
-  it("subsidizes idle power on the first screen", () => {
+  it("meters idle power on the first screen", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
@@ -6572,7 +6658,8 @@ describe("IdleBit simulation", () => {
     };
     const expectedCostPerSecond = getPowerCostPerSecond(state);
 
-    expect(expectedCostPerSecond).toBe(0);
+    // 0.1 uW starter draw bills 0.1 cr/s from the very first tick.
+    expect(expectedCostPerSecond).toBe(0.1);
     expect(deriveVisibleState(state).metrics.powerCostPerSecond).toBe(
       expectedCostPerSecond,
     );
@@ -6580,7 +6667,7 @@ describe("IdleBit simulation", () => {
     state = tickSeconds(state, 5);
 
     expect(state.power.state).toBe("on");
-    expect(state.resources.credits).toBe(10);
+    expect(state.resources.credits).toBe(9.5);
   });
 
   it("clamps credits at 0 when power billing overruns the balance", () => {

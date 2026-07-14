@@ -26,7 +26,6 @@ import {
   applyCoolingHeatBuildup,
   applyOverclockHeat,
   applyOverclockPower,
-  getOverclockBlockedReason,
   getOverclockPresetDefinition,
   getWorkshopCoolingState,
   getWorkshopCoolingTierDefinition,
@@ -36,7 +35,8 @@ import {
   type WorkshopCoolingTierId,
 } from "./content/cooling";
 import { getTaskDefinition } from "./content/tasks";
-import { canAffordExact, spendExact } from "./economy";
+import { addCosts, canAffordExact, spendExact } from "./economy";
+import { halfRefundExact } from "./exactCosts";
 import {
   advanceThermal,
   createThermalState,
@@ -179,13 +179,11 @@ export const normalizeWorkshopSystemState = (
   const coolingTierId = isWorkshopCoolingTierId(candidate.coolingTierId)
     ? candidate.coolingTierId
     : fallback.coolingTierId;
-  const requestedOverclock = isOverclockPresetId(candidate.overclockPresetId)
+  // Any defined preset is valid regardless of cooling tier: overclocking past
+  // the cooling budget is allowed and the thermal kernel throttles for it.
+  const overclockPresetId = isOverclockPresetId(candidate.overclockPresetId)
     ? candidate.overclockPresetId
     : fallback.overclockPresetId;
-  const overclockPresetId =
-    getOverclockBlockedReason(coolingTierId, requestedOverclock) === null
-      ? requestedOverclock
-      : "stock";
   const expansionSlots = Math.min(
     64,
     finiteInteger(
@@ -580,11 +578,13 @@ export const getCoolingInstallBlockedReason = (
     state.workshop.coolingTierId,
   );
   const requested = getWorkshopCoolingTierDefinition(tierId);
-  if (requested.level <= current.level) {
-    return requested.level === current.level
-      ? "Cooling tier is already installed."
-      : "Installed cooling cannot be downgraded.";
+  if (requested.level === current.level) {
+    return "Cooling tier is already installed.";
   }
+  // Downgrades are always allowed: they refund half of the installed tier and
+  // free PSU headroom. Running hotter afterwards is the deterrent, enforced by
+  // the thermal kernel's throttling — the same rule overclock presets follow.
+  if (requested.level < current.level) return null;
   const installedAcceleratorPower = projectInstalledAccelerators({
     devices: state.workshop.accelerators,
     activeDeviceIds: [],
@@ -602,18 +602,41 @@ export const getCoolingInstallBlockedReason = (
     : "Insufficient Credits or Data.";
 };
 
+/**
+ * Refund for selecting `tierId` while a higher tier is installed: half of the
+ * installed tier's cost (the last purchase), mirroring reversible hardware
+ * specs. Empty when the selection is not a downgrade.
+ */
+export const getCoolingTierRefund = (
+  state: GameState,
+  tierId: WorkshopCoolingTierId,
+) => {
+  const current = getWorkshopCoolingTierDefinition(
+    state.workshop.coolingTierId,
+  );
+  const requested = getWorkshopCoolingTierDefinition(tierId);
+  if (requested.level >= current.level) return [];
+  return halfRefundExact(current.costs);
+};
+
 export const installWorkshopCoolingTier = (
   state: GameState,
   tierId: WorkshopCoolingTierId,
 ) => {
   if (getCoolingInstallBlockedReason(state, tierId) !== null) return state;
   const definition = getWorkshopCoolingTierDefinition(tierId);
-  const purchased = spendExact(state, definition.costs);
-  const workshop = { ...purchased.workshop, coolingTierId: tierId };
+  const current = getWorkshopCoolingTierDefinition(
+    state.workshop.coolingTierId,
+  );
+  const settled =
+    definition.level < current.level
+      ? addCosts(state, getCoolingTierRefund(state, tierId))
+      : spendExact(state, definition.costs);
+  const workshop = { ...settled.workshop, coolingTierId: tierId };
   return {
-    ...purchased,
+    ...settled,
     workshop,
-    hardware: syncWorkshopHardwareProjection(purchased.hardware, workshop),
+    hardware: syncWorkshopHardwareProjection(settled.hardware, workshop),
   };
 };
 
@@ -627,7 +650,9 @@ export const getOverclockSelectionBlockedReason = (
   if (state.workshop.overclockPresetId === presetId) {
     return "Overclock preset is already selected.";
   }
-  return getOverclockBlockedReason(state.workshop.coolingTierId, presetId);
+  // No cooling-tier gate: any preset is selectable, and running past the
+  // cooling budget simply drives the thermal kernel into throttling.
+  return null;
 };
 
 export const selectWorkshopOverclockPreset = (

@@ -267,7 +267,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "localScheduler",
     name: "Local Scheduler",
-    description: "Adds CPU queue slots and core intake.",
+    description: "Unlocks CPU queue slot purchases.",
     grants: ["basicQueue"],
     reveal: (state) => hasResearch(state, "multiCore"),
     requirement: (state) => requirementsMet(state, getLocalSchedulerRequirements()),
@@ -279,7 +279,10 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Scheduler Watchdog",
     description: "Adds deadlock auto-kill controls.",
     grants: ["schedulerWatchdog"],
-    reveal: (state) => hasResearch(state, "localScheduler"),
+    // Gated behind System Scheduler: buying Watchdog (and the Scheduling
+    // Policy ladder behind it) out of the tight pre-Scheduler Data budget
+    // could soft-lock System Scheduler funding (C-DES-1).
+    reveal: (state) => hasResearch(state, "systemScheduler"),
     requirement: (state) => requirementsMet(state, getSchedulerWatchdogRequirements()),
     requirements: () => getSchedulerWatchdogRequirements(),
     cost: () => [credits(190), data(12)],
@@ -307,7 +310,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "systemScheduler",
     name: "System Scheduler",
-    description: "Adds system task queueing.",
+    description: "Unlocks system queue slot purchases.",
     grants: ["scheduler"],
     reveal: (state) => hasResearch(state, "localScheduler"),
     requirement: (state) => requirementsMet(state, getSystemSchedulerRequirements()),
@@ -318,7 +321,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     id: "psuManagement",
     name: "PSU Management",
     description:
-      "Ends the onboarding power subsidy and enables metered billing and PSU failure controls.",
+      "Arms unpaid-power cutoff and PSU overload failure handling, with the controls to manage both.",
     grants: ["psuManagement"],
     reveal: (state) => hasCompleted(state, "powerTelemetry"),
     requirement: (state) =>
@@ -367,7 +370,10 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "systemScheduler") || hasResearch(state, "dualChannelRam"),
     requirement: (state) => requirementsMet(state, getDualChannelRamRequirements()),
     requirements: () => getDualChannelRamRequirements(),
-    cost: () => [credits(200_000), data(20_000)],
+    // Channel research is priced to its hardware era (C-DES-11/F-BAL-5):
+    // Dual lands with kHz-era credits and a Data cost the campaign's early
+    // gates can actually fund.
+    cost: () => [credits(2_000), data(20)],
   },
   {
     id: "quadChannelRam",
@@ -378,7 +384,9 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "dualChannelRam") || hasResearch(state, "quadChannelRam"),
     requirement: (state) => requirementsMet(state, getQuadChannelRamRequirements()),
     requirements: () => getQuadChannelRamRequirements(),
-    cost: () => [credits(50_000_000), data(5_000_000)],
+    // MHz-era pricing; Data sits between the Data Center Operations (1,500)
+    // and Global Scheduling (100,000) gates (C-DES-11/F-BAL-5).
+    cost: () => [credits(2_000_000), data(2_000)],
   },
   {
     id: "octChannelRam",
@@ -389,12 +397,14 @@ export const researchDefinitions: ResearchDefinition[] = [
       hasResearch(state, "quadChannelRam") || hasResearch(state, "octChannelRam"),
     requirement: (state) => requirementsMet(state, getOctChannelRamRequirements()),
     requirements: () => getOctChannelRamRequirements(),
-    cost: () => [credits(1_000_000_000), data(100_000_000)],
+    // GHz-era pricing; Data stays below the 100,000 Global Scheduling gate
+    // so the campaign economy can fund it (C-DES-11/F-BAL-5).
+    cost: () => [credits(2_000_000_000), data(20_000)],
   },
   {
     id: "cronScheduler",
     name: "CRON Scheduler",
-    description: "Adds timed system-task jobs.",
+    description: "Unlocks CRON job slot purchases.",
     grants: ["cron", "autoRepeat"],
     reveal: (state) => state.hardware.secondCpu,
     requirement: (state) => requirementsMet(state, getSecondCpuInstalledRequirements()),
@@ -631,7 +641,7 @@ function getLocalSchedulerRequirements() {
 
 function getSchedulerWatchdogRequirements() {
   return [
-    researchRequirement("localScheduler", "Complete Local Scheduler research"),
+    researchRequirement("systemScheduler", "Complete System Scheduler research"),
   ];
 }
 

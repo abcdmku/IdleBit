@@ -404,7 +404,11 @@ describe("production balance action policies", () => {
 
     const decision = decideBalancePolicy(contextFor(visible, "regular"));
     expect(decisionActions(decision, "acceptContract")).toEqual([
-      { type: "acceptContract", contractId: "fitting" },
+      {
+        type: "acceptContract",
+        contractId: "fitting",
+        systemId: opening.selectedSystem.id,
+      },
     ]);
     expect(
       decisionActions(
@@ -460,7 +464,11 @@ describe("production balance action policies", () => {
     const accepting = decideBalancePolicy(contextFor(available, "regular"));
     expect(decisionActions(accepting, "setStandingOrderEnabled")).toEqual([]);
     expect(decisionActions(accepting, "acceptContract")).toEqual([
-      { type: "acceptContract", contractId: "managed" },
+      {
+        type: "acceptContract",
+        contractId: "managed",
+        systemId: opening.selectedSystem.id,
+      },
     ]);
 
     const active = { ...offered, accepted: true };
@@ -697,7 +705,13 @@ describe("production balance action policies", () => {
         decideBalancePolicy(contextFor(offSystemVisible, "regular")),
         "acceptContract",
       ),
-    ).toEqual([{ type: "acceptContract", contractId: offSystem.id }]);
+    ).toEqual([
+      {
+        type: "acceptContract",
+        contractId: offSystem.id,
+        systemId: secondSystem.id,
+      },
+    ]);
 
     const activeOffSystem = { ...offSystem, accepted: true, canAccept: false };
     const occupied: VisibleState = {
@@ -1383,26 +1397,20 @@ describe("production balance action policies", () => {
         },
       },
     };
-    expect(
-      decisionActions(
-        decideBalancePolicy(
-          contextFor(finaleReady, "optimizer", {
-            elapsedCalendarMs: 70 * 24 * 60 * 60_000 - 1,
-          }),
+    // Proof admission carries no hard-coded calendar minimum: the moment the
+    // public canStart gate opens, every profile starts the finale, so the
+    // acceptance suite can measure real pacing instead of policy-scripted
+    // dates.
+    for (const profileId of ["optimizer", "regular"] as const) {
+      expect(
+        decisionActions(
+          decideBalancePolicy(
+            contextFor(finaleReady, profileId, { elapsedCalendarMs: 0 }),
+          ),
+          "startPlanetaryFinale",
         ),
-        "startPlanetaryFinale",
-      ),
-    ).toEqual([]);
-    expect(
-      decisionActions(
-        decideBalancePolicy(
-          contextFor(finaleReady, "optimizer", {
-            elapsedCalendarMs: 70 * 24 * 60 * 60_000,
-          }),
-        ),
-        "startPlanetaryFinale",
-      ),
-    ).toEqual([{ type: "startPlanetaryFinale" }]);
+      ).toEqual([{ type: "startPlanetaryFinale" }]);
+    }
   });
 
   it("never proposes a contract-market refresh before CRON automation", () => {
@@ -1438,6 +1446,268 @@ describe("production balance action policies", () => {
     expect(decisionActions(decision, "refreshContractMarket")).toEqual([
       { type: "refreshContractMarket" },
     ]);
+  });
+
+  it("rerolls a nonempty market when no visible offer fits and refresh is allowed", () => {
+    const opening = withBuffer(
+      observeOpening(),
+      "localScheduler",
+      2 * 60 * 60_000,
+    );
+    const badOffer: VisibleContract = {
+      id: "bad-offer",
+      templateId: "ledgerAudit",
+      kind: "sustained",
+      name: "Bad offer",
+      description: "Does not fit this policy window.",
+      systemId: opening.selectedSystem.id,
+      workRequiredMs: 10 * 60_000,
+      workCompletedMs: 0,
+      remainingMs: 10 * 60_000,
+      expiresAtMs: 60 * 60_000,
+      rewards: exactResourceBag(200, 4),
+      novel: false,
+      accepted: false,
+      valuePerHourCredits: amount(1_200),
+      expiresInMs: 60 * 60_000,
+      operatingCostCredits: amount(0),
+      netRewardCredits: amount(200),
+      creditRunwayCovered: true,
+      bufferCovered: true,
+      canAccept: false,
+      projectedPauseReason: null,
+      valueMultiplierVsStandingOrderBps: 20_000,
+    };
+    const visible: VisibleState = {
+      ...opening,
+      flags: { ...opening.flags, cron: true },
+      contracts: [badOffer],
+      work: { ...opening.work, contracts: [badOffer] },
+      contractMarket: {
+        ...opening.contractMarket,
+        canRefresh: true,
+        refreshAvailableInMs: 0,
+      },
+    };
+
+    const decision = decideBalancePolicy(contextFor(visible, "regular"));
+    expect(decisionActions(decision, "refreshContractMarket")).toEqual([
+      { type: "refreshContractMarket" },
+    ]);
+    expect(decision.audit.notes.map((note) => note.code)).toContain(
+      "no-contract-fit",
+    );
+
+    const cooldownHeld = decideBalancePolicy(
+      contextFor(
+        {
+          ...visible,
+          contractMarket: {
+            ...visible.contractMarket,
+            canRefresh: false,
+            refreshAvailableInMs: 45_000,
+          },
+        },
+        "regular",
+      ),
+    );
+    expect(decisionActions(cooldownHeld, "refreshContractMarket")).toEqual([]);
+    expect(cooldownHeld.audit.notes.map((note) => note.code)).toContain(
+      "contract-refresh-not-due",
+    );
+  });
+
+  it("purchases an affordable unlocked buffer without a calendar admission date", () => {
+    const opening = observeOpening();
+    const visible = withResources(
+      {
+        ...opening,
+        automationBuffer: {
+          ...opening.automationBuffer,
+          ownedLevelId: "localScheduler",
+          departureLevelId: "localScheduler",
+          nextUpgrade: {
+            id: "cronRuntime",
+            name: "CRON Runtime",
+            maxOfflineMs: 8 * 60 * 60_000,
+            costs: [
+              { resource: "credits", amount: amount(400) },
+              { resource: "data", amount: amount(20) },
+            ],
+            unlocked: true,
+            canAfford: true,
+            blockedReason: null,
+          },
+        },
+      },
+      1_000,
+      100,
+    );
+
+    // Old policy delayed this purchase to the acceptance lower bound (2 days
+    // for full-idle); timing must emerge from affordability alone.
+    const decision = decideBalancePolicy(
+      contextFor(visible, "full-idle", { elapsedCalendarMs: 0 }),
+    );
+    expect(decisionActions(decision, "purchaseAutomationBuffer")).toEqual([
+      { type: "purchaseAutomationBuffer", levelId: "cronRuntime" },
+    ]);
+  });
+
+  it("starts the profitable installed-storage workload after finite proofs", () => {
+    const opening = observeOpening();
+    const startable: VisibleState = {
+      ...opening,
+      workshop: {
+        ...opening.workshop,
+        storageWorkload: {
+          ...opening.workshop.storageWorkload,
+          active: false,
+          canStart: true,
+          blockedReason: null,
+          projection: {
+            ...opening.workshop.storageWorkload.projection,
+            durationMs: amount(60_000),
+            operatingCostCredits: amount(10),
+            netRewardCredits: amount(150),
+            pauseReason: null,
+          },
+        },
+      },
+    };
+
+    expect(
+      decisionActions(
+        decideBalancePolicy(contextFor(startable, "regular")),
+        "startWorkshopStorageWorkload",
+      ),
+    ).toEqual([
+      {
+        type: "startWorkshopStorageWorkload",
+        workloadId: startable.workshop.storageWorkload.id,
+        systemId: startable.selectedSystem.id,
+      },
+    ]);
+
+    const alreadyRunning: VisibleState = {
+      ...startable,
+      workshop: {
+        ...startable.workshop,
+        storageWorkload: {
+          ...startable.workshop.storageWorkload,
+          active: true,
+          canStart: false,
+        },
+      },
+    };
+    expect(
+      decisionActions(
+        decideBalancePolicy(contextFor(alreadyRunning, "regular")),
+        "startWorkshopStorageWorkload",
+      ),
+    ).toEqual([]);
+  });
+
+  it("runs steady capacity workloads on cluster headroom after the fabric proof", () => {
+    const opening = withBuffer(
+      observeOpening(),
+      "clusterController",
+      48 * 60 * 60_000,
+    );
+    const sweepDefinition: VisibleState["infrastructure"]["workloadDefinitions"][number] = {
+      id: "fabricIntegritySweep",
+      name: "Fabric Integrity Sweep",
+      description: "Run an exact capacity-backed integrity pass.",
+      kind: "capacity",
+      startCosts: [
+        { resource: "credits", amount: amount(50) },
+        { resource: "data", amount: amount(5) },
+      ],
+      rewards: exactResourceBag(500, 5),
+      paidWorkUnits: amount(1_000),
+      workValueMultiplier: { id: "test", basisPoints: amount(10_000) },
+      operatingCreditsPerSecond: amount("0.2"),
+      clusterOptions: [
+        { clusterId: "cluster-1", canStart: true, blockedReason: null },
+      ],
+    };
+    const visible = withResources(
+      {
+        ...opening,
+        currentChapter: {
+          ...opening.currentChapter,
+          id: "localFabric",
+          index: 5,
+        },
+        currentObjective: null,
+        infrastructure: {
+          ...opening.infrastructure,
+          fleet: {
+            ...opening.infrastructure.fleet,
+            blockers: [],
+            utilizationBps: 0,
+          },
+          workloads: [],
+          workloadDefinitions: [sweepDefinition],
+        },
+      },
+      100_000,
+      10_000,
+    );
+
+    expect(
+      decisionActions(
+        decideBalancePolicy(contextFor(visible, "regular")),
+        "startClusterWorkload",
+      ),
+    ).toEqual([
+      {
+        type: "startClusterWorkload",
+        clusterId: "cluster-1",
+        definitionId: "fabricIntegritySweep",
+      },
+    ]);
+
+    // While the sweep is already in flight it is not restarted.
+    const running = {
+      ...visible,
+      infrastructure: {
+        ...visible.infrastructure,
+        workloads: [
+          {
+            ...activeWorkloadOn("node-1"),
+            definitionId: "fabricIntegritySweep" as const,
+          },
+        ],
+      },
+    };
+    expect(
+      decisionActions(
+        decideBalancePolicy(contextFor(running, "regular")),
+        "startClusterWorkload",
+      ),
+    ).toEqual([]);
+
+    // The mandatory fabric proof window keeps cluster headroom reserved.
+    const proofWindow = {
+      ...visible,
+      currentObjective: {
+        id: "fabric:cluster-controller",
+        chapterId: "localFabric" as const,
+        name: "Prove the fabric",
+        description: "Run the replicated shard proof.",
+        transmission: "Prove it.",
+        completed: false,
+        current: true,
+        blockedReason: null,
+      },
+    };
+    expect(
+      decisionActions(
+        decideBalancePolicy(contextFor(proofWindow, "regular")),
+        "startClusterWorkload",
+      ),
+    ).toEqual([]);
   });
 
   it("treats an active attended lane as productive coverage", () => {
@@ -1885,19 +2155,24 @@ describe("production balance action policies", () => {
     const dispatched: GameAction[] = [];
     let visible = bootstrapSmokeRuntime.observe(state);
 
-    for (let step = 0; step < 120 && visible.stage === "primitiveCpu"; step += 1) {
+    // The attended opening is modeled at the runner's ~2s decision step
+    // (OPENING_DECISION_STEP_MS): with metered power billing live from the
+    // first tick, a once-a-minute loop would idle-drain the 10-credit wallet
+    // faster than one manual dispatch per minute can earn, which no clicking
+    // player represents.
+    for (let step = 0; step < 900 && visible.stage === "primitiveCpu"; step += 1) {
       const decision = decideBalancePolicy(
         contextFor(visible, "optimizer", {
-          nowMs: step * 60_000,
-          elapsedCalendarMs: step * 60_000,
-          remainingActiveMs: 120 * 60_000 - step * 60_000,
+          nowMs: step * 2_000,
+          elapsedCalendarMs: step * 2_000,
+          remainingActiveMs: 120 * 60_000 - step * 2_000,
         }),
       );
       for (const action of decision.actions) {
         dispatched.push(action);
         state = bootstrapSmokeRuntime.dispatch(state, action);
       }
-      state = bootstrapSmokeRuntime.advance(state, 60_000, "foreground").state;
+      state = bootstrapSmokeRuntime.advance(state, 2_000, "foreground").state;
       visible = bootstrapSmokeRuntime.observe(state);
     }
 

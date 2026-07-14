@@ -704,10 +704,14 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
 
     expect(activeSelectAll?.className).toContain("active");
     expect(groupedStepper?.textContent).toContain("26");
+    // Selection state lives on each die's stretched select button (the die
+    // itself is a plain container, so no nested-interactive markup).
+    const dieSelects = Array.from(
+      container.querySelectorAll(".core-die > .core-die-select"),
+    );
+    expect(dieSelects.length).toBeGreaterThan(0);
     expect(
-      Array.from(container.querySelectorAll(".core-die")).every(
-        (core) => core.getAttribute("aria-pressed") === "true",
-      ),
+      dieSelects.every((core) => core.getAttribute("aria-pressed") === "true"),
     ).toBe(true);
 
     act(() => {
@@ -936,61 +940,100 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     }
   });
 
-  it("sizes active queue previews from rendered cells instead of full capacity", () => {
-    const queueItems = Array.from({ length: 7 }, (_, index) => ({
-      id: `task-${index}`,
-      name: "Power Telemetry",
-      waitingReason: "Ready",
-      active: true,
-      progress: 0.25,
-    }));
+  it("reserves the queue preview footprint from purchased capacity across occupancy", () => {
+    const renderItems = (count: number) => {
+      const queueItems = Array.from({ length: count }, (_, index) => ({
+        id: `task-${count}-${index}`,
+        name: "Power Telemetry",
+        waitingReason: "Ready",
+        active: true,
+        progress: 0.25,
+      }));
 
-    act(() => {
-      root.render(
-        <QueuePreview
-          items={queueItems}
-          slotCapacity={9}
-          ariaLabel="System scheduler queue"
-          dispatch={() => undefined}
-          startSmall
-        />,
+      act(() => {
+        root.render(
+          <QueuePreview
+            items={queueItems}
+            slotCapacity={9}
+            ariaLabel="System scheduler queue"
+            dispatch={() => undefined}
+            startSmall
+          />,
+        );
+      });
+    };
+
+    // Capacity 9 pins a 3x3 grid at 98px no matter how full the queue is.
+    for (const count of [0, 7, 9]) {
+      renderItems(count);
+      const preview = container.querySelector<HTMLElement>(".queue-preview");
+      expect(
+        preview?.style.getPropertyValue("--scheduler-preview-height"),
+      ).toBe("98px");
+      expect(preview?.style.getPropertyValue("--scheduler-grid-height")).toBe(
+        "98px",
       );
-    });
+    }
 
+    // Partially filled: items render individually, remaining capacity keeps
+    // one open-summary cell inside the reserved grid.
+    renderItems(7);
     const list = container.querySelector<HTMLElement>(".queue-preview-list");
-
-    expect(list?.dataset.grid).toBe("4x2");
-    expect(list?.style.getPropertyValue("--scheduler-grid-height")).toBe("64px");
+    expect(list?.dataset.grid).toBe("3x3");
     expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(8);
     expect(container.querySelector(".queue-open-summary")?.textContent).toBe(
       "2 open",
     );
 
-    const fullQueueItems = Array.from({ length: 9 }, (_, index) => ({
-      id: `full-task-${index}`,
-      name: "Power Telemetry",
+    renderItems(9);
+    const fullList = container.querySelector<HTMLElement>(".queue-preview-list");
+    expect(fullList?.dataset.grid).toBe("3x3");
+    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(9);
+  });
+
+  it("keys queue cells by queue-entry identity, not list position", () => {
+    const makeItem = (key: string) => ({
+      id: "byteCopy",
+      key,
+      name: "Byte Copy",
       waitingReason: "Ready",
-      active: true,
-      progress: 0.25,
-    }));
+      active: false,
+      progress: 0,
+    });
 
     act(() => {
       root.render(
         <QueuePreview
-          items={fullQueueItems}
-          slotCapacity={9}
+          items={[makeItem("entry-1"), makeItem("entry-2")]}
+          slotCapacity={2}
           ariaLabel="System scheduler queue"
           dispatch={() => undefined}
-          startSmall
         />,
       );
     });
 
-    const fullList = container.querySelector<HTMLElement>(".queue-preview-list");
+    const cells = container.querySelectorAll(".queue-slot-cell");
+    expect(cells).toHaveLength(2);
+    const secondCell = cells[1]!;
 
-    expect(fullList?.dataset.grid).toBe("3x3");
-    expect(fullList?.style.getPropertyValue("--scheduler-grid-height")).toBe("98px");
-    expect(container.querySelectorAll(".queue-slot-cell")).toHaveLength(9);
+    // Completing the first duplicate entry must not remount (or reuse the
+    // first entry's DOM for) the surviving one: its key is the entry id.
+    act(() => {
+      root.render(
+        <QueuePreview
+          items={[makeItem("entry-2")]}
+          slotCapacity={2}
+          ariaLabel="System scheduler queue"
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    const remaining = container.querySelectorAll(
+      ".queue-slot-cell:not(.queue-open-summary)",
+    );
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toBe(secondCell);
   });
 
   it("reports the available system scheduler slot count", () => {

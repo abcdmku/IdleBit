@@ -12,9 +12,7 @@ import {
   deriveThermalSnapshot,
 } from "../thermal";
 import {
-  getAllowedOverclockPresets,
   getNextWorkshopCoolingTier,
-  getOverclockBlockedReason,
   getWorkshopCoolingState,
   getWorkshopCoolingTierDefinition,
   overclockPresetDefinitions,
@@ -50,32 +48,43 @@ describe("Workshop cooling content", () => {
       getWorkshopCoolingTierDefinition("liquidCooling"),
     );
     expect(liquid).toEqual(getWorkshopCoolingState("liquidCooling"));
+    // Selections apply in both directions: stepping back down adopts the
+    // lower tier's state (the workshop layer handles the refund).
     expect(
       applyCoolingUpgrade(
         liquid,
         getWorkshopCoolingTierDefinition("fanCooling"),
       ),
-    ).toEqual(liquid);
+    ).toEqual(getWorkshopCoolingState("fanCooling"));
     expect(getNextWorkshopCoolingTier("liquidCooling")).toBeNull();
   });
 
-  it("gates explicit overclock presets by installed cooling tier", () => {
+  it("defines ungated overclock presets with monotonically escalating trade-offs", () => {
     expect(overclockPresetDefinitions.map((preset) => preset.id)).toEqual([
       "stock",
       "boost",
       "performance",
       "extreme",
     ]);
-    expect(getAllowedOverclockPresets("none").map((preset) => preset.id)).toEqual([
-      "stock",
-    ]);
-    expect(
-      getAllowedOverclockPresets("caseAirflow").map((preset) => preset.id),
-    ).toEqual(["stock", "boost", "performance"]);
-    expect(getOverclockBlockedReason("fanCooling", "performance")).toBe(
-      "Requires Case Airflow.",
-    );
-    expect(getOverclockBlockedReason("liquidCooling", "extreme")).toBeNull();
+    // No preset is gated by cooling tier: heat beyond the cooling budget is
+    // the deterrent, enforced by the thermal kernel's throttling.
+    for (let index = 1; index < overclockPresetDefinitions.length; index += 1) {
+      const previous = overclockPresetDefinitions[index - 1]!;
+      const preset = overclockPresetDefinitions[index]!;
+      expect(preset.clockMultiplierBps).toBeGreaterThan(
+        previous.clockMultiplierBps,
+      );
+      expect(preset.powerMultiplierBps).toBeGreaterThan(
+        previous.powerMultiplierBps,
+      );
+      expect(preset.heatMultiplierBps).toBeGreaterThan(
+        previous.heatMultiplierBps,
+      );
+      // Heat always outpaces clock so every step is a real thermal gamble.
+      expect(preset.heatMultiplierBps).toBeGreaterThan(
+        preset.clockMultiplierBps,
+      );
+    }
   });
 
   it("feeds exact cooling states into the existing thermal kernel", () => {

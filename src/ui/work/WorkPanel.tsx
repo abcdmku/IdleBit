@@ -74,16 +74,15 @@ export function WorkPanel({
     ? activeView
     : "jobs";
 
+  // Sync the form only from the configured standing order itself. Selecting
+  // a different system elsewhere in the UI must never wipe unsaved picks in
+  // these dropdowns (the deps intentionally exclude selectedSystem.id).
   useEffect(() => {
     setStandingTaskId(visible.standingOrder.taskId);
     setTargetSystemId(
-      visible.standingOrder.systemId ?? visible.selectedSystem.id,
+      (current) => visible.standingOrder.systemId ?? current,
     );
-  }, [
-    visible.selectedSystem.id,
-    visible.standingOrder.systemId,
-    visible.standingOrder.taskId,
-  ]);
+  }, [visible.standingOrder.systemId, visible.standingOrder.taskId]);
 
   useEffect(() => {
     if (resolvedActiveView !== activeView) setActiveView(resolvedActiveView);

@@ -135,5 +135,7 @@ describe("measured calibration artifacts", () => {
           row.kind === "advance",
       ),
     ).toBe(true);
-  });
+    // The public opening prefix now spans ~7 simulated days under early
+    // metered billing (C-DES-6 ruling), so allow headroom under parallel load.
+  }, 30_000);
 });

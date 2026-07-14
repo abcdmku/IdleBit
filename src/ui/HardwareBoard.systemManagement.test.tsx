@@ -549,6 +549,102 @@ describe("HardwareBoard second CPU system management", () => {
     });
   });
 
+  it("keeps the user's seconds/minutes choice at 60s-multiple intervals", () => {
+    const dispatch = vi.fn();
+    const renderWithSchedule = (schedule: Record<string, unknown>) => {
+      const visible = makeSecondCpuVisible({
+        flags: { cronScheduler: true },
+      });
+      (visible as unknown as Record<string, unknown>).cron = {
+        unlocked: true,
+        minIntervalSeconds: 60,
+        schedules: [schedule],
+      };
+      act(() => {
+        root.render(
+          <HardwareBoard
+            visible={visible}
+            dispatch={dispatch}
+            selectedComponent="cron"
+            onSelectComponent={() => undefined}
+          />,
+        );
+      });
+    };
+    const activeModeLabel = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".cron-mode-control button",
+        ),
+      ).find((button) => button.getAttribute("aria-pressed") === "true")
+        ?.textContent;
+    const intervalInput = () =>
+      container.querySelector<HTMLInputElement>(".cron-interval-control input");
+
+    // Canonical sim shape: intervalMode/intervalValue. The user's persisted
+    // "seconds" choice must win over the 60s-multiple minutes inference.
+    renderWithSchedule({
+      id: "main",
+      taskId: "tinyChecksum",
+      enabled: true,
+      intervalMode: "seconds",
+      intervalValue: 60,
+      remainingSeconds: 5,
+    });
+    expect(activeModeLabel()).toBe("s");
+    expect(intervalInput()?.value).toBe("60");
+
+    // Toggling to minutes dispatches the mode; toggling back to seconds at
+    // the same 60s interval dispatches too (the button is not inert).
+    act(() => {
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".cron-mode-control button",
+        ),
+      )
+        .find((button) => button.textContent === "m")
+        ?.click();
+    });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "setCronScheduleInterval",
+        scheduleId: "main",
+        intervalSeconds: 60,
+        intervalMode: "minutes",
+        intervalValue: 1,
+      }),
+    );
+
+    renderWithSchedule({
+      id: "main",
+      taskId: "tinyChecksum",
+      enabled: true,
+      intervalMode: "minutes",
+      intervalValue: 1,
+      remainingSeconds: 5,
+    });
+    expect(activeModeLabel()).toBe("m");
+    expect(intervalInput()?.value).toBe("1");
+    act(() => {
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".cron-mode-control button",
+        ),
+      )
+        .find((button) => button.textContent === "s")
+        ?.click();
+    });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "setCronScheduleInterval",
+        scheduleId: "main",
+        intervalSeconds: 60,
+        intervalMode: "seconds",
+        intervalValue: 60,
+      }),
+    );
+  });
+
   it("shows blank CRON schedules as Select Task and filters unavailable system tasks", () => {
     const visible = makeSecondCpuVisible({
       flags: { cronScheduler: true },
@@ -721,17 +817,24 @@ describe("HardwareBoard second CPU system management", () => {
       card?.querySelectorAll(".cpu-summary-queue-state") ?? [],
     ).map((state) => state.textContent);
 
-    // Filled slots render individually; open capacity collapses to one chip.
-    expect(queue?.classList.contains("slots-2")).toBe(true);
+    // Reserved geometry: the queue footprint derives from purchased capacity,
+    // so every open slot renders as its own fixed cell.
+    expect(queue?.classList.contains("slots-4")).toBe(true);
     expect(card?.querySelector(".cpu-summary-scheduler-status")).toBeNull();
     expect(card?.querySelector(".cpu-summary-active")).toBeNull();
     expect(card?.querySelector(".cpu-summary-queue-index")?.textContent).toBe("1");
-    expect(queueStates).toEqual(["CACHE", "3 open"]);
-    expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(1);
+    expect(queueStates).toEqual(["CACHE", "open", "open", "open"]);
+    expect(card?.querySelectorAll(".cpu-summary-queue-slot.empty")).toHaveLength(3);
     expect(card?.querySelector(".cpu-summary-upgrades")).toBeNull();
 
+    // The whole-card select is a stretched real button (no role="button"
+    // wrapper with nested controls).
+    const cardSelect = card?.querySelector<HTMLButtonElement>(
+      ".cpu-summary-select",
+    );
+    expect(card?.getAttribute("role")).toBe("group");
     act(() => {
-      card?.click();
+      cardSelect?.click();
     });
 
     expect(onSelectComponent).toHaveBeenLastCalledWith("scheduler:1");
@@ -942,7 +1045,7 @@ describe("HardwareBoard second CPU system management", () => {
     expect(container.querySelector(".psu-section")?.textContent).toContain("1.3");
     expect(container.querySelector(".psu-section")?.textContent).toContain("cr/s");
     expect(container.querySelector(".psu-section")?.textContent).toContain("4s");
-    expect(container.querySelector(".psu-section")?.textContent).toContain("grace");
+    expect(container.querySelector(".psu-section")?.textContent).toContain("Grace");
     expect(container.querySelector(".psu-section")?.textContent).not.toContain(
       "RAM/CPU match",
     );

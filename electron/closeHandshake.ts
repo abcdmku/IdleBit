@@ -20,6 +20,11 @@ export interface CloseHandshakeController {
 export interface CloseHandshakeOptions {
   cancelTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
   isWindowDestroyed(): boolean;
+  /**
+   * Called when the fail-safe timeout force-closes the window without a
+   * renderer acknowledgement, i.e. the departure save may not have landed.
+   */
+  onTimeoutClose?(): void;
   requestClose(): void;
   scheduleTimeout?: (
     callback: () => void,
@@ -29,7 +34,17 @@ export interface CloseHandshakeOptions {
   timeoutMs?: number;
 }
 
-export const DEFAULT_CLOSE_HANDSHAKE_TIMEOUT_MS = 1_500;
+/**
+ * Bounded fail-safe: generous enough for a departure save with retries over a
+ * full store rewrite, but still guarantees the window closes.
+ */
+export const DEFAULT_CLOSE_HANDSHAKE_TIMEOUT_MS = 5_000;
+
+/**
+ * Persistence-store key (renderer namespace) recording that the fail-safe
+ * timeout closed the window without an acknowledged departure save.
+ */
+export const FORCED_CLOSE_FLAG_KEY = "idlebit:lifecycle.forced-close-v1";
 
 export function parseCloseAcknowledgementRequestId(
   value: unknown,
@@ -51,6 +66,7 @@ export function parseCloseAcknowledgementRequestId(
 export function createCloseHandshake({
   cancelTimeout = clearTimeout,
   isWindowDestroyed,
+  onTimeoutClose,
   requestClose,
   scheduleTimeout = setTimeout,
   sendBeforeClose,
@@ -127,7 +143,11 @@ export function createCloseHandshake({
       nextRequestId += 1;
       pendingRequestId = requestId;
       timeout = scheduleTimeout(() => {
-        complete(requestId);
+        if (complete(requestId)) {
+          // The renderer never acknowledged, so the departure save may be
+          // unsaved; leave persistent evidence of the forced close.
+          onTimeoutClose?.();
+        }
       }, Math.max(0, timeoutMs));
 
       try {

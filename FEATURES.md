@@ -110,6 +110,7 @@ the new end-to-end campaign acceptance.
 | RAM/CPU efficiency matching | Tested | Matching RAM module sizes/frequencies and CPU package specs improves power efficiency; mismatches add effective draw and reliability pressure |
 | Cooling Thermal Control gate | Tested | Thermal Control reveals system-scoped cooling installation and overclock controls in Workshop |
 | Cooling power tradeoff | Tested | Five cooling tiers trade exact purchase/operating power against heat buildup, throttling, and sustained throughput |
+| Reversible cooling tiers | Tested | Cooling tiers share the Thermal section as one telemetry-plus-ladder card; lower tiers stay clickable as downgrades that refund 50% of the installed tier's cost, with hotter running (throttling) as the only deterrent |
 | Workshop storage staging | Tested | Each system saves an installable Local SSD/NVMe profile and one exact CapacityWork artifact-staging workload with capacity/read/write fit, progress, reward, power, heat, offline, cancellation, and Fleet-capacity mirroring coverage |
 | Workshop accelerators | Tested | Entry GPU/NPU modules route fitted render/inference work with contention and explicit CPU fallback; Open Foundry optionally unlocks advanced modules without blocking the mainline specialization proof |
 | Browser persistence | Tested | Save/load writes save-v7 exact campaign state, snapshots the owned departure buffer before absence, normalizes corrupt v7 data, and clean-resets incompatible pre-v7 prototypes |
@@ -263,6 +264,41 @@ authoritative for later cluster, rack, facility, Cloud, and Planetary layers.
 
 ## Current Build Notes
 
+- Multi-agent review + fix pass completed July 11, 2026 (tracker:
+  `docs/review-2026-07-11-findings.md`, 94 findings, 89 fixed / 4 partial /
+  1 skipped / 6 designer questions). Highlights: delta-invariance event
+  boundaries for billing/cutoff/grace/overload/thermal/deadlock recovery;
+  managed-work rates sampled from slice-start state; offline advancement no
+  longer stalls a whole absence after a deadlock wipe; save-v7 hardening
+  (per-resource exact fallback, no reward-minting from unknown operation
+  statuses, full normalization for every saved system, resilient
+  deserialization); departure-save/catch-up race fixed with pre-seed save
+  backup and durable-close handshake; composed-task paid work now matches
+  runtime RAM staging (no cross-child residency); RAM stick sell-refund
+  exploit closed; Scheduler Watchdog gated behind System Scheduler (softlock);
+  managed Fleet capacity + aggregate-server procurement now reachable in
+  production UI; Live Operations costs scoped to the spare-core lane;
+  reserved-geometry violations fixed across queue/CPU/PSU/project/contract/
+  research/pinned surfaces; balance harness de-scripted (no calendar
+  admission dates) — which exposed a real accelerator-era Data pacing stall
+  that blocks canonical evidence regeneration pending designer review of
+  GPU/NPU Data prices; new `?seed=workshop-ready`/`?seed=cloud-ready`/
+  `?seed=planetary-ready` dev seeds. Verification: 970 tests across 116
+  files, typecheck (app/e2e/electron), and production web+electron build all
+  pass.
+- Designer rulings implemented July 11-12, 2026: metered power billing is live
+  from the first tick of a fresh save (unpaid cutoff and destructive PSU
+  failure remain gated behind PSU Management, which now arms those
+  countermeasures); the flat 25%-per-socket CPU efficiency penalty is replaced
+  by a graduated hardware-rarity schedule (1.0/0.95/0.88/0.80/0.72/0.68/0.60/
+  0.55 for 1-8 sockets — dual common, quad rare, oct very rare), which also
+  resolved the full-idle pre-CRON stall (CRON buffer now banks at ~day 1.3
+  full-idle); contract offers let the player choose the target system at
+  accept time with shared lane-blocker validation; opening task timing is
+  hardware-derived by ruling (2 s Fetch Bit canonical — the 5-30 s QA band is
+  retired). Open designer question: accelerator-era Data pricing (GPU 240 /
+  NPU 320 Data vs ~111 banked) still blocks canonical balance-evidence
+  regeneration.
 - The active pre-live target is the complete Long-Form Planetary Campaign. The
   former vertical-slice and “Multi-System Rack Phase” notes below are retained
   only as dated implementation history; their old scope boundaries and save

@@ -1,6 +1,7 @@
 import { createRngState } from "../rng";
 import { describe, expect, it } from "vitest";
 import {
+  cadenceExpectsBufferOverflow,
   generateSessionSchedule,
   planReturnDelay,
   sessionCadenceProfiles,
@@ -24,13 +25,28 @@ describe("balance session cadence", () => {
     expect(otherSeed).not.toEqual(first);
   });
 
-  it("returns before early 2h and 8h buffers overflow", () => {
+  it("chases buffer capacity only for profiles with an explicit fill ratio", () => {
+    const hourMs = 60 * 60 * 1000;
+    for (const capacityHours of [2, 8]) {
+      const planned = planReturnDelay({
+        profile: sessionCadenceProfiles.fullIdle,
+        mode: "deterministic",
+        rng: createRngState(1),
+        nextSessionIndex: 7,
+        offlineCapacityMs: capacityHours * hourMs,
+      });
+      expect(planned.delayMs).toBe(Math.round(capacityHours * hourMs * 0.94));
+      expect(planned.delayMs).toBeLessThan(capacityHours * hourMs);
+    }
+  });
+
+  it("keeps daily players on their true cadence so small buffers overflow", () => {
     const hourMs = 60 * 60 * 1000;
     for (const profile of [
       sessionCadenceProfiles.regular,
       sessionCadenceProfiles.engaged,
     ]) {
-      for (const capacityHours of [2, 8]) {
+      for (const capacityHours of [2, 8, 12]) {
         const planned = planReturnDelay({
           profile,
           mode: "deterministic",
@@ -38,10 +54,16 @@ describe("balance session cadence", () => {
           nextSessionIndex: 7,
           offlineCapacityMs: capacityHours * hourMs,
         });
-        expect(planned.delayMs).toBe(Math.round(capacityHours * hourMs * 0.94));
-        expect(planned.delayMs).toBeLessThan(capacityHours * hourMs);
+        expect(planned.delayMs).toBe(profile.baseReturnDelayMs);
+        expect(cadenceExpectsBufferOverflow(profile, capacityHours * hourMs)).toBe(
+          true,
+        );
       }
+      expect(cadenceExpectsBufferOverflow(profile, 48 * hourMs)).toBe(false);
     }
+    expect(
+      cadenceExpectsBufferOverflow(sessionCadenceProfiles.fullIdle, 2 * hourMs),
+    ).toBe(false);
   });
 
   it("does not erase Monte Carlo missed visits by clamping them to capacity", () => {

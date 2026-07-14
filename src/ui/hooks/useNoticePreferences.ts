@@ -6,7 +6,7 @@ import {
   PSU_FAILURE_HELP_KEY,
   PSU_FAILURE_MODAL_SEEN_KEY,
   getNoticePreferences,
-  persistUiPreference,
+  persistUiPreferenceWithRetry,
   resetNoticePreferenceStorage,
   type NoticePreferenceSnapshot,
 } from "../app/persistence";
@@ -79,27 +79,27 @@ export function useNoticePreferences({
 
   const dismissDeadlockHelp = useCallback(() => {
     setDeadlockHelpSeen(true);
-    void persistUiPreference(DEADLOCK_HELP_KEY, true);
+    void persistUiPreferenceWithRetry(DEADLOCK_HELP_KEY, true);
   }, []);
 
   const dismissDeadlockCooldownHelp = useCallback(() => {
     setDeadlockCooldownHelpSeen(true);
-    void persistUiPreference(DEADLOCK_COOLDOWN_HELP_KEY, true);
+    void persistUiPreferenceWithRetry(DEADLOCK_COOLDOWN_HELP_KEY, true);
   }, []);
 
   const dismissPsuFailureHelp = useCallback(() => {
     setPsuFailureHelpSeen(true);
-    void persistUiPreference(PSU_FAILURE_HELP_KEY, true);
+    void persistUiPreferenceWithRetry(PSU_FAILURE_HELP_KEY, true);
   }, []);
 
   const dismissPsuFailureModal = useCallback(() => {
     setPsuFailureModalSeen(true);
-    void persistUiPreference(PSU_FAILURE_MODAL_SEEN_KEY, true);
+    void persistUiPreferenceWithRetry(PSU_FAILURE_MODAL_SEEN_KEY, true);
   }, []);
 
   const dismissCreditFailurePopup = useCallback(() => {
     setCreditFailureModalSeen(true);
-    void persistUiPreference(CREDIT_FAILURE_MODAL_SEEN_KEY, true);
+    void persistUiPreferenceWithRetry(CREDIT_FAILURE_MODAL_SEEN_KEY, true);
   }, []);
 
   const resetNoticePreferences = useCallback(async () => {

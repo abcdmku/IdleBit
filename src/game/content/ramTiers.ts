@@ -4,6 +4,7 @@ import { getCpuTierLevelDefinition } from "./cpuTiers";
 import {
   amount,
   amountAdd,
+  amountDivide,
   amountMultiply,
   amountPow,
   amountRound,
@@ -128,11 +129,8 @@ const getMemoryVoltageMultiplier = (level: number) =>
 const getRamCapacityCost = (cpuStyleCost: Amount, tierLevelIndex: number) =>
   amountRound(amountMultiply(cpuStyleCost, amountPow(2, tierLevelIndex)));
 
-const getRamDataCost = (tierIndex: number, tierLevelIndex: number) => {
-  const capacityBits = amountMultiply(
-    "256",
-    amountMultiply(amountPow(2, tierLevelIndex), amountPow(1024, tierIndex)),
-  );
+const getRamDataCost = (tierIndex: number, globalIndex: number) => {
+  const capacityBits = amountMultiply("256", amountPow(2, globalIndex));
   return amountRound(
     amountMultiply(
       amountMultiply(capacityBits, "0.125"),
@@ -141,51 +139,92 @@ const getRamDataCost = (tierIndex: number, tierLevelIndex: number) => {
   );
 };
 
-export const ramTierDefinitions: RamTierDefinition[] = tierMetadata.map((tier) => {
-  const firstGlobalLevel = tier.tierIndex * RAM_TIER_MAX_LEVEL + 1;
-  const levels = Array.from({ length: RAM_TIER_MAX_LEVEL }, (_, index) => {
-    const level = index + 1;
-    const globalLevel = firstGlobalLevel + index;
-    const capacityBits = 256 * 2 ** index * 1024 ** tier.tierIndex;
-    const cpuTierLevel = getCpuTierLevelDefinition(tier.id, level);
-    const cpuStyleCost = cpuTierLevel.upgradeCost;
-    const clockHz = cpuTierLevel.clockHz;
-    const efficiency = getEfficiency(
-      level,
-      tier.baseEfficiency,
-      tier.efficiencyDecay,
-      tier.minEfficiency,
+/**
+ * Capacity doubles per GLOBAL level: each tier's base is the previous tier's
+ * max doubled, so a cross-tier capacity upgrade never shrinks a stick the
+ * way the old per-tier 256 * 2^index * 1024^tierIndex reset did (F-BAL-3).
+ */
+const getRamCapacityBits = (globalLevel: number) => 256 * 2 ** (globalLevel - 1);
+
+export const ramTierDefinitions: RamTierDefinition[] = [];
+
+{
+  // Capacity-upgrade credits must continue across tier boundaries too: the
+  // raw per-tier curve resets to its CPU tier's base cost, which sold the
+  // level 36 -> 37 step for a tiny fraction of the 35 -> 36 step (F-BAL-3).
+  // Each tier's curve is rescaled so its first level continues from the
+  // previous tier's last level by that tier's own per-level growth ratio.
+  let previousTierLastCost: Amount | null = null;
+
+  for (const tier of tierMetadata) {
+    const firstGlobalLevel = tier.tierIndex * RAM_TIER_MAX_LEVEL + 1;
+    const rawFirstCost = getRamCapacityCost(
+      getCpuTierLevelDefinition(tier.id, 1).upgradeCost,
+      0,
     );
+    const rawSecondCost = getRamCapacityCost(
+      getCpuTierLevelDefinition(tier.id, 2).upgradeCost,
+      1,
+    );
+    const tierCostScale: Amount =
+      previousTierLastCost === null
+        ? amount(1)
+        : amountDivide(
+            amountMultiply(
+              previousTierLastCost,
+              amountDivide(rawSecondCost, rawFirstCost),
+            ),
+            rawFirstCost,
+          );
+    const levels: RamTierLevelDefinition[] = Array.from(
+      { length: RAM_TIER_MAX_LEVEL },
+      (_, index) => {
+      const level = index + 1;
+      const globalLevel = firstGlobalLevel + index;
+      const capacityBits = getRamCapacityBits(globalLevel);
+      const cpuTierLevel = getCpuTierLevelDefinition(tier.id, level);
+      const cpuStyleCost = cpuTierLevel.upgradeCost;
+      const clockHz = cpuTierLevel.clockHz;
+      const efficiency = getEfficiency(
+        level,
+        tier.baseEfficiency,
+        tier.efficiencyDecay,
+        tier.minEfficiency,
+      );
 
-    return {
-      level,
-      globalLevel,
-      upgradeCost: cpuStyleCost,
-      calculatedCost: getRamCapacityCost(cpuStyleCost, index),
-      dataCost: getRamDataCost(tier.tierIndex, index),
-      efficiency,
-      clockHz,
-      capacityBits,
-      singleChannelBps: clockHz,
-      dualChannelBps: clockHz * 2,
-      quadChannelBps: clockHz * 4,
-      octChannelBps: clockHz * 8,
-      idleMicroWatts: (clockHz / efficiency) * 0.1,
-      memoryVoltageIdleMultiplier: getMemoryVoltageMultiplier(level),
-      memoryVoltageCost: getMemoryVoltageCostValue(level),
-    };
-  });
+      return {
+        level,
+        globalLevel,
+        upgradeCost: cpuStyleCost,
+        calculatedCost: amountRound(
+          amountMultiply(getRamCapacityCost(cpuStyleCost, index), tierCostScale),
+        ),
+        dataCost: getRamDataCost(tier.tierIndex, globalLevel - 1),
+        efficiency,
+        clockHz,
+        capacityBits,
+        singleChannelBps: clockHz,
+        dualChannelBps: clockHz * 2,
+        quadChannelBps: clockHz * 4,
+        octChannelBps: clockHz * 8,
+        idleMicroWatts: (clockHz / efficiency) * 0.1,
+        memoryVoltageIdleMultiplier: getMemoryVoltageMultiplier(level),
+        memoryVoltageCost: getMemoryVoltageCostValue(level),
+      };
+    });
 
-  return {
-    id: tier.id,
-    name: tier.name,
-    unit: tier.unit,
-    unlockResearchId: tier.unlockResearchId,
-    nextTierResearchCost: tier.nextTierResearchCost,
-    firstGlobalLevel,
-    levels,
-  };
-});
+    ramTierDefinitions.push({
+      id: tier.id,
+      name: tier.name,
+      unit: tier.unit,
+      unlockResearchId: tier.unlockResearchId,
+      nextTierResearchCost: tier.nextTierResearchCost,
+      firstGlobalLevel,
+      levels,
+    });
+    previousTierLastCost = levels.at(-1)!.calculatedCost;
+  }
+}
 
 export const getRamTierDefinition = (tierId: CpuTierId) => {
   const tier = ramTierDefinitions.find((definition) => definition.id === tierId);

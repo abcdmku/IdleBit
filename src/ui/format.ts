@@ -82,6 +82,9 @@ const formatExactScientific = ({
  * Formats canonical Amount strings without projecting them through JavaScript
  * numbers. Named stack bands retain the legacy truncation rules; values beyond
  * a four-digit Sp coefficient use a bounded scientific representation.
+ *
+ * Display rule: fractional tails are clamped to at most one decimal digit
+ * (tenths). Exactness lives in the simulation; this is a render-only clamp.
  */
 export const formatExactResourceAmount = (value: Amount) => {
   const parsed = parseCanonicalAmount(value);
@@ -97,25 +100,62 @@ export const formatExactResourceAmount = (value: Amount) => {
       parsed.integer.length >= thresholdExponent + 1,
   );
   if (!band) {
-    return `${parsed.sign}${parsed.integer}${
-      parsed.fraction ? `.${parsed.fraction}` : ""
-    }`;
+    const tenths = parsed.fraction.slice(0, 1).replace(/0$/, "");
+    return `${parsed.sign}${parsed.integer}${tenths ? `.${tenths}` : ""}`;
   }
 
   const coefficient = parsed.integer.slice(0, -band.divisorExponent);
   return `${parsed.sign}${coefficient} ${band.suffix}`;
 };
 
+/**
+ * Currency display rule: Credits and Data AMOUNTS (costs, payouts, balances,
+ * refunds) never show decimals. The fractional tail is dropped at render time
+ * (magnitude floor); stack suffixes above 100K are unchanged.
+ */
+export const formatExactCurrencyAmount = (value: Amount) => {
+  const parsed = parseCanonicalAmount(value);
+  if (parsed.zero) return "0";
+
+  const spCoefficientDigits = parsed.integer.length - 24;
+  if (spCoefficientDigits > MAX_NAMED_BAND_COEFFICIENT_DIGITS) {
+    return formatExactScientific(parsed);
+  }
+
+  const band = EXACT_RESOURCE_STACK_BANDS.find(
+    ({ thresholdExponent }) => parsed.integer.length >= thresholdExponent + 1,
+  );
+  if (!band) {
+    return parsed.integer === "0" ? "0" : `${parsed.sign}${parsed.integer}`;
+  }
+
+  const coefficient = parsed.integer.slice(0, -band.divisorExponent);
+  return `${parsed.sign}${coefficient} ${band.suffix}`;
+};
+
+/**
+ * Generic display quantity: at most ONE decimal place (tenths). Unit-bearing
+ * readouts should scale their unit first (see formatWatts/formatClock) so the
+ * mantissa is >= 1 before this clamp applies.
+ */
 export const formatNumber = (value: number) =>
   new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: value >= 100 ? 0 : 1,
+    maximumFractionDigits: Math.abs(value) >= 100 ? 0 : 1,
   }).format(value);
+
+/** Alias naming the display rule: unit-scale first, then clamp to tenths. */
+export const formatQuantity = formatNumber;
 
 const formatWholeMagnitude = (value: number) => {
   const sign = value < 0 ? "-" : "";
   return `${sign}${Math.floor(Math.abs(value))}`;
 };
 
+/**
+ * Currency display rule: Credits/Data AMOUNTS never show decimals — the
+ * fraction is dropped at render time (magnitude floor) below the 100K stack
+ * threshold, and stack suffixes take over above it.
+ */
 export const formatResourceAmount = (amount: number) => {
   const absAmount = Math.abs(amount);
   if (!Number.isFinite(amount)) {
@@ -125,13 +165,14 @@ export const formatResourceAmount = (amount: number) => {
     (candidate) => absAmount >= candidate.threshold,
   );
   if (!band) {
-    return Number.isInteger(amount)
-      ? formatWholeMagnitude(amount)
-      : formatNumber(amount);
+    return formatWholeMagnitude(amount);
   }
 
   return `${formatWholeMagnitude(amount / band.divisor)} ${band.suffix}`;
 };
+
+/** Alias naming the currency display rule for number-domain amounts. */
+export const formatCurrencyAmount = formatResourceAmount;
 
 export const formatResourceRate = (amountPerSecond: number) => {
   const absAmountPerSecond = Math.abs(amountPerSecond);
@@ -140,7 +181,7 @@ export const formatResourceRate = (amountPerSecond: number) => {
   }
 
   return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: absAmountPerSecond >= 1 ? 1 : 3,
+    maximumFractionDigits: 1,
   }).format(amountPerSecond);
 };
 
@@ -185,7 +226,7 @@ export const formatBitRate = (bitsPerSecond: number) =>
 
 const formatUnitNumber = (value: number) =>
   new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: value >= 100 ? 0 : value >= 10 ? 1 : 2,
+    maximumFractionDigits: 1,
   }).format(value);
 
 export const formatWatts = (watts: number) => {
@@ -193,8 +234,11 @@ export const formatWatts = (watts: number) => {
   const sign = watts < 0 ? "-" : "";
 
   if (absWatts === 0) return "0 W";
+  if (absWatts < 0.000001)
+    return `${sign}${formatUnitNumber(absWatts * 1_000_000_000)} nW`;
   if (absWatts < 0.001) return `${sign}${formatUnitNumber(absWatts * 1_000_000)} uW`;
   if (absWatts < 1) return `${sign}${formatUnitNumber(absWatts * 1_000)} mW`;
+  if (absWatts >= 1_000_000) return `${sign}${formatNumber(absWatts / 1_000_000)} MW`;
   if (absWatts >= 1_000) return `${sign}${formatNumber(absWatts / 1_000)} kW`;
   return `${sign}${formatNumber(absWatts)} W`;
 };

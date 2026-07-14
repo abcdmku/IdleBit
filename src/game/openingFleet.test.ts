@@ -324,14 +324,23 @@ describe("opening and Fleet invariants", () => {
     expect(state.power.lastFailureReason).toBeNull();
   });
 
-  it("subsidizes onboarding power and safely pauses unsafe pre-management work", () => {
+  it("meters power billing from the first tick and safely pauses unsafe pre-management work", () => {
     const initial = createInitialGameState();
     const beforeCredits = initial.exactResources.credits;
-    const subsidized = tickGame(initial, 10 * 60_000);
-    expect(subsidized.exactResources.credits).toBe(beforeCredits);
-    expect(subsidized.power.state).toBe("on");
-    expect(subsidized.power.lastFailureReason).toBeNull();
-    expect(deriveVisibleState(subsidized).metrics.powerCostPerSecond).toBe(0);
+    // 0.1 uW starter draw = 0.1 cr/s at 1 credit/sec per uW.
+    expect(deriveVisibleState(initial).metrics.powerCostPerSecond).toBe(0.1);
+    const billedBriefly = tickGame(initial, 10_000);
+    expect(
+      amountCompare(billedBriefly.exactResources.credits, beforeCredits),
+    ).toBeLessThan(0);
+
+    // Draining the wallet before PSU Management never turns destructive:
+    // billing stops at 0 credits with no cutoff timer.
+    const broke = tickGame(initial, 10 * 60_000);
+    expect(amountCompare(broke.exactResources.credits, 0)).toBe(0);
+    expect(broke.power.state).toBe("on");
+    expect(broke.power.lastFailureReason).toBeNull();
+    expect(broke.power.unpaidShutdownWarningSeconds).toBe(0);
 
     const blockedInput = {
       ...initial,
@@ -360,7 +369,7 @@ describe("opening and Fleet invariants", () => {
     expect(paused.power.lastFailureReason).toBeNull();
   });
 
-  it("enables billing and destructive foreground failures only after PSU Management", () => {
+  it("enables destructive billing consequences only after PSU Management", () => {
     const initial = createInitialGameState();
     const managed = withResources({
       ...initial,
@@ -368,6 +377,20 @@ describe("opening and Fleet invariants", () => {
       research: { ...initial.research, completed: ["psuManagement"] },
     });
     expect(deriveVisibleState(managed).metrics.powerCostPerSecond).toBeGreaterThan(0);
+
+    // The same overload and empty wallet stay non-destructive pre-management.
+    const unmanagedOverload = tickGame(
+      {
+        ...initial,
+        hardware: { ...initial.hardware, psuWatts: 0.00000001 },
+      },
+      2_000,
+    );
+    expect(unmanagedOverload.power.state).toBe("on");
+    expect(unmanagedOverload.power.lastFailureReason).toBeNull();
+    const unmanagedBroke = tickGame(withResources(initial, 0, 0), 11_000);
+    expect(unmanagedBroke.power.unpaidShutdownWarningSeconds).toBe(0);
+    expect(unmanagedBroke.power.state).toBe("on");
 
     const overloaded = tickGame(
       {

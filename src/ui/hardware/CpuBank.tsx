@@ -1,15 +1,17 @@
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { Cpu, HardDrive, LayoutGrid, ListTodo, Rows3 } from "lucide-react";
 import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatBits, formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
-import { SmoothFill } from "../SmoothProgress";
+import { SmoothFill, useMeterSnap } from "../SmoothProgress";
 import { getCoreActiveTask } from "../tasks/taskData";
+import { useStableCallback } from "../hooks/useStableCallback";
 import type { Dispatch } from "../uiActions";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCacheStateBits, toCacheSegment } from "./cacheData";
 import { formatClockTick, formatFraction } from "./display";
 import { getCoreGridMetrics } from "./coreGrid";
+import { getCoreOperationProgress } from "./coreProgress";
 import { getCoreSegmentColor } from "./meters";
 import { getQueueDisplayItems } from "./queueData";
 import type { UiQueueDisplayItem } from "./visibleState";
@@ -41,6 +43,9 @@ function CpuSummaryCard({
   visible: VisibleState;
 }) {
   const activeCount = socket.cores.filter((core) => getCoreActiveTask(core)).length;
+  // Identity-stable handler so the memoized core cells skip reconciliation
+  // even though CpuBank passes a fresh closure on every snapshot.
+  const stableSelectCore = useStableCallback(onSelectCore);
   const totalCores = socket.cores.length;
   const cacheUsed = socket.cacheUsedBits ?? 0;
   const cacheCapacity = Math.max(socket.cacheBits ?? 0, 1);
@@ -55,12 +60,17 @@ function CpuSummaryCard({
   const queueCapacity = Math.max(socket.schedulerSlots ?? 0, 0);
   const queueCount = socket.queuedCount ?? 0;
   const queueItems = schedulerVisible ? getQueueDisplayItems(visible, socket) : [];
-  const filledQueueItems = queueItems.slice(0, 16);
+  // Reserved geometry: the summary queue footprint derives from purchased
+  // slot capacity (capped at 16 rendered cells) so queueing and completion
+  // swap cell contents in place instead of resizing the card.
+  const summarySlotCount = Math.min(
+    16,
+    Math.max(queueCapacity, queueItems.length),
+  );
+  const filledQueueItems = queueItems.slice(0, summarySlotCount);
   const hiddenQueueCount = Math.max(0, queueItems.length - filledQueueItems.length);
-  const openQueueCount = Math.max(0, queueCapacity - queueItems.length);
-  const renderedSlotCount =
-    filledQueueItems.length + (openQueueCount > 0 ? 1 : 0);
-  const summaryQueueColumns = getCompactSchedulerColumnCount(renderedSlotCount);
+  const openQueueCount = Math.max(0, summarySlotCount - filledQueueItems.length);
+  const summaryQueueColumns = getCompactSchedulerColumnCount(summarySlotCount);
   const deadlocked = socket.deadlocked;
   const efficiencyLabel = formatNumber(socket.efficiency);
   const coreGrid = getCoreGridMetrics(totalCores);
@@ -70,16 +80,15 @@ function CpuSummaryCard({
     "--core-grid-mobile-columns": Math.min(coreGrid.columns, 4),
   } as CSSProperties;
 
-  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleCardDoubleClick = (event: MouseEvent<HTMLElement>) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest("button, input, select, textarea, a")) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onSelect();
-  };
-  const handleCardDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest("button, input, select, textarea, a")) return;
+    if (
+      target?.closest(
+        ".cpu-summary-open, .cpu-summary-core-cell, input, select, textarea, a",
+      )
+    ) {
+      return;
+    }
     onOpenFull();
   };
 
@@ -88,14 +97,21 @@ function CpuSummaryCard({
       className={`cpu-summary-card ${selected ? "selected" : ""} ${
         deadlocked ? "deadlocked" : ""
       }`}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
+      role="group"
       onDoubleClick={handleCardDoubleClick}
-      onKeyDown={handleCardKeyDown}
-      title={`Select ${socket.label} scheduler`}
-      aria-label={`Select ${socket.label} scheduler, ${activeCount} of ${totalCores} active, efficiency ${efficiencyLabel}`}
+      aria-label={`${socket.label} summary`}
     >
+      {/* Stretched invisible select button underneath the content: real
+          controls and tooltip-bearing readouts sit above it (z-index 1), so
+          the card has no interactive descendants inside a button role. */}
+      <button
+        type="button"
+        className="cpu-summary-select"
+        onClick={onSelect}
+        aria-pressed={selected}
+        title={`Select ${socket.label} scheduler`}
+        aria-label={`Select ${socket.label} scheduler, ${activeCount} of ${totalCores} active, efficiency ${efficiencyLabel}`}
+      />
       <div className="cpu-summary-head-row">
         <span className="cpu-summary-head">
           <Cpu size={11} />
@@ -107,10 +123,7 @@ function CpuSummaryCard({
         <button
           type="button"
           className="cpu-summary-open"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenFull();
-          }}
+          onClick={onOpenFull}
           title={`Open ${socket.label} full view`}
           aria-label={`Open ${socket.label} full view`}
         >
@@ -134,9 +147,9 @@ function CpuSummaryCard({
               </span>
             )}
           </div>
-          {renderedSlotCount > 0 ? (
+          {summarySlotCount > 0 ? (
             <ul
-              className={`cpu-summary-queue slots-${renderedSlotCount}`}
+              className={`cpu-summary-queue slots-${summarySlotCount}`}
               style={
                 summaryQueueColumns
                   ? ({
@@ -149,7 +162,7 @@ function CpuSummaryCard({
                 const state = getCompactSchedulerItemState(item);
                 return (
                   <li
-                    key={`${item.id}-${index}`}
+                    key={item.key ?? `${item.id}-${index}`}
                     className={`cpu-summary-queue-slot ${
                       item.active ? "active" : "pending"
                     } ${item.deadlocked ? "deadlocked" : ""}`}
@@ -164,19 +177,21 @@ function CpuSummaryCard({
                   </li>
                 );
               })}
-              {openQueueCount > 0 && (
-                <li
-                  key={`open-${socket.id}`}
-                  className="cpu-summary-queue-slot empty cpu-summary-queue-open"
-                  title={`${openQueueCount} open slot${
-                    openQueueCount === 1 ? "" : "s"
-                  }`}
-                >
-                  <span className="cpu-summary-queue-state">
-                    {openQueueCount} open
-                  </span>
-                </li>
-              )}
+              {Array.from({ length: openQueueCount }, (_, offset) => {
+                const slotIndex = filledQueueItems.length + offset;
+                return (
+                  <li
+                    key={`open-${socket.id}-${slotIndex}`}
+                    className="cpu-summary-queue-slot empty cpu-summary-queue-open"
+                    title="Open scheduler slot"
+                  >
+                    <span className="cpu-summary-queue-index">
+                      {slotIndex + 1}
+                    </span>
+                    <span className="cpu-summary-queue-state">open</span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <span className="cpu-summary-queue-empty">No queue</span>
@@ -190,49 +205,19 @@ function CpuSummaryCard({
         data-grid={coreGrid.label}
         aria-label="Per-core frequency"
       >
-        {socket.cores.map((core) => {
-          const active = getCoreActiveTask(core);
-          const running = !!active;
-          const coreLabel = getSocketCoreLabel(socket, core.id);
-          const progress =
-            active?.coreProgress?.find((operation) => operation.coreId === core.id)
-              ?.progress ?? 0;
-          const coreStyle = active
-            ? ({
-                "--core-status-color": getCoreSegmentColor(core.id, 0.94),
-                "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
-              } as CSSProperties)
-            : undefined;
-
-          return (
-            <button
-              key={core.id}
-              type="button"
-              className={`core-die cpu-summary-core-cell ${
-                running ? "running" : "idle"
-              } ${
-                core.deadlocked ? "deadlocked" : ""
-              }`}
-              style={coreStyle}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelectCore(core.id);
-              }}
-              title={`${coreLabel} - ${formatClock(core.clockHz)}`}
-              aria-label={`Select ${coreLabel} on ${socket.label}`}
-            >
-              <span className="core-die-head">
-                <span className="core-label cpu-summary-core-tag">{coreLabel}</span>
-                <span className="core-clock cpu-summary-core-clock">
-                  <strong>{formatClockTick(core.clockHz)}</strong>
-                </span>
-              </span>
-              <span className="smooth-progress die-progress" aria-hidden="true">
-                <SmoothFill value={progress} />
-              </span>
-            </button>
-          );
-        })}
+        {socket.cores.map((core) => (
+          <CpuSummaryCoreCell
+            key={core.id}
+            coreId={core.id}
+            coreLabel={getSocketCoreLabel(socket, core.id)}
+            socketLabel={socket.label}
+            clockHz={core.clockHz}
+            running={Boolean(getCoreActiveTask(core))}
+            deadlocked={core.deadlocked}
+            progress={getCoreOperationProgress(core)}
+            onSelectCore={stableSelectCore}
+          />
+        ))}
       </div>
 
       <div
@@ -246,19 +231,92 @@ function CpuSummaryCard({
           </strong>
         </span>
         <span className="cpu-summary-cache-bar" aria-hidden="true">
-          <span
-            className="cpu-summary-cache-seg buffer"
-            style={{ width: `${bufferPct}%` }}
-          />
-          <span
-            className="cpu-summary-cache-seg ready"
-            style={{ width: `${readyPct}%` }}
-          />
+          <CpuSummaryCacheSeg kind="buffer" percent={bufferPct} />
+          <CpuSummaryCacheSeg kind="ready" percent={readyPct} />
         </span>
       </div>
     </div>
   );
 }
+
+/**
+ * Summary cache lane extent: inline width interpolates across snapshots via
+ * the CSS width transition; decreases (batch commit / consumption) snap so
+ * the bar never animates backward.
+ */
+function CpuSummaryCacheSeg({
+  kind,
+  percent,
+}: {
+  kind: "buffer" | "ready";
+  percent: number;
+}) {
+  const snapping = useMeterSnap(percent);
+
+  return (
+    <span
+      className={`cpu-summary-cache-seg ${kind} ${snapping ? "is-snapping" : ""}`}
+      style={{ width: `${percent}%` }}
+    />
+  );
+}
+
+/**
+ * Memoized with primitive props: the summary grid renders one cell per core
+ * for every socket on every 500ms snapshot, so unchanged cells must skip
+ * reconciliation. onSelectCore must be identity-stable.
+ */
+const CpuSummaryCoreCell = memo(function CpuSummaryCoreCell({
+  coreId,
+  coreLabel,
+  socketLabel,
+  clockHz,
+  running,
+  deadlocked,
+  progress,
+  onSelectCore,
+}: {
+  coreId: number;
+  coreLabel: string;
+  socketLabel: string;
+  clockHz: number;
+  running: boolean;
+  deadlocked: boolean;
+  progress: number;
+  onSelectCore: (coreId: number) => void;
+}) {
+  const coreStyle = running
+    ? ({
+        "--core-status-color": getCoreSegmentColor(coreId, 0.94),
+        "--core-status-glow": getCoreSegmentColor(coreId, 0.72),
+      } as CSSProperties)
+    : undefined;
+
+  return (
+    <button
+      type="button"
+      className={`core-die cpu-summary-core-cell ${
+        running ? "running" : "idle"
+      } ${
+        deadlocked ? "deadlocked" : ""
+      }`}
+      style={coreStyle}
+      onClick={() => onSelectCore(coreId)}
+      title={`${coreLabel} - ${formatClock(clockHz)}`}
+      aria-label={`Select ${coreLabel} on ${socketLabel}`}
+    >
+      <span className="core-die-head">
+        <span className="core-label cpu-summary-core-tag">{coreLabel}</span>
+        <span className="core-clock cpu-summary-core-clock">
+          <strong>{formatClockTick(clockHz)}</strong>
+        </span>
+      </span>
+      <span className="smooth-progress die-progress" aria-hidden="true">
+        <SmoothFill value={progress} />
+      </span>
+    </button>
+  );
+});
 
 function getCompactSchedulerColumnCount(slotCount: number) {
   if (slotCount <= 1 || slotCount === 4) return null;

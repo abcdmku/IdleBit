@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { amountCompare } from "../amount";
 import {
+  createAcceleratorWorkloadDemand,
+  getAcceleratorCompatibility,
+} from "../accelerators";
+import {
   acceleratorSkuDefinitions,
   getAcceleratorSkuDefinition,
   getAcceleratorSkuDefinitionsForKind,
   isAcceleratorSkuId,
   isAcceleratorWorkloadClass,
 } from "./accelerators";
+import { getTaskDefinition } from "./tasks";
 
 describe("Workshop accelerator content", () => {
   it("defines explicit GPU and NPU roles with exact operating envelopes", () => {
@@ -57,5 +62,31 @@ describe("Workshop accelerator content", () => {
     expect(isAcceleratorSkuId("gpu-unbounded")).toBe(false);
     expect(isAcceleratorWorkloadClass("inference")).toBe(true);
     expect(isAcceleratorWorkloadClass("general")).toBe(false);
+  });
+
+  // C-DES-12: Inference Batch is the only authored inference workload and it
+  // runs at batch size 16; a 32 minimum made Batch NPU 16 dead content.
+  it("keeps Batch NPU 16 compatible with the authored Inference Batch workload", () => {
+    const batchNpu = getAcceleratorSkuDefinition("npuBatch16");
+    const inferenceOperation = getTaskDefinition("inferenceBatch")
+      .operations.find((operation) => operation.acceleratorClass === "inference");
+
+    expect(inferenceOperation).toBeDefined();
+    expect(batchNpu.minimumBatchSize).toBe("16");
+
+    const demand = createAcceleratorWorkloadDemand({
+      id: "inference-batch",
+      workloadClass: "inference",
+      modelMemoryBits: inferenceOperation?.acceleratorModelMemoryBits,
+      batchSize: inferenceOperation?.acceleratorBatchSize,
+      minimumComputeOperationsPerSecond:
+        inferenceOperation?.acceleratorMinimumComputeOperationsPerSecond,
+      preferredKind: "npu",
+    });
+
+    expect(getAcceleratorCompatibility(batchNpu, demand)).toEqual({
+      compatible: true,
+      blockers: [],
+    });
   });
 });

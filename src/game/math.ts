@@ -29,7 +29,6 @@ import {
   getCpuHardware,
   getCoreClockHz,
   getCoreClockLevel,
-  isPsuManagementUnlocked,
   STARTER_PSU_WATTS,
 } from "./progression";
 import type {
@@ -1405,15 +1404,14 @@ export const getPowerReliability = (state: GameState) => {
 export const getBilledPowerWatts = (state: GameState) =>
   getHardwareDrawWatts(state);
 
+// Metered billing is live from the start of a new save (1 credit/sec per uW).
+// PSU Management only unlocks the destructive consequences (unpaid cutoff,
+// PSU overload failure), never the meter itself.
 export const getPowerCostPerSecondExact = (state: GameState) =>
-  isPsuManagementUnlocked(state)
-    ? amountMultiply(getHardwareDrawWattsExact(state), 1_000_000)
-    : ZERO_AMOUNT;
+  amountMultiply(getHardwareDrawWattsExact(state), 1_000_000);
 
 export const getPowerCostPerSecond = (state: GameState) =>
-  isPsuManagementUnlocked(state)
-    ? roundThousandth(amountToSafeNumber(getPowerCostPerSecondExact(state)))
-    : 0;
+  roundThousandth(amountToSafeNumber(getPowerCostPerSecondExact(state)));
 
 export const getReservedMemoryBytes = (state: GameState) =>
   bitsToBytes(getReservedMemoryBits(state));

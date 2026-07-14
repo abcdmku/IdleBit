@@ -7,7 +7,7 @@ import { normalizeFacilityInfrastructureForGameState } from "../../game/facility
 import { createInitialGameState } from "../../game/progression";
 import { deriveVisibleState } from "../../game/selectors";
 import { applyAction } from "../../game/simulation";
-import type { GameState } from "../../game/types";
+import type { GameState, TaskId } from "../../game/types";
 import { InfrastructurePanel } from "./InfrastructurePanel";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
@@ -55,9 +55,9 @@ const facilityReady = () => {
   return state;
 };
 
-const workloadReady = () => {
+const fleetReady = () => {
   const initial = createInitialGameState();
-  let state = withExactResources(
+  return withExactResources(
     {
       ...initial,
       campaign: {
@@ -78,6 +78,10 @@ const workloadReady = () => {
     },
     exactResourceBag("1000000000000", "1000000000000"),
   );
+};
+
+const workloadReady = () => {
+  let state = fleetReady();
   for (let index = 0; index < 2; index += 1) {
     state = applyAction(state, {
       type: "purchaseAggregateServerBatch",
@@ -132,6 +136,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={visible}
           resources={state.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={onCommissionCluster}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -224,6 +230,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={visible}
           resources={state.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -248,6 +256,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={deriveVisibleState(state).infrastructure}
           resources={state.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -280,6 +290,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={deriveVisibleState(current).infrastructure}
           resources={current.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={onSetClusterFaultDomain}
           onStartWorkload={() => undefined}
@@ -371,6 +383,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={deriveVisibleState(current).infrastructure}
           resources={current.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -422,6 +436,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={deriveVisibleState(state).infrastructure}
           resources={state.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -452,6 +468,8 @@ describe("InfrastructurePanel", () => {
         <InfrastructurePanel
           visible={deriveVisibleState(state).infrastructure}
           resources={exactResourceBag("599999", "1000000000000")}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
           onCommissionCluster={() => undefined}
           onSetClusterFaultDomain={() => undefined}
           onStartWorkload={() => undefined}
@@ -489,5 +507,202 @@ describe("InfrastructurePanel", () => {
     });
     expect(onCommissionFacility).toHaveBeenCalledWith("workshopFacility");
     expect(onCommissionRack).toHaveBeenCalledWith("facility-2", "halfRack");
+  });
+
+  it("manages and releases a Fleet system through the rendered node controls", () => {
+    const state = fleetReady();
+    const onSetNodeManaged = vi.fn();
+    const renderPanel = (current: GameState) => {
+      root.render(
+        <InfrastructurePanel
+          visible={deriveVisibleState(current).infrastructure}
+          resources={current.exactResources}
+          onSetNodeManaged={onSetNodeManaged}
+          onPurchaseServerBatch={() => undefined}
+          onCommissionCluster={() => undefined}
+          onSetClusterFaultDomain={() => undefined}
+          onStartWorkload={() => undefined}
+          onCancelWorkload={() => undefined}
+          onSetWorkloadWeight={() => undefined}
+          onCommissionFacility={() => undefined}
+          onCommissionRack={() => undefined}
+          onPlaceNode={() => undefined}
+          onRemoveNode={() => undefined}
+        />,
+      );
+    };
+
+    act(() => renderPanel(state));
+
+    expect(container.textContent).toContain(
+      "No managed Fleet nodes are available.",
+    );
+    const manageButton = container.querySelector<HTMLButtonElement>(
+      ".fleet-node-row .fleet-node-action",
+    );
+    expect(manageButton?.textContent).toBe("Manage");
+    expect(manageButton?.disabled).toBe(false);
+    act(() => manageButton?.click());
+    expect(onSetNodeManaged).toHaveBeenCalledWith(1, true);
+
+    // Round-trip the real action so the rendered control drives the same
+    // state transition the campaign requires.
+    const managed = applyAction(state, {
+      type: "setSystemManaged",
+      systemId: 1,
+      managed: true,
+    });
+    expect(
+      managed.infrastructure.fleetNodes.some((node) => node.managed),
+    ).toBe(true);
+    act(() => renderPanel(managed));
+
+    expect(container.textContent).not.toContain(
+      "No managed Fleet nodes are available.",
+    );
+    expect(
+      container.querySelector('.cluster-builder input[type="checkbox"]'),
+    ).not.toBeNull();
+    const releaseButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".fleet-node-row .fleet-node-action",
+      ),
+    ).find((button) => button.textContent === "Release");
+    expect(releaseButton?.disabled).toBe(false);
+    onSetNodeManaged.mockClear();
+    act(() => releaseButton?.click());
+    expect(onSetNodeManaged).toHaveBeenCalledWith(1, false);
+  });
+
+  it("disables Manage with the game blocker while automated work is assigned", () => {
+    const base = fleetReady();
+    const blockedState: GameState = {
+      ...base,
+      standingOrder: {
+        ...base.standingOrder,
+        taskId: "fetchBit" as TaskId,
+        systemId: 1,
+        enabled: true,
+      },
+    };
+
+    act(() => {
+      root.render(
+        <InfrastructurePanel
+          visible={deriveVisibleState(blockedState).infrastructure}
+          resources={blockedState.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
+          onCommissionCluster={() => undefined}
+          onSetClusterFaultDomain={() => undefined}
+          onStartWorkload={() => undefined}
+          onCancelWorkload={() => undefined}
+          onSetWorkloadWeight={() => undefined}
+          onCommissionFacility={() => undefined}
+          onCommissionRack={() => undefined}
+          onPlaceNode={() => undefined}
+          onRemoveNode={() => undefined}
+        />,
+      );
+    });
+
+    const manageButton = container.querySelector<HTMLButtonElement>(
+      ".fleet-node-row .fleet-node-action",
+    );
+    expect(manageButton?.disabled).toBe(true);
+    expect(manageButton?.title).toBe(
+      "System must finish assigned automated work before Fleet management.",
+    );
+    expect(
+      container.querySelector(".fleet-node-status.is-blocked")?.textContent,
+    ).toBe(
+      "System must finish assigned automated work before Fleet management.",
+    );
+  });
+
+  it("purchases an aggregate server batch with an exact cost projection", () => {
+    const state = fleetReady();
+    const onPurchaseServerBatch = vi.fn();
+
+    act(() => {
+      root.render(
+        <InfrastructurePanel
+          visible={deriveVisibleState(state).infrastructure}
+          resources={state.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={onPurchaseServerBatch}
+          onCommissionCluster={() => undefined}
+          onSetClusterFaultDomain={() => undefined}
+          onStartWorkload={() => undefined}
+          onCancelWorkload={() => undefined}
+          onSetWorkloadWeight={() => undefined}
+          onCommissionFacility={() => undefined}
+          onCommissionRack={() => undefined}
+          onPlaceNode={() => undefined}
+          onRemoveNode={() => undefined}
+        />,
+      );
+    });
+
+    const countInput = container.querySelector<HTMLInputElement>(
+      ".server-procurement-count input",
+    );
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(countInput, "2");
+      countInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const workshopServerButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".server-catalog button"),
+    ).find((button) => button.textContent?.includes("Workshop Server"));
+    expect(workshopServerButton?.textContent).toContain("Workshop Server ×2");
+    expect(workshopServerButton?.disabled).toBe(false);
+    // Two Workshop Servers with their default Local SSD + Gigabit NIC
+    // profile: 2 × (250,000 + 30,000 + 12,000) credits and 2 × 1 data.
+    expect(
+      workshopServerButton?.querySelector('[aria-label="584000 credits"]'),
+    ).not.toBeNull();
+    expect(
+      workshopServerButton?.querySelector('[aria-label="2 data"]'),
+    ).not.toBeNull();
+
+    act(() => workshopServerButton?.click());
+    expect(onPurchaseServerBatch).toHaveBeenCalledWith("workshopServer", 2);
+
+    // Round-trip the real action: the purchased batch arrives managed and
+    // becomes selectable in the cluster builder.
+    const purchased = applyAction(state, {
+      type: "purchaseAggregateServerBatch",
+      skuId: "workshopServer",
+      count: 2,
+    });
+    act(() => {
+      root.render(
+        <InfrastructurePanel
+          visible={deriveVisibleState(purchased).infrastructure}
+          resources={purchased.exactResources}
+          onSetNodeManaged={() => undefined}
+          onPurchaseServerBatch={() => undefined}
+          onCommissionCluster={() => undefined}
+          onSetClusterFaultDomain={() => undefined}
+          onStartWorkload={() => undefined}
+          onCancelWorkload={() => undefined}
+          onSetWorkloadWeight={() => undefined}
+          onCommissionFacility={() => undefined}
+          onCommissionRack={() => undefined}
+          onPlaceNode={() => undefined}
+          onRemoveNode={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Workshop Server ×2");
+    expect(
+      container.querySelector('.cluster-builder input[type="checkbox"]'),
+    ).not.toBeNull();
   });
 });

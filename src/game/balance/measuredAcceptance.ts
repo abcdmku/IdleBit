@@ -23,6 +23,10 @@ import {
   type WorkloadAcceptanceEvidence,
 } from "./acceptance";
 import {
+  cadenceExpectsBufferOverflow,
+  sessionCadenceProfileById,
+} from "./cadence";
+import {
   auditPolicyActionOutcome,
   decideBalancePolicy,
   type BalancePolicyDecision,
@@ -809,9 +813,17 @@ export const createMeasuredCampaignHarness = (
 
       if (context.intervalKind === "offline") {
         const levelId = context.report.bufferLevelId;
+        // Only unexpected overflow is a balance defect: when the profile's
+        // modeled cadence itself returns after the buffer fills (a daily
+        // player on a 2h buffer), lost time is profile-appropriate and must
+        // not fail the buffer-overflow acceptance gate.
+        const overflowUnexpected = !cadenceExpectsBufferOverflow(
+          sessionCadenceProfileById[profileId],
+          context.report.bufferCapacityMs,
+        );
         measurement.overflowByBufferMs[levelId] =
           (measurement.overflowByBufferMs[levelId] ?? 0) +
-          Math.max(0, context.report.overflowMs);
+          (overflowUnexpected ? Math.max(0, context.report.overflowMs) : 0);
         measurement.destructiveAbsenceEvents +=
           context.report.destructiveEvents.psuOverload +
           context.report.destructiveEvents.unpaidBill +

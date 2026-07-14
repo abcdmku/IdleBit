@@ -26,7 +26,7 @@ import type {
 } from "./types";
 import { createRackReadyGameState } from "./devSeeds";
 import { getHardwareDrawWatts, getPsuStress } from "./math";
-import { createSystemState } from "./progression";
+import { createRamStickState, createSystemState } from "./progression";
 import { replaceSystems } from "./systems";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -551,9 +551,18 @@ describe("campaign foundation", () => {
 
   it("keeps a safe standing order productive beside a powered-off contract system", () => {
     let state = fundExact(withBuffer(createInitialGameState(), "globalScheduler"));
+    // Contract acceptance validates authored stage throughput (F-PLAY-7
+    // ruling), so the contract box needs RAM for RAM-staged market offers.
+    const contractBox = createSystemState(2, "Offline contract box");
     state = replaceSystems(
       state,
-      [state.systems[0]!, createSystemState(2, "Offline contract box")],
+      [state.systems[0]!, {
+        ...contractBox,
+        hardware: {
+          ...contractBox.hardware,
+          ramSticks: [createRamStickState(1, 1, 1)],
+        },
+      }],
       2,
     );
     state = {

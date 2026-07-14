@@ -1287,7 +1287,7 @@ export type GameAction =
     }
   | { type: "setLiveOperationsEnabled"; enabled: boolean }
   | { type: "refreshContractMarket" }
-  | { type: "acceptContract"; contractId: string }
+  | { type: "acceptContract"; contractId: string; systemId?: number }
   | { type: "declineContract"; contractId: string }
   | { type: "completeContract"; contractId: string }
   | { type: "startProjectPhase"; projectId: ProjectId; systemId?: number }
@@ -1828,6 +1828,8 @@ export interface VisibleWorkshopCoolingTier {
   capacityWatts: Amount;
   powerDrawWatts: Amount;
   costs: ExactCost[];
+  /** Non-empty when selecting this tier is a downgrade: half the installed tier's cost. */
+  refunds: ExactCost[];
   installed: boolean;
   canInstall: boolean;
   blockedReason: string | null;
@@ -2031,12 +2033,20 @@ export interface VisibleWorkMixStage {
   work: Amount;
 }
 
+export interface VisibleContractSystemOption {
+  systemId: number;
+  name: string;
+  /** Why accepting this offer on this system is blocked; null when eligible. */
+  blockedReason: string | null;
+}
+
 export interface VisibleContract {
   id: string;
   templateId: ContractTemplateId;
   kind: ContractKind;
   name: string;
   description: string;
+  /** Generator-suggested default target; acceptance honors the player's choice. */
   systemId: number;
   workRequiredMs: number;
   workCompletedMs: number;
@@ -2057,6 +2067,11 @@ export interface VisibleContract {
   bufferCovered: boolean;
   canAccept: boolean;
   projectedPauseReason: string | null;
+  /**
+   * Per-owned-system acceptance availability for offers (empty once
+   * accepted); busy or incompatible systems keep their explicit blocker.
+   */
+  systemOptions?: VisibleContractSystemOption[];
   workMix?: VisibleWorkMixStage[];
   valueMultiplierVsStandingOrderBps?: number | null;
   offerPremiumBps?: Amount;

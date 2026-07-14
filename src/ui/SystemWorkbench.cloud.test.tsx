@@ -91,10 +91,12 @@ describe("SystemWorkbench Cloud view", () => {
       name: "Regional Edge",
     });
 
+    // Planetary Commons is a later chapter: its whole section (finale
+    // control, charter choices) must stay absent in Resilient Cloud.
     const finale = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
       (button) => button.textContent?.includes("Start finale"),
     );
-    expect(finale?.disabled).toBe(true);
-    expect(finale?.title).toBe("Requires Planetary Commons.");
+    expect(finale).toBeUndefined();
+    expect(container.querySelector(".planetary-command")).toBeNull();
   });
 });

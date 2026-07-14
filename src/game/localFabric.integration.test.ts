@@ -203,7 +203,9 @@ describe("Local Fabric vertical slice", () => {
       },
     ]);
     expect(completed.intervalReport.creditsEarned).toBe("11750000");
-    expect(completed.intervalReport.creditsSpent).toBe("0.0005");
+    // 0.0005 workload+facility operating cost plus 0.0001 host-system metered
+    // power (0.1 cr/s x 1 ms).
+    expect(completed.intervalReport.creditsSpent).toBe("0.0006");
   });
 
   it("is delta invariant and save-v7 round-trips runtime and payout markers", () => {

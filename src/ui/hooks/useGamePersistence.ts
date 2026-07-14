@@ -8,8 +8,8 @@ import {
 } from "react";
 import {
   advanceGame,
+  createDevSeedGameState,
   createInitialGameState,
-  createRackReadyGameState,
   deserializeSave,
   recordDeparture,
   recordSave,
@@ -22,8 +22,11 @@ import {
 } from "../../platform";
 import type { SelectedComponent } from "../components";
 import {
+  backupSavedGameForSeed,
   clearRackReadySeed,
+  getDevSeedId,
   getSavedGame,
+  isGameSaveDurable,
   saveGameState,
   saveGameStateImmediate,
 } from "../app/persistence";
@@ -50,6 +53,10 @@ export interface UseGamePersistenceOptions {
 
 const DEFAULT_SAVE_INTERVAL_MS = 4_000;
 export const FOREGROUND_ADVANCE_INTERVAL_MS = 500;
+/** Bounded departure-save retries before an Electron close goes unacknowledged. */
+export const ELECTRON_CLOSE_SAVE_ATTEMPTS = 3;
+const NON_DURABLE_SAVE_MESSAGE =
+  "Saved to memory only — storage is unavailable, so progress will be lost when this page closes.";
 const getCurrentTime = () => Date.now();
 
 const errorMessage = (error: unknown, fallback: string) =>
@@ -106,6 +113,7 @@ export function useGamePersistence({
   const saveSequenceRef = useRef(0);
   const durableWriteSequenceRef = useRef(0);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const nonDurableWarnedRef = useRef(false);
 
   const setCatchupActive = useCallback((active: boolean) => {
     catchupActiveRef.current = active;
@@ -176,12 +184,24 @@ export function useGamePersistence({
         await write;
         if (shouldIgnoreStatus?.()) return true;
         if (saveSequenceRef.current === sequence) {
-          setPersistenceStatus({
-            phase: "saved",
-            message: "Saved",
-            lastSavedAtMs: timestampMs,
-            announcement: announceSuccess ? "polite" : null,
-          });
+          if (isGameSaveDurable()) {
+            setPersistenceStatus({
+              phase: "saved",
+              message: "Saved",
+              lastSavedAtMs: timestampMs,
+              announcement: announceSuccess ? "polite" : null,
+            });
+          } else {
+            // The memory fallback accepted the write but nothing was stored
+            // durably; keep a visible warning instead of reporting Saved.
+            setPersistenceStatus({
+              phase: "error",
+              message: NON_DURABLE_SAVE_MESSAGE,
+              lastSavedAtMs: timestampMs,
+              announcement: nonDurableWarnedRef.current ? null : "assertive",
+            });
+            nonDurableWarnedRef.current = true;
+          }
         }
         return true;
       } catch (error) {
@@ -262,7 +282,15 @@ export function useGamePersistence({
         let restored: GameState;
 
         if (seedRackReady) {
-          restored = createRackReadyGameState();
+          // Dev seeds share SAVE_KEY with real saves; keep a one-slot backup
+          // so following a seed link cannot silently destroy a progression
+          // save. A backup failure aborts into the load-error quarantine
+          // below instead of clobbering the existing save.
+          await backupSavedGameForSeed();
+          if (cancelled) return;
+          // Tests drive the hook without a seed URL; rack-ready stays the
+          // default so a bare seed flag keeps its original meaning.
+          restored = createDevSeedGameState(getDevSeedId() ?? "rack-ready");
           clearRackReadySeed();
         } else {
           const rawSave = await getSavedGame();
@@ -373,9 +401,11 @@ export function useGamePersistence({
     async (
       kind: "save" | "departure",
       strategy: "queued" | "immediate" = "queued",
-    ) => {
-      if (!readyRef.current || writeBlockedRef.current) return;
-      if (kind === "save" && catchupActiveRef.current) return;
+    ): Promise<boolean> => {
+      // True means the state is settled (written, or intentionally skipped);
+      // false means a write was attempted and failed.
+      if (!readyRef.current || writeBlockedRef.current) return true;
+      if (kind === "save" && catchupActiveRef.current) return true;
       if (kind === "departure") invalidateCatchup();
       const timestampMs = now();
       let current = stateRef.current;
@@ -392,8 +422,13 @@ export function useGamePersistence({
           "foreground",
         ).state;
       }
+      // A pending departure stamp means the offline interval since the
+      // original departedAtMs was never applied (catch-up in flight or
+      // failed). Re-stamping would silently drop that interval, so keep the
+      // original departure and buffer snapshot and only refresh the save
+      // timestamp.
       const stamped =
-        kind === "departure"
+        kind === "departure" && current.time.departedAtMs === null
           ? recordDeparture(current, timestampMs)
           : recordSave(current, timestampMs);
       commitState(stamped);
@@ -405,8 +440,7 @@ export function useGamePersistence({
           return true;
         }
       }
-      await persistState(stamped, timestampMs);
-      return true;
+      return persistState(stamped, timestampMs);
     },
     [commitState, invalidateCatchup, now, persistState],
   );
@@ -549,11 +583,25 @@ export function useGamePersistence({
     () =>
       idleBitLifecycle.onBeforeClose(({ requestId }) => {
         void (async () => {
-          try {
-            await persistCurrentState("departure", "queued");
-          } finally {
+          let settled = false;
+          for (
+            let attempt = 0;
+            attempt < ELECTRON_CLOSE_SAVE_ATTEMPTS && !settled;
+            attempt += 1
+          ) {
+            try {
+              settled = await persistCurrentState("departure", "queued");
+            } catch {
+              settled = false;
+            }
+          }
+          if (settled) {
             idleBitLifecycle.acknowledgeBeforeClose(requestId);
           }
+          // When every attempt fails the close stays unacknowledged: the
+          // main-process handshake timeout force-closes after its bounded
+          // window and persists forced-close evidence instead of silently
+          // authorizing the close over a dropped departure save.
         })();
       }),
     [persistCurrentState],
@@ -565,12 +613,23 @@ export function useGamePersistence({
 
   const resetGame = useCallback(async () => {
     if (!readyRef.current || catchupActiveRef.current) return null;
+    const wasWriteBlocked = writeBlockedRef.current;
     writeBlockedRef.current = false;
     const timestampMs = now();
     const freshState = clearDeparture(createInitialGameState(), timestampMs);
     setSelectedComponent("core:1");
     commitState(freshState);
-    await persistState(freshState, timestampMs, { allowBlockedWrite: true });
+    const persisted = await persistState(freshState, timestampMs, {
+      allowBlockedWrite: true,
+    });
+    if (!persisted) {
+      // The fresh save never reached storage, so the reset did not take
+      // effect durably. Restore the previous write quarantine and report
+      // failure so callers do not wipe preferences on top of a save that
+      // will return on the next launch.
+      writeBlockedRef.current = wasWriteBlocked;
+      return null;
+    }
     return freshState;
   }, [commitState, now, persistState]);
 

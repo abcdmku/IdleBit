@@ -1,3 +1,4 @@
+import { sessionCadenceProfileById } from "./cadence";
 import { runCampaign } from "./runner";
 import type {
   CampaignRunMetrics,
@@ -84,7 +85,15 @@ export const auditPublicCampaignTelemetry = (
   if (input.destructiveAbsenceEvents !== 0) {
     failures.push("absence caused a destructive event");
   }
-  if (input.metrics.overflowHours > 0) {
+  // Only capacity-chasing cadences (an explicit offlineCapacityFillRatio)
+  // promise to return before the buffer fills. Habitual cadences (daily
+  // returns, seeded missed visits) overflow small buffers by design; their
+  // unexpected overflow stays gated per-buffer by measured acceptance.
+  const cadenceProfile = sessionCadenceProfileById[input.metrics.profileId];
+  if (
+    cadenceProfile.offlineCapacityFillRatio !== null &&
+    input.metrics.overflowHours > 0
+  ) {
     failures.push("expected-cadence attendance overflowed the Automation Buffer");
   }
   return {

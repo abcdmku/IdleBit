@@ -841,8 +841,11 @@ const rawTasks: RawTask[] = [
       reveal: hasRamControl,
       requirement: hasInstalledRam,
       // RAM-era first completions fund System Scheduler research now that
-      // projects unlock after (not before) the scheduler exists.
-      rewardData: 3,
+      // projects unlock after (not before) the scheduler exists. Tiny
+      // Checksum's former 8 Data is re-homed across the three RAM page jobs
+      // (+3/+3/+2) because system tasks stay locked until the scheduler
+      // exists (C-DES-3).
+      rewardData: 6,
     },
   ),
   rawCpuLeafTask(
@@ -861,7 +864,8 @@ const rawTasks: RawTask[] = [
       visibility: "default",
       reveal: hasRamControl,
       requirement: hasInstalledRam,
-      rewardData: 3,
+      // +3 re-homed from Tiny Checksum (C-DES-3).
+      rewardData: 6,
     },
   ),
   rawCpuLeafTask(
@@ -880,7 +884,8 @@ const rawTasks: RawTask[] = [
       visibility: "default",
       reveal: hasRamControl,
       requirement: hasInstalledRam,
-      rewardData: 3,
+      // +2 re-homed from Tiny Checksum (C-DES-3).
+      rewardData: 5,
     },
   ),
   rawCpuLeafTask("stageChecksumPage", "Stage Checksum Page", {
@@ -1341,7 +1346,10 @@ const rawTasks: RawTask[] = [
     name: "Tiny Checksum",
     kind: "task",
     category: "system",
-    rewardData: 8,
+    // First-completion Data moved to the pre-Scheduler RAM page jobs: this
+    // system task is unreachable until System Scheduler research, so its Data
+    // cannot fund that research (C-DES-3).
+    rewardData: 0,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -1956,6 +1964,21 @@ const getTaskOperations = (
   });
 };
 
+/**
+ * The single source task whose operations make up a step, or null when the
+ * step mixes sources (or has none). Leaf operations carry their own task id,
+ * composed operations carry the composition child's id.
+ */
+const getStepResidencySource = (
+  operations: TaskOperationDefinition[],
+): TaskId | null => {
+  const sourceIds = new Set(
+    operations.map((operation) => operation.sourceTaskId ?? null),
+  );
+  const [only] = sourceIds;
+  return sourceIds.size === 1 ? (only ?? null) : null;
+};
+
 const makeTaskNode = (task: TaskDefinition): TaskSubtaskDefinition =>
   dagNode({
     id: task.id,
@@ -1997,12 +2020,27 @@ const deriveDagNodes = (
   const terminalNodeByStepId = new Map<string, string>();
   const dependedStepIds = new Set<string>();
   let ramStates = createCoreRamStates(parallelCoreCount);
+  let previousResidencySource: TaskId | null = null;
 
   for (const [index, step] of recipe.entries()) {
     const recipeNode = recipeNodeByStepId.get(step.id);
     if (!recipeNode) {
       throw new Error(`Missing recipe node ${taskId}:recipe:${step.id}`);
     }
+
+    // Runtime executes each composition child as a fresh ActiveTask with
+    // empty ramBlocks, so RAM residency never survives a child boundary.
+    // Reset the derivation's residency whenever a step's operations come
+    // from a different source task so paid work units equal the work the
+    // hardware physically executes (C-SIM-1 / F-ECO-2).
+    const residencySource = getStepResidencySource(recipeNode.operations);
+    if (
+      index > 0 &&
+      (residencySource === null || residencySource !== previousResidencySource)
+    ) {
+      ramStates = createCoreRamStates(parallelCoreCount);
+    }
+    previousResidencySource = residencySource;
 
     const dependencyStepIds =
       step.dependsOn ?? (index === 0 ? [] : [recipe[index - 1]?.id]);

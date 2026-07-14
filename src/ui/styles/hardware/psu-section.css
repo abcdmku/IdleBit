@@ -1,7 +1,7 @@
+/* Density matches the CORES/CACHE cards: the base .hw-section gap and
+   padding apply — the PSU card gets no extra breathing room. */
 .psu-section {
   position: relative;
-  gap: var(--s-4);
-  padding: var(--s-4) var(--s-5);
   overflow: hidden;
 }
 
@@ -56,14 +56,43 @@
   flex-wrap: wrap;
   gap: 6px 8px;
   align-items: center;
-  justify-content: center;
   min-width: 0;
 }
 
 .psu-header-row .hw-section-header {
-  flex: 1 1 0;
-  min-width: 58px;
+  flex: 0 0 auto;
+  min-width: 0;
   width: auto;
+}
+
+/* One reserved status slot in the header row: warning, boot/shutdown
+   countdown, and billing grace swap in place inside a pinned-height cell,
+   so no state flip can ever grow or rewrap the card. Filling the header's
+   spare width also gives the alarm meter more room than a capped chip. */
+.psu-status-slot {
+  display: grid;
+  align-items: stretch;
+  flex: 1 1 170px;
+  min-width: 0;
+  height: 26px;
+}
+
+.psu-status-slot.is-idle {
+  visibility: hidden;
+}
+
+.psu-status-slot > * {
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Chips and banners flatten to the slot's pinned height: vertical padding
+   collapses and the row centers, so every state renders 26px tall. */
+.psu-status-slot .psu-header-warning,
+.psu-status-slot .power-transition-banner {
+  padding-block: 0;
+  align-items: center;
 }
 
 .psu-header-warning {
@@ -71,17 +100,20 @@
   grid-template-columns: minmax(0, auto) minmax(52px, 1fr);
   gap: var(--s-3);
   align-items: center;
-  justify-self: center;
-  flex: 0 1 218px;
-  max-width: min(100%, 230px);
   min-width: 0;
-  margin-inline: auto;
   padding: var(--s-2) var(--s-3);
   border: 1px solid rgba(242, 194, 78, 0.34);
   border-radius: var(--radius-sm);
   background: rgba(242, 194, 78, 0.14);
   color: var(--amber);
   font-family: var(--font-mono);
+}
+
+/* Billing grace shares the chip anatomy in its own signal color. */
+.psu-header-warning.grace {
+  border-color: rgba(36, 231, 195, 0.36);
+  background: rgba(36, 231, 195, 0.10);
+  color: var(--cyan);
 }
 
 .psu-header-warning.flashing {

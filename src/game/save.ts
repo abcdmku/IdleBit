@@ -178,11 +178,20 @@ const validTaskIds = new Set<TaskId>(taskDefinitions.map((task) => task.id));
 const isTaskId = (id: unknown): id is TaskId =>
   typeof id === "string" && validTaskIds.has(id as TaskId);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
 const toFiniteNumber = (value: unknown, fallback = 0) =>
   typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
 const toNonNegativeNumber = (value: unknown, fallback = 0) =>
   Math.max(0, toFiniteNumber(value, fallback));
+
+const toPositiveIntegerOrNull = (value: unknown): number | null => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const parsed = Math.trunc(value);
+  return parsed >= 1 ? parsed : null;
+};
 
 const toNonNegativeAmount = (value: unknown) => {
   try {
@@ -197,25 +206,29 @@ const toNonNegativeAmount = (value: unknown) => {
 const toInteger = (value: unknown, fallback = 0) =>
   Math.trunc(toFiniteNumber(value, fallback));
 
+const toExactAmountOrNull = (value: unknown): Amount | null => {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return null;
+  try {
+    return amountClampMin(value);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Each exact resource falls back to its numeric projection independently, so
+ * one corrupt entry never collapses a valid huge exact balance (e.g. 1e400
+ * credits) down to the lossy Number.MAX_VALUE projection.
+ */
 const normalizeExactResources = (
   value: Partial<ExactResourceBag> | null | undefined,
   resources: GameState["resources"],
-) => {
-  try {
-    if (value?.credits !== undefined && value.data !== undefined) {
-      return exactResourceBag(
-        amountClampMin(value.credits),
-        amountClampMin(value.data),
-      );
-    }
-  } catch {
-    // Fall through to the numeric compatibility projection.
-  }
-  return exactResourceBag(
-    Math.max(0, resources.credits),
-    Math.max(0, resources.data),
+) =>
+  exactResourceBag(
+    toExactAmountOrNull(value?.credits) ?? amount(Math.max(0, resources.credits)),
+    toExactAmountOrNull(value?.data) ?? amount(Math.max(0, resources.data)),
   );
-};
 
 const normalizeTaskIdList = (values: unknown): TaskId[] =>
   Array.isArray(values) ? values.filter(isTaskId) : [];
@@ -279,18 +292,32 @@ const normalizeTaskBatchSnapshot = (
   }
 };
 
-const normalizeQueueEntries = (values: unknown): TaskQueueEntry[] =>
+const normalizeQueueEntries = (
+  values: unknown,
+  validParentEntryIds: ReadonlySet<string> | null = null,
+): TaskQueueEntry[] =>
   Array.isArray(values)
     ? values
-        .filter(
-          (value): value is Record<string, unknown> =>
-            Boolean(value && typeof value === "object" && !Array.isArray(value)),
-        )
+        .filter(isRecord)
         .filter(
           (value) =>
             typeof value.id === "string" &&
             isTaskId(value.taskId) &&
             (value.target === "cpu" || value.target === "system"),
+        )
+        // Children whose parent task was removed/renamed can never start or
+        // settle (getTaskDefinition would throw); drop them outright.
+        .filter(
+          (value) => value.parentTaskId == null || isTaskId(value.parentTaskId),
+        )
+        // A set parent-entry reference must be a string, and — when the live
+        // parent-entry id set is known — must resolve to a surviving entry.
+        .filter(
+          (value) =>
+            value.parentQueueEntryId == null ||
+            (typeof value.parentQueueEntryId === "string" &&
+              (validParentEntryIds === null ||
+                validParentEntryIds.has(value.parentQueueEntryId))),
         )
         .map((value) => {
           const taskId = value.taskId as TaskId;
@@ -305,6 +332,13 @@ const normalizeQueueEntries = (values: unknown): TaskQueueEntry[] =>
             ...(value as unknown as TaskQueueEntry),
             ...batch,
             workOrigin: normalizeWorkOrigin(value.workOrigin),
+            ...(value.childTaskId !== undefined
+              ? {
+                  childTaskId: isTaskId(value.childTaskId)
+                    ? (value.childTaskId as TaskId)
+                    : null,
+                }
+              : {}),
             acceleratorKindsUsed: normalizeAcceleratorKinds(
               value.acceleratorKindsUsed,
             ),
@@ -320,6 +354,20 @@ const normalizeQueueEntries = (values: unknown): TaskQueueEntry[] =>
           };
         })
     : [];
+
+/**
+ * Top-level queue entries referencing a parent entry that no longer exists in
+ * the same queue can never dispatch or settle; drop them after normalization.
+ */
+const sanitizeQueueEntryParentLinks = (
+  entries: TaskQueueEntry[],
+): TaskQueueEntry[] => {
+  const ids = new Set(entries.map((entry) => entry.id));
+  return entries.filter(
+    (entry) =>
+      entry.parentQueueEntryId == null || ids.has(entry.parentQueueEntryId),
+  );
+};
 
 const normalizeTaskCounts = (
   counts: unknown,
@@ -389,8 +437,10 @@ const normalizeOperationStatus = (status: unknown): OperationRuntimeStatus => {
     return status;
   }
 
-  if (status === "rerunning" || status === "restarting") return "running";
-  return "complete";
+  // Unknown statuses must never normalize to "complete": settleActiveTasks
+  // would treat the operation as finished and mint the stored reward without
+  // the remaining work. "running" keeps the remaining counters authoritative.
+  return "running";
 };
 
 const normalizeMemoryState = (
@@ -416,9 +466,7 @@ const normalizeMemoryState = (
 const normalizeRamBlocks = (blocks: unknown) =>
   Array.isArray(blocks)
     ? blocks
-        .filter((block): block is Record<string, unknown> =>
-          Boolean(block && typeof block === "object" && !Array.isArray(block)),
-        )
+        .filter(isRecord)
         .map((block, index) => {
           const lengthBits = toNonNegativeNumber(block.lengthBits);
           return {
@@ -435,7 +483,7 @@ const normalizeRamBlocks = (blocks: unknown) =>
 const normalizeActiveOperation = (
   operation: ActiveCoreOperation,
 ): ActiveCoreOperation => {
-  const status = normalizeOperationStatus(operation.status);
+  const parsedStatus = normalizeOperationStatus(operation.status);
   const remainingCycles = toNonNegativeAmount(operation.remainingCycles);
   const totalCycles = amountMax(
     remainingCycles,
@@ -446,6 +494,14 @@ const normalizeActiveOperation = (
     remainingLoadCycles,
     toNonNegativeAmount(operation.totalLoadCycles),
   );
+  // "complete" is only trusted when the required counters are exhausted;
+  // otherwise the settle pass would pay the reward without the leftover work.
+  const status =
+    parsedStatus === "complete" &&
+    (amountCompare(remainingCycles, ZERO_AMOUNT) > 0 ||
+      amountCompare(remainingLoadCycles, ZERO_AMOUNT) > 0)
+      ? "running"
+      : parsedStatus;
   const memoryReservedBits = toNonNegativeNumber(operation.memoryReservedBits);
 
   return {
@@ -480,7 +536,25 @@ const normalizeCoreIds = (coreIds: unknown[], availableCoreIds: number[]) => {
 const normalizeActiveTask = (
   task: ActiveTask,
   availableCoreIds: number[],
+  validParentEntryIds: ReadonlySet<string>,
 ): ActiveTask | null => {
+  const rawParentTaskId = task.parentTaskId;
+  const rawParentQueueEntryId = task.parentQueueEntryId;
+  const parentTaskId = isTaskId(rawParentTaskId) ? rawParentTaskId : null;
+  // A child of a removed/renamed parent task can never settle its work into a
+  // parent (getTaskDefinition would throw); drop the stale child.
+  if (rawParentTaskId != null && parentTaskId === null) return null;
+  const parentQueueEntryId =
+    typeof rawParentQueueEntryId === "string" &&
+    validParentEntryIds.has(rawParentQueueEntryId)
+      ? rawParentQueueEntryId
+      : null;
+  // A child whose parent queue entry vanished would run forever without ever
+  // settling into a completion; drop it as stale child work.
+  if (parentTaskId !== null && rawParentQueueEntryId != null && parentQueueEntryId === null) {
+    return null;
+  }
+
   const assignedCoreIds = normalizeCoreIds(task.assignedCoreIds, availableCoreIds);
   if (assignedCoreIds.length === 0) return null;
 
@@ -523,6 +597,11 @@ const normalizeActiveTask = (
     ...batch,
     taskId: task.taskId,
     jobId: normalizeTaskId(task.jobId, task.taskId),
+    ...(rawParentTaskId !== undefined ? { parentTaskId } : {}),
+    ...(rawParentQueueEntryId !== undefined ? { parentQueueEntryId } : {}),
+    ...(task.childTaskId !== undefined
+      ? { childTaskId: isTaskId(task.childTaskId) ? task.childTaskId : null }
+      : {}),
     schedulerQueued: task.schedulerQueued === true,
     workOrigin: normalizeWorkOrigin(task.workOrigin),
     coreId: assignedCoreIds.includes(task.coreId)
@@ -550,17 +629,19 @@ const normalizeActiveTask = (
 const normalizeCoreSchedulerQueueEntries = (
   value: GameState["coreSchedulers"] | null | undefined,
   fallback: GameState["coreSchedulers"],
+  validParentEntryIds: ReadonlySet<string> | null = null,
 ): GameState["coreSchedulers"] => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  if (!isRecord(value)) return fallback;
   return Object.fromEntries(
     Object.entries(value).flatMap(([coreId, scheduler]) =>
-      scheduler && typeof scheduler === "object"
+      isRecord(scheduler)
         ? [[
             coreId,
             {
               ...scheduler,
               localQueueEntries: normalizeQueueEntries(
                 scheduler.localQueueEntries,
+                validParentEntryIds,
               ),
             },
           ]]
@@ -569,25 +650,98 @@ const normalizeCoreSchedulerQueueEntries = (
   ) as GameState["coreSchedulers"];
 };
 
-const normalizeSavedSystemWorkOrigins = (
+const getSavedSystemAvailableCoreIds = (
+  hardware: LegacyHardwareState | undefined,
+): number[] => {
+  const savedCpus = Array.isArray(hardware?.cpus)
+    ? hardware.cpus
+        .filter((cpu): cpu is GameState["hardware"]["cpus"][number] =>
+          isRecord(cpu),
+        )
+        .slice(0, V1_HARDWARE_LIMITS.cpuPackages)
+    : [];
+  if (savedCpus.length > 0) {
+    return Array.from(
+      new Set(
+        savedCpus.flatMap(
+          (cpu, index) =>
+            createCpuHardwareState(toInteger(cpu.id, index + 1), cpu.coreIds)
+              .coreIds,
+        ),
+      ),
+    );
+  }
+  return Array.from(
+    {
+      length: clampFiniteInteger(
+        hardware?.cores,
+        1,
+        V1_HARDWARE_LIMITS.coresPerCpu,
+        1,
+      ),
+    },
+    (_, index) => index + 1,
+  );
+};
+
+/**
+ * Every saved system — not just the root/selected runtime — gets the full
+ * active-task + operation + queue normalization. A non-selected system's raw
+ * tasks are otherwise loaded verbatim into the root runtime when the player
+ * selects it, where invalid Amounts or stale references crash the simulation.
+ */
+const normalizeSavedSystem = (
   system: GameState["systems"][number],
+  index: number,
 ): GameState["systems"][number] => {
+  const availableCoreIds = getSavedSystemAvailableCoreIds(
+    isRecord(system.hardware)
+      ? (system.hardware as LegacyHardwareState)
+      : undefined,
+  );
+  const queueEntries = sanitizeQueueEntryParentLinks(
+    normalizeQueueEntries(system.queueEntries),
+  );
+  const parentEntryIds = new Set(queueEntries.map((entry) => entry.id));
   const activeTasks = (Array.isArray(system.activeTasks)
     ? system.activeTasks
     : []
-  ).map((task) => ({
-    ...task,
-    workOrigin: normalizeWorkOrigin(task.workOrigin),
-  }));
+  )
+    .filter(isActiveTask)
+    .map((task) => normalizeActiveTask(task, availableCoreIds, parentEntryIds))
+    .filter((task): task is ActiveTask => task !== null);
+  const cronSchedules = normalizeCronSchedules(system.cron?.schedules);
   return {
     ...system,
+    id: Math.max(1, toInteger(system.id, index + 1)),
     activeTasks,
     activeJobs: activeTasks,
-    queueEntries: normalizeQueueEntries(system.queueEntries),
+    cacheResidency: [],
+    queue: normalizeTaskIdList(system.queue),
+    queueEntries,
     coreSchedulers: normalizeCoreSchedulerQueueEntries(
       system.coreSchedulers,
-      system.coreSchedulers,
+      {},
+      parentEntryIds,
     ),
+    cron: {
+      schedules: cronSchedules,
+      nextScheduleId: Math.max(
+        1,
+        toInteger(system.cron?.nextScheduleId, cronSchedules.length + 1),
+      ),
+      queuePowerSpikeSeconds: toNonNegativeNumber(
+        system.cron?.queuePowerSpikeSeconds,
+      ),
+    },
+    deadlockPressureSeconds: toNonNegativeNumber(system.deadlockPressureSeconds),
+    deadlockPressureResource:
+      system.deadlockPressureResource === "cache" ||
+      system.deadlockPressureResource === "ram"
+        ? system.deadlockPressureResource
+        : null,
+    deadlockPressureCpuId: toPositiveIntegerOrNull(system.deadlockPressureCpuId),
+    deadlockProcessLockout: system.deadlockProcessLockout === true,
   };
 };
 
@@ -619,7 +773,7 @@ const normalizeCronSchedules = (
     : [];
 
 const isSavedRamStick = (value: unknown): value is Partial<RamStickState> =>
-  Boolean(value && typeof value === "object" && !Array.isArray(value));
+  isRecord(value);
 
 const createUniqueRamStickId = (requestedId: number, usedIds: Set<number>) => {
   let id = Math.max(1, requestedId);
@@ -669,12 +823,19 @@ const normalizeRamSticks = (
 
 const normalizeState = (state: LegacyState): GameState => {
   const fresh = createInitialGameState();
+  // Non-object entries (nulls, primitives) in systems[] are discarded instead
+  // of throwing: a throw here would silently clean-reset the whole save.
   const savedSystems = Array.isArray(state.systems)
     ? state.systems
+        .filter((system): system is GameState["systems"][number] =>
+          isRecord(system),
+        )
         .slice(0, V1_HARDWARE_LIMITS.inspectedSystems)
-        .map(normalizeSavedSystemWorkOrigins)
+        .map(normalizeSavedSystem)
     : fresh.systems;
-  const hardware: LegacyHardwareState = state.hardware ?? {};
+  const hardware: LegacyHardwareState = isRecord(state.hardware)
+    ? (state.hardware as LegacyHardwareState)
+    : {};
   const cacheLevel = clampFiniteInteger(
     hardware.cacheLevel,
     1,
@@ -720,10 +881,19 @@ const normalizeState = (state: LegacyState): GameState => {
     V1_HARDWARE_LIMITS.systemQueueSlots,
     fresh.hardware.systemSchedulerSlots,
   );
+  // Non-object entries in hardware.cpus[] are discarded instead of throwing;
+  // an empty result falls back to the single default package below.
+  const savedCpus = Array.isArray(hardware.cpus)
+    ? hardware.cpus
+        .filter((cpu): cpu is GameState["hardware"]["cpus"][number] =>
+          isRecord(cpu),
+        )
+        .slice(0, V1_HARDWARE_LIMITS.cpuPackages)
+    : [];
   const cpus =
-    Array.isArray(hardware.cpus) && hardware.cpus.length > 0
-      ? hardware.cpus.slice(0, V1_HARDWARE_LIMITS.cpuPackages).map((cpu) =>
-          createCpuHardwareState(cpu.id, cpu.coreIds, {
+    savedCpus.length > 0
+      ? savedCpus.map((cpu, index) =>
+          createCpuHardwareState(toInteger(cpu.id, index + 1), cpu.coreIds, {
             ...cpu,
             schedulerConfig: createSchedulerConfig(cpu.schedulerConfig),
           }),
@@ -800,12 +970,23 @@ const normalizeState = (state: LegacyState): GameState => {
         ],
       ),
     ) as Partial<Record<TaskId, Amount>>;
-  const activeTasks = (state.activeTasks ?? state.activeJobs ?? [])
+  const queueEntries = sanitizeQueueEntryParentLinks(
+    normalizeQueueEntries(state.queueEntries),
+  );
+  const rootParentEntryIds = new Set(queueEntries.map((entry) => entry.id));
+  const savedActiveTasks = Array.isArray(state.activeTasks)
+    ? state.activeTasks
+    : Array.isArray(state.activeJobs)
+      ? state.activeJobs
+      : [];
+  const activeTasks = savedActiveTasks
     .filter(isActiveTask)
-    .map((task) => normalizeActiveTask(task, availableCoreIds))
+    .map((task) => normalizeActiveTask(task, availableCoreIds, rootParentEntryIds))
     .filter((task): task is ActiveTask => task !== null);
   const researchCompleted = normalizeResearchCompleted(
-    state.research?.completed ?? researchFromLegacyFlags(state.flags),
+    Array.isArray(state.research?.completed)
+      ? state.research.completed
+      : researchFromLegacyFlags(isRecord(state.flags) ? state.flags : {}),
   );
   const clickRateLevel = 0;
   const normalizedCronSchedules = normalizeCronSchedules(state.cron?.schedules);
@@ -837,23 +1018,31 @@ const normalizeState = (state: LegacyState): GameState => {
         creditShutdownWarningSeconds?: number;
       })
     | undefined;
-  const overloadFailureSeconds = Math.max(
-    0,
+  const overloadFailureSeconds = toNonNegativeNumber(
     savedPower?.overloadFailureSeconds ??
-      savedPower?.overloadWarningSeconds ??
-      0,
+      savedPower?.overloadWarningSeconds,
   );
-  const unpaidShutdownWarningSeconds = Math.max(
-    0,
+  const unpaidShutdownWarningSeconds = toNonNegativeNumber(
     savedPower?.unpaidShutdownWarningSeconds ??
-      savedPower?.creditShutdownWarningSeconds ??
-      0,
+      savedPower?.creditShutdownWarningSeconds,
   );
   const normalized: GameState = {
     ...fresh,
     ...state,
     version: SAVE_VERSION,
+    tick: Math.max(0, toInteger(state.tick, fresh.tick)),
     advanceRemainderMs: Math.max(0, toFiniteNumber(state.advanceRemainderMs)),
+    nextInstanceId: Math.max(
+      1,
+      toInteger(state.nextInstanceId, fresh.nextInstanceId),
+    ),
+    rack: {
+      nextSystemId: Math.max(
+        1,
+        toInteger(state.rack?.nextSystemId, 1),
+        ...savedSystems.map((system) => system.id + 1),
+      ),
+    },
     exactResources,
     rng: normalizeRngState(state.rng),
     time: {
@@ -964,7 +1153,7 @@ const normalizeState = (state: LegacyState): GameState => {
     ),
     flags: {
       ...fresh.flags,
-      ...state.flags,
+      ...(isRecord(state.flags) ? state.flags : {}),
       specializedCompute: state.flags?.specializedCompute === true,
     },
     systems: savedSystems,
@@ -975,14 +1164,12 @@ const normalizeState = (state: LegacyState): GameState => {
         state.power?.idlePolicy === "shutdown-when-idle"
           ? "shutdown-when-idle"
           : "low-power",
-      transitionSeconds: Math.max(0, state.power?.transitionSeconds ?? 0),
-      transitionTotalSeconds: Math.max(
-        0,
+      transitionSeconds: toNonNegativeNumber(state.power?.transitionSeconds),
+      transitionTotalSeconds: toNonNegativeNumber(
         state.power?.transitionTotalSeconds ??
-          state.power?.transitionSeconds ??
-          0,
+          state.power?.transitionSeconds,
       ),
-      bootstrapGraceSeconds: Math.max(0, bootstrapGraceSeconds),
+      bootstrapGraceSeconds: toNonNegativeNumber(bootstrapGraceSeconds),
       unpaidShutdownWarningSeconds,
       overloadFailureSeconds,
       lastFailureReason:
@@ -990,30 +1177,34 @@ const normalizeState = (state: LegacyState): GameState => {
         savedPower?.lastFailureReason === "unpaidBill"
           ? savedPower.lastFailureReason
           : null,
-      failureCount: Math.max(0, savedPower?.failureCount ?? 0),
+      failureCount: Math.max(0, toInteger(savedPower?.failureCount, 0)),
     },
     cron: {
       schedules: normalizedCronSchedules,
       nextScheduleId: Math.max(
         1,
-        state.cron?.nextScheduleId ?? fresh.cron.nextScheduleId,
+        toInteger(state.cron?.nextScheduleId, fresh.cron.nextScheduleId),
+        ...normalizedCronSchedules.map((schedule) => schedule.id + 1),
       ),
-      queuePowerSpikeSeconds: Math.max(
-        0,
-        state.cron?.queuePowerSpikeSeconds ?? 0,
+      queuePowerSpikeSeconds: toNonNegativeNumber(
+        state.cron?.queuePowerSpikeSeconds,
       ),
     },
-    deadlockPressureSeconds: state.deadlockPressureSeconds ?? 0,
-    deadlockPressureResource: state.deadlockPressureResource ?? null,
-    deadlockPressureCpuId: state.deadlockPressureCpuId ?? null,
-    deadlockProcessLockout: state.deadlockProcessLockout ?? false,
+    deadlockPressureSeconds: toNonNegativeNumber(state.deadlockPressureSeconds),
+    deadlockPressureResource:
+      state.deadlockPressureResource === "cache" ||
+      state.deadlockPressureResource === "ram"
+        ? state.deadlockPressureResource
+        : null,
+    deadlockPressureCpuId: toPositiveIntegerOrNull(state.deadlockPressureCpuId),
+    deadlockProcessLockout: state.deadlockProcessLockout === true,
     research: {
       completed: researchCompleted,
       clickRateLevel,
     },
     reliability: {
       ...fresh.reliability,
-      ...state.reliability,
+      ...(isRecord(state.reliability) ? state.reliability : {}),
     },
     completedTasks,
     completedJobs,
@@ -1040,9 +1231,10 @@ const normalizeState = (state: LegacyState): GameState => {
     coreSchedulers: normalizeCoreSchedulerQueueEntries(
       state.coreSchedulers,
       createCoreSchedulers(hardware.cores ?? fresh.hardware.cores),
+      rootParentEntryIds,
     ),
     queue: normalizeTaskIdList(state.queue ?? fresh.queue),
-    queueEntries: normalizeQueueEntries(state.queueEntries),
+    queueEntries,
     autoRepeatJobId: normalizeTaskId(state.autoRepeatJobId, null),
   };
 

@@ -98,6 +98,14 @@ export function TaskCard({
         onPress={onRun}
         repeatMs={holdRepeatMs}
         maxHoldMs={holdMaxMs}
+        // The visible label clips to the fixed action row; the full blocker
+        // reason stays readable here.
+        title={isBlocked ? disabledReason ?? undefined : `${commandLabel} ${task.name}`}
+        aria-label={
+          isBlocked && disabledReason
+            ? `${task.name}: ${disabledReason}`
+            : `${commandLabel} ${task.name}`
+        }
       >
         {!isBlocked && <Play size={11} />}
         <span>{buttonLabel}</span>

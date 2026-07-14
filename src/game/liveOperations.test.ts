@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { advanceGame } from "./advance";
 import {
+  amount,
   amountAdd,
   amountCompare,
   amountDivide,
@@ -12,7 +13,11 @@ import {
 } from "./amount";
 import { acceptContract } from "./contracts";
 import { createRackReadyGameState } from "./devSeeds";
-import { getPsuStress } from "./math";
+import {
+  getHardwareDrawWattsExact,
+  getPowerCostPerSecondExact,
+  getPsuStress,
+} from "./math";
 import {
   LIVE_OPERATIONS_AUTHORED_COMPUTE_WORK,
   LIVE_OPERATIONS_SERVICE_VALUE_MULTIPLIER,
@@ -75,6 +80,20 @@ const rackState = (thermal = false): GameState => {
     },
   };
 };
+
+/**
+ * C-State silicon makes idle cores draw less than active ones, so waking a
+ * reserved core has a real incremental power cost for the lane to pay.
+ */
+const withCStateSilicon = (state: GameState, cStateLevel = 4): GameState => ({
+  ...state,
+  hardware: { ...state.hardware, cStateLevel },
+  systems: state.systems.map((system) =>
+    system.id === 1
+      ? { ...system, hardware: { ...system.hardware, cStateLevel } }
+      : system,
+  ),
+});
 
 const reservationOffer = (): ContractOfferState => ({
   id: "live-ops-reservation",
@@ -214,7 +233,7 @@ describe("foreground Live Operations", () => {
   });
 
   it("loads the physical power/thermal/billing model and admits only <=85% PSU load", () => {
-    const state = enabledState(rackState(true));
+    const state = enabledState(withCStateSilicon(rackState(true)));
     const visible = deriveVisibleState(state).liveOperations;
     expect(visible.allocatedCoreCount).toBe(4);
     expect(amountCompare(visible.projectedPowerWatts, 0)).toBeGreaterThan(0);
@@ -293,6 +312,73 @@ describe("foreground Live Operations", () => {
     expect(deriveVisibleState(projected).liveOperations.allocatedCoreCount).toBe(0);
   });
 
+  it("charges the lane only for the reserved cores' incremental draw, not the busy system's whole operating cost", () => {
+    // Busy, expensive system: core 1 runs ordinary paid work while the lane
+    // scavenges the remaining idle cores.
+    const busy = applyAction(enabledState(withCStateSilicon(rackState())), {
+      type: "startTaskOnCore",
+      taskId: "fetchBit",
+      coreId: 1,
+      systemId: 1,
+    });
+    const visible = deriveVisibleState(busy).liveOperations;
+    expect(visible.allocatedCoreCount).toBe(3);
+
+    const local = materializeSystem(busy, 1);
+    const withLane: GameState = {
+      ...local,
+      liveOperations: { ...local.liveOperations, allocatedCoreIds: [2, 3, 4] },
+    };
+    const atRest: GameState = {
+      ...local,
+      liveOperations: { ...local.liveOperations, allocatedCoreIds: [] },
+    };
+    const laneCostPerSecond = amountSubtract(
+      getPowerCostPerSecondExact(withLane),
+      getPowerCostPerSecondExact(atRest),
+    );
+    const lanePowerWatts = amountSubtract(
+      getHardwareDrawWattsExact(withLane),
+      getHardwareDrawWattsExact(atRest),
+    );
+    // The lane pays exactly for the draw it adds over the system at rest —
+    // the same incremental basis the Power tile reports…
+    expect(amountCompare(lanePowerWatts, 0)).toBeGreaterThan(0);
+    expect(visible.projectedPowerWatts).toBe(lanePowerWatts);
+    expect(
+      amountToSafeNumber(visible.projectedOperatingCostCredits),
+    ).toBeCloseTo(
+      amountToSafeNumber(laneCostPerSecond) *
+        (visible.projectedDurationMs! / 1000),
+      9,
+    );
+    // …and never imports the whole system's operating cost into its net.
+    const wholeSystemCost = amountMultiply(
+      getPowerCostPerSecondExact(withLane),
+      amountDivide(amount(visible.projectedDurationMs!), 1000),
+    );
+    expect(
+      amountCompare(visible.projectedOperatingCostCredits, wholeSystemCost),
+    ).toBeLessThan(0);
+    expect(visible.projectedNetRewardCredits).toBe(
+      amountSubtract(
+        visible.projectedRewardCredits,
+        visible.projectedOperatingCostCredits,
+      ),
+    );
+  });
+
+  it("prices the lane at zero when idle cores already draw full power", () => {
+    // Without C-State silicon an idle core burns exactly what an active one
+    // does, so scavenging it adds nothing to the bill the system pays anyway.
+    const visible = deriveVisibleState(enabledState(rackState())).liveOperations;
+    expect(visible.allocatedCoreCount).toBe(4);
+    expect(visible.projectedOperatingCostCredits).toBe("0");
+    expect(visible.projectedPowerWatts).toBe("0");
+    expect(visible.projectedNetRewardCredits).toBe(visible.projectedRewardCredits);
+    expect(visible.projectedMarginBps).toBe(10_000);
+  });
+
   it("is exact across split advances and coexists with standing work without the bulk skip", () => {
     const state = enabledState();
     const oneShot = advanceGame(state, BATCH_MS, "foreground");
@@ -341,7 +427,7 @@ describe("foreground Live Operations", () => {
   });
 
   it("shows exact projection economics and honest paused, runway, and power blockers", () => {
-    const unlocked = rackState();
+    const unlocked = withCStateSilicon(rackState());
     expect(deriveVisibleState(unlocked).liveOperations.blockedReason).toBe(
       "Configure Live Operations on a system.",
     );

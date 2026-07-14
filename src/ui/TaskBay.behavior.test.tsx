@@ -125,12 +125,51 @@ describe("TaskBay task and research behavior", () => {
 
     expect(button?.disabled).toBe(true);
     expect(button?.textContent).toContain("Cache capacity too low.");
-    // Chips carry their unit through the aria-label, not sr-only text.
+    // Chips carry their unit through the aria-label, not sr-only text. The
+    // ops chip counts invocations; paid work volume gets its own chip.
     expect(
       meta?.querySelector(".meta-chip.ops")?.getAttribute("aria-label"),
-    ).toContain("operations");
+    ).toContain("operation invocations");
     expect(taskCard?.querySelector(".task-card-head .resource-token.credits")).not.toBeNull();
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
+  });
+
+  it("shows the real paid-work volume beside the invocation count", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const visible: VisibleState = {
+      ...base,
+      tasks: base.tasks.map((task) =>
+        task.id === "fetchBit"
+          ? {
+            ...task,
+            name: "Packet Check",
+            operationCount: 4,
+            paidWorkUnits: 48,
+          }
+          : task,
+      ),
+    };
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    const meta = container.querySelector(".task-card .task-meta-line");
+    const opsChip = meta?.querySelector(".meta-chip.ops");
+    const workChip = meta?.querySelector(".meta-chip.work");
+
+    // The card no longer hides the ~12x larger paid work volume behind
+    // hover/Inspect: 4 invocations and 48 paid units are both visible.
+    expect(opsChip?.textContent).toContain("4");
+    expect(workChip?.textContent).toContain("48");
+    expect(workChip?.getAttribute("aria-label")).toBe("48 paid work units");
+    expect(workChip?.getAttribute("title")).toContain("paid work units");
   });
 
   it("repeats task actions immediately while the run button is held", () => {
@@ -369,6 +408,61 @@ describe("TaskBay task and research behavior", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("routes pinned system tasks through the system scheduler regardless of core selection", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        basicQueue: true,
+        scheduler: true,
+      },
+      tasks: [
+        {
+          ...base.tasks[0]!,
+          id: "tinyChecksum",
+          name: "Tiny Checksum",
+          category: "system",
+          canStart: false,
+          canQueue: true,
+          blockedReason: null,
+          queueBlockedReason: null,
+        },
+      ],
+    } as unknown as VisibleState;
+
+    act(() => {
+      root.render(
+        <PinnedTaskBar
+          visible={visible}
+          pinnedTaskIds={["tinyChecksum"]}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+          dispatch={dispatch}
+          selectedComponent="core:1"
+        />,
+      );
+    });
+
+    // A pinned system task resolves its own category route: with a core
+    // selected it is NOT disabled with "Use system scheduler" — it schedules.
+    const button =
+      container.querySelector<HTMLButtonElement>(".pinned-task-action");
+    expect(button?.disabled).toBe(false);
+    expect(button?.textContent).toContain("Schedule");
+
+    act(() => {
+      button?.dispatchEvent(makePointerEvent("pointerdown"));
+      button?.dispatchEvent(makePointerEvent("pointerup"));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "queueTask",
+      taskId: "tinyChecksum",
+    });
   });
 
   it("lists multi-core task requirements without labeling single-core tasks", () => {

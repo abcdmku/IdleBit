@@ -80,6 +80,8 @@ const meta = {
   args: {
     visible: infrastructureFixture(),
     resources: exactResourceBag("1e12", "1e12"),
+    onSetNodeManaged: () => undefined,
+    onPurchaseServerBatch: () => undefined,
     onCommissionCluster: () => undefined,
     onSetClusterFaultDomain: () => undefined,
     onStartWorkload: () => undefined,

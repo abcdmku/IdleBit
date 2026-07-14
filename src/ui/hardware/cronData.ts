@@ -65,6 +65,11 @@ export const getCronIntervalSeconds = (
 ) => {
   const intervalSeconds = firstNumber(
     schedule.intervalSeconds,
+    typeof schedule.intervalValue === "number"
+      ? schedule.intervalMode === "minutes"
+        ? schedule.intervalValue * 60
+        : schedule.intervalValue
+      : undefined,
     typeof schedule.intervalMinutes === "number"
       ? schedule.intervalMinutes * 60
       : undefined,
@@ -74,10 +79,17 @@ export const getCronIntervalSeconds = (
   return Math.max(minimumSeconds, intervalSeconds ?? minimumSeconds);
 };
 
+/**
+ * The schedule's persisted unit choice wins. The seconds/minutes fallback
+ * inference only applies to legacy shapes that never stored a mode —
+ * otherwise a 60s-multiple interval would silently override the user's
+ * dispatched toggle back to minutes.
+ */
 export const getCronMode = (
   schedule: UiCronSchedule,
   intervalSeconds: number,
 ): CronIntervalMode =>
+  schedule.intervalMode ??
   schedule.mode ??
   (intervalSeconds >= 60 && intervalSeconds % 60 === 0 ? "minutes" : "seconds");
 

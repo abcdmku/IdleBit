@@ -6,6 +6,8 @@ import { clampMeter } from "./meters";
 
 export interface QueuePreviewItem {
   id: string;
+  /** Stable queue-entry identity for React keys; falls back to id+index. */
+  key?: string;
   cancelTaskId?: string;
   name: string;
   waitingReason: string;
@@ -121,19 +123,16 @@ export function QueuePreview({
   emptyLabel?: string;
   startSmall?: boolean;
 }) {
+  // Reserved geometry: the footprint derives from purchased slot capacity
+  // (items can only exceed it transiently), never from current occupancy, so
+  // queueing and completion update cells in place without moving neighbors.
   const visibleSlotCount = Math.max(Math.max(0, slotCapacity), items.length);
   const openSlotCount = Math.max(0, visibleSlotCount - items.length);
-  const renderedSlotCount = items.length + (openSlotCount > 0 ? 1 : 0);
-  const gridSlotCount = items.length > 0 ? renderedSlotCount : visibleSlotCount;
-  const grid = getSchedulerGridMetrics(gridSlotCount, {
-    startSmall: startSmall || (items.length > 0 && openSlotCount > 0),
-  });
+  const grid = getSchedulerGridMetrics(visibleSlotCount, { startSmall });
   const gridStyle = {
     "--scheduler-grid-columns": grid.columns,
     "--scheduler-grid-height": `${grid.gridHeight}px`,
-    "--scheduler-preview-height": `${
-      visibleSlotCount > 0 && items.length === 0 ? 30 : grid.gridHeight
-    }px`,
+    "--scheduler-preview-height": `${grid.gridHeight}px`,
     "--scheduler-slot-height": `${grid.slotHeight}px`,
   } as CSSProperties;
 
@@ -172,7 +171,7 @@ export function QueuePreview({
                   className={`queue-slot-cell ${item.active ? "active" : "pending"} ${
                     item.deadlocked ? "deadlocked" : ""
                   }`}
-                  key={`${item.id}-${index}`}
+                  key={item.key ?? `${item.id}-${index}`}
                   title={`${item.name}: ${item.waitingReason}`}
                 >
                   <span className="queue-slot-index">{index + 1}</span>

@@ -650,9 +650,32 @@ describe("Monte Carlo completion distribution", () => {
         expect.stringMatching(/no-op action share/),
         "public policy became stranded",
         "absence caused a destructive event",
-        "expected-cadence attendance overflowed the Automation Buffer",
       ]),
     );
+    // Daily (habitual-cadence) profiles overflow small buffers by design;
+    // run-level overflow is only a failure for capacity-chasing cadences.
+    expect(unsafe.failures).not.toContain(
+      "expected-cadence attendance overflowed the Automation Buffer",
+    );
+    const overflowChaser = auditPublicCampaignTelemetry({
+      metrics: {
+        ...run("full-idle", 120, 7),
+        scheduleMode: "monte-carlo" as const,
+        overflowHours: 1,
+        overflowShare: 0.01,
+      },
+      sessionCount: 10,
+      actionCount: 20,
+      noOpActionCount: 0,
+      intervalCount: 30,
+      developerGrantActions: 0,
+      strandedDecisions: 0,
+      destructiveAbsenceEvents: 0,
+      safelyAvoidedDestructiveEvents: 0,
+    });
+    expect(overflowChaser.failures).toEqual([
+      "expected-cadence attendance overflowed the Automation Buffer",
+    ]);
   });
 
   it("requires complete five-seed distributions with finite p10/p50/p90", () => {

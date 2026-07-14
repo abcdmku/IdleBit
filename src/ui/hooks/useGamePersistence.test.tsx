@@ -16,6 +16,7 @@ import {
   type GameOfflineAdvanceRunner,
 } from "../../platform";
 import {
+  ELECTRON_CLOSE_SAVE_ATTEMPTS,
   FOREGROUND_ADVANCE_INTERVAL_MS,
   useGamePersistence,
   type UseGamePersistenceOptions,
@@ -56,6 +57,14 @@ const flushEffects = async () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+  });
+};
+
+const drainAsyncWork = async (iterations = 30) => {
+  await act(async () => {
+    for (let index = 0; index < iterations; index += 1) {
+      await Promise.resolve();
+    }
   });
 };
 
@@ -390,7 +399,10 @@ describe("useGamePersistence", () => {
     });
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await flushEffects();
-    expect(latestHook.state.time.departedAtMs).toBe(4_000);
+    // The interrupted catch-up never applied the 2_000 departure interval,
+    // so the departure stamp must survive the new departure save.
+    expect(latestHook.state.time.departedAtMs).toBe(2_000);
+    expect(latestHook.state.time.lastSavedAtMs).toBe(4_000);
 
     await act(async () => {
       pendingAdvance.resolve(
@@ -400,9 +412,95 @@ describe("useGamePersistence", () => {
     });
     await flushEffects();
 
-    expect(latestHook.state.time.departedAtMs).toBe(4_000);
+    expect(latestHook.state.time.departedAtMs).toBe(2_000);
     expect(latestHook.state.lastAdvanceReport).toBeNull();
     expect(latestHook.state.resources.credits).toBe(10);
+  });
+
+  it("persists the original departure interval when a departure interrupts catch-up", async () => {
+    let timestampMs = 1_000;
+    const pendingAdvance = deferred<ReturnType<typeof advanceGame>>();
+    const run = vi.fn<GameOfflineAdvanceRunner["run"]>(
+      () => pendingAdvance.promise,
+    );
+    const runner = makeRunner(run);
+
+    act(() => {
+      root.render(
+        <Harness
+          options={{
+            seedRackReady: false,
+            createOfflineRunner: () => runner,
+            now: () => timestampMs,
+            saveIntervalMs: 1_000_000,
+          }}
+        />,
+      );
+    });
+    await flushEffects();
+
+    timestampMs = 2_000;
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await flushEffects();
+
+    timestampMs = 3_000;
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await flushEffects();
+    expect(latestHook.catchupActive).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+
+    timestampMs = 4_000;
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await drainAsyncWork();
+
+    // The 2_000 departure interval was never applied, so the departure save
+    // written at 4_000 must keep the original stamp for the next resume.
+    const raw = await idleBitPersistence.get<string>("save-v7");
+    const saved = deserializeSave(raw);
+    expect(saved.time).toMatchObject({
+      departedAtMs: 2_000,
+      lastSavedAtMs: 4_000,
+    });
+  });
+
+  it("backs up an existing save before a rack-ready seed replaces it", async () => {
+    const existingRaw = serializeSave(createInitialGameState(), 1_000);
+    await idleBitPersistence.set("save-v7", existingRaw);
+    const runner = makeRunner(vi.fn());
+
+    act(() => {
+      root.render(
+        <Harness
+          options={{
+            seedRackReady: true,
+            createOfflineRunner: () => runner,
+            now: () => 10_000,
+            saveIntervalMs: 1_000_000,
+          }}
+        />,
+      );
+    });
+    await drainAsyncWork();
+
+    expect(latestHook.ready).toBe(true);
+    await expect(
+      idleBitPersistence.get<string>("save-v7.pre-seed"),
+    ).resolves.toBe(existingRaw);
+    const seededRaw = await idleBitPersistence.get<string>("save-v7");
+    expect(seededRaw).not.toBe(existingRaw);
+    expect(deserializeSave(seededRaw).time.lastSavedAtMs).toBe(10_000);
   });
 
   it("quarantines writes after a save read failure until explicit reset", async () => {
@@ -654,5 +752,184 @@ describe("useGamePersistence", () => {
     setSpy.mockRestore();
     onBeforeCloseSpy.mockRestore();
     acknowledgeSpy.mockRestore();
+  });
+
+  it("retries a failed departure save before acknowledging Electron close", async () => {
+    let beforeClose:
+      | ((request: { requestId: number }) => void)
+      | undefined;
+    const onBeforeCloseSpy = vi
+      .spyOn(idleBitLifecycle, "onBeforeClose")
+      .mockImplementation((listener) => {
+        beforeClose = listener;
+        return vi.fn();
+      });
+    const acknowledgeSpy = vi
+      .spyOn(idleBitLifecycle, "acknowledgeBeforeClose")
+      .mockReturnValue(true);
+    let timestampMs = 1_000;
+    const runner = makeRunner(vi.fn());
+
+    act(() => {
+      root.render(
+        <Harness
+          options={{
+            seedRackReady: false,
+            createOfflineRunner: () => runner,
+            now: () => timestampMs,
+            saveIntervalMs: 1_000_000,
+          }}
+        />,
+      );
+    });
+    await flushEffects();
+
+    const setSpy = vi
+      .spyOn(idleBitPersistence, "set")
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValue(undefined);
+    timestampMs = 11_000;
+    act(() => beforeClose?.({ requestId: 5 }));
+    await drainAsyncWork();
+
+    expect(setSpy).toHaveBeenCalledTimes(2);
+    // The retry must not re-stamp a fresh departure over the failed one.
+    expect(
+      deserializeSave(setSpy.mock.calls[1]?.[1] as string).time,
+    ).toMatchObject({ departedAtMs: 11_000, lastSavedAtMs: 11_000 });
+    expect(acknowledgeSpy).toHaveBeenCalledWith(5);
+
+    setSpy.mockRestore();
+    onBeforeCloseSpy.mockRestore();
+    acknowledgeSpy.mockRestore();
+  });
+
+  it("leaves Electron close unacknowledged when every departure save fails", async () => {
+    let beforeClose:
+      | ((request: { requestId: number }) => void)
+      | undefined;
+    const onBeforeCloseSpy = vi
+      .spyOn(idleBitLifecycle, "onBeforeClose")
+      .mockImplementation((listener) => {
+        beforeClose = listener;
+        return vi.fn();
+      });
+    const acknowledgeSpy = vi
+      .spyOn(idleBitLifecycle, "acknowledgeBeforeClose")
+      .mockReturnValue(true);
+    const runner = makeRunner(vi.fn());
+
+    act(() => {
+      root.render(
+        <Harness
+          options={{
+            seedRackReady: false,
+            createOfflineRunner: () => runner,
+            now: () => 1_000,
+            saveIntervalMs: 1_000_000,
+          }}
+        />,
+      );
+    });
+    await flushEffects();
+
+    const setSpy = vi
+      .spyOn(idleBitPersistence, "set")
+      .mockRejectedValue(new Error("disk full"));
+    act(() => beforeClose?.({ requestId: 9 }));
+    await drainAsyncWork(60);
+
+    expect(setSpy).toHaveBeenCalledTimes(ELECTRON_CLOSE_SAVE_ATTEMPTS);
+    expect(acknowledgeSpy).not.toHaveBeenCalled();
+    expect(latestHook.persistenceStatus).toMatchObject({
+      phase: "error",
+      message: "Save failed: disk full",
+    });
+
+    setSpy.mockRestore();
+    onBeforeCloseSpy.mockRestore();
+    acknowledgeSpy.mockRestore();
+  });
+
+  it("surfaces memory-only persistence as a visible warning instead of Saved", async () => {
+    vi.useFakeTimers();
+    const driverDescriptor = Object.getOwnPropertyDescriptor(
+      idleBitPersistence,
+      "driver",
+    )!;
+    Object.defineProperty(idleBitPersistence, "driver", {
+      configurable: true,
+      value: "memory",
+    });
+    const runner = makeRunner(vi.fn());
+
+    try {
+      act(() => {
+        root.render(
+          <Harness
+            options={{
+              seedRackReady: false,
+              createOfflineRunner: () => runner,
+              now: () => 10_000,
+              saveIntervalMs: 100,
+            }}
+          />,
+        );
+      });
+      await flushEffects();
+
+      expect(latestHook.ready).toBe(true);
+      expect(latestHook.persistenceStatus).toMatchObject({
+        phase: "error",
+        announcement: "assertive",
+      });
+      expect(latestHook.persistenceStatus.message).toContain("memory");
+
+      // Follow-up autosaves keep the visible warning without re-announcing.
+      act(() => vi.advanceTimersByTime(100));
+      await flushEffects();
+      expect(latestHook.persistenceStatus).toMatchObject({
+        phase: "error",
+        announcement: null,
+      });
+      expect(latestHook.persistenceStatus.message).toContain("memory");
+    } finally {
+      Object.defineProperty(idleBitPersistence, "driver", driverDescriptor);
+    }
+  });
+
+  it("treats a failed fresh-save write as a failed reset", async () => {
+    const runner = makeRunner(vi.fn());
+
+    act(() => {
+      root.render(
+        <Harness
+          options={{
+            seedRackReady: false,
+            createOfflineRunner: () => runner,
+            now: () => 10_000,
+            saveIntervalMs: 1_000_000,
+          }}
+        />,
+      );
+    });
+    await flushEffects();
+    expect(latestHook.ready).toBe(true);
+
+    const setSpy = vi
+      .spyOn(idleBitPersistence, "set")
+      .mockRejectedValue(new Error("disk full"));
+    let resetResult: GameState | null = null;
+    await act(async () => {
+      resetResult = await latestHook.resetGame();
+    });
+
+    expect(resetResult).toBeNull();
+    expect(latestHook.persistenceStatus).toMatchObject({
+      phase: "error",
+      message: "Save failed: disk full",
+    });
+
+    setSpy.mockRestore();
   });
 });

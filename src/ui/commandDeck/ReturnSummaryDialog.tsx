@@ -5,6 +5,7 @@ import {
   type VisibleState,
 } from "../../game";
 import { ExactResourceAmount, ExactResourceCost } from "../ResourceTokens";
+import { formatExactCurrencyAmount } from "../format";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 
 const clusterWorkFallbackNames: Record<string, string> = {
@@ -147,7 +148,11 @@ export function ReturnSummaryDialog({
           <span className="return-summary-resource-label">
             <Zap size={13} aria-hidden="true" /> Credits
           </span>
-          <span aria-label={`${report.creditsEarned} credits earned`}>
+          <span
+            aria-label={`${formatExactCurrencyAmount(
+              report.creditsEarned,
+            )} credits earned`}
+          >
             <ExactResourceAmount
               resource="credits"
               amount={report.creditsEarned}
@@ -157,7 +162,9 @@ export function ReturnSummaryDialog({
           </span>
           <span
             className="return-summary-spent"
-            aria-label={`${report.creditsSpent} credits spent`}
+            aria-label={`${formatExactCurrencyAmount(
+              report.creditsSpent,
+            )} credits spent`}
           >
             −
             <ExactResourceAmount
@@ -169,7 +176,11 @@ export function ReturnSummaryDialog({
           <span className="return-summary-resource-label">
             <Database size={13} aria-hidden="true" /> Data
           </span>
-          <span aria-label={`${report.dataEarned} data earned`}>
+          <span
+            aria-label={`${formatExactCurrencyAmount(
+              report.dataEarned,
+            )} data earned`}
+          >
             <ExactResourceAmount
               resource="data"
               amount={report.dataEarned}
@@ -179,7 +190,9 @@ export function ReturnSummaryDialog({
           </span>
           <span
             className="return-summary-spent"
-            aria-label={`${report.dataSpent} data spent`}
+            aria-label={`${formatExactCurrencyAmount(
+              report.dataSpent,
+            )} data spent`}
           >
             −
             <ExactResourceAmount

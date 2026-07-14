@@ -1,5 +1,6 @@
 import { Power } from "lucide-react";
 import {
+  POWER_BOOTSTRAP_GRACE_SECONDS,
   POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
   type VisibleState,
   type VisibleUpgrade,
@@ -16,6 +17,7 @@ import {
 import {
   IdlePowerPolicyControl,
   PowerTransitionBanner,
+  PsuGraceChip,
   PsuHeaderWarning,
 } from "./PowerControls";
 import { getStressTone } from "./stressTone";
@@ -85,6 +87,8 @@ export function PsuSection({
   }[power.state];
   const bootButtonClass =
     power.state === "off" ? "go" : power.state === "booting" ? "active" : "";
+  const isTransitioning =
+    power.state === "booting" || power.state === "shuttingDown";
 
   const drawLabel = formatWatts(power.drawWatts);
   const capacityLabel = formatWatts(power.capacityWatts);
@@ -133,6 +137,23 @@ export function PsuSection({
               : "overload-resetting",
         }
       : null;
+  // The status slot shows exactly one state at a time, priority-ordered:
+  // credit cutoff / overload warning, then boot/shutdown countdown, then the
+  // billing grace countdown. Coexisting states stay in the slot title.
+  const transitionActive = showTransitionStatus && isTransitioning;
+  const graceActive = power.billingGraceSeconds > 0;
+  const activeStatuses: string[] = [];
+  if (headerWarning) activeStatuses.push(`PSU warning: ${headerWarning.label}`);
+  if (transitionActive) {
+    activeStatuses.push(
+      power.state === "booting" ? "System booting" : "System shutting down",
+    );
+  }
+  if (graceActive) {
+    activeStatuses.push(
+      `Billing grace ${formatCountdownSeconds(power.billingGraceSeconds)}`,
+    );
+  }
 
   return (
     <section
@@ -145,15 +166,42 @@ export function PsuSection({
           <Power size={14} />
           <span>PSU</span>
         </button>
-        {headerWarning && (
-          <PsuHeaderWarning
-            label={headerWarning.label}
-            progress={headerWarning.progress}
-            flashing={headerWarning.flashing}
-            tripped={headerWarning.tripped}
-            snapKey={headerWarning.snapKey}
-          />
-        )}
+        {/* One reserved status line: warning > transition > grace swap in
+            place inside this fixed-height slot, so state flips never reflow
+            the header row and the card never gains or loses rows. When two
+            states coexist the slot title carries the full list. */}
+        <span
+          className={`psu-status-slot ${activeStatuses.length > 0 ? "" : "is-idle"}`}
+          aria-hidden={activeStatuses.length > 0 ? undefined : true}
+          title={
+            activeStatuses.length > 1 ? activeStatuses.join(" · ") : undefined
+          }
+        >
+          {headerWarning ? (
+            <PsuHeaderWarning
+              label={headerWarning.label}
+              progress={headerWarning.progress}
+              flashing={headerWarning.flashing}
+              tripped={headerWarning.tripped}
+              snapKey={headerWarning.snapKey}
+            />
+          ) : transitionActive ? (
+            <PowerTransitionBanner power={power} surface="psu" />
+          ) : graceActive ? (
+            <PsuGraceChip
+              seconds={power.billingGraceSeconds}
+              totalSeconds={POWER_BOOTSTRAP_GRACE_SECONDS}
+            />
+          ) : (
+            <PsuHeaderWarning
+              label="Nominal"
+              progress={0}
+              flashing={false}
+              tripped={false}
+              snapKey="idle"
+            />
+          )}
+        </span>
         {powerControls.showControls && (
           <div className="power-control-buttons" aria-label={`Power controls: ${stateLabel}`}>
             <button
@@ -182,12 +230,10 @@ export function PsuSection({
         )}
       </div>
 
+      {/* The failure help overlays the card (see deadlock-help.css) so its
+          appearance never moves the hardware below. */}
       {showFailureHelp && (
         <DeadlockHelpCaption kind="psuFailure" onDismiss={onDismissFailureHelp} />
-      )}
-
-      {showTransitionStatus && (
-        <PowerTransitionBanner power={power} surface="psu" />
       )}
 
       <StatTileRow>
@@ -206,15 +252,6 @@ export function PsuSection({
           accent="amber"
         />
       </StatTileRow>
-
-      {power.billingGraceSeconds > 0 && (
-        <div className="psu-meta-row">
-          <div className="psu-meta-cell psu-meta-grace">
-            <small>grace</small>
-            <strong>{formatCountdownSeconds(power.billingGraceSeconds)}</strong>
-          </div>
-        </div>
-      )}
 
       {psuUpgrade && (
         <div className="power-upgrade-row">

@@ -1055,6 +1055,13 @@ sustained-throughput impact, cooling choice, and overclock choice.
 Rack airflow and facility cooling are separate aggregate infrastructure
 capacity profiles rather than installable PC cooling tiers.
 
+Cooling tiers are reversible like other hardware specs: selecting a lower tier
+refunds 50% of the installed tier's purchase cost and reclaims its PSU draw.
+No thermal gate blocks the downgrade — running hotter and throttling is the
+deterrent, the same rule overclock presets follow. In the UI the tier ladder
+lives inside the Thermal section, directly under the heat/stress readout it
+answers, rather than as a separate Cooling card.
+
 ### Overclock Presets
 
 Workshop exposes four deterministic presets from stock through aggressive.

@@ -180,17 +180,22 @@ export const normalizeCoolingUpgradePath = (
   });
 };
 
-/** Upgrade application can never lower level or cooling capacity. */
+/**
+ * Selecting a different level adopts the requested tier's normalized state in
+ * either direction; re-selecting the current level is a no-op. Path-level
+ * monotonicity (a higher tier never has less capacity) is guaranteed by
+ * normalizeCoolingUpgradePath, not here — downgrades genuinely lower capacity.
+ */
 export const applyCoolingUpgrade = (
   currentCooling: CoolingState,
   requestedUpgrade: CoolingUpgradeDefinition,
 ): CoolingState => {
   const current = normalizeCoolingState(currentCooling);
   const requested = normalizeCoolingState(requestedUpgrade);
-  if (requested.level <= current.level) return current;
+  if (requested.level === current.level) return current;
   return {
     level: requested.level,
-    capacityWatts: amountMax(current.capacityWatts, requested.capacityWatts),
+    capacityWatts: requested.capacityWatts,
     powerDrawWatts: requested.powerDrawWatts,
   };
 };
@@ -289,40 +294,31 @@ export const projectThermalStressBps = (
   );
 };
 
+/**
+ * Exact boundary contact belongs to the hotter band while heat is rising or
+ * steady, and to the cooler band while heat is falling. Advances slice exactly
+ * at boundary contact, so the direction-aware assignment keeps the following
+ * slice's throughput band independent of caller chunking.
+ */
 export const getThermalStatus = (
   powered: boolean,
   heatWatts: AmountValue,
   coolingCapacityWatts: AmountValue,
+  falling = false,
 ): ThermalStatus => {
   if (!powered) return "off";
   if (amountCompare(amountClampMin(heatWatts), 0) === 0) return "nominal";
-  if (
-    compareThermalStressToBps(
+  const belowLimit = (thresholdBps: number) => {
+    const comparison = compareThermalStressToBps(
       heatWatts,
       coolingCapacityWatts,
-      THERMAL_NOMINAL_LIMIT_BPS,
-    ) < 0
-  ) {
-    return "nominal";
-  }
-  if (
-    compareThermalStressToBps(
-      heatWatts,
-      coolingCapacityWatts,
-      THERMAL_WARM_LIMIT_BPS,
-    ) < 0
-  ) {
-    return "warm";
-  }
-  if (
-    compareThermalStressToBps(
-      heatWatts,
-      coolingCapacityWatts,
-      THERMAL_HOT_LIMIT_BPS,
-    ) < 0
-  ) {
-    return "hot";
-  }
+      thresholdBps,
+    );
+    return falling ? comparison <= 0 : comparison < 0;
+  };
+  if (belowLimit(THERMAL_NOMINAL_LIMIT_BPS)) return "nominal";
+  if (belowLimit(THERMAL_WARM_LIMIT_BPS)) return "warm";
+  if (belowLimit(THERMAL_HOT_LIMIT_BPS)) return "hot";
   return "critical";
 };
 
@@ -393,6 +389,10 @@ export const deriveThermalSnapshot = (
   const aggregate = aggregateThermalComponents(environment.components);
   const heat = state.sustainedHeatWatts;
   const capacity = environment.cooling.capacityWatts;
+  const targetHeatWatts = environment.powered
+    ? aggregate.generatedHeatWatts
+    : ZERO_AMOUNT;
+  const falling = amountCompare(targetHeatWatts, heat) < 0;
   return {
     ...aggregate,
     powered: environment.powered,
@@ -404,7 +404,7 @@ export const deriveThermalSnapshot = (
     ),
     exactStressBps: getExactThermalStressBps(heat, capacity),
     stressBps: projectThermalStressBps(heat, capacity),
-    status: getThermalStatus(environment.powered, heat, capacity),
+    status: getThermalStatus(environment.powered, heat, capacity, falling),
     throughputModifierBps: projectThermalThroughputModifierBps(
       environment.powered,
       heat,

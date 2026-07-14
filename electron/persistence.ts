@@ -24,7 +24,7 @@ export function registerPersistenceIpc(
   store: ElectronPersistenceStore = createJsonPersistenceStore({
     filePath: storePath,
   }),
-): void {
+): ElectronPersistenceStore {
   ipcMain.handle(CHANNELS.get, async (_event, key: unknown) => {
     return store.get(key);
   });
@@ -40,4 +40,6 @@ export function registerPersistenceIpc(
   ipcMain.handle(CHANNELS.clear, async (_event, keyPrefix?: unknown) => {
     await store.clear(keyPrefix);
   });
+
+  return store;
 }

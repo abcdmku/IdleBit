@@ -268,6 +268,47 @@ describe("ResourceHud", () => {
     expect(onSelectResource).toHaveBeenCalledTimes(3);
   });
 
+  it("names the interactive readouts by resource and exposes graph state", () => {
+    const render = (graphOpen: boolean) => {
+      act(() => {
+        root.render(
+          <ResourceHud
+            visible={makeVisibleState(12, 34)}
+            onReset={() => undefined}
+            animateResourceGains={false}
+            onSelectResource={() => undefined}
+            graphOpen={graphOpen}
+          />,
+        );
+      });
+    };
+
+    render(false);
+    const credits = container.querySelector(".resource-readout.credits");
+    const data = container.querySelector(".resource-readout.data");
+
+    // Numeric-only names would not distinguish Credits from Data.
+    expect(credits?.getAttribute("aria-label")).toBe(
+      "Credits: 34; toggle resource graph",
+    );
+    expect(data?.getAttribute("aria-label")).toBe(
+      "Data: 12; toggle resource graph",
+    );
+    expect(credits?.getAttribute("aria-expanded")).toBe("false");
+
+    render(true);
+    expect(
+      container
+        .querySelector(".resource-readout.credits")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      container
+        .querySelector(".resource-readout.data")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+  });
+
   it("opens HUD settings for hardware purchases and screen wake toggles", () => {
     const onHardwarePurchasesVisibleChange = vi.fn();
     const onKeepScreenAwakeChange = vi.fn();

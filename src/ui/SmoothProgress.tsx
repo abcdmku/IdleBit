@@ -4,6 +4,31 @@ type MeterStyle = CSSProperties & { "--meter-progress": number };
 
 type SmoothFillKey = string | number | boolean | null | undefined;
 
+/**
+ * Shared snap detection for runtime meters that interpolate across 500ms
+ * simulation snapshots via a CSS transition. Returns true on exactly the
+ * renders where the transition must be suppressed: monotonic meters snap on
+ * EVERY decrease — no jitter tolerance — so a batch reset never animates
+ * backward, and any semantic snapKey change also snaps. Bidirectional gauges
+ * pass snapOnDecrease={false} and rely on snapKey alone.
+ */
+export function useMeterSnap(
+  value: number,
+  snapKey?: SmoothFillKey,
+  snapOnDecrease = true,
+): boolean {
+  const previous = useRef({ value, snapKey });
+  const snapping =
+    (snapOnDecrease && value < previous.current.value) ||
+    !Object.is(previous.current.snapKey, snapKey);
+
+  useLayoutEffect(() => {
+    previous.current = { value, snapKey };
+  }, [value, snapKey]);
+
+  return snapping;
+}
+
 export function SmoothFill({
   value,
   max = 1,
@@ -24,14 +49,7 @@ export function SmoothFill({
     ? Math.max(0, Math.min(safeMax, value))
     : 0;
   const ratio = safeValue / safeMax;
-  const previous = useRef({ ratio, snapKey });
-  const snapping =
-    (snapOnDecrease && ratio + 0.001 < previous.current.ratio) ||
-    !Object.is(previous.current.snapKey, snapKey);
-
-  useLayoutEffect(() => {
-    previous.current = { ratio, snapKey };
-  }, [ratio, snapKey]);
+  const snapping = useMeterSnap(ratio, snapKey, snapOnDecrease);
 
   return (
     <span

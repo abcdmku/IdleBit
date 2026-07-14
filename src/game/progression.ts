@@ -1,4 +1,10 @@
-import { amountToSafeNumber, exactResourceBag } from "./amount";
+import {
+  amount,
+  amountToSafeNumber,
+  exactResourceBag,
+  sumAmounts,
+  type Amount,
+} from "./amount";
 import { createCampaignState } from "./campaign";
 import { createContractMarketState } from "./contracts";
 import { createCloudState } from "./cloudState";
@@ -47,8 +53,29 @@ export const getCpuClockHz = (tierId: CpuTierId, level: number) =>
 export const getCpuEfficiency = (tierId: CpuTierId, level: number) =>
   getCpuTierLevelDefinition(tierId, level).efficiency;
 
+/**
+ * Multi-socket efficiency penalty (designer ruling 2026-07-11, review finding
+ * C-DES-8): the multisocket wall is intentional, but its magnitude mirrors
+ * real hardware rarity — dual-socket boards are common (mild penalty),
+ * quad-socket rare (noticeably costly), oct-socket exotic (severe). The
+ * multiplier still applies to every installed package's efficiency; only the
+ * schedule changed (previously a flat 0.75^(sockets-1)). Index is
+ * socketCount - 1; counts past the table clamp to the last entry.
+ */
+export const CPU_SOCKET_EFFICIENCY_SCHEDULE = [
+  1, 0.95, 0.88, 0.8, 0.72, 0.68, 0.6, 0.55,
+] as const;
+
+export const getCpuSocketEfficiencyMultiplier = (socketCount: number) =>
+  CPU_SOCKET_EFFICIENCY_SCHEDULE[
+    Math.max(
+      0,
+      Math.min(CPU_SOCKET_EFFICIENCY_SCHEDULE.length - 1, socketCount - 1),
+    )
+  ];
+
 export const getCpuPackageEfficiencyMultiplier = (state: GameState) =>
-  0.75 ** Math.max(0, state.hardware.cpus.length - 1);
+  getCpuSocketEfficiencyMultiplier(state.hardware.cpus.length);
 
 export const getEffectiveCpuEfficiency = (
   state: GameState,
@@ -87,11 +114,10 @@ export const getRamInstallLevel = (state: GameState) =>
 export const getCoreClockLevel = (state: GameState, coreId: number) =>
   getCpuForCore(state, coreId).level;
 
-export const getCoreClockHz = (state: GameState, coreId: number) =>
-  getCpuClockHz(
-    getCpuForCore(state, coreId).tierId,
-    getCoreClockLevel(state, coreId),
-  );
+export const getCoreClockHz = (state: GameState, coreId: number) => {
+  const cpu = getCpuForCore(state, coreId);
+  return getCpuClockHz(cpu.tierId, cpu.level);
+};
 
 export const getCacheBits = (level: number) => 2 ** (level - 1);
 
@@ -197,6 +223,15 @@ const normalizeRamSticks = (state: GameState) => {
     };
   });
 };
+
+/**
+ * Stick capacities legally reach 2^73 bits, where a Number sum silently drops
+ * small sticks (2^73 + 256 === 2^73 in doubles). Aggregate installed capacity
+ * as an exact integer Amount; legacy Number surfaces project from it.
+ */
+export const getExactRamCapacityBits = (
+  sticks: readonly Pick<RamStickState, "bits">[],
+): Amount => sumAmounts(sticks.map((stick) => amount(stick.bits)));
 
 export const STARTER_PSU_WATTS = 0.00001;
 
@@ -377,25 +412,74 @@ export const createCpuHardwareState = (
   };
 };
 
-export const getCpuHardware = (state: GameState, cpuId = 1) =>
-  normalizeCpuHardware(
-    state,
-    state.hardware.cpus.find((cpu) => cpu.id === cpuId) ??
-      state.hardware.cpus[0] ??
-      createCpuHardwareState(1, [1], {
-        cacheLevel: state.hardware.cacheLevel,
-        cacheSpeedLevel: state.hardware.cacheSpeedLevel,
-        cacheBits: state.hardware.cacheBits,
-        cacheBytes: state.hardware.cacheBytes,
-        schedulerSlots: state.hardware.schedulerSlots,
-      }),
-  );
+/**
+ * getCpuHardware/getCpuForCore run per core inside per-tick hot loops (power
+ * draw, thermal advance, event math). Rebuilding a normalized CPU object on
+ * every call made those paths O(cores^2) with heavy allocation, so the
+ * normalized lookup is built once per hardware snapshot and cached by the
+ * hardware object's identity. Every input read by the lookup lives under
+ * `state.hardware`, and game rules replace `hardware` immutably, so identity
+ * keying is exact and the cache never changes observable results.
+ */
+interface CpuHardwareLookup {
+  byId: Map<number, CpuHardwareState>;
+  byCoreId: Map<number, CpuHardwareState>;
+  fallback: CpuHardwareState;
+}
 
-export const getCpuForCore = (state: GameState, coreId: number) =>
-  getCpuHardware(
-    state,
-    state.hardware.cpus.find((cpu) => cpu.coreIds.includes(coreId))?.id ?? 1,
-  );
+const cpuHardwareLookupCache = new WeakMap<
+  GameState["hardware"],
+  CpuHardwareLookup
+>();
+
+const buildCpuHardwareLookup = (state: GameState): CpuHardwareLookup => {
+  const byId = new Map<number, CpuHardwareState>();
+  const byCoreId = new Map<number, CpuHardwareState>();
+  for (const cpu of state.hardware.cpus) {
+    if (!byId.has(cpu.id)) byId.set(cpu.id, normalizeCpuHardware(state, cpu));
+  }
+  for (const cpu of state.hardware.cpus) {
+    // Duplicate package ids resolve to the FIRST package with that id,
+    // matching the previous find-by-id semantics.
+    const normalized = byId.get(cpu.id);
+    if (!normalized) continue;
+    for (const coreId of cpu.coreIds) {
+      if (!byCoreId.has(coreId)) byCoreId.set(coreId, normalized);
+    }
+  }
+  const fallback =
+    state.hardware.cpus.length > 0
+      ? (byId.get(state.hardware.cpus[0].id) as CpuHardwareState)
+      : normalizeCpuHardware(
+          state,
+          createCpuHardwareState(1, [1], {
+            cacheLevel: state.hardware.cacheLevel,
+            cacheSpeedLevel: state.hardware.cacheSpeedLevel,
+            cacheBits: state.hardware.cacheBits,
+            cacheBytes: state.hardware.cacheBytes,
+            schedulerSlots: state.hardware.schedulerSlots,
+          }),
+        );
+  return { byId, byCoreId, fallback };
+};
+
+const getCpuHardwareLookup = (state: GameState): CpuHardwareLookup => {
+  const cached = cpuHardwareLookupCache.get(state.hardware);
+  if (cached) return cached;
+  const lookup = buildCpuHardwareLookup(state);
+  cpuHardwareLookupCache.set(state.hardware, lookup);
+  return lookup;
+};
+
+export const getCpuHardware = (state: GameState, cpuId = 1) => {
+  const lookup = getCpuHardwareLookup(state);
+  return lookup.byId.get(cpuId) ?? lookup.fallback;
+};
+
+export const getCpuForCore = (state: GameState, coreId: number) => {
+  const lookup = getCpuHardwareLookup(state);
+  return lookup.byCoreId.get(coreId) ?? lookup.byId.get(1) ?? lookup.fallback;
+};
 
 export const getCpuIdForCore = (state: GameState, coreId: number) =>
   getCpuForCore(state, coreId).id;
@@ -441,7 +525,27 @@ const normalizeCpuHardware = (
   });
 };
 
+/**
+ * The synced hardware block is a pure function of `state.hardware` alone, and
+ * hardware is updated immutably, so the result is cached by hardware identity.
+ * materializeSystem/ensureSystems re-sync the same hardware object many times
+ * per tick and per visible-state snapshot; the cache collapses those repeats
+ * (and lets the CPU lookup cache above hit on the shared result).
+ */
+const syncedHardwareCache = new WeakMap<
+  GameState["hardware"],
+  GameState["hardware"]
+>();
+
 export const syncHardwarePackages = (state: GameState): GameState => {
+  const cached = syncedHardwareCache.get(state.hardware);
+  if (cached) return { ...state, hardware: cached };
+  const hardware = computeSyncedHardware(state);
+  syncedHardwareCache.set(state.hardware, hardware);
+  return { ...state, hardware };
+};
+
+const computeSyncedHardware = (state: GameState): GameState["hardware"] => {
   const savedCpus = Array.isArray(state.hardware.cpus)
     ? state.hardware.cpus.slice(0, V1_HARDWARE_LIMITS.cpuPackages)
     : [];
@@ -487,7 +591,9 @@ export const syncHardwarePackages = (state: GameState): GameState => {
     cpu.cacheSpeedLevel > best.cacheSpeedLevel ? cpu : best,
   );
   const ramSticks = normalizeRamSticks(state);
-  const ramBits = ramSticks.reduce((total, stick) => total + stick.bits, 0);
+  // Exact aggregation first; the Number field is a projection for legacy
+  // surfaces and rounds once (instead of accumulating float error per stick).
+  const ramBits = amountToSafeNumber(getExactRamCapacityBits(ramSticks));
   const ramLevel = ramSticks.length;
   const ramSpeedLevel =
     ramSticks.length > 0
@@ -507,8 +613,6 @@ export const syncHardwarePackages = (state: GameState): GameState => {
   ) as Record<number, number>;
 
   return {
-    ...state,
-    hardware: {
       ...state.hardware,
       cpus,
       cores,
@@ -585,7 +689,6 @@ export const syncHardwarePackages = (state: GameState): GameState => {
                 1,
               ),
             ),
-    },
   };
 };
 
@@ -844,8 +947,10 @@ const withCoreSchedulers = (state: GameState): GameState => {
   const syncedState = syncHardwarePackages(state);
   const schedulers = { ...state.coreSchedulers };
   let changed = false;
+  const allCoreIds = getAllCoreIds(syncedState);
+  const coreIdSet = new Set(allCoreIds);
 
-  for (const coreId of getAllCoreIds(syncedState)) {
+  for (const coreId of allCoreIds) {
     if (!schedulers[coreId]) {
       schedulers[coreId] = createCoreSchedulerState(coreId);
       changed = true;
@@ -854,7 +959,7 @@ const withCoreSchedulers = (state: GameState): GameState => {
 
   for (const rawCoreId of Object.keys(schedulers)) {
     const coreId = Number(rawCoreId);
-    if (!getAllCoreIds(syncedState).includes(coreId)) {
+    if (!coreIdSet.has(coreId)) {
       delete schedulers[coreId];
       changed = true;
     }
@@ -865,14 +970,36 @@ const withCoreSchedulers = (state: GameState): GameState => {
 
 export const syncCoreSchedulers = (state: GameState): GameState => {
   const seeded = withCoreSchedulers(state);
+  // Index assignments once instead of scanning every task per core (the
+  // per-core find made this O(cores * tasks) on every materialization).
+  // First-wins insertion preserves the previous find-by-array-order result.
+  type ActiveTaskState = GameState["activeTasks"][number];
+  const activeTaskByCoreId = new Map<number, ActiveTaskState>();
+  for (const task of seeded.activeTasks) {
+    for (const assignedCoreId of task.assignedCoreIds) {
+      if (!activeTaskByCoreId.has(assignedCoreId)) {
+        activeTaskByCoreId.set(assignedCoreId, task);
+      }
+    }
+  }
+  const coreOperationByCoreId = new Map<
+    number,
+    ActiveTaskState["coreOperations"][number]
+  >();
+  for (const task of seeded.activeTasks) {
+    for (const operation of task.coreOperations) {
+      if (
+        activeTaskByCoreId.get(operation.coreId) === task &&
+        !coreOperationByCoreId.has(operation.coreId)
+      ) {
+        coreOperationByCoreId.set(operation.coreId, operation);
+      }
+    }
+  }
   const schedulers = Object.fromEntries(
     getAllCoreIds(seeded).map((coreId) => {
-      const activeTask = seeded.activeTasks.find((task) =>
-        task.assignedCoreIds.includes(coreId),
-      );
-      const coreOperation = activeTask?.coreOperations.find(
-        (operation) => operation.coreId === coreId,
-      );
+      const activeTask = activeTaskByCoreId.get(coreId);
+      const coreOperation = coreOperationByCoreId.get(coreId);
       const previous = seeded.coreSchedulers[coreId] ?? createCoreSchedulerState(coreId);
       const status: OperationRuntimeStatus | "idle" =
         coreOperation?.status ?? "idle";

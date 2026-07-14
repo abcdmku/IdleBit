@@ -46,13 +46,18 @@
   background: rgba(25, 17, 5, 0.96);
 }
 
+/* Reserved geometry: the PSU failure help overlays the card (like the base
+   caption) instead of participating in layout, so it never moves lower
+   hardware when it appears or is dismissed. */
 .psu-section > .deadlock-help-caption.psuFailure {
-  position: static;
-  inset: auto;
+  position: absolute;
+  z-index: 12;
+  top: 34px;
+  left: 10px;
+  right: 10px;
   grid-template-columns: minmax(0, 1fr) auto;
   margin: 0;
   padding: var(--s-2) var(--s-3);
-  box-shadow: none;
 }
 
 .psu-section > .deadlock-help-caption.psuFailure p {

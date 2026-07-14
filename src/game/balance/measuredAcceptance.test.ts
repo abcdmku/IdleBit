@@ -564,6 +564,41 @@ describe("measured public campaign evidence", () => {
     });
   });
 
+  it("counts only cadence-unexpected overflow toward buffer acceptance evidence", () => {
+    const harness = createMeasuredCampaignHarness("regular");
+    const advanced = advanceGame(createInitialGameState(), 1, "foreground");
+    const visible = deriveVisibleState(advanced.state);
+    const sampleOverflow = (
+      bufferLevelId: "localScheduler" | "fleetOrchestrator",
+      bufferCapacityMs: number,
+      overflowMs: number,
+    ) =>
+      harness.metricAdapter.sample(visible, {
+        profileId: "regular",
+        sessionIndex: 0,
+        nowMs: 1,
+        intervalKind: "offline",
+        elapsedMs: 1,
+        report: {
+          ...advanced.intervalReport,
+          bufferLevelId,
+          bufferCapacityMs,
+          overflowMs,
+        },
+      });
+
+    // A 2h buffer cannot cover a daily return: that loss is the modeled
+    // cadence itself and must not count against the buffer-overflow gate.
+    sampleOverflow("localScheduler", 2 * 60 * 60_000, 22 * 60 * 60_000);
+    // A 48h buffer covers a daily return, so overflow there is a real defect.
+    sampleOverflow("fleetOrchestrator", 48 * 60 * 60_000, 60_000);
+
+    expect(harness.snapshot().overflowByBufferMs).toEqual({
+      localScheduler: 0,
+      fleetOrchestrator: 60_000,
+    });
+  });
+
   it("uses completion provenance instead of renewal starts for standing attribution", () => {
     const harness = createMeasuredCampaignHarness("regular");
     const advanced = advanceGame(createInitialGameState(), 1, "foreground");

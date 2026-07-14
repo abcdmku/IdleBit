@@ -245,6 +245,61 @@ describe("SystemWorkbench hardware upgrade toggle", () => {
       .toBe(true);
   });
 
+  it("returns mobile to Work when the graph closes with no research panel", () => {
+    mockMatchMedia(true);
+    const base = makeWorkbenchVisible();
+    // No open research and no unlocked buffer upgrade: the R&D tab exists
+    // only while the graph is open.
+    const visible: VisibleState = {
+      ...base,
+      research: [],
+      automationBuffer: {
+        ...base.automationBuffer,
+        nextUpgrade: null,
+      },
+    } as VisibleState;
+
+    act(() => {
+      root.render(
+        <SystemWorkbench
+          visible={visible}
+          dispatch={() => undefined}
+          selectedComponent={null}
+          onSelectComponent={() => undefined}
+          onReset={() => undefined}
+          animateResourceGains={false}
+          pinnedTaskIds={[]}
+          onTogglePinnedTask={() => undefined}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>(".resource-readout.credits")
+        ?.click();
+    });
+    expect(container.querySelector(".resource-graph-panel")).not.toBeNull();
+    expect(
+      container.querySelector(".right-column")?.classList.contains("active"),
+    ).toBe(true);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(".resource-graph-close")
+        ?.click();
+    });
+
+    // Closing the graph must never strand mobile with zero active panels:
+    // the workbench falls back to the Work section.
+    expect(container.querySelector(".resource-graph-panel")).toBeNull();
+    expect(
+      container.querySelector(".tasks-panel")?.classList.contains("active"),
+    ).toBe(true);
+  });
+
   it("opens mobile on Work with the Work panel active", () => {
     mockMatchMedia(true);
     const baseVisible = makeWorkbenchVisible();

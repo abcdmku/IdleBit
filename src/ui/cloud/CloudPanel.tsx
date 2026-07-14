@@ -21,7 +21,11 @@ import type { CloudSlaDefinitionId } from "../../game/cloud";
 import type { VisibleCloudState } from "../../game/cloudSelectors";
 import type { RoutingEdge } from "../../game/routing";
 import type { FinaleCharterId } from "../../game/types";
-import { formatExactResourceAmount } from "../format";
+import {
+  formatExactCurrencyAmount,
+  formatExactResourceAmount,
+  formatQuantity,
+} from "../format";
 import { SmoothProgress } from "../SmoothProgress";
 import { formatWorkDuration } from "../work/workFormat";
 
@@ -91,6 +95,7 @@ interface CloudPanelProps {
 export function CloudPanel({
   visible,
   availableFacilities,
+  planetaryAvailable,
   onCommissionRegion,
   onCommissionZone,
   onPlaceReplica,
@@ -444,13 +449,13 @@ export function CloudPanel({
               label={`${visible.activeSla.name} work progress`}
             />
             <div className="cloud-sla-metrics">
-              <span>{visible.activeSla.evaluation.availabilityBps / 100}% availability</span>
+              <span>{formatQuantity(visible.activeSla.evaluation.availabilityBps / 100)}% availability</span>
               <span>
                 {visible.activeSla.evaluation.p95LatencyMs === null
                   ? "Latency pending"
                   : `${visible.activeSla.evaluation.p95LatencyMs} ms p95`}
               </span>
-              <span>{formatExactResourceAmount(activeDefinition.rewards.credits)} cr reward</span>
+              <span>{formatExactCurrencyAmount(activeDefinition.rewards.credits)} cr reward</span>
             </div>
           </article>
         )}
@@ -461,7 +466,7 @@ export function CloudPanel({
                 <strong>{definition.name}</strong>
                 <p>{definition.description}</p>
                 <small>
-                  {formatWorkDuration(definition.observationWindowMs)} observation · {formatExactResourceAmount(definition.rewards.credits)} cr
+                  {formatWorkDuration(definition.observationWindowMs)} observation · {formatExactCurrencyAmount(definition.rewards.credits)} cr
                 </small>
                 {definition.blockedReason && (
                   <small className="cloud-blocker">{definition.blockedReason}</small>
@@ -480,6 +485,10 @@ export function CloudPanel({
         </div>
       </section>
 
+      {/* Planetary Commons is chapter-gated: the whole section (finale
+          control, blockers, charters) stays absent until the caller's
+          reveal flag says the chapter is reached. */}
+      {planetaryAvailable && (
       <section className="cloud-command-section planetary-command" aria-labelledby="planetary-title">
         <div className="cloud-section-heading">
           <h3 id="planetary-title">Planetary Commons</h3>
@@ -542,6 +551,7 @@ export function CloudPanel({
           ))}
         </div>
       </section>
+      )}
     </section>
   );
 }

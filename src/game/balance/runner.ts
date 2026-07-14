@@ -67,14 +67,38 @@ const getActiveDecisionStepMs = (
       Math.max(OPENING_DECISION_STEP_MS, nextMeaningfulWorkMs),
     );
   }
-  // Once CRON is available, the policy represents a check-in plan: make the
-  // visible choices at arrival, then advance to the next public visit boundary.
-  // Polling every minute adds no player decision and makes long campaign
-  // evidence scale with idle UI refreshes instead of meaningful events.
-  if (
-    visible.automationBuffer.ownedLevelId !== "localScheduler"
-  ) {
-    return activeRemainingMs;
+  // Once CRON is available, the policy represents a check-in plan, but the
+  // session must remain decision-capable: completions, market refreshes, and
+  // expiries change public state mid-visit exactly as they do on the live
+  // 500 ms UI. Step to the next public event boundary so newly earned
+  // resources and unlocks can drive further same-session decisions, and only
+  // batch the remainder when no public event is pending (idle polling adds no
+  // player decision and would scale evidence with UI refreshes).
+  if (visible.automationBuffer.ownedLevelId !== "localScheduler") {
+    const publicEventBoundaryMs = [
+      ...visible.activeWork.flatMap((work) =>
+        work.remainingMs !== null &&
+        Number.isFinite(work.remainingMs) &&
+        work.remainingMs > 0
+          ? [work.remainingMs]
+          : [],
+      ),
+      ...(visible.contractMarket.refreshAvailableInMs > 0
+        ? [visible.contractMarket.refreshAvailableInMs]
+        : []),
+      ...visible.contracts.flatMap((contract) =>
+        contract.expiresInMs !== null &&
+        Number.isFinite(contract.expiresInMs) &&
+        contract.expiresInMs > 0
+          ? [contract.expiresInMs]
+          : [],
+      ),
+    ];
+    if (publicEventBoundaryMs.length === 0) return activeRemainingMs;
+    return Math.min(
+      activeRemainingMs,
+      Math.max(configuredStepMs, Math.min(...publicEventBoundaryMs)),
+    );
   }
   return configuredStepMs;
 };

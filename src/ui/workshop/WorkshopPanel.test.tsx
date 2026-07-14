@@ -16,9 +16,12 @@ const reactActEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
 
+/** Compact tiles carry their action as aria-label; chunky buttons as text. */
 const getButton = (container: HTMLElement, label: string) =>
   Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === label,
+    (button) =>
+      button.getAttribute("aria-label") === label ||
+      button.textContent?.trim() === label,
   );
 
 const makeWorkshopVisible = (): VisibleState => {
@@ -166,7 +169,61 @@ describe("WorkshopPanel public controls", () => {
       root.render(<WorkshopPanel visible={visible} dispatch={() => undefined} />);
     });
 
-    expect(container.querySelector(".workshop-panel")).toBeNull();
+    expect(container.querySelector(".workshop-section")).toBeNull();
+  });
+
+  it("shows only the Storage card when storage is unlocked before thermal", () => {
+    const base = makeWorkshopVisible();
+    const visible: VisibleState = {
+      ...base,
+      workshop: {
+        ...base.workshop,
+        thermalVisible: false,
+        specializedComputeUnlocked: false,
+      },
+    };
+
+    act(() => {
+      root.render(<WorkshopPanel visible={visible} dispatch={() => undefined} />);
+    });
+
+    // The Storage section is reachable on its own…
+    expect(container.querySelector(".workshop-storage-section")).not.toBeNull();
+    expect(container.textContent).toContain("Local SSD");
+
+    // …while every thermal-only card stays hidden until thermal reveals.
+    expect(container.querySelector(".workshop-thermal-section")).toBeNull();
+    expect(container.querySelector(".workshop-overclock-section")).toBeNull();
+    expect(container.querySelector(".workshop-accelerator-section")).toBeNull();
+    expect(container.querySelector(".workshop-evidence")).toBeNull();
+  });
+
+  it("renders locked cards with the board's paid-outline pattern", () => {
+    const base = makeWorkshopVisible();
+    const visible: VisibleState = {
+      ...base,
+      workshop: {
+        ...base.workshop,
+        storageUnlocked: false,
+        specializedComputeUnlocked: false,
+      },
+    };
+
+    act(() => {
+      root.render(<WorkshopPanel visible={visible} dispatch={() => undefined} />);
+    });
+
+    const storage = container.querySelector(".workshop-storage-section");
+    expect(storage?.className).toContain("locked-system-section");
+    expect(storage?.textContent).toContain("Research System Catalog");
+
+    const accelerators = container.querySelector(
+      ".workshop-accelerator-section",
+    );
+    expect(accelerators?.className).toContain("locked-system-section");
+    expect(accelerators?.textContent).toContain("Research Specialized Compute");
+    // Evidence gating is unchanged: it stays visible whenever thermal is.
+    expect(accelerators?.querySelector(".workshop-evidence")).not.toBeNull();
   });
 
   it("shows exact thermal telemetry, costs, blockers, and tuning actions", () => {
@@ -177,24 +234,41 @@ describe("WorkshopPanel public controls", () => {
       root.render(<WorkshopPanel visible={visible} dispatch={dispatch} />);
     });
 
-    const panel = container.querySelector<HTMLElement>(".workshop-panel");
-    expect(panel?.textContent).toContain("Critical");
-    expect(panel?.textContent).toContain("105% load");
-    expect(panel?.textContent).toContain("987.5 W");
-    expect(panel?.textContent).toContain("875.25 W");
-    expect(panel?.textContent).toContain("50%");
-    expect(panel?.querySelector('[title="500000 credits"]')).not.toBeNull();
-    expect(panel?.querySelector('[title="40 data"]')).not.toBeNull();
+    const thermal = container.querySelector<HTMLElement>(
+      ".workshop-thermal-section",
+    );
+    expect(thermal?.textContent).toContain("Critical");
+    expect(thermal?.textContent).toContain("105% load");
+    expect(thermal?.textContent).toContain("987.5 W");
+    // Non-currency readouts clamp to tenths: 875.25 W renders as 875.2 W.
+    expect(thermal?.textContent).toContain("875.2 W");
+    expect(thermal?.textContent).toContain("50%");
+    expect(container.querySelector('[title="500000 credits"]')).not.toBeNull();
+    expect(container.querySelector('[title="40 data"]')).not.toBeNull();
 
-    const fanButton = getButton(panel!, "Install Fan Cooling");
+    const fanButton = getButton(container, "Install Fan Cooling");
     expect(fanButton?.disabled).toBe(true);
-    expect(panel?.textContent).toContain("Install Passive Heatsink first.");
-    expect(panel?.textContent).toContain("Clock");
-    expect(panel?.textContent).toContain("Power");
-    expect(panel?.textContent).toContain("Heat");
+    // The blocked tier's reason is reachable by screen readers and shown in
+    // the merged thermal card's reserved note line.
+    expect(fanButton?.getAttribute("aria-describedby")).toBe(
+      "cooling-fanCooling-blocker",
+    );
+    expect(
+      container.querySelector("#cooling-fanCooling-blocker")?.textContent,
+    ).toBe("Install Passive Heatsink first.");
+    expect(
+      container.querySelector(".workshop-thermal-section .workshop-note")
+        ?.textContent,
+    ).toBe("Install Passive Heatsink first.");
 
-    act(() => getButton(panel!, "Install Passive Heatsink")?.click());
-    act(() => getButton(panel!, "Select Boost")?.click());
+    // Each dial segment carries the full trade-off in its tooltip.
+    const boost = getButton(container, "Select Boost");
+    expect(boost?.title).toContain("Clock 110%");
+    expect(boost?.title).toContain("Power 125%");
+    expect(boost?.title).toContain("Heat 130%");
+
+    act(() => getButton(container, "Install Passive Heatsink")?.click());
+    act(() => getButton(container, "Select Boost")?.click());
 
     expect(dispatch).toHaveBeenNthCalledWith(1, {
       type: "installCoolingTier",
@@ -206,7 +280,77 @@ describe("WorkshopPanel public controls", () => {
     });
   });
 
-  it("lazily exposes device specifications, routes, fallback reasons, and evidence", () => {
+  it("offers lower cooling tiers as downgrades with the refund inline", () => {
+    const base = makeWorkshopVisible();
+    const visible: VisibleState = {
+      ...base,
+      workshop: {
+        ...base.workshop,
+        coolingTiers: base.workshop.coolingTiers.map((tier) => {
+          if (tier.id === "passiveHeatsink") {
+            return {
+              ...tier,
+              installed: true,
+              canInstall: false,
+              blockedReason: "Cooling tier is already installed.",
+            };
+          }
+          if (tier.id === "none") {
+            return {
+              ...tier,
+              installed: false,
+              canInstall: true,
+              blockedReason: null,
+              refunds: [{ resource: "credits", amount: amount("250000") }],
+            };
+          }
+          return tier;
+        }),
+      },
+    };
+    const dispatch = vi.fn<Dispatch>();
+
+    act(() => {
+      root.render(<WorkshopPanel visible={visible} dispatch={dispatch} />);
+    });
+
+    const downgrade = getButton(container, "Downgrade to No Cooling");
+    expect(downgrade?.disabled).toBe(false);
+    expect(downgrade?.title).toBe(
+      "Downgrade to No Cooling: refund 250 K credits",
+    );
+    // The refund renders as a gain, never dimmed by the current balance.
+    const refundToken = downgrade?.querySelector(".resource-token");
+    expect(refundToken?.getAttribute("aria-label")).toBe("+250000 credits");
+    expect(refundToken?.className).not.toContain("dimmed");
+
+    act(() => downgrade?.click());
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "installCoolingTier",
+      tierId: "none",
+    });
+  });
+
+  it("shows thermal telemetry with a research note before cooling controls unlock", () => {
+    const base = makeWorkshopVisible();
+    const visible: VisibleState = {
+      ...base,
+      workshop: { ...base.workshop, thermalControlsUnlocked: false },
+    };
+
+    act(() => {
+      root.render(<WorkshopPanel visible={visible} dispatch={() => undefined} />);
+    });
+
+    const thermal = container.querySelector(".workshop-thermal-section");
+    expect(thermal?.textContent).toContain("Critical");
+    expect(thermal?.querySelector(".workshop-rail")).toBeNull();
+    expect(thermal?.textContent).toContain(
+      "Research Thermal Control to install cooling",
+    );
+  });
+
+  it("exposes device specifications, routes, fallback reasons, and evidence", () => {
     const visible = makeWorkshopVisible();
     const dispatch = vi.fn<Dispatch>();
 
@@ -214,20 +358,30 @@ describe("WorkshopPanel public controls", () => {
       root.render(<WorkshopPanel visible={visible} dispatch={dispatch} />);
     });
 
-    expect(container.textContent).not.toContain("Raster GPU 8");
-    act(() => getButton(container, "Accelerators")?.click());
+    expect(
+      container.querySelector(".workshop-accelerator-section .hw-section-meta")
+        ?.textContent,
+    ).toContain("2 / 4");
+    // The installed device occupies its slot span; free slots stay visible.
+    const device = container.querySelector(".workshop-slot-device");
+    expect(device?.textContent).toContain("Raster GPU 8");
+    expect(device?.getAttribute("title")).toContain("Slots 1-2");
+    expect(container.querySelectorAll(".workshop-slot-empty")).toHaveLength(2);
 
-    expect(container.textContent).toContain("2 / 4 slots used");
-    expect(container.textContent).toContain("Raster GPU 8");
     expect(container.textContent).toContain("68 B bits");
     expect(container.textContent).toContain("4 B ops/s");
-    expect(container.textContent).toContain("Roles inference · ML batch");
+    // Supported workloads live in the catalog tile tooltip, not on the tile.
+    expect(
+      Array.from(container.querySelectorAll(".workshop-bay-tile")).some(
+        (tile) => tile.getAttribute("title")?.includes("inference · ML batch"),
+      ),
+    ).toBe(true);
     expect(container.textContent).toContain("CPU fallback");
     expect(container.textContent).toContain("compatible accelerator is busy");
     expect(container.textContent).toContain("No contiguous expansion slots.");
     expect(container.textContent).toContain("GPU render 3");
     expect(container.textContent).toContain("NPU inference 1");
-    expect(container.textContent).toContain("Fleet specialization complete");
+    expect(container.textContent).toContain("Specialization complete");
     expect(container.querySelector('[title="650000 credits"]')).not.toBeNull();
 
     act(() => getButton(container, "Install Edge NPU 4")?.click());
@@ -281,7 +435,6 @@ describe("WorkshopPanel public controls", () => {
         />,
       );
     });
-    act(() => getButton(container, "Accelerators")?.click());
 
     let tensorGpu = getButton(container, "Install Tensor GPU 24");
     let batchNpu = getButton(container, "Install Batch NPU 16");
@@ -317,8 +470,10 @@ describe("WorkshopPanel public controls", () => {
     batchNpu = getButton(container, "Install Batch NPU 16");
     expect(tensorGpu?.disabled).toBe(false);
     expect(batchNpu?.disabled).toBe(false);
-    expect(tensorGpu?.title).toBe("Install Tensor GPU 24");
-    expect(batchNpu?.title).toBe("Install Batch NPU 16");
+    // Unlocked tiles swap the blocker tooltip for the spec tooltip.
+    expect(tensorGpu?.title).not.toContain(blocker);
+    expect(tensorGpu?.title).toContain("CPU rate");
+    expect(batchNpu?.title).not.toContain(blocker);
     expect(tensorGpu?.hasAttribute("aria-describedby")).toBe(false);
     expect(batchNpu?.hasAttribute("aria-describedby")).toBe(false);
 
@@ -334,24 +489,30 @@ describe("WorkshopPanel public controls", () => {
     });
   });
 
-  it("shows exact storage capacity, throughput, power, heat, cost, and workload actions", () => {
+  it("shows exact storage capacity, throughput, cost, and workload actions", () => {
     const visible = makeWorkshopVisible();
     const dispatch = vi.fn<Dispatch>();
 
     act(() => {
       root.render(<WorkshopPanel visible={visible} dispatch={dispatch} />);
     });
-    act(() => getButton(container, "Storage")?.click());
 
-    expect(container.textContent).toContain("Managed storage");
-    expect(container.textContent).toContain("Artifact Staging Pass");
+    const storage = container.querySelector(".workshop-storage-section");
+    expect(storage).not.toBeNull();
+    expect(storage?.textContent).toContain("Artifact Staging Pass");
     expect(container.querySelector('[title="8000000000000 bits"]')).not.toBeNull();
     expect(container.querySelector('[title="4000000000 bit/s"]')).not.toBeNull();
-    expect(container.querySelector('[title="8 W"]')).not.toBeNull();
-    expect(container.querySelector('[title="6.8 W"]')).not.toBeNull();
     expect(container.querySelector('[title="30000 credits"]')).not.toBeNull();
     expect(container.querySelector('[title="6000 ms"]')).not.toBeNull();
-    expect(container.textContent).toContain("Reward 75 M Credits · 64 Data");
+
+    // Power/heat move into the drive tile's tooltip with exact values.
+    const ssd = getButton(container, "Install Local SSD");
+    expect(ssd?.title).toMatch(/Pwr \S+→\S+ W · Heat \S+→\S+ W/);
+
+    // Reward detail lives in the Net tile's tooltip.
+    expect(
+      container.querySelector('[title*="Reward 75 M Credits · 64 Data"]'),
+    ).not.toBeNull();
 
     act(() => getButton(container, "Install Local SSD")?.click());
     act(() => getButton(container, "Start Artifact Staging Pass")?.click());
@@ -385,9 +546,9 @@ describe("WorkshopPanel public controls", () => {
     act(() => {
       root.render(<WorkshopPanel visible={visible} dispatch={dispatch} />);
     });
-    act(() => getButton(container, "Data paths")?.click());
 
-    expect(container.textContent).toContain("Managed network");
+    expect(container.querySelector(".workshop-network-section")).not.toBeNull();
+    expect(container.textContent).toContain("Gigabit NIC");
     expect(container.querySelector('[title="1000000000 bit/s"]')).not.toBeNull();
     expect(container.querySelector('[title="12000 credits"]')).not.toBeNull();
 
@@ -396,6 +557,79 @@ describe("WorkshopPanel public controls", () => {
       type: "installLocalNetwork",
       skuId: "gigabitNic",
     });
+  });
+
+  it("keeps segment and workload card geometry fixed across install, blocked, and active states", () => {
+    // Geometry fingerprint (jsdom cannot measure pixels): a tile's visible
+    // child skeleton must be identical in every state — the sr-only blocker
+    // span is the only conditional child and it never affects layout.
+    const visibleChildren = (element: Element) =>
+      Array.from(element.children)
+        .filter((child) => !child.classList.contains("sr-only"))
+        .map((child) => `${child.tagName}.${child.className.split(" ")[0]}`);
+
+    const renderVisible = (visible: VisibleState) => {
+      act(() => {
+        root.render(<WorkshopPanel visible={visible} dispatch={() => undefined} />);
+      });
+    };
+
+    // Installable, blocked, and installed cooling tiers share one skeleton.
+    renderVisible(makeWorkshopVisible());
+    const installable = getButton(container, "Install Passive Heatsink")!;
+    const segmentShape = visibleChildren(installable);
+    const blocked = getButton(container, "Install Fan Cooling")!;
+    expect(visibleChildren(blocked)).toEqual(segmentShape);
+
+    const base = makeWorkshopVisible();
+    renderVisible({
+      ...base,
+      workshop: {
+        ...base.workshop,
+        coolingTiers: base.workshop.coolingTiers.map((tier) =>
+          tier.id === "passiveHeatsink"
+            ? { ...tier, installed: true, canInstall: false, blockedReason: null }
+            : tier,
+        ),
+      },
+    });
+    const installed = getButton(container, "Passive Heatsink installed")!;
+    expect(visibleChildren(installed)).toEqual(segmentShape);
+    expect(installed.getAttribute("aria-pressed")).toBe("true");
+    expect(installed.className).toContain("is-active");
+
+    // Storage bay tiles share the same skeleton whether buyable or blocked.
+    renderVisible(makeWorkshopVisible());
+    const bayTiles = Array.from(
+      container.querySelectorAll(".workshop-storage-section .workshop-bay-tile"),
+    );
+    expect(bayTiles.length).toBeGreaterThan(1);
+    const bayShape = visibleChildren(bayTiles[0]!);
+    for (const tile of bayTiles) {
+      expect(visibleChildren(tile)).toEqual(bayShape);
+    }
+
+    // Staging workload: the progress meter stays mounted while idle and the
+    // block keeps the same skeleton once staging starts.
+    const workload = container.querySelector(".workshop-workload")!;
+    const idleShape = visibleChildren(workload);
+    expect(workload.querySelector(".workshop-storage-progress")).not.toBeNull();
+
+    const active = makeWorkshopVisible();
+    renderVisible({
+      ...active,
+      workshop: {
+        ...active.workshop,
+        storageWorkload: {
+          ...active.workshop.storageWorkload,
+          active: true,
+          progressBps: 4200,
+        },
+      },
+    });
+    const stagingWorkload = container.querySelector(".workshop-workload")!;
+    expect(visibleChildren(stagingWorkload)).toEqual(idleShape);
+    expect(getButton(container, "Cancel staging")).not.toBeUndefined();
   });
 
   it("uses HardwareBoard's inspected-system dispatch scope", () => {
@@ -432,7 +666,6 @@ describe("WorkshopPanel public controls", () => {
       );
     });
     act(() => getButton(container, "Install Passive Heatsink")?.click());
-    act(() => getButton(container, "Storage")?.click());
     act(() => getButton(container, "Install Local SSD")?.click());
 
     expect(dispatch).toHaveBeenCalledWith({

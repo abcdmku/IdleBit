@@ -62,6 +62,39 @@ const withHardware = (
   );
 };
 
+/** System 1 keeps the stock single core; system 2 runs two 1 Hz cores. */
+const twoSystemState = () => {
+  const initial = createInitialGameState();
+  const fastHardware = syncHardwarePackages({
+    ...initial,
+    hardware: {
+      ...initial.hardware,
+      cpus: [createCpuHardwareState(1, [1, 2])],
+    },
+  }).hardware;
+  return replaceSystems(
+    initial,
+    [
+      createSystemState(1, "Suggested Rig", "suggested-rig", initial.hardware),
+      createSystemState(2, "Chosen Rig", "chosen-rig", fastHardware),
+    ],
+    1,
+  );
+};
+
+const withComputeOffer = (state: GameState): GameState => ({
+  ...state,
+  contracts: {
+    ...state.contracts,
+    offers: [{
+      ...oneBitOffer(),
+      workRecipe: createHardwareWorkRecipe([
+        createHardwareWorkStage("compute", "compute", 1),
+      ]),
+    }],
+  },
+});
+
 describe("contract authored work", () => {
   it("defines no separate per-template Credit price", () => {
     for (const template of contractTemplateDefinitions) {
@@ -258,6 +291,87 @@ describe("contract authored work", () => {
     expect(completed.contracts.completedRewards["one-bit"]).toEqual(
       exactResourceBag("3.5", "7"),
     );
+  });
+
+  it("accepts onto the player-chosen system and routes the work there", () => {
+    const state = withComputeOffer(twoSystemState());
+    const accepted = acceptContract(state, "one-bit", 2);
+
+    expect(accepted.contracts.active).toHaveLength(1);
+    expect(accepted.contracts.active[0]!.systemId).toBe(2);
+    // The chosen rig's two 1 Hz cores halve the frozen 1-second payload.
+    expect(getContractRemainingMs(accepted, accepted.contracts.active[0]!))
+      .toBe(500);
+
+    const completed = advanceContracts(accepted, 500);
+    expect(completed.contracts.active).toHaveLength(0);
+    expect(completed.contracts.completedContractIds).toContain("one-bit");
+  });
+
+  it("keeps the generator-suggested system when no choice is passed", () => {
+    const state = withComputeOffer(twoSystemState());
+    const accepted = acceptContract(state, "one-bit");
+
+    expect(accepted.contracts.active).toHaveLength(1);
+    expect(accepted.contracts.active[0]!.systemId).toBe(1);
+    expect(getContractRemainingMs(accepted, accepted.contracts.active[0]!))
+      .toBe(1_000);
+  });
+
+  it("rejects an incompatible chosen system with the explicit lane blocker", () => {
+    const offer: ContractOfferState = {
+      ...oneBitOffer(),
+      workRecipe: createHardwareWorkRecipe([
+        createHardwareWorkStage("stage", "storageRead", 1),
+      ]),
+    };
+    const state: GameState = {
+      ...twoSystemState(),
+      contracts: { ...createInitialGameState().contracts, offers: [offer] },
+    };
+
+    // No storage path is installed anywhere, so the chosen system is
+    // incompatible: acceptance is rejected outright, never queued blind.
+    expect(acceptContract(state, "one-bit", 2)).toBe(state);
+
+    const visible = getVisibleContracts(state).find(
+      (contract) => contract.id === "one-bit",
+    )!;
+    const chosen = visible.systemOptions?.find(
+      (option) => option.systemId === 2,
+    );
+    expect(chosen?.blockedReason).toBe(
+      "Chosen Rig has no storage-read throughput.",
+    );
+  });
+
+  it("keeps busy systems listed with their reservation blocker", () => {
+    const first = withComputeOffer(twoSystemState());
+    const running = acceptContract(first, "one-bit", 2);
+    const second: ContractOfferState = {
+      ...oneBitOffer(),
+      id: "two-bit",
+      templateId: "queueRecovery",
+    };
+    const state: GameState = {
+      ...running,
+      contracts: { ...running.contracts, offers: [second] },
+    };
+
+    expect(acceptContract(state, "two-bit", 2)).toBe(state);
+    const accepted = acceptContract(state, "two-bit", 1);
+    expect(accepted.contracts.active.map((contract) => contract.systemId))
+      .toEqual([2, 1]);
+
+    const visible = getVisibleContracts(state).find(
+      (contract) => contract.id === "two-bit",
+    )!;
+    expect(
+      visible.systemOptions?.map((option) => option.blockedReason),
+    ).toEqual([
+      null,
+      "System 2 already has an active managed contract.",
+    ]);
   });
 
   it("derives and freezes an exact premium for saves with only old rewards", () => {

@@ -75,6 +75,15 @@ export const sessionCadenceProfiles: Readonly<
   },
 };
 
+export const sessionCadenceProfileById: Readonly<
+  Record<SessionCadenceProfile["id"], SessionCadenceProfile>
+> = {
+  "full-idle": sessionCadenceProfiles.fullIdle,
+  regular: sessionCadenceProfiles.regular,
+  engaged: sessionCadenceProfiles.engaged,
+  optimizer: sessionCadenceProfiles.optimizer,
+};
+
 interface RandomValue {
   rng: Xoshiro128State;
   value: number;
@@ -144,16 +153,14 @@ export interface PlannedReturn {
 }
 
 export const planReturnDelay = (input: PlanReturnInput): PlannedReturn => {
-  const capacityTarget =
-    input.offlineCapacityMs > 0
-      ? input.offlineCapacityMs * (input.profile.offlineCapacityFillRatio ?? 0.94)
-      : null;
+  // A null fill ratio models a true habitual cadence (e.g. daily returns):
+  // the player comes back on their schedule regardless of buffer size, so
+  // small early buffers legitimately overflow. Only profiles with an explicit
+  // ratio chase the Automation Buffer capacity itself.
   const capacityDelay =
-    capacityTarget === null
-      ? input.profile.baseReturnDelayMs
-      : input.profile.offlineCapacityFillRatio !== null
-        ? capacityTarget
-        : Math.min(input.profile.baseReturnDelayMs, capacityTarget);
+    input.profile.offlineCapacityFillRatio !== null && input.offlineCapacityMs > 0
+      ? input.offlineCapacityMs * input.profile.offlineCapacityFillRatio
+      : input.profile.baseReturnDelayMs;
   let rng = input.rng;
   let delayMs = capacityDelay;
 
@@ -181,6 +188,27 @@ export const planReturnDelay = (input: PlanReturnInput): PlannedReturn => {
   }
 
   return { rng, delayMs: Math.max(1, Math.round(delayMs)) };
+};
+
+/**
+ * True when the profile's own modeled cadence returns after the buffer fills,
+ * so overflow at this capacity is profile-appropriate rather than a balance
+ * defect (a daily player with a 2h buffer overflows by design).
+ */
+export const cadenceExpectsBufferOverflow = (
+  profile: SessionCadenceProfile,
+  offlineCapacityMs: number,
+) => {
+  if (offlineCapacityMs <= 0) return true;
+  return (
+    planReturnDelay({
+      profile,
+      mode: "deterministic",
+      rng: createRngState(1),
+      nextSessionIndex: 0,
+      offlineCapacityMs,
+    }).delayMs > offlineCapacityMs
+  );
 };
 
 export interface GenerateSessionScheduleOptions {

@@ -4,6 +4,7 @@ import {
   Network,
   Play,
   Plus,
+  Server,
   ServerCog,
   Trash2,
 } from "lucide-react";
@@ -13,13 +14,19 @@ import {
   amountAdd,
   amountCompare,
   amountToSafeNumber,
+  getAggregateServerBatchCosts,
+  getNetworkSkuDefinition,
+  getStorageSkuDefinition,
+  serverSkuDefinitions,
   type Amount,
   type ExactCost,
   type ExactResourceBag,
 } from "../../game";
+import { MAX_AGGREGATE_SERVER_COUNT } from "../../game/fleet";
 import type {
   ClusterWorkloadDefinitionId,
   ReplicaFaultDomain,
+  ServerSkuId,
   VisibleInfrastructureState,
 } from "../../game/infrastructureTypes";
 import {
@@ -29,18 +36,31 @@ import {
   type RackTemplateId,
 } from "../../game/facilityDefinitions";
 import {
+  formatExactCurrencyAmount,
   formatExactResourceAmount,
   formatExactResourceRate,
+  formatQuantity,
 } from "../format";
 import { ExactResourceCost } from "../ResourceTokens";
 import { SmoothProgress } from "../SmoothProgress";
 import { formatWorkDuration } from "../work/workFormat";
+import "./infrastructure-panel.css";
 
 const formatRate = (value: Amount) =>
   `${formatExactResourceAmount(value)} ops/s`;
 const formatBits = (value: Amount) =>
   `${formatExactResourceAmount(value)} b`;
-const formatPercent = (basisPoints: number) => `${basisPoints / 100}%`;
+const formatPercent = (basisPoints: number) =>
+  `${formatQuantity(basisPoints / 100)}%`;
+// Keep in sync with the unmanaged-node fallback status emitted by
+// getVisibleInfrastructureState (src/game/infrastructureSelectors.ts). Any
+// other blocker string on an unmanaged node is a real manage gate.
+const UNMANAGED_NODE_READY_STATUS = "Node is not managed by Fleet capacity.";
+const toBatchCount = (value: string) => {
+  const parsed = Math.trunc(Number(value));
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(MAX_AGGREGATE_SERVER_COUNT, parsed);
+};
 const canAffordCommission = (
   resources: ExactResourceBag,
   costs: readonly ExactCost[],
@@ -56,6 +76,8 @@ export function InfrastructurePanel({
   visible,
   resources,
   facilityAvailable = true,
+  onSetNodeManaged,
+  onPurchaseServerBatch,
   onCommissionCluster,
   onSetClusterFaultDomain,
   onStartWorkload,
@@ -69,6 +91,8 @@ export function InfrastructurePanel({
   visible: VisibleInfrastructureState;
   resources: ExactResourceBag;
   facilityAvailable?: boolean;
+  onSetNodeManaged: (systemId: number, managed: boolean) => void;
+  onPurchaseServerBatch: (skuId: ServerSkuId, count: number) => void;
   onCommissionCluster: (name: string, nodeIds: string[]) => void;
   onSetClusterFaultDomain: (
     clusterId: string,
@@ -90,6 +114,8 @@ export function InfrastructurePanel({
 }) {
   const [clusterName, setClusterName] = useState("Local Fabric");
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [batchCountInput, setBatchCountInput] = useState("1");
+  const batchCount = toBatchCount(batchCountInput);
   const managedNodes = visible.fleet.nodes.filter((node) => node.managed);
   const placedNodeIds = useMemo(
     () =>
@@ -142,6 +168,128 @@ export function InfrastructurePanel({
         <div>
           <span>Headroom</span>
           <strong>{formatPercent(visible.fleet.headroomBps)}</strong>
+        </div>
+      </section>
+
+      <section
+        className="infrastructure-command-section"
+        aria-labelledby="fleet-nodes-title"
+      >
+        <div className="infrastructure-section-heading">
+          <div>
+            <Server size={14} aria-hidden="true" />
+            <h3 id="fleet-nodes-title">Fleet nodes</h3>
+          </div>
+          <span>
+            {managedNodes.length}/{visible.fleet.nodes.length} managed
+          </span>
+        </div>
+
+        <div className="fleet-node-list" aria-label="Fleet node management">
+          {visible.fleet.nodes.map((node) => {
+            const source = node.source;
+            const manageBlocker =
+              node.blocker === UNMANAGED_NODE_READY_STATUS ? null : node.blocker;
+            const blocked = node.managed
+              ? node.blocker !== null
+              : manageBlocker !== null;
+            const status = node.managed
+              ? node.blocker ?? "In Fleet capacity."
+              : manageBlocker ?? "Ready for Fleet management.";
+            return (
+              <div className="fleet-node-row" key={node.id}>
+                <div className="fleet-node-copy">
+                  <strong>{node.name}</strong>
+                  {/* Always rendered so manage/release state changes never
+                      change row geometry. */}
+                  <small
+                    className={`fleet-node-status${blocked ? " is-blocked" : ""}`}
+                  >
+                    {status}
+                  </small>
+                </div>
+                <span className="fleet-node-compute">
+                  {formatRate(node.capacity.rates.compute)}
+                </span>
+                {source.kind === "system" ? (
+                  <button
+                    type="button"
+                    className="fleet-node-action"
+                    disabled={!node.managed && manageBlocker !== null}
+                    title={
+                      node.managed
+                        ? `Release ${node.name} from Fleet capacity`
+                        : manageBlocker ??
+                          `Manage ${node.name} as Fleet capacity`
+                    }
+                    onClick={() =>
+                      onSetNodeManaged(source.systemId, !node.managed)
+                    }
+                  >
+                    {node.managed ? "Release" : "Manage"}
+                  </button>
+                ) : (
+                  <span
+                    className="fleet-node-action"
+                    title="Aggregate servers stay managed as Fleet capacity."
+                  >
+                    Procured
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="server-procurement">
+          <label className="server-procurement-count">
+            <span>Batch size</span>
+            <input
+              type="number"
+              min={1}
+              max={MAX_AGGREGATE_SERVER_COUNT}
+              value={batchCountInput}
+              onChange={(event) =>
+                setBatchCountInput(event.currentTarget.value)
+              }
+            />
+          </label>
+          <div className="server-catalog" aria-label="Procure aggregate servers">
+            {serverSkuDefinitions.map((sku) => {
+              const costs = getAggregateServerBatchCosts(
+                sku.id,
+                batchCount,
+                sku.defaultStorageSkuId,
+                sku.defaultNetworkSkuId,
+              );
+              const affordable = canAffordCommission(resources, costs);
+              const profileLabel = `${
+                getStorageSkuDefinition(sku.defaultStorageSkuId).name
+              } + ${getNetworkSkuDefinition(sku.defaultNetworkSkuId).name}`;
+              return (
+                <button
+                  type="button"
+                  key={sku.id}
+                  disabled={!affordable}
+                  title={
+                    affordable
+                      ? `Purchase ${batchCount}× ${sku.name} (${profileLabel})`
+                      : `Insufficient resources to purchase ${batchCount}× ${sku.name}`
+                  }
+                  onClick={() => onPurchaseServerBatch(sku.id, batchCount)}
+                >
+                  <span className="infrastructure-commission-label">
+                    <Plus size={12} aria-hidden="true" /> {sku.name} ×{batchCount}
+                  </span>
+                  <ExactResourceCost
+                    costs={costs}
+                    resources={resources}
+                    compact
+                  />
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -296,7 +444,7 @@ export function InfrastructurePanel({
                           <dd>
                             {workload.projection.operatingCost === null
                               ? "—"
-                              : `${formatExactResourceAmount(
+                              : `${formatExactCurrencyAmount(
                                   workload.projection.operatingCost,
                                 )} cr`}
                           </dd>
@@ -306,7 +454,7 @@ export function InfrastructurePanel({
                           <dd>
                             {workload.projection.netCreditReward === null
                               ? "—"
-                              : `${formatExactResourceAmount(
+                              : `${formatExactCurrencyAmount(
                                   workload.projection.netCreditReward,
                                 )} cr`}
                           </dd>
@@ -352,7 +500,7 @@ export function InfrastructurePanel({
                         <Play size={12} aria-hidden="true" />
                         <span>{definition.name}</span>
                         <small>
-                          {formatExactResourceAmount(definition.rewards.credits)} cr
+                          {formatExactCurrencyAmount(definition.rewards.credits)} cr
                         </small>
                       </button>
                     );
@@ -373,7 +521,9 @@ export function InfrastructurePanel({
           </div>
           <span>
             {visible.horizontalTools.gridReliefOperatingDiscountBps > 0
-              ? `Grid Relief · -${visible.horizontalTools.gridReliefOperatingDiscountBps / 100}% operating`
+              ? `Grid Relief · -${formatQuantity(
+                  visible.horizontalTools.gridReliefOperatingDiscountBps / 100,
+                )}% operating`
               : `${visible.facilities.length} facilities`}
           </span>
         </div>

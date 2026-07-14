@@ -1,4 +1,5 @@
 import { Check, ChevronRight, Clock3, Play, RefreshCw, Repeat2, X } from "lucide-react";
+import { useState } from "react";
 import {
   type ProjectId,
   type TaskId,
@@ -11,6 +12,7 @@ import { SmoothProgress } from "../SmoothProgress";
 import { StatTile, StatTileRow } from "../StatTile";
 import { WorkMixBar } from "../WorkMixBar";
 import {
+  formatExactCurrencyAmount,
   formatExactResourceAmount,
   formatExactResourceRate,
 } from "../format";
@@ -30,7 +32,7 @@ const workValueTitle = (
   paidWorkUnits: VisibleContract["paidWorkUnits"],
   multiplier: VisibleContract["workValueMultiplier"],
 ) => paidWorkUnits && multiplier
-  ? `${paidWorkUnits} paid work units × ${multiplier.id} (${multiplier.basisPoints} bps)`
+  ? `${formatExactResourceAmount(paidWorkUnits)} paid work units × ${multiplier.id} (${multiplier.basisPoints} bps)`
   : undefined;
 
 /**
@@ -60,7 +62,7 @@ function ContractRateChip({
         multiplier === null
           ? ` · ${baselineText}`
           : ` — ${multiplier.toFixed(1)}× the ${baselineText}`
-      } · nets ${formatExactResourceAmount(contract.netRewardCredits)} cr after ${formatExactResourceAmount(
+      } · nets ${formatExactCurrencyAmount(contract.netRewardCredits)} cr after ${formatExactCurrencyAmount(
         contract.operatingCostCredits,
       )} cr operating cost`}
     >
@@ -195,7 +197,10 @@ export function ProjectsView({
             ? 1
             : 0;
         return (
-          <article className="work-card project" key={project.id}>
+          <article
+            className={`work-card project ${project.completed ? "completed" : ""}`}
+            key={project.id}
+          >
             <header>
               <span title={project.description}>{project.name}</span>
               <b>
@@ -206,31 +211,44 @@ export function ProjectsView({
                     : `Phase ${project.phaseIndex + 1}`}
               </b>
             </header>
-            {phase && (
+            {/* Reserved geometry: completed projects keep the phase, target,
+                and action slots so finishing work never collapses the card. */}
+            {(phase || project.completed) && (
               <>
                 <StatTileRow dense>
                   <StatTile
                     label="Phase"
-                    value={phase.name}
-                    title={phase.name}
+                    value={phase ? phase.name : "Complete"}
+                    title={phase ? phase.name : "All phases complete"}
                   />
                   <StatTile
                     label="ETA"
                     value={
-                      projectionBlockedReason
-                        ? "No ETA"
-                        : project.active
-                          ? formatWorkDuration(project.remainingMs)
-                          : formatWorkDuration(projectedDurationMs ?? 0)
+                      !phase
+                        ? "Done"
+                        : projectionBlockedReason
+                          ? "No ETA"
+                          : project.active
+                            ? formatWorkDuration(project.remainingMs)
+                            : formatWorkDuration(projectedDurationMs ?? 0)
                     }
                     title={
-                      project.active
-                        ? "Time remaining on the running phase"
-                        : "Projected duration on the target system"
+                      !phase
+                        ? "Project complete"
+                        : project.active
+                          ? "Time remaining on the running phase"
+                          : "Projected duration on the target system"
                     }
                   />
                 </StatTileRow>
-                <WorkMixBar stages={phase.workMix} />
+                {phase ? (
+                  <WorkMixBar stages={phase.workMix} />
+                ) : (
+                  <span
+                    className="task-recipe-bar work-mix-bar"
+                    aria-hidden="true"
+                  />
+                )}
                 <SmoothProgress
                   value={phaseProgress}
                   max={1}
@@ -238,19 +256,21 @@ export function ProjectsView({
                 />
                 <div className="work-card-ledger">
                   <ExactResourceCost
-                    costs={phase.costs}
+                    costs={phase?.costs ?? []}
                     resources={visible.exactResources}
                     compact
-                    emptyLabel="No phase cost"
+                    emptyLabel={phase ? "No phase cost" : "Project complete"}
                   />
-                  <span
-                    title={workValueTitle(
-                      phase.paidWorkUnits,
-                      phase.workValueMultiplier,
-                    )}
-                  >
-                    <WorkResourceSummary resources={phase.rewards} />
-                  </span>
+                  {phase && (
+                    <span
+                      title={workValueTitle(
+                        phase.paidWorkUnits,
+                        phase.workValueMultiplier,
+                      )}
+                    >
+                      <WorkResourceSummary resources={phase.rewards} />
+                    </span>
+                  )}
                 </div>
                 {projectionBlockedReason && (
                   <small className="work-blocked-reason">
@@ -259,28 +279,26 @@ export function ProjectsView({
                 )}
               </>
             )}
-            {!project.completed && (
-              <div className="work-card-system">
-                <select
-                  aria-label={`Target system for ${project.name}`}
-                  value={
-                    project.active
-                      ? activeSystemId ?? targetSystemId
-                      : targetSystemId
-                  }
-                  disabled={project.active}
-                  onChange={(event) =>
-                    onTargetSystemChange(Number(event.currentTarget.value))
-                  }
-                >
-                  {visible.systems.map((system) => (
-                    <option value={system.id} key={system.id}>
-                      {system.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div className="work-card-system">
+              <select
+                aria-label={`Target system for ${project.name}`}
+                value={
+                  project.active
+                    ? activeSystemId ?? targetSystemId
+                    : targetSystemId
+                }
+                disabled={project.active || project.completed}
+                onChange={(event) =>
+                  onTargetSystemChange(Number(event.currentTarget.value))
+                }
+              >
+                {visible.systems.map((system) => (
+                  <option value={system.id} key={system.id}>
+                    {system.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             {targetStartBlockedReason &&
               targetStartBlockedReason !== projectionBlockedReason &&
               !project.completed &&
@@ -289,31 +307,201 @@ export function ProjectsView({
                   {targetStartBlockedReason}
                 </small>
               )}
-            {!project.completed && (
-              <button
-                type="button"
-                className="work-primary-action"
-                disabled={!targetCanStartPhase || project.active || !phase}
-                title={
-                  targetStartBlockedReason ??
-                  `Start ${phase?.name ?? "next phase"}`
-                }
-                onClick={() =>
-                  dispatch({
-                    type: "startProjectPhase",
-                    projectId: project.id as ProjectId,
-                    systemId: targetSystemId,
-                  })
-                }
-              >
-                <Play size={12} aria-hidden="true" />
-                {project.active ? "Phase running" : "Start next phase"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="work-primary-action"
+              disabled={
+                project.completed ||
+                !targetCanStartPhase ||
+                project.active ||
+                !phase
+              }
+              title={
+                project.completed
+                  ? "Project complete"
+                  : targetStartBlockedReason ??
+                    `Start ${phase?.name ?? "next phase"}`
+              }
+              onClick={() =>
+                dispatch({
+                  type: "startProjectPhase",
+                  projectId: project.id as ProjectId,
+                  systemId: targetSystemId,
+                })
+              }
+            >
+              <Play size={12} aria-hidden="true" />
+              {project.completed
+                ? "Complete"
+                : project.active
+                  ? "Phase running"
+                  : "Start next phase"}
+            </button>
           </article>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * One contract card used for offers and active contracts alike. Every slot
+ * (header time chip, progress, payoff, work mix, action row) exists in both
+ * states, so accepting a contract updates the card in place instead of
+ * re-parenting it into a different list.
+ */
+function ContractCard({
+  visible,
+  contract,
+  market,
+  dispatch,
+}: {
+  visible: VisibleState;
+  contract: VisibleContract;
+  market: VisibleState["contractMarket"];
+  dispatch: Dispatch;
+}) {
+  const warning = contractWarning(contract);
+  // Player-chosen target system; null keeps the generator's suggestion so a
+  // regenerated market keeps steering untouched cards.
+  const [chosenSystemId, setChosenSystemId] = useState<number | null>(null);
+  const systemOptions = contract.systemOptions ?? [];
+  const targetSystemId =
+    !contract.accepted &&
+    chosenSystemId !== null &&
+    systemOptions.some((option) => option.systemId === chosenSystemId)
+      ? chosenSystemId
+      : contract.systemId;
+  const targetOption =
+    systemOptions.find((option) => option.systemId === targetSystemId) ?? null;
+  const targetBlockedReason = targetOption
+    ? targetOption.blockedReason
+    : contract.canAccept
+      ? null
+      : contract.projectedPauseReason;
+  const systemName = getWorkSystemName(visible, contract.systemId);
+
+  return (
+    <article
+      className={`work-card contract ${contract.accepted ? "active" : ""}`}
+    >
+      <header>
+        <span title={contract.description}>{contract.name}</span>
+        <b>{contract.kind}</b>
+        <small
+          className={`work-contract-when ${
+            !contract.accepted && contract.novel ? "is-novel" : ""
+          }`}
+          title={
+            contract.accepted
+              ? `Time remaining on ${systemName}`
+              : `Offer expires in ${formatWorkDuration(contract.expiresInMs)}${
+                  contract.novel ? " · pays novel Data" : ""
+                }`
+          }
+        >
+          <Clock3 size={10} aria-hidden="true" />
+          {formatWorkDuration(
+            contract.accepted ? contract.remainingMs : contract.expiresInMs,
+          )}
+        </small>
+      </header>
+      <SmoothProgress
+        value={
+          contract.accepted
+            ? progressValue(
+                contract.workCompletedMs / Math.max(1, contract.workRequiredMs),
+              )
+            : 0
+        }
+        max={1}
+        label={`${contract.name} progress`}
+      />
+      <div className="work-contract-payoff">
+        <span
+          title={workValueTitle(
+            contract.paidWorkUnits,
+            contract.workValueMultiplier,
+          )}
+        >
+          <WorkResourceSummary resources={contract.rewards} />
+        </span>
+        <ContractRateChip contract={contract} market={market} />
+        {contract.accepted || systemOptions.length === 0 ? (
+          <small
+            className="work-contract-system"
+            title={`Runs ${formatWorkDuration(contract.workRequiredMs)} of work on ${systemName}`}
+          >
+            {contract.accepted
+              ? systemName
+              : `${formatWorkDuration(contract.workRequiredMs)} · ${systemName}`}
+          </small>
+        ) : (
+          <small
+            className="work-contract-system has-target-select"
+            title={`Runs ${formatWorkDuration(contract.workRequiredMs)} of work on the chosen system`}
+          >
+            {formatWorkDuration(contract.workRequiredMs)} ·
+            <select
+              aria-label={`Target system for ${contract.name}`}
+              value={targetSystemId}
+              onChange={(event) =>
+                setChosenSystemId(Number(event.currentTarget.value))
+              }
+            >
+              {systemOptions.map((option) => (
+                <option
+                  value={option.systemId}
+                  key={option.systemId}
+                  title={option.blockedReason ?? undefined}
+                >
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </small>
+        )}
+      </div>
+      <WorkMixBar stages={contract.workMix} />
+      {warning && <small className="work-blocked-reason">{warning}</small>}
+      <div className="work-contract-actions">
+        {contract.accepted ? (
+          <b className="work-contract-status" role="status">
+            <Check size={12} aria-hidden="true" /> Active
+          </b>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "declineContract", contractId: contract.id })
+              }
+            >
+              <X size={12} aria-hidden="true" /> Decline
+            </button>
+            <button
+              type="button"
+              className="work-primary-action"
+              disabled={targetBlockedReason !== null}
+              title={
+                targetBlockedReason ??
+                contract.projectedPauseReason ??
+                `Accept ${contract.name}`
+              }
+              onClick={() =>
+                dispatch({
+                  type: "acceptContract",
+                  contractId: contract.id,
+                  systemId: targetSystemId,
+                })
+              }
+            >
+              <Check size={12} aria-hidden="true" /> Accept
+            </button>
+          </>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -324,9 +512,14 @@ export function ContractsView({
   visible: VisibleState;
   dispatch: Dispatch;
 }) {
-  const active = visible.contracts.filter((contract) => contract.accepted);
-  const offers = visible.contracts.filter((contract) => !contract.accepted);
   const market = visible.contractMarket;
+  // Reserved geometry: contracts render as one list in stable id (creation)
+  // order, so accepting never moves a card between sections.
+  const contracts = [...visible.contracts].sort((a, b) =>
+    a.id.localeCompare(b.id, undefined, { numeric: true }),
+  );
+  const activeCount = contracts.filter((contract) => contract.accepted).length;
+  const offerCount = contracts.length - activeCount;
 
   const refreshLabel = market.canRefresh
     ? "Refresh market"
@@ -337,7 +530,7 @@ export function ContractsView({
     <div className="work-contracts-view">
       <div className="work-view-toolbar">
         <span>
-          {offers.length} offers · {active.length} active
+          {offerCount} offers · {activeCount} active
         </span>
         <button
           type="button"
@@ -350,140 +543,22 @@ export function ContractsView({
         </button>
       </div>
 
-      {active.length === 0 && offers.length === 0 && (
+      {contracts.length === 0 && (
         <EmptyWorkView>No contract offers or active contracts.</EmptyWorkView>
       )}
 
-      {active.length > 0 && (
-        <>
-          <h3>Active contracts</h3>
-          <div className="work-card-list">
-            {active.map((contract) => {
-              const warning = contractWarning(contract);
-              return (
-                <article className="work-card contract active" key={contract.id}>
-                  <header>
-                    <span title={contract.description}>{contract.name}</span>
-                    <b>{contract.kind}</b>
-                    <small
-                      className="work-contract-when"
-                      title={`Time remaining on ${getWorkSystemName(visible, contract.systemId)}`}
-                    >
-                      <Clock3 size={10} aria-hidden="true" />
-                      {formatWorkDuration(contract.remainingMs)}
-                    </small>
-                  </header>
-                  <SmoothProgress
-                    value={progressValue(
-                      contract.workCompletedMs /
-                        Math.max(1, contract.workRequiredMs),
-                    )}
-                    max={1}
-                    label={`${contract.name} progress`}
-                  />
-                  <div className="work-contract-payoff">
-                    <span
-                      title={workValueTitle(
-                        contract.paidWorkUnits,
-                        contract.workValueMultiplier,
-                      )}
-                    >
-                      <WorkResourceSummary resources={contract.rewards} />
-                    </span>
-                    <ContractRateChip contract={contract} market={market} />
-                    <small className="work-contract-system">
-                      {getWorkSystemName(visible, contract.systemId)}
-                    </small>
-                  </div>
-                  {warning && (
-                    <small className="work-blocked-reason">{warning}</small>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {offers.length > 0 && (
-        <>
-          <h3>Contract offers</h3>
-          <div className="work-card-list">
-            {offers.map((contract) => {
-              const warning = contractWarning(contract);
-              return (
-                <article className="work-card contract" key={contract.id}>
-                  <header>
-                    <span title={contract.description}>{contract.name}</span>
-                    <b>{contract.kind}</b>
-                    <small
-                      className={`work-contract-when ${
-                        contract.novel ? "is-novel" : ""
-                      }`}
-                      title={`Offer expires in ${formatWorkDuration(contract.expiresInMs)}${
-                        contract.novel ? " · pays novel Data" : ""
-                      }`}
-                    >
-                      <Clock3 size={10} aria-hidden="true" />
-                      {formatWorkDuration(contract.expiresInMs)}
-                    </small>
-                  </header>
-                  <div className="work-contract-payoff">
-                    <span
-                      title={workValueTitle(
-                        contract.paidWorkUnits,
-                        contract.workValueMultiplier,
-                      )}
-                    >
-                      <WorkResourceSummary resources={contract.rewards} />
-                    </span>
-                    <ContractRateChip contract={contract} market={market} />
-                    <small
-                      className="work-contract-system"
-                      title={`Runs ${formatWorkDuration(contract.workRequiredMs)} of work on ${getWorkSystemName(visible, contract.systemId)}`}
-                    >
-                      {formatWorkDuration(contract.workRequiredMs)} ·{" "}
-                      {getWorkSystemName(visible, contract.systemId)}
-                    </small>
-                  </div>
-                  <WorkMixBar stages={contract.workMix} />
-                  {warning && (
-                    <small className="work-blocked-reason">{warning}</small>
-                  )}
-                  <div className="work-contract-actions">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        dispatch({
-                          type: "declineContract",
-                          contractId: contract.id,
-                        })
-                      }
-                    >
-                      <X size={12} aria-hidden="true" /> Decline
-                    </button>
-                    <button
-                      type="button"
-                      className="work-primary-action"
-                      disabled={!contract.canAccept}
-                      title={
-                        contract.projectedPauseReason ?? `Accept ${contract.name}`
-                      }
-                      onClick={() =>
-                        dispatch({
-                          type: "acceptContract",
-                          contractId: contract.id,
-                        })
-                      }
-                    >
-                      <Check size={12} aria-hidden="true" /> Accept
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </>
+      {contracts.length > 0 && (
+        <div className="work-card-list">
+          {contracts.map((contract) => (
+            <ContractCard
+              key={contract.id}
+              visible={visible}
+              contract={contract}
+              market={market}
+              dispatch={dispatch}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

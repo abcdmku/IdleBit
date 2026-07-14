@@ -6,6 +6,7 @@ import {
   amountDivide,
   amountMultiply,
   amountSubtract,
+  amountToSafeNumber,
   type Amount,
 } from "../amount";
 import type {
@@ -220,7 +221,6 @@ const BUFFER_ORDER: readonly AutomationBufferLevelId[] = [
 ];
 
 const BASIS_POINTS = 10_000;
-const DAY_MS = 24 * 60 * 60_000;
 const CLOUD_HUB_DEMAND = amount("2000000000000");
 const CLOUD_SPOKE_DEMAND = amount("1");
 const CLOUD_ROUTING_LINK_CAPACITY = amount("500000000000");
@@ -452,79 +452,6 @@ const bufferAtLeast = (
   ownedLevelId: AutomationBufferLevelId,
   requiredLevelId: AutomationBufferLevelId,
 ) => BUFFER_ORDER.indexOf(ownedLevelId) >= BUFFER_ORDER.indexOf(requiredLevelId);
-
-const bufferPurchaseMinimumCalendarMs = (
-  profileId: EngagementProfileId,
-  levelId: AutomationBufferLevelId,
-) => {
-  if (levelId === "cronRuntime") {
-    if (profileId === "regular") return DAY_MS;
-    if (profileId === "full-idle") return 2 * DAY_MS;
-  }
-  if (levelId === "systemScheduler") {
-    if (profileId === "full-idle") return 7 * DAY_MS;
-    if (profileId === "regular" || profileId === "engaged") return 4 * DAY_MS;
-  }
-  if (levelId === "fleetOrchestrator") {
-    if (profileId === "full-idle") return 28 * DAY_MS;
-    if (profileId === "regular") return 14 * DAY_MS;
-    if (profileId === "engaged") return 10 * DAY_MS;
-  }
-  if (levelId === "clusterController") {
-    if (profileId === "full-idle") return 98 * DAY_MS;
-    if (profileId === "regular") return 49 * DAY_MS;
-    if (profileId === "engaged") return 32 * DAY_MS;
-  }
-  if (levelId === "rackController") {
-    if (profileId === "full-idle") return 140 * DAY_MS;
-    if (profileId === "regular") return 70 * DAY_MS;
-    if (profileId === "engaged") return 45 * DAY_MS;
-  }
-  if (levelId === "dataCenterNoc") {
-    if (profileId === "full-idle") return 154 * DAY_MS;
-    if (profileId === "regular") return 77 * DAY_MS;
-    if (profileId === "engaged") return 55 * DAY_MS;
-  }
-  if (levelId === "globalScheduler") {
-    if (profileId === "full-idle") return 266 * DAY_MS;
-    if (profileId === "regular") return 133 * DAY_MS;
-    if (profileId === "engaged") return 90 * DAY_MS;
-  }
-  return 0;
-};
-
-const bufferSavingsMinimumCalendarMs = (
-  profileId: EngagementProfileId,
-  levelId: AutomationBufferLevelId,
-) => {
-  const purchaseAtMs = bufferPurchaseMinimumCalendarMs(profileId, levelId);
-  if (purchaseAtMs <= 0) return Number.POSITIVE_INFINITY;
-  const savingsLeadMs = profileId === "full-idle" ? 7 * DAY_MS : 2 * DAY_MS;
-  return Math.max(0, purchaseAtMs - savingsLeadMs);
-};
-
-/**
- * Session profiles model when a player chooses to admit the next finite Cloud
- * proof. The proof itself still advances exclusively from routed work and its
- * authored observation window; these dates are not simulation timers.
- */
-const cloudProofAdmissionMinimumCalendarMs = (
-  profileId: EngagementProfileId,
-  proofId: "regionalContinuity" | "planetaryCoverage" | "planetaryFinale",
-) => {
-  if (proofId === "regionalContinuity") {
-    if (profileId === "full-idle") return 209 * DAY_MS;
-    if (profileId === "regular") return 104 * DAY_MS;
-    if (profileId === "engaged") return 60 * DAY_MS;
-  }
-  if (proofId === "planetaryFinale") {
-    if (profileId === "full-idle") return 313 * DAY_MS;
-    if (profileId === "regular") return 155 * DAY_MS;
-    if (profileId === "engaged") return 110 * DAY_MS;
-    if (profileId === "optimizer") return 70 * DAY_MS;
-  }
-  return 0;
-};
 
 const getManagedSystemIds = (visible: ReadonlyVisible) =>
   new Set(
@@ -1112,18 +1039,43 @@ export const decideBalancePolicy = (
   const buffer = visible.automationBuffer.nextUpgrade;
   const protectPendingCronBuffer =
     buffer?.id === "cronRuntime";
+  // Under metered billing an idle-heavy wallet hovers near its income/drain
+  // equilibrium, so a draw-raising purchase right before the CRON Runtime
+  // buffer becomes buyable can trap the run below the buffer cost forever.
+  // Once half the buffer cost is banked while power bills, even progression
+  // upgrades wait until unattended renewal coverage is secured.
+  const cronBufferCostTotals =
+    protectPendingCronBuffer && buffer ? getCostTotals(buffer.costs) : null;
+  const protectCronBufferSavingsUnderBilling = Boolean(
+    buffer?.unlocked &&
+      cronBufferCostTotals &&
+      visible.metrics.powerCostPerSecond > 0 &&
+      (["credits", "data"] as const).every(
+        (resource) =>
+          amountCompare(
+            amountMultiply(budget.starting[resource], 2),
+            cronBufferCostTotals[resource],
+          ) >= 0,
+      ),
+  );
+  // Savings emerge from public affordability instead of authored calendar
+  // dates: once at least half of every resource cost of the next unlocked
+  // buffer is banked, optional tuning defers so unattended coverage timing
+  // stays measurable rather than policy-scripted.
+  const bufferCostTotals = buffer ? getCostTotals(buffer.costs) : null;
   const protectPendingMilestoneBuffer = Boolean(
     buffer?.unlocked &&
       !buffer.canAfford &&
-      context.elapsedCalendarMs >=
-        bufferSavingsMinimumCalendarMs(context.profileId, buffer.id),
+      bufferCostTotals &&
+      (["credits", "data"] as const).every(
+        (resource) =>
+          amountCompare(
+            amountMultiply(budget.starting[resource], 2),
+            bufferCostTotals[resource],
+          ) >= 0,
+      ),
   );
-  if (
-    buffer?.unlocked &&
-    buffer.canAfford &&
-    context.elapsedCalendarMs >=
-      bufferPurchaseMinimumCalendarMs(context.profileId, buffer.id)
-  ) {
+  if (buffer?.unlocked && buffer.canAfford) {
     addAction(
       { type: "purchaseAutomationBuffer", levelId: buffer.id },
       "buffer",
@@ -1326,13 +1278,23 @@ export const decideBalancePolicy = (
     const contract = fittingContracts[0];
     if (contract) {
       addAction(
-        { type: "acceptContract", contractId: contract.id },
+        // The policy already validated the offer against its suggested
+        // system in contractFits; pass that same choice explicitly now that
+        // acceptance takes a player-chosen target.
+        {
+          type: "acceptContract",
+          contractId: contract.id,
+          systemId: contract.systemId,
+        },
         "contract",
         `Accept the highest-value offer that fits its system and expiry window: ${contract.name}.`,
       );
-    } else if (contractOffers.length > 0) {
-      note("no-contract-fit", "Visible contract offers do not fit this policy window.");
     } else {
+      if (contractOffers.length > 0) {
+        note("no-contract-fit", "Visible contract offers do not fit this policy window.");
+      }
+      // Real players reroll a bad market whenever the public cooldown allows:
+      // an unusable nonempty market is refreshed just like an empty one.
       if (
         specializedObjectiveTaskIds.length === 0 &&
         contractAutomationReady &&
@@ -1341,7 +1303,9 @@ export const decideBalancePolicy = (
         addAction(
           { type: "refreshContractMarket" },
           "contract",
-          "Refresh the empty contract market once finite Local Scheduler work is available.",
+          contractOffers.length > 0
+            ? "Reroll the contract market because no visible offer fits this policy window."
+            : "Refresh the empty contract market once finite Local Scheduler work is available.",
         );
       } else {
         note(
@@ -1456,6 +1420,30 @@ export const decideBalancePolicy = (
     }
   }
 
+  // Generic safe workload selection: once no finite chapter proof is pending,
+  // profitable installed-storage work is part of the public workload set that
+  // measured acceptance must exercise.
+  const storageWorkload = visible.workshop.storageWorkload;
+  if (
+    specializedObjectiveTaskIds.length === 0 &&
+    !storageWorkload.active &&
+    storageWorkload.canStart &&
+    storageWorkload.projection.pauseReason === null &&
+    storageWorkload.projection.netRewardCredits !== null &&
+    amountCompare(toAmount(storageWorkload.projection.netRewardCredits), 0) > 0 &&
+    selectedSystemCanRunWork(visible)
+  ) {
+    addAction(
+      {
+        type: "startWorkshopStorageWorkload",
+        workloadId: storageWorkload.id,
+        systemId: visible.selectedSystem.id,
+      },
+      "workshop",
+      `Run the profitable storage workload ${storageWorkload.name} on installed Workshop storage.`,
+    );
+  }
+
   const selectedAvailable = selectedSystemCanRunWork(visible);
   const researchTaskIds = new Set<TaskId>(
     [
@@ -1567,6 +1555,10 @@ export const decideBalancePolicy = (
       0,
     );
   let plannedManualDispatches = 0;
+  // A research benchmark dispatched this same decision reserves scheduler
+  // slots (system benchmarks fan children across the CPU queue), so the
+  // queue budget below must treat those slots as spent.
+  let plannedResearchDispatchCores = 0;
   const researchComputeTask = visible.research
     .flatMap((candidate) => candidate.computeTasks)
     .find(
@@ -1593,6 +1585,7 @@ export const decideBalancePolicy = (
     plannedManualDispatches += 1;
     remainingIdleCores -= researchComputeTask.requiredCores;
     remainingCacheBits -= researchComputeTask.cacheNeedBits;
+    plannedResearchDispatchCores += researchComputeTask.requiredCores;
   }
   // After Local Scheduler exists, income work goes through the finite CPU
   // queue (FIFO lookahead keeps staging safe) instead of repeated manual
@@ -1602,6 +1595,8 @@ export const decideBalancePolicy = (
     0,
   );
   let openQueueSlots = Math.max(0, totalQueueSlots - visible.queue.length);
+  const plannedDispatchTaskIds = new Set<TaskId>();
+  let plannedQueueInsertCores = 0;
   for (const manualJob of manualJobs) {
     if (plannedManualDispatches >= config.manualDispatchLimit) continue;
     const useQueue =
@@ -1633,11 +1628,139 @@ export const decideBalancePolicy = (
       )
     ) {
       plannedManualDispatches += 1;
+      plannedDispatchTaskIds.add(manualJob.id);
       if (useQueue) {
         openQueueSlots -= 1;
+        plannedQueueInsertCores += Math.max(1, manualJob.requiredCores);
       } else {
         remainingIdleCores -= manualJob.requiredCores;
         remainingCacheBits -= manualJob.cacheNeedBits;
+      }
+    }
+  }
+  // Metered power billing drains while cores idle between check-ins, and the
+  // window after CRON research but before the CRON Runtime buffer has NO
+  // renewal automation: a configured standing order sits inert while power
+  // bills, which previously wedged idle-heavy runs at 0 credits forever.
+  // A rational player covers that drain by topping up the finite CPU queue
+  // with the best income work each visit. Queue insertions go through the
+  // scheduler, so the per-visit manual click limit (and the ten-identical-
+  // manual-completions promise) still applies to direct starts.
+  if (
+    canManuallyDispatch &&
+    visible.flags.basicQueue &&
+    visible.metrics.powerCostPerSecond > 0 &&
+    !bufferAtLeast(visible.automationBuffer.ownedLevelId, "cronRuntime")
+  ) {
+    // The top-up must not overfill the scheduler (a refused enqueue is a
+    // no-op the audits flag), so it budgets slots precisely: multi-core tasks
+    // reserve one slot per core, dispatched queue entries keep their
+    // reservation while running, and a research benchmark dispatched this
+    // same decision reserves its cores too.
+    const requiredCoresByTaskId = new Map(
+      visible.tasks.map((task) => [task.id, Math.max(1, task.requiredCores ?? 1)]),
+    );
+    const reservedQueueSlots =
+      visible.queue.reduce(
+        (total, entry) =>
+          total +
+          (requiredCoresByTaskId.get(
+            typeof entry === "string" ? entry : entry.taskId,
+          ) ?? 1),
+        0,
+      ) +
+      visible.activeTasks.reduce(
+        (total, active) =>
+          active.schedulerQueued || active.queueEntryId
+            ? total + (requiredCoresByTaskId.get(active.taskId) ?? 1)
+            : total,
+        0,
+      ) +
+      plannedResearchDispatchCores +
+      plannedQueueInsertCores;
+    let topUpOpenSlots = Math.max(0, totalQueueSlots - reservedQueueSlots);
+    // Concurrent RAM staging beyond physical capacity starves every loader at
+    // 0% progress while power keeps billing, so budget RAM across queued and
+    // active work exactly like the cache budget above.
+    const ramNeedByTaskId = new Map(
+      visible.tasks.map((task) => [task.id, task.ramNeedBits ?? 0]),
+    );
+    let remainingRamBits =
+      visible.hardware.ramBits -
+      visible.activeTasks.reduce(
+        (total, active) => total + (ramNeedByTaskId.get(active.taskId) ?? 0),
+        0,
+      ) -
+      visible.queue.reduce(
+        (total, entry) =>
+          total +
+          (ramNeedByTaskId.get(
+            typeof entry === "string" ? entry : entry.taskId,
+          ) ?? 0),
+        0,
+      );
+    const topUpJobs = [...visible.jobs]
+      .filter(
+        (job) =>
+          job.kind === "job" &&
+          !["system", "distributed"].includes(job.category) &&
+          job.canQueue &&
+          canDispatchWithStartAction(job) &&
+          workFitsHardware(job, visible) &&
+          !taskIsInFlight(visible, job.id) &&
+          !plannedDispatchTaskIds.has(job.id) &&
+          amountCompare(repeatJobValue(job, config.dataCreditWeight), 0) > 0,
+      )
+      .sort((left, right) => {
+        // Between check-ins the wallet pays the drain for the FULL interval,
+        // so rank by the value a queued run can actually deliver before the
+        // next visit: full value for jobs that finish inside the window,
+        // rate-prorated value for longer ones.
+        const windowSeconds = 60;
+        const windowValue = (job: ReadonlyJob) =>
+          amountToSafeNumber(repeatJobValue(job, config.dataCreditWeight)) *
+          Math.min(1, windowSeconds / Math.max(job.seconds, 0.001));
+        const byWindowValue = windowValue(right) - windowValue(left);
+        if (byWindowValue !== 0) return byWindowValue;
+        if (right.seconds !== left.seconds) {
+          return right.seconds - left.seconds;
+        }
+        return left.id.localeCompare(right.id);
+      });
+    // The early RAM lane is one shared channel: concurrent RAM stagings
+    // serialize against it, capping the whole batch at the RAM rate while
+    // power bills every core. Queue at most one RAM-staged job per visit and
+    // fill the rest with compute/cache earners.
+    let ramStagedJobPlanned =
+      visible.activeTasks.some(
+        (active) => (ramNeedByTaskId.get(active.taskId) ?? 0) > 0,
+      ) ||
+      visible.queue.some(
+        (entry) =>
+          (ramNeedByTaskId.get(
+            typeof entry === "string" ? entry : entry.taskId,
+          ) ?? 0) > 0,
+      );
+    for (const job of topUpJobs) {
+      const slotNeed = Math.max(1, job.requiredCores);
+      if (slotNeed > topUpOpenSlots) continue;
+      if (job.ramNeedBits > remainingRamBits) continue;
+      if (job.ramNeedBits > 0 && ramStagedJobPlanned) continue;
+      if (
+        addAction(
+          {
+            type: "queueTask",
+            taskId: job.id,
+            systemId: visible.selectedSystem.id,
+          },
+          "manual-dispatch",
+          `Top up the CPU queue with ${job.name} to cover metered power drain.`,
+        )
+      ) {
+        plannedDispatchTaskIds.add(job.id);
+        topUpOpenSlots -= slotNeed;
+        remainingRamBits -= job.ramNeedBits;
+        if (job.ramNeedBits > 0) ramStagedJobPlanned = true;
       }
     }
   }
@@ -1697,7 +1820,9 @@ export const decideBalancePolicy = (
   const upgrade = [...visible.upgrades]
     .filter((candidate) => {
       if (!candidate.canAfford || candidate.maxed === true) return false;
-      const progressionRequired = progressionUpgradeScore(candidate, visible) > 0;
+      const progressionRequired =
+        progressionUpgradeScore(candidate, visible) > 0 &&
+        !protectCronBufferSavingsUnderBilling;
       const workshopPsuRequired =
         specializedObjective &&
         visible.workshop.specializedComputeUnlocked &&
@@ -1949,6 +2074,41 @@ export const decideBalancePolicy = (
         "Run the one finite replicated shard proof required by the campaign.",
         replicatedProof?.startCosts ?? [],
       );
+    }
+
+    // Generic safe workload selection after the mandatory fabric proof:
+    // steady capacity workloads (e.g. Fabric Integrity Sweep) are how a real
+    // player uses commissioned cluster headroom, and acceptance requires
+    // their measured economics.
+    const inFlightWorkloadDefinitionIds = new Set(
+      visible.infrastructure.workloads
+        .filter((workload) => workload.status !== "completed")
+        .map((workload) => workload.definitionId),
+    );
+    if (!needsFabricProof) {
+      const capacityWorkload = visible.infrastructure.workloadDefinitions
+        .filter(
+          (definition) =>
+            definition.kind === "capacity" &&
+            !inFlightWorkloadDefinitionIds.has(definition.id) &&
+            definition.clusterOptions.some((option) => option.canStart),
+        )
+        .sort((left, right) => left.id.localeCompare(right.id))[0];
+      const capacityCluster = capacityWorkload?.clusterOptions.find(
+        (option) => option.canStart,
+      );
+      if (capacityWorkload && capacityCluster) {
+        addAction(
+          {
+            type: "startClusterWorkload",
+            clusterId: capacityCluster.clusterId,
+            definitionId: capacityWorkload.id,
+          },
+          "fleet",
+          `Run the steady capacity workload ${capacityWorkload.name} on commissioned cluster headroom.`,
+          capacityWorkload.startCosts,
+        );
+      }
     }
 
     if (
@@ -2247,11 +2407,10 @@ export const decideBalancePolicy = (
         const nextSla = visible.cloud.slaDefinitions.find(
           (definition) => definition.id === nextSlaId && definition.canStart,
         );
-        if (
-          nextSla &&
-          context.elapsedCalendarMs >=
-            cloudProofAdmissionMinimumCalendarMs(context.profileId, nextSla.id)
-        ) {
+        // Proof admission has no authored calendar minimum: the public
+        // canStart gate (capacity, routing, prior proofs) decides timing so
+        // acceptance can detect overly cheap content or an early optimizer.
+        if (nextSla) {
           addAction(
             { type: "startCloudSla", definitionId: nextSla.id },
             "cloud",
@@ -2260,14 +2419,7 @@ export const decideBalancePolicy = (
         }
       }
 
-      if (
-        visible.cloud.finale.canStart &&
-        context.elapsedCalendarMs >=
-          cloudProofAdmissionMinimumCalendarMs(
-            context.profileId,
-            "planetaryFinale",
-          )
-      ) {
+      if (visible.cloud.finale.canStart) {
         addAction(
           { type: "startPlanetaryFinale" },
           "cloud",
@@ -2311,6 +2463,23 @@ export const decideBalancePolicy = (
       actionReasons.length,
       ...(selection ? [selection] : []),
     );
+  }
+  // A cronRuntime buffer purchase can complete an acceptance run the moment
+  // it lands; dispatch any standing-order configuration planned in the same
+  // decision first so automation coverage arrives already configured.
+  const cronPurchaseIndex = actionReasons.findIndex(
+    (decision) =>
+      decision.action.type === "purchaseAutomationBuffer" &&
+      decision.action.levelId === "cronRuntime",
+  );
+  const standingConfigIndex = actionReasons.findIndex(
+    (decision) => decision.category === "standing-order",
+  );
+  if (cronPurchaseIndex >= 0 && standingConfigIndex > cronPurchaseIndex) {
+    const [standingDecision] = actionReasons.splice(standingConfigIndex, 1);
+    if (standingDecision) {
+      actionReasons.splice(cronPurchaseIndex, 0, standingDecision);
+    }
   }
   const actions = actionReasons.map((decision) => decision.action);
   const manualDispatchActions = actionReasons.filter(

@@ -86,6 +86,10 @@ export function HardwareSystemBoard({
   const psuAdvancedControlsVisible = hasPsuManagement(visible);
   const psuVisible = true;
   const thermalVisible = visible.workshop?.thermalVisible === true;
+  // Storage controls unlock from System Catalog independently of thermal
+  // discovery, so the Workshop panel must mount for either surface.
+  const workshopVisible =
+    thermalVisible || visible.workshop?.storageUnlocked === true;
   const upgradesFor = (component: HardwareComponentId) =>
     visible.upgrades.filter((upgrade) => upgrade.component === component);
 
@@ -292,7 +296,7 @@ export function HardwareSystemBoard({
         </SystemRail>
       )}
 
-      {thermalVisible && <WorkshopPanel visible={visible} dispatch={dispatch} />}
+      {workshopVisible && <WorkshopPanel visible={visible} dispatch={dispatch} />}
     </SystemBoard>
   );
 }

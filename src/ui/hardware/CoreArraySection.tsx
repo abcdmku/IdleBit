@@ -1,16 +1,18 @@
-import { type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, type CSSProperties, type MouseEvent } from "react";
 import { X } from "lucide-react";
-import type { VisibleCore, VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
+import type { VisibleCpuSocket, VisibleState, VisibleUpgrade } from "../../game";
 import { formatClock, formatNumber } from "../format";
 import { getSocketCoreLabel } from "../panels/cpuLabels";
 import { SmoothFill } from "../SmoothProgress";
 import { StatTile } from "../StatTile";
 import { getCoreActiveTask } from "../tasks/taskData";
+import { useStableCallback } from "../hooks/useStableCallback";
 import type { Dispatch } from "../uiActions";
 import { DeadlockCountdown, shouldShowCacheDeadlockPressure } from "./DeadlockHelp";
 import { formatClockTick } from "./display";
 import { UpgradeStepper } from "./UpgradeControls";
 import { getCoreGridMetrics } from "./coreGrid";
+import { getCoreOperationProgress } from "./coreProgress";
 import { getCoreSegmentColor } from "./meters";
 import type { CoreGridDensity } from "./visibleState";
 
@@ -40,6 +42,9 @@ export function CoreArraySection({
   showEfficiency?: boolean;
 }) {
   const coreUpgrade = socket.coreUpgrade ?? cpuUpgrades.find((upgrade) => upgrade.id === "core");
+  // Identity-stable handler so the memoized dies skip reconciliation even
+  // though parents pass fresh inline closures on every snapshot.
+  const stableSelectCore = useStableCallback(onSelectCore);
   const grid = getCoreGridMetrics(socket.cores.length);
   const tabletColumns = Math.min(grid.columns, 6);
   const mobileColumns = Math.min(grid.columns, 4);
@@ -62,10 +67,27 @@ export function CoreArraySection({
     >
       <div className="core-array-header">
         <span>Cores</span>
-        {deadlockPressure &&
-          shouldShowCacheDeadlockPressure(socket, deadlockPressure) && (
-            <DeadlockCountdown pressure={deadlockPressure} compact />
-          )}
+        {/* Reserved chip slot: pre-reserves the countdown's footprint while
+            deadlock pressure is possible, so onset/drain toggles visibility
+            without rewrapping the header. */}
+        {deadlockPressure && (
+          <span
+            className={`core-array-deadlock-slot ${
+              shouldShowCacheDeadlockPressure(socket, deadlockPressure)
+                ? ""
+                : "is-idle"
+            }`}
+            aria-hidden={
+              shouldShowCacheDeadlockPressure(socket, deadlockPressure)
+                ? undefined
+                : true
+            }
+          >
+            {shouldShowCacheDeadlockPressure(socket, deadlockPressure) && (
+              <DeadlockCountdown pressure={deadlockPressure} compact />
+            )}
+          </span>
+        )}
         {allCoreTuningVisible && (
           <button
             type="button"
@@ -104,17 +126,26 @@ export function CoreArraySection({
         style={gridStyle}
         data-grid={grid.label}
       >
-        {socket.cores.map((core) => (
-          <CoreDie
-            key={core.id}
-            core={core}
-            density={grid.density}
-            selected={selectedAllCores || selectedCoreId === core.id}
-            onSelect={() => onSelectCore(core.id)}
-            coreLabel={getSocketCoreLabel(socket, core.id)}
-            dispatch={dispatch}
-          />
-        ))}
+        {socket.cores.map((core) => {
+          const active = getCoreActiveTask(core);
+          return (
+            <CoreDie
+              key={core.id}
+              coreId={core.id}
+              clockHz={core.clockHz}
+              deadlocked={core.deadlocked}
+              activeName={active?.name ?? null}
+              activeTaskId={active?.taskId ?? null}
+              activeInstanceId={active?.instanceId ?? null}
+              progress={getCoreOperationProgress(core)}
+              density={grid.density}
+              selected={selectedAllCores || selectedCoreId === core.id}
+              onSelectCore={stableSelectCore}
+              coreLabel={getSocketCoreLabel(socket, core.id)}
+              dispatch={dispatch}
+            />
+          );
+        })}
       </div>
 
       {selectedClockUpgrade && (
@@ -132,82 +163,99 @@ export function CoreArraySection({
   );
 }
 
-function CoreDie({
-  core,
+/**
+ * Memoized with primitive props: up to 512 dies reconcile per socket view and
+ * a snapshot lands every 500ms, so idle/unchanged dies must skip re-render.
+ * Handlers passed in must be identity-stable (see useStableCallback above).
+ */
+const CoreDie = memo(function CoreDie({
+  coreId,
   coreLabel,
   density,
   selected,
-  onSelect,
+  clockHz,
+  deadlocked,
+  activeName,
+  activeTaskId,
+  activeInstanceId,
+  progress,
+  onSelectCore,
   dispatch,
 }: {
-  core: VisibleCore;
+  coreId: number;
   coreLabel: string;
   density: CoreGridDensity;
   selected: boolean;
-  onSelect: () => void;
+  clockHz: number;
+  deadlocked: boolean;
+  activeName: string | null;
+  activeTaskId: string | null;
+  activeInstanceId: string | null;
+  progress: number;
+  onSelectCore: (coreId: number) => void;
   dispatch: Dispatch;
 }) {
-  const active = getCoreActiveTask(core);
-  const progress =
-    active?.coreProgress?.find((operation) => operation.coreId === core.id)?.progress ?? 0;
-  const work = active?.name ?? "Idle";
-  const coreStyle = active
+  const running = activeName !== null;
+  const work = activeName ?? "Idle";
+  const coreStyle = running
     ? ({
-        "--core-status-color": getCoreSegmentColor(core.id, 0.94),
-        "--core-status-glow": getCoreSegmentColor(core.id, 0.72),
+        "--core-status-color": getCoreSegmentColor(coreId, 0.94),
+        "--core-status-glow": getCoreSegmentColor(coreId, 0.72),
       } as CSSProperties)
     : undefined;
   const cancelActiveTask = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (!active) return;
+    if (activeTaskId === null) return;
 
     dispatch({
       type: "cancelTask",
-      taskId: active.taskId,
-      instanceId: active.instanceId,
-      coreId: core.id,
+      taskId: activeTaskId,
+      instanceId: activeInstanceId ?? undefined,
+      coreId,
     });
   };
-  const selectOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onSelect();
-  };
+  const dieTitle = `${coreLabel} - ${formatClock(clockHz)} - ${
+    deadlocked ? "Deadlocked" : work
+  }`;
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      className={`core-die ${active ? "running" : ""} ${
-        core.deadlocked ? "deadlocked" : ""
+      className={`core-die ${running ? "running" : ""} ${
+        deadlocked ? "deadlocked" : ""
       } ${selected ? "selected" : ""}`}
-      onClick={onSelect}
-      onKeyDown={selectOnKeyDown}
-      aria-pressed={selected}
       style={coreStyle}
-      title={`${coreLabel} - ${formatClock(core.clockHz)} - ${
-        core.deadlocked ? "Deadlocked" : work
-      }`}
+      title={dieTitle}
     >
+      {/* Stretched invisible select button: no nested interactive controls
+          inside a button role — the absolutely positioned cancel button sits
+          above it as a sibling (RackSystemCard pattern). */}
+      <button
+        type="button"
+        className="core-die-select"
+        onClick={() => onSelectCore(coreId)}
+        aria-pressed={selected}
+        aria-label={`Select ${coreLabel}, ${deadlocked ? "deadlocked" : work}`}
+        title={dieTitle}
+      />
       <span className="core-die-head">
         <span className="core-label">{coreLabel}</span>
         <span className="core-clock">
-          <strong>{formatClockTick(core.clockHz)}</strong>
+          <strong>{formatClockTick(clockHz)}</strong>
         </span>
-        {active && (
+        {running && (
           <button
             type="button"
             className="core-cancel-button"
             onClick={cancelActiveTask}
-            title={`Cancel ${active.name}`}
-            aria-label={`Cancel ${active.name} on ${coreLabel}`}
+            title={`Cancel ${work}`}
+            aria-label={`Cancel ${work} on ${coreLabel}`}
           >
             <X size={11} />
           </button>
         )}
       </span>
       {density === "normal" && (
-        <span className={`core-work ${active ? "" : "idle"}`} title={work}>
+        <span className={`core-work ${running ? "" : "idle"}`} title={work}>
           {work}
         </span>
       )}
@@ -216,7 +264,7 @@ function CoreDie({
       </span>
     </div>
   );
-}
+});
 
 function AddCoreButton({
   upgrade,

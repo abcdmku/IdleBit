@@ -141,9 +141,17 @@ describe("facility-backed cluster advancement", () => {
   it("does not bill a commissioned facility while no admitted workload is productive", () => {
     const built = buildRackedCluster(2);
     const beforeCredits = built.state.exactResources.credits;
+    // Only the host system's metered power drains; the facility itself must
+    // not charge while no admitted workload is productive.
+    const hostBilled = amountDivide(
+      amountMultiply(getSystemPowerOperatingCostPerSecond(built.state), 1_000),
+      1_000,
+    );
     const advanced = advanceGame(built.state, 1_000, "foreground");
 
-    expect(advanced.state.exactResources.credits).toBe(beforeCredits);
+    expect(advanced.state.exactResources.credits).toBe(
+      amountSubtract(beforeCredits, hostBilled),
+    );
     expect(advanced.intervalReport.productiveMs).toBe(0);
     expect(advanced.intervalReport.pausedMs).toBe(1_000);
   });
@@ -171,8 +179,10 @@ describe("facility-backed cluster advancement", () => {
     expect(getClusterWorkloadOperatingCostPerSecond(state)).toBe(combinedRate);
 
     const advanced = advanceGame(state, 1_000, "foreground");
+    // The host system's metered power drains alongside the single facility
+    // charge; the facility itself must only be charged once.
     expect(amountSubtract(beforeCredits, advanced.state.exactResources.credits)).toBe(
-      combinedRate,
+      amountAdd(combinedRate, getSystemPowerOperatingCostPerSecond(state)),
     );
     expect(advanced.state.infrastructure.facilities[0]?.id).toBe(
       built.facilityId,
@@ -212,7 +222,12 @@ describe("facility-backed cluster advancement", () => {
       clusterId: built.clusterId,
       definitionId: "replicatedShardCommit",
     });
-    const combinedRate = getClusterWorkloadOperatingCostPerSecond(state);
+    // The shared runway covers cluster, facility, and host-system metered
+    // power, so fund exactly half a millisecond of the combined rate.
+    const combinedRate = amountAdd(
+      getClusterWorkloadOperatingCostPerSecond(state),
+      getSystemPowerOperatingCostPerSecond(state),
+    );
     const halfMillisecondCost = amountDivide(
       amountMultiply(combinedRate, "0.5"),
       1_000,
@@ -282,9 +297,18 @@ describe("facility-backed cluster advancement", () => {
       amountMultiply(getClusterWorkloadOperatingCostPerSecond(state), 4_125),
       1_000,
     );
+    // Fund the host system's metered power for the same window so the
+    // workload's own operating runway spans the full 4.125s.
+    const hostPowerCost = amountDivide(
+      amountMultiply(getSystemPowerOperatingCostPerSecond(state), 4_125),
+      1_000,
+    );
     state = withExactResources(
       state,
-      exactResourceBag(operatingCost, state.exactResources.data),
+      exactResourceBag(
+        amountAdd(operatingCost, hostPowerCost),
+        state.exactResources.data,
+      ),
     );
 
     const advanced = advanceGame(state, 4_125, "foreground");
@@ -295,7 +319,9 @@ describe("facility-backed cluster advancement", () => {
     const reward = getClusterWorkloadDefinition("replicatedShardCommit").rewards
       .credits;
     expect(advanced.state.exactResources.credits).toBe(reward);
-    expect(advanced.intervalReport.creditsSpent).toBe(operatingCost);
+    expect(advanced.intervalReport.creditsSpent).toBe(
+      amountAdd(operatingCost, hostPowerCost),
+    );
     expect(advanced.intervalReport.creditsEarned).toBe(reward);
     expect(advanced.intervalReport.completionEvents).toHaveLength(1);
   });

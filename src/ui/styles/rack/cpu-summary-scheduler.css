@@ -186,6 +186,11 @@
   transition: width var(--runtime-meter-duration) linear;
 }
 
+/* Decrease = batch commit/consumption: snap, never animate backward. */
+.cpu-summary-cache-seg.is-snapping {
+  transition: none;
+}
+
 .cpu-summary-cache-seg.buffer {
   background: rgba(242, 194, 78, 0.78);
   box-shadow: 0 0 6px rgba(242, 194, 78, 0.34);

@@ -36,6 +36,7 @@ import {
 import { syncExactResources } from "./economy";
 import { getProductiveFacilitiesForNodeIds } from "./facilityInfrastructure";
 import { getPsuStress } from "./math";
+import { isPsuManagementUnlocked } from "./progression";
 import {
   getLiveOperationsCompletionDelta,
   hasRunnableLiveOperations,
@@ -52,6 +53,7 @@ import {
 } from "./projects";
 import {
   applyOfflineIdlePowerPolicies,
+  getOfflineDeadlockRecoveryEventMs,
   getOfflineProductiveSystemIds,
   getNextNormalizedSimulationEventMs,
   getSystemPowerOperatingCostPerSecond,
@@ -395,10 +397,12 @@ const getOfflineSafetyBlocker = (state: GameState, stepMs: number) => {
     );
   }
 
-  const systemCostPerSecond = getSystemPowerOperatingCostPerSecond(
-    state,
-    "offline",
-  );
+  // Before PSU Management there is no unpaid cutoff to pre-empt: offline
+  // billing safely drains to 0 credits and work continues, so the runway
+  // blocker only budgets system power once the cutoff consequence exists.
+  const systemCostPerSecond = isPsuManagementUnlocked(state)
+    ? getSystemPowerOperatingCostPerSecond(state, "offline")
+    : ZERO_AMOUNT;
   const totalCostPerSecond = amountAdd(
     amountAdd(
       systemCostPerSecond,
@@ -524,6 +528,9 @@ const advanceManagedWork = (
   mode: AdvanceMode,
 ) => {
   const reservations = getManagedWorkReservations(reservationState);
+  // reservationState is the pre-tick slice-start state: both the progress
+  // predicates and the hardware work rates must reflect what held over
+  // [t, t+dt], so managed-work progress is invariant to caller chunking.
   const contractsAdvanced = advanceContracts(
     state,
     elapsedMs,
@@ -534,6 +541,7 @@ const advanceManagedWork = (
         reservations,
         contract,
       ),
+    reservationState,
   );
   const projectsAdvanced = advanceProjects(
     contractsAdvanced,
@@ -545,6 +553,7 @@ const advanceManagedWork = (
         reservations,
         progress,
       ),
+    reservationState,
   );
   return mode === "offline"
     ? applyOfflineIdlePowerPolicies(projectsAdvanced)
@@ -1535,17 +1544,34 @@ export const advanceGame = (
           getOfflineProductiveSystemIds(state).length === 0 &&
           !hasRunnableClusterWorkloads(state, "offline") &&
           !hasRunnableNormalizedCloudWork(state, "offline");
+        // A deadlock lockout keeps cooling while paused, so the pause only
+        // consumes time up to the recovery boundary; the blocker is then
+        // re-evaluated and queued work can resume, matching foreground play.
+        const recoveryEventMs = noRunnableSource
+          ? getOfflineDeadlockRecoveryEventMs(state)
+          : null;
+        const pauseMs =
+          recoveryEventMs !== null && recoveryEventMs < remainingMs
+            ? Math.min(
+                remainingMs,
+                Math.max(
+                  MIN_ADVANCE_STEP_MS,
+                  normalizeAdvanceTimeMs(recoveryEventMs),
+                ),
+              )
+            : remainingMs;
         const pausedBase = noRunnableSource
-          ? tickNormalizedGame(state, remainingMs, "offline")
-          : fastForwardClock(state, remainingMs);
+          ? tickNormalizedGame(state, pauseMs, "offline")
+          : fastForwardClock(state, pauseMs);
         state = advanceContracts(
           pausedBase,
-          remainingMs,
+          pauseMs,
           false,
         );
-        pausedMs += remainingMs;
-        remainingMs = 0;
-        break;
+        pausedMs += pauseMs;
+        remainingMs = normalizeAdvanceTimeMs(remainingMs - pauseMs);
+        if (remainingMs <= 0) break;
+        continue;
       }
     }
 

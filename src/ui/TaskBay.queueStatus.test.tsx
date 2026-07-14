@@ -110,6 +110,75 @@ describe("TaskBay queue and deadlock status", () => {
     });
   });
 
+  it("swaps the pinned action label in place and keeps the full reason in title/aria", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const socket = base.metrics.cpuSockets[0]!;
+    const busy: VisibleState = {
+      ...base,
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          {
+            ...socket,
+            cores: socket.cores.map((core) =>
+              core.id === 1
+                ? ({
+                    ...core,
+                    activeTask: { taskId: "fetchBit", name: "Fetch Bit" },
+                  } as typeof core)
+                : core,
+            ),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <PinnedTaskBar
+          visible={busy}
+          pinnedTaskIds={["fetchBit"]}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+          dispatch={vi.fn()}
+          selectedComponent="core:1"
+        />,
+      );
+    });
+
+    // The fixed-width button (CSS) relabels in place; the blocker text is
+    // clipped visually but stays complete in title and aria-label.
+    const blockedButton =
+      container.querySelector<HTMLButtonElement>(".pinned-task-action");
+    expect(blockedButton?.disabled).toBe(true);
+    expect(blockedButton?.className).toContain("blocked");
+    expect(blockedButton?.textContent).toContain("Core busy");
+    expect(blockedButton?.title).toBe("Core busy");
+    expect(blockedButton?.getAttribute("aria-label")).toBe(
+      "Fetch Bit: Core busy",
+    );
+
+    act(() => {
+      root.render(
+        <PinnedTaskBar
+          visible={base}
+          pinnedTaskIds={["fetchBit"]}
+          onUnpinTask={() => undefined}
+          onClearPinnedTasks={() => undefined}
+          dispatch={vi.fn()}
+          selectedComponent="core:1"
+        />,
+      );
+    });
+
+    const readyButton =
+      container.querySelector<HTMLButtonElement>(".pinned-task-action");
+    expect(readyButton).toBe(blockedButton);
+    expect(readyButton?.disabled).toBe(false);
+    expect(readyButton?.textContent).toContain("Assign");
+    expect(readyButton?.title).toBe("Assign Fetch Bit");
+  });
+
   it("bubbles CPU scheduler wait reasons up to system scheduler slots", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();
@@ -307,9 +376,12 @@ describe("TaskBay queue and deadlock status", () => {
     );
     expect(container.textContent).toContain(`${formatBits(stagedSource.ramBits)} each`);
     expect(container.textContent).toContain("1 op");
-    expect(container.textContent).toContain("RAM held");
-    expect(container.textContent).not.toContain("kept from previous stage");
-    expect(container.querySelector(".dag-phase.phase-ram.has-muted-detail")).not.toBeNull();
+    // Composition children each re-stage their own RAM (paid work matches the
+    // runtime's empty-ramBlocks child execution), so no stage holds RAM over
+    // from a previous child.
+    expect(container.textContent).toContain("RAM load");
+    expect(container.textContent).not.toContain("RAM held");
+    expect(container.querySelector(".dag-phase.phase-ram.has-muted-detail")).toBeNull();
   });
 
   it("focuses and closes task DAG dialogs with Escape", () => {

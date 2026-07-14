@@ -46,6 +46,7 @@ import {
 } from "./ramTiers";
 import { getPsuCapacityUpgradeCost } from "./psu";
 import { getCpuSchedulerSlotUpgradeCost } from "./scheduler";
+import { cacheCapacityCosts, coreCosts } from "./componentCosts";
 import {
   MEMORY_VOLTAGE_MAX_LEVEL,
   getMemoryVoltageCost,
@@ -82,11 +83,6 @@ const deadlockRecoveryCosts = (purchaseCount: number): Cost[] => [
   roundedGrowthCost("data", "24", "1.48", purchaseCount),
 ];
 
-const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
-  roundedGrowthCost("credits", "3", "1.45", purchaseCount),
-  roundedGrowthCost("data", "1", "1.5", purchaseCount),
-];
-
 const cacheSpeedCosts = (tierId: CpuTierId, targetLevel: number): Cost[] =>
   getCpuTierUpgradeCost(tierId, targetLevel);
 
@@ -101,6 +97,40 @@ const ramCapacityCosts = (targetLevel: number): Cost[] =>
 
 const ramSpeedCosts = (targetLevel: number): Cost[] =>
   getRamTierSpeedUpgradeCost(targetLevel);
+
+/**
+ * What the player actually paid for a stick: the install at its tier's base
+ * level (scaled by the doubling stick-count curve) plus each per-level
+ * capacity/speed upgrade bought on it. Refunding half of this can never mint
+ * Credits, unlike pricing the sale off the install curve at the upgraded
+ * level (F-ECO-1). Sticks upgraded across tier boundaries under-refund
+ * (their pre-boundary upgrades are not re-derived), which stays exploit-safe.
+ */
+const getRamStickPaidCosts = (
+  stick: GameState["hardware"]["ramSticks"][number],
+  stickCount: number,
+): Cost[] => {
+  const capacityBaseLevel = getRamTierDefinitionForLevel(
+    stick.level,
+  ).firstGlobalLevel;
+  const speedBaseLevel = getRamTierDefinitionForLevel(
+    stick.speedLevel,
+  ).firstGlobalLevel;
+  const capacityUpgradeCosts = Array.from(
+    { length: Math.max(0, stick.level - capacityBaseLevel) },
+    (_, index) => capacityBaseLevel + index + 1,
+  ).flatMap(ramCapacityCosts);
+  const speedUpgradeCosts = Array.from(
+    { length: Math.max(0, stick.speedLevel - speedBaseLevel) },
+    (_, index) => speedBaseLevel + index + 1,
+  ).flatMap(ramSpeedCosts);
+
+  return combineCosts([
+    ...ramStickCosts(capacityBaseLevel, stickCount),
+    ...capacityUpgradeCosts,
+    ...speedUpgradeCosts,
+  ]);
+};
 
 const getRamInstallLevelForContext = (
   state: GameState,
@@ -119,11 +149,6 @@ const getRamInstallLevelForContext = (
 
   return tier?.firstGlobalLevel ?? null;
 };
-
-const coreCosts = (purchaseCount: number): Cost[] => [
-  roundedGrowthCost("credits", "140", "2.05", purchaseCount),
-  roundedGrowthCost("data", "2", "1.3", purchaseCount),
-];
 
 const coolingCosts = (purchaseCount: number): Cost[] => [
   roundedGrowthCost("credits", "180", "1.76", purchaseCount),
@@ -308,8 +333,7 @@ const matchingCpuCost = (state: GameState, sourceCpuId = 1) => {
   const costs: Cost[] = getCpuTierPurchaseCost(sourceCpu.tierId);
 
   for (let coreIndex = 1; coreIndex < sourceCpu.coreIds.length; coreIndex += 1) {
-    costs.push(roundedGrowthCost("credits", "140", "2.05", coreIndex - 1));
-    costs.push(roundedGrowthCost("data", "5", "1.45", coreIndex - 1));
+    costs.push(...coreCosts(coreIndex - 1));
     costs.push(...getCpuTierPurchaseCost(sourceCpu.tierId));
   }
 
@@ -1001,15 +1025,13 @@ export const upgradeDefinitions: UpgradeDefinition[] = [
         ...getNextRamHardware(state, nextRamSticks),
       });
     },
-    refund: (state) =>
-      getRamSticks(state).length > 1
-        ? halfRefund(
-            ramStickCosts(
-              getRamSticks(state).at(-1)?.level ?? 1,
-              getRamSticks(state).length,
-            ),
-          )
-        : [],
+    refund: (state) => {
+      const ramSticks = getRamSticks(state);
+      const soldStick = ramSticks.at(-1);
+      return ramSticks.length > 1 && soldStick
+        ? halfRefund(getRamStickPaidCosts(soldStick, ramSticks.length))
+        : [];
+    },
     downgradeBlockedReason: getRamStickDowngradeBlockedReason,
     downgrade: (state) => {
       const ramSticks = getRamSticks(state);

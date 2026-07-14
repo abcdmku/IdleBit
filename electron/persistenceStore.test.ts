@@ -113,6 +113,44 @@ describe("JSON persistence store", () => {
     await expect(store.get("idlebit:third")).resolves.toBe("three");
   });
 
+  it("flush resolves only after every enqueued write has been committed", async () => {
+    const store = createJsonPersistenceStore({ filePath });
+
+    void store.set("idlebit:first", "one");
+    void store.set("idlebit:second", "two");
+    await store.flush();
+
+    const serialized = JSON.parse(await fs.readFile(filePath, "utf8")) as Record<
+      string,
+      string
+    >;
+    expect(serialized).toMatchObject({
+      "idlebit:first": "one",
+      "idlebit:second": "two",
+    });
+  });
+
+  it("flush resolves even when an enqueued write failed", async () => {
+    const failingStore = createJsonPersistenceStore({
+      filePath,
+      fileSystem: {
+        async mkdir() {},
+        async readFile() {
+          throw Object.assign(new Error("permission denied"), {
+            code: "EACCES",
+          });
+        },
+        async rename() {},
+        async writeFile() {},
+      },
+    });
+
+    await expect(failingStore.set("idlebit:save", "value")).rejects.toThrow(
+      "permission denied",
+    );
+    await expect(failingStore.flush()).resolves.toBeUndefined();
+  });
+
   it("removes individual keys and clears only a requested namespace", async () => {
     const store = createJsonPersistenceStore({ filePath });
 

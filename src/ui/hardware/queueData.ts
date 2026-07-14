@@ -257,6 +257,7 @@ const getQueueDisplayItemsFromEntries = (
   const activeByReservation = getActiveTaskByReservationMap(activeTasks);
   const activeByParentQueueEntry = getActiveTaskByParentQueueEntryMap(activeTasks);
   const queueOccurrences = new Map<string, number>();
+  const keyCounts = new Map<string, number>();
 
   return entries
     .map((entry) => {
@@ -273,7 +274,7 @@ const getQueueDisplayItemsFromEntries = (
               activeByOccurrence.get(`${taskId}:${occurrence}`)
             : activeByOccurrence.get(`${taskId}:${occurrence}`);
 
-      return getQueueDisplayItem(
+      const item = getQueueDisplayItem(
         entry,
         tasksById,
         activeTask,
@@ -284,6 +285,25 @@ const getQueueDisplayItemsFromEntries = (
           activeTask,
         ),
       );
+      if (!item) return null;
+
+      // Render identity: prefer the queue entry / reservation / instance id
+      // (stable for the entry's lifetime); legacy string entries fall back to
+      // the taskId. Duplicate expansions of the same identity (multi-slot
+      // reservations) get a per-identity suffix so keys stay unique.
+      const identity =
+        (typeof entry !== "string"
+          ? String(entry.id ?? entry.reservationId ?? "")
+          : "") ||
+        activeTask?.instanceId ||
+        item.id;
+      const duplicateIndex = keyCounts.get(identity) ?? 0;
+      keyCounts.set(identity, duplicateIndex + 1);
+
+      return {
+        ...item,
+        key: duplicateIndex === 0 ? identity : `${identity}#${duplicateIndex}`,
+      };
     })
     .filter(hasValue);
 };

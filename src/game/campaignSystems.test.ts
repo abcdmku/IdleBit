@@ -18,9 +18,15 @@ import {
   normalizeContractMarketState,
   refreshContractMarket,
 } from "./contracts";
-import { amountCompare, amountToSafeNumber, exactResourceBag } from "./amount";
+import {
+  amountCompare,
+  amountMultiply,
+  amountSubtract,
+  amountToSafeNumber,
+  exactResourceBag,
+} from "./amount";
 import { createRackReadyGameState } from "./devSeeds";
-import { createInitialGameState } from "./progression";
+import { createInitialGameState, createRamStickState } from "./progression";
 import {
   canonicalPlanetaryFinalePlan,
   createPlanetaryFinaleRuntime,
@@ -34,7 +40,7 @@ import {
 import { createRngState } from "./rng";
 import { deserializeSave, serializeSave } from "./save";
 import { deriveVisibleState } from "./selectors";
-import { applyAction } from "./simulation";
+import { applyAction, getSystemPowerOperatingCostPerSecond } from "./simulation";
 import type {
   AutomationBufferLevelId,
   CampaignChapterId,
@@ -63,8 +69,9 @@ const withCron = (state: GameState): GameState => ({
 });
 
 /**
- * Rack-ready seed without PSU billing so exact Credit/Data literals stay
- * stable while a project phase runs.
+ * Rack-ready seed without PSU Management. Metered billing still runs (it is
+ * live from the first tick); only the destructive unpaid-cutoff/overload
+ * consequences are absent, so drains stay safe while a project phase runs.
  */
 const rackReadyWithoutPowerBilling = (): GameState => {
   const seeded = createRackReadyGameState();
@@ -326,7 +333,15 @@ describe("saved deterministic contract market", () => {
 
   it("reserves active templates and systems and reports capacity rejections publicly", () => {
     const funded = fund(createInitialGameState());
-    const originalSystem = funded.systems[0]!;
+    // Acceptance validates authored stage throughput (F-PLAY-7 ruling), so
+    // RAM-staged templates need systems that can actually move a RAM stage.
+    const originalSystem = {
+      ...funded.systems[0]!,
+      hardware: {
+        ...funded.systems[0]!.hardware,
+        ramSticks: [createRamStickState(1, 1, 1)],
+      },
+    };
     const base = {
       ...funded,
       systems: [
@@ -735,7 +750,15 @@ describe("explicit phased projects", () => {
     expect(progress).toEqual(
       expect.objectContaining({ phaseIndex: 1, phaseProgressMs: 0, active: false }),
     );
-    expect(completedPhase.exactResources.credits).toBe("1000100");
+    // Fleet-wide metered power billing (idle draw is load-independent here)
+    // drains alongside the exact phase cost/reward flow.
+    const billedCredits = amountMultiply(
+      getSystemPowerOperatingCostPerSecond(started),
+      90,
+    );
+    expect(completedPhase.exactResources.credits).toBe(
+      amountSubtract("1000100", billedCredits),
+    );
     expect(completedPhase.exactResources.data).toBe("1000018");
     expect(getProjectDefinition("schedulerIntegration").phases[1]?.id).toBe("policy-run");
     expect(getProjectDefinition("schedulerIntegration").phases[1]?.costs).toEqual([

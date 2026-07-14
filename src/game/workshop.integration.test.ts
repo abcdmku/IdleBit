@@ -472,6 +472,57 @@ describe("Workshop saved vertical slice", () => {
     expect(amountCompare(getHardwareDrawWattsExact(removed), gpuDraw)).toBeLessThan(0);
   });
 
+  it("downgrades installed cooling for half of the installed tier's cost", () => {
+    // createWorkshopReadyState installs liquidCooling (25M credits + 600 data).
+    const state = createWorkshopReadyState(false);
+    const creditsBefore = state.exactResources.credits;
+    const dataBefore = state.exactResources.data;
+
+    const downgraded = applyAction(state, {
+      type: "installCoolingTier",
+      tierId: "fanCooling",
+    });
+    expect(downgraded.workshop.coolingTierId).toBe("fanCooling");
+    // Refund is half of the removed liquidCooling purchase, not fanCooling's
+    // own cost — the lower tier is never re-billed on the way down.
+    expect(
+      amountSubtract(downgraded.exactResources.credits, creditsBefore),
+    ).toBe("12500000");
+    expect(amountSubtract(downgraded.exactResources.data, dataBefore)).toBe(
+      "300",
+    );
+
+    // The visible ladder mirrors this: lower tiers advertise the refund and
+    // stay actionable, the installed tier blocks re-install.
+    const visible = deriveVisibleState(downgraded).workshop;
+    const none = visible.coolingTiers.find((tier) => tier.id === "none")!;
+    expect(none.canInstall).toBe(true);
+    expect(none.refunds).toEqual([
+      { resource: "credits", amount: "1000000" },
+      { resource: "data", amount: "60" },
+    ]);
+    const fan = visible.coolingTiers.find((tier) => tier.id === "fanCooling")!;
+    expect(fan.installed).toBe(true);
+    expect(fan.blockedReason).toBe("Cooling tier is already installed.");
+    const liquid = visible.coolingTiers.find(
+      (tier) => tier.id === "liquidCooling",
+    )!;
+    expect(liquid.refunds).toEqual([]);
+
+    // Round trip: reinstalling liquid pays full price again.
+    const reinstated = applyAction(downgraded, {
+      type: "installCoolingTier",
+      tierId: "liquidCooling",
+    });
+    expect(reinstated.workshop.coolingTierId).toBe("liquidCooling");
+    expect(
+      amountSubtract(
+        downgraded.exactResources.credits,
+        reinstated.exactResources.credits,
+      ),
+    ).toBe("25000000");
+  });
+
   it("initializes every catalog template with strict saved Workshop state", () => {
     for (const [index, template] of machineTemplates.entries()) {
       const hardware = createHardwareFromMachineSelection(template.components);

@@ -69,6 +69,46 @@ describe("Electron close handshake", () => {
     expect(allowedEvent.preventDefault).not.toHaveBeenCalled();
   });
 
+  it("records forced-close evidence when the timeout fires unacknowledged", () => {
+    vi.useFakeTimers();
+    const onTimeoutClose = vi.fn();
+    const requestClose = vi.fn();
+    const controller = createCloseHandshake({
+      isWindowDestroyed: () => false,
+      onTimeoutClose,
+      requestClose,
+      sendBeforeClose: vi.fn(),
+      timeoutMs: 25,
+    });
+
+    controller.handleClose({ preventDefault: vi.fn() });
+    expect(onTimeoutClose).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(25);
+    expect(requestClose).toHaveBeenCalledOnce();
+    expect(onTimeoutClose).toHaveBeenCalledOnce();
+  });
+
+  it("does not record forced-close evidence when the renderer acknowledges in time", () => {
+    vi.useFakeTimers();
+    const onTimeoutClose = vi.fn();
+    const requestClose = vi.fn();
+    const controller = createCloseHandshake({
+      isWindowDestroyed: () => false,
+      onTimeoutClose,
+      requestClose,
+      sendBeforeClose: vi.fn(),
+      timeoutMs: 25,
+    });
+
+    controller.handleClose({ preventDefault: vi.fn() });
+    expect(controller.acknowledge(1)).toBe(true);
+    expect(requestClose).toHaveBeenCalledOnce();
+
+    vi.advanceTimersByTime(1_000);
+    expect(onTimeoutClose).not.toHaveBeenCalled();
+  });
+
   it("validates acknowledgement payloads", () => {
     expect(parseCloseAcknowledgementRequestId({ requestId: 3 })).toBe(3);
     expect(parseCloseAcknowledgementRequestId({ requestId: 0 })).toBeNull();

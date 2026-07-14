@@ -517,7 +517,8 @@ describe("WorkPanel", () => {
     );
     expect(netTile).not.toBeUndefined();
     expect(netTile?.getAttribute("title")).toContain("reward 50 cr");
-    expect(netTile?.getAttribute("title")).toContain("cost 12.5 cr");
+    // Currency amounts never show decimals: 12.5 cr renders floored as 12 cr.
+    expect(netTile?.getAttribute("title")).toContain("cost 12 cr");
     expect(netTile?.getAttribute("title")).toContain("75%");
     expect(netTile?.getAttribute("title")).toContain("15m 0s");
     expect(progress?.getAttribute("aria-valuenow")).toBe("0.375");
@@ -589,6 +590,7 @@ describe("WorkPanel", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "acceptContract",
       contractId: "one",
+      systemId: 1,
     });
     expect(dispatch).toHaveBeenCalledWith({
       type: "declineContract",
@@ -855,6 +857,43 @@ describe("WorkPanel", () => {
       type: "setStandingOrderEnabled",
       enabled: true,
     });
+  });
+
+  it("keeps unsaved standing-order picks when another system is selected", () => {
+    const base = deriveVisibleState(stateWithFlags({ cron: true }));
+    const withCron = (visible: VisibleState): VisibleState => ({
+      ...visible,
+      cron: {
+        ...visible.cron,
+        unlocked: true,
+        taskOptions: [{ id: "fetchBit", name: "Fetch Bit" }],
+      },
+    });
+    renderPanel(withCron(base));
+    selectTab("Automation");
+
+    const jobSelect = () =>
+      Array.from(container.querySelectorAll("select")).find((select) =>
+        select.textContent?.includes("Fetch Bit"),
+      );
+    act(() => {
+      const select = jobSelect();
+      if (select) {
+        select.value = "fetchBit";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    expect(jobSelect()?.value).toBe("fetchBit");
+
+    // Inspecting a different system elsewhere in the UI (selectedSystem.id
+    // changes, standing order unchanged) must not wipe the unsaved pick.
+    renderPanel(
+      withCron({
+        ...base,
+        selectedSystem: { ...base.selectedSystem, id: 99 },
+      } as VisibleState),
+    );
+    expect(jobSelect()?.value).toBe("fetchBit");
   });
 
   it("forecasts coverage and labels unknown projections honestly", () => {

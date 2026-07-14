@@ -41,6 +41,18 @@ describe("SmoothProgress", () => {
     expect(meter.getAttribute("aria-valuenow")).toBe("0.05");
   });
 
+  it("snaps every decrease on monotonic meters, including tiny ones", () => {
+    act(() => root.render(<SmoothProgress value={0.5} label="Batch" />));
+    const fill = container.querySelector<HTMLElement>(".progress-fill")!;
+    expect(fill.classList.contains("is-snapping")).toBe(false);
+
+    // A decrease of <= 0.001 must still snap: monotonic meters never run
+    // backward, no matter how small the reset delta is.
+    act(() => root.render(<SmoothProgress value={0.4995} label="Batch" />));
+    expect(fill.classList.contains("is-snapping")).toBe(true);
+    expect(fill.style.getPropertyValue("--meter-progress")).toBe("0.4995");
+  });
+
   it("smooths bidirectional gauges but snaps semantic safety-state changes", () => {
     act(() =>
       root.render(

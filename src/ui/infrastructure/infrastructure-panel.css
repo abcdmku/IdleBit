@@ -1,0 +1,117 @@
+/* Fleet node management + aggregate server procurement (Infrastructure
+   panel). Imported from InfrastructurePanel.tsx so the lazy chunk carries
+   its own styles; shared Infrastructure styles live in
+   src/ui/styles/late-surfaces.css. */
+
+.fleet-node-list {
+  display: grid;
+  gap: 7px;
+}
+
+.fleet-node-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 1px solid rgb(90 143 164 / 28%);
+  border-radius: 5px;
+  background: rgb(5 16 24 / 68%);
+}
+
+.fleet-node-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.fleet-node-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The status line is always rendered (ready copy or blocker reason) and kept
+   to a single ellipsized line so manage/release state changes never reflow
+   the row. */
+.fleet-node-status {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted, #91a9b7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-node-status.is-blocked {
+  color: var(--warning, #ffc35a);
+}
+
+.fleet-node-compute {
+  color: var(--text-muted, #91a9b7);
+  white-space: nowrap;
+}
+
+/* Fixed action width so the Manage <-> Release label swap and the static
+   "Procured" tag on aggregate nodes keep identical geometry. */
+.fleet-node-action {
+  min-width: 84px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+span.fleet-node-action {
+  padding: 5px 0;
+  border: 1px solid rgb(92 140 160 / 32%);
+  border-radius: 5px;
+  color: var(--text-muted, #91a9b7);
+}
+
+.server-procurement {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.server-procurement-count {
+  display: grid;
+  gap: 4px;
+}
+
+.server-procurement-count > span {
+  color: var(--text-muted, #91a9b7);
+}
+
+.server-procurement-count input {
+  width: 96px;
+}
+
+/* Column widths come from the grid, not button content, so cost projections
+   growing with the batch size do not resize neighboring buttons. */
+.server-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+
+.server-catalog button {
+  display: grid;
+  gap: 4px;
+  min-height: 48px;
+  text-align: left;
+}
+
+@media (max-width: 620px) {
+  .server-procurement {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-node-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .fleet-node-compute {
+    display: none;
+  }
+}

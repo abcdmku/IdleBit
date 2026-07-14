@@ -26,7 +26,10 @@ import {
   type HardwareWorkRates,
   type HardwareWorkResourceId,
 } from "./hardwareWork";
-import { getSystemHardwareWorkRates } from "./systemHardwareWork";
+import {
+  getSystemHardwareWorkRates,
+  getSystemWorkThroughputBlockedReason,
+} from "./systemHardwareWork";
 import { nextRngInt } from "./rng";
 import { materializeSystem } from "./systems";
 import {
@@ -107,7 +110,10 @@ export const contractTemplateDefinitions: readonly ContractTemplateDefinition[] 
     baseWorkMs: 2 * 60 * 60_000,
     baseWorkBits: amount(2 * 60 * 60),
     baseWorkRecipe: authoredPlan(2 * 60 * 60, 0.15, 0.25),
-    baseDataReward: amount(12),
+    // 15 keeps the worst-case randomized initial pool (Ledger Audit + Queue
+    // Recovery + Compile Batch at the minimum value roll) above the 18-Data
+    // System Catalog research gate (C-DES-4).
+    baseDataReward: amount(15),
   },
   {
     id: "renderBurst",
@@ -787,21 +793,57 @@ const getContractSystemBlockedReason = (
   return null;
 };
 
-export const acceptContract = (state: GameState, contractId: string): GameState => {
-  const rawOffer = state.contracts.offers.find((contract) => contract.id === contractId);
-  const offer = rawOffer ? normalizeOffer(rawOffer) : null;
+/**
+ * Everything that blocks accepting `offer` onto `systemId`. The generator's
+ * bound system is only a suggestion; acceptance validates the player's chosen
+ * target with the same lane-blocker rules that gate projects, so an
+ * incompatible system yields an explicit reason instead of a fake ETA.
+ */
+const getContractAcceptanceBlockedReason = (
+  state: GameState,
+  offer: ContractOfferState,
+  systemId: number,
+): string | null => {
+  if (offer.expiresAtMs <= state.contracts.elapsedMs) {
+    return `${offer.name} has expired.`;
+  }
+  if (state.contracts.active.length >= MAX_ACTIVE_CONTRACTS) {
+    return `Managed contract capacity is full (${MAX_ACTIVE_CONTRACTS}).`;
+  }
+  if (state.contracts.active.some((contract) => contract.systemId === systemId)) {
+    return `System ${systemId} already has an active managed contract.`;
+  }
   if (
-    !offer ||
-    offer.expiresAtMs <= state.contracts.elapsedMs ||
-    state.contracts.active.length >= MAX_ACTIVE_CONTRACTS ||
-    state.contracts.active.some(
-      (contract) => contract.systemId === offer.systemId,
-    ) ||
     state.contracts.active.some(
       (contract) => contract.templateId === offer.templateId,
-    ) ||
-    getContractSystemBlockedReason(state, offer.systemId) !== null
+    )
   ) {
+    return `${offer.name} is already reserved by an active contract.`;
+  }
+  return (
+    getContractSystemBlockedReason(state, systemId) ??
+    getSystemWorkThroughputBlockedReason(
+      state,
+      systemId,
+      getContractWorkRecipe(offer),
+    )
+  );
+};
+
+export const acceptContract = (
+  state: GameState,
+  contractId: string,
+  /** Player-chosen target system; defaults to the generator's suggestion. */
+  systemId?: number,
+): GameState => {
+  const rawOffer = state.contracts.offers.find((contract) => contract.id === contractId);
+  const offer = rawOffer ? normalizeOffer(rawOffer) : null;
+  if (!offer) return state;
+  const targetSystemId =
+    systemId !== undefined && Number.isFinite(systemId)
+      ? Math.max(1, Math.trunc(systemId))
+      : offer.systemId;
+  if (getContractAcceptanceBlockedReason(state, offer, targetSystemId) !== null) {
     return state;
   }
   return {
@@ -813,6 +855,7 @@ export const acceptContract = (state: GameState, contractId: string): GameState 
         ...state.contracts.active,
         {
           ...offer,
+          systemId: targetSystemId,
           acceptedAtMs: state.contracts.elapsedMs,
           workCompletedMs: 0,
           workCompletedBits: ZERO_AMOUNT,
@@ -872,6 +915,12 @@ export const advanceContracts = (
   progressActive:
     | boolean
     | ((contract: ActiveContractState) => boolean) = true,
+  /**
+   * State whose hardware rates held over the advanced interval. Advancement
+   * loops pass the pre-slice state so paid work is integrated with the rates
+   * that actually applied over [t, t+dt] instead of the slice-end snapshot.
+   */
+  rateState: GameState = state,
 ): GameState => {
   const elapsed = Math.max(0, elapsedMs);
   let working: GameState = {
@@ -893,7 +942,7 @@ export const advanceContracts = (
           const cursor = productive
             ? advanceContractCursor(
                 workRecipe,
-                getSystemHardwareWorkRates(state, contract.systemId),
+                getSystemHardwareWorkRates(rateState, contract.systemId),
                 getContractWorkCursor(contract),
                 elapsed,
               )
@@ -1000,25 +1049,22 @@ const asVisibleContract = (
   const bufferCovered =
     Number.isFinite(remainingMs) && remainingMs <=
     getAutomationBufferDefinition(state.automationBuffer.ownedLevelId).maxOfflineMs;
-  const systemBlockedReason = getContractSystemBlockedReason(
-    state,
-    contract.systemId,
-  );
   const acceptanceBlockedReason = accepted
     ? null
-    : contract.expiresAtMs <= state.contracts.elapsedMs
-      ? `${contract.name} has expired.`
-      : state.contracts.active.length >= MAX_ACTIVE_CONTRACTS
-        ? `Managed contract capacity is full (${MAX_ACTIVE_CONTRACTS}).`
-        : state.contracts.active.some(
-              (active) => active.systemId === contract.systemId,
-            )
-          ? `System ${contract.systemId} already has an active managed contract.`
-        : state.contracts.active.some(
-            (active) => active.templateId === contract.templateId,
-          )
-        ? `${contract.name} is already reserved by an active contract.`
-        : systemBlockedReason;
+    : getContractAcceptanceBlockedReason(state, contract, contract.systemId);
+  // Offers list every owned system so the player can (re)route the work at
+  // acceptance; busy or incompatible systems stay listed with their blocker.
+  const systemOptions = accepted
+    ? []
+    : state.systems.map((system) => ({
+        systemId: system.id,
+        name: system.name,
+        blockedReason: getContractAcceptanceBlockedReason(
+          state,
+          contract,
+          system.id,
+        ),
+      }));
   return {
     id: contract.id,
     templateId: contract.templateId,
@@ -1058,6 +1104,7 @@ const asVisibleContract = (
       workValueMultiplier.basisPoints,
     ),
     workMix: summarizeHardwareWorkMix(getContractWorkRecipe(contract)),
+    systemOptions,
     canAccept: !accepted && acceptanceBlockedReason === null,
     projectedPauseReason:
       acceptanceBlockedReason ??

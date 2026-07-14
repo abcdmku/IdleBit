@@ -150,7 +150,7 @@ describe("CloudPanel", () => {
       ...base,
       finale: { ...base.finale, canStart: true, blockedReason: null },
     };
-    act(() => root.render(render(ready, false)));
+    act(() => root.render(render(ready, true)));
     finale = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Start finale"));
@@ -158,6 +158,14 @@ describe("CloudPanel", () => {
     expect(finale?.title).toBe("Start the planetary finale");
     act(() => finale?.click());
     expect(onStartFinale).toHaveBeenCalledOnce();
+
+    // Chapter gate: before the Planetary Commons chapter, the entire section
+    // (finale control, blockers, charter choices) must be absent.
+    act(() => root.render(render(ready, false)));
+    expect(container.querySelector(".planetary-command")).toBeNull();
+    expect(container.textContent).not.toContain("Planetary Commons");
+    expect(container.textContent).not.toContain("Start finale");
+    expect(container.querySelector(".cloud-charter-grid")).toBeNull();
   });
 
   it("renders live SLA telemetry and gates charters until the finale completes", () => {

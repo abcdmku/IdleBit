@@ -101,11 +101,18 @@ export const campaignChapterDefinitions: readonly CampaignChapterDefinition[] = 
 
 const objective = (
   definition: Omit<CampaignObjectiveDefinition, "blockedReason"> & {
-    blockedReason: string;
+    /** Static copy, or state-aware copy so multi-condition objectives drop
+     * sub-conditions the player has already satisfied. */
+    blockedReason: string | ((state: GameState) => string);
   },
 ): CampaignObjectiveDefinition => ({
   ...definition,
-  blockedReason: (state) => (definition.requirement(state) ? null : definition.blockedReason),
+  blockedReason: (state) =>
+    definition.requirement(state)
+      ? null
+      : typeof definition.blockedReason === "function"
+        ? definition.blockedReason(state)
+        : definition.blockedReason,
 });
 
 export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[] = [
@@ -170,7 +177,10 @@ export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[
     description: "Research RAM Control and install RAM.",
     transmission: "Working sets no longer end at the cache boundary.",
     requirement: (state) => researched(state, "ramControl") && state.hardware.ramBits > 0,
-    blockedReason: "Research RAM Control and install RAM.",
+    blockedReason: (state) =>
+      researched(state, "ramControl")
+        ? "Install RAM."
+        : "Research RAM Control and install RAM.",
   }),
   objective({
     id: "coherent:system-scheduler",
@@ -188,7 +198,10 @@ export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[
     description: "Research CRON Runtime and configure a standing order.",
     transmission: "The machine can keep a promise while unattended.",
     requirement: (state) => researched(state, "cronScheduler") && state.standingOrder.taskId !== null,
-    blockedReason: "Research CRON and configure a standing order.",
+    blockedReason: (state) =>
+      researched(state, "cronScheduler")
+        ? "Configure a standing order."
+        : "Research CRON and configure a standing order.",
   }),
   objective({
     id: "fleet:catalog",
@@ -220,8 +233,12 @@ export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[
       researched(state, "specializedCompute") &&
       hasSpecializedComputeProof(state) &&
       completedTask(state, "workstationBenchmark"),
-    blockedReason:
-      "Research Specialized Compute, complete GPU rendering and NPU inference, then run the Workstation Benchmark.",
+    blockedReason: (state) =>
+      !researched(state, "specializedCompute")
+        ? "Research Specialized Compute, complete GPU rendering and NPU inference, then run the Workstation Benchmark."
+        : !hasSpecializedComputeProof(state)
+          ? "Complete GPU rendering and NPU inference, then run the Workstation Benchmark."
+          : "Run the Workstation Benchmark.",
   }),
   objective({
     id: "fabric:cluster-controller",
@@ -238,8 +255,15 @@ export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[
         "globalScheduler",
       ].includes(state.automationBuffer.ownedLevelId) &&
       (state.infrastructure.successfulShardCommits ?? 0) > 0,
-    blockedReason:
-      "Purchase Cluster Controller and complete Replicated Shard Commit.",
+    blockedReason: (state) =>
+      [
+        "clusterController",
+        "rackController",
+        "dataCenterNoc",
+        "globalScheduler",
+      ].includes(state.automationBuffer.ownedLevelId)
+        ? "Complete Replicated Shard Commit."
+        : "Purchase Cluster Controller and complete Replicated Shard Commit.",
   }),
   objective({
     id: "facility:rack-controller",
@@ -254,7 +278,12 @@ export const campaignObjectiveDefinitions: readonly CampaignObjectiveDefinition[
       state.infrastructure.facilities.some((facility) =>
         facility.racks.some((rack) => rack.placements.length > 0),
       ),
-    blockedReason: "Purchase Rack Controller and operate a managed node in a true rack.",
+    blockedReason: (state) =>
+      ["rackController", "dataCenterNoc", "globalScheduler"].includes(
+        state.automationBuffer.ownedLevelId,
+      )
+        ? "Operate a managed node in a true rack."
+        : "Purchase Rack Controller and operate a managed node in a true rack.",
   }),
   objective({
     id: "cloud:data-center-noc",

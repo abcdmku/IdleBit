@@ -8,7 +8,7 @@ import {
 } from "../game";
 import {
   formatDisplayCostAmount,
-  formatExactResourceAmount,
+  formatExactCurrencyAmount,
   formatResourceAmount,
   type DisplayCost,
 } from "./format";
@@ -136,7 +136,7 @@ export function ExactResourceAmount({
       <Icon size={compact ? 13 : 14} aria-hidden="true" />
       <strong aria-hidden="true">
         {prefix}
-        {formatExactResourceAmount(amount)}
+        {formatExactCurrencyAmount(amount)}
       </strong>
       {showLabel && <span aria-hidden="true">{label}</span>}
     </span>
@@ -148,11 +148,14 @@ export function ExactResourceCost({
   compact = false,
   resources,
   emptyLabel = "Open",
+  plus = false,
 }: {
   costs: ExactCost[];
   compact?: boolean;
   resources?: ExactResourceBag;
   emptyLabel?: string;
+  /** Render amounts as gains (refunds) with a plus prefix. */
+  plus?: boolean;
 }) {
   if (costs.length === 0) {
     return <span className="resource-cost empty">{emptyLabel}</span>;
@@ -165,6 +168,7 @@ export function ExactResourceCost({
           key={`${cost.resource}-${index}`}
           resource={cost.resource}
           amount={cost.amount}
+          plus={plus}
           compact={compact}
           showLabel={!compact}
           dimmed={

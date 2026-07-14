@@ -21,6 +21,9 @@ export interface UiPowerOverloadFailure {
 
 export interface UiQueueDisplayItem {
   id: string;
+  /** Stable render identity derived from the queue entry / reservation /
+   * instance, so React keys survive earlier entries completing. */
+  key?: string;
   cancelTaskId?: string;
   name: string;
   waitingReason: string;
@@ -138,6 +141,10 @@ export interface UiCronSchedule {
   intervalSeconds?: number;
   intervalMinutes?: number;
   interval?: number;
+  /** Canonical sim fields (selectors.ts getVisibleCron): the user-chosen
+   * unit and the interval expressed in that unit. */
+  intervalMode?: CronIntervalMode;
+  intervalValue?: number;
   mode?: CronIntervalMode;
   minIntervalSeconds?: number;
   minimumSeconds?: number;

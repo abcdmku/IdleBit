@@ -1,4 +1,4 @@
-import { RefreshCw, TriangleAlert } from "lucide-react";
+import { RefreshCw, Timer, TriangleAlert } from "lucide-react";
 import type { IdlePowerPolicy } from "../../game";
 import { formatNumber } from "../format";
 import { SmoothFill } from "../SmoothProgress";
@@ -95,6 +95,37 @@ export function PowerTransitionBanner({
         <SmoothFill value={progress} snapKey={power.state} />
       </span>
     </div>
+  );
+}
+
+/** Billing-grace countdown chip: same anatomy as the warning chip (label +
+ *  meter) so it swaps into the PSU status slot without any geometry change. */
+export function PsuGraceChip({
+  seconds,
+  totalSeconds,
+}: {
+  seconds: number;
+  totalSeconds: number;
+}) {
+  const countdown = formatCountdownSeconds(seconds);
+  return (
+    <span
+      className="psu-header-warning grace"
+      role="status"
+      aria-label={`Billing grace: power is free for ${countdown}`}
+    >
+      <span className="psu-header-warning-label">
+        <Timer size={12} />
+        <strong>Grace {countdown}</strong>
+      </span>
+      <span className="psu-header-warning-meter" aria-hidden="true">
+        <SmoothFill
+          value={clampMeter(seconds / Math.max(1, totalSeconds))}
+          snapKey="billing-grace"
+          snapOnDecrease={false}
+        />
+      </span>
+    </span>
   );
 }
 

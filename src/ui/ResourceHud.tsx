@@ -19,7 +19,7 @@ import {
   type Amount,
   type VisibleState,
 } from "../game";
-import { formatExactResourceAmount } from "./format";
+import { formatExactCurrencyAmount } from "./format";
 import {
   ExactResourceAmount,
   type ResourceKind,
@@ -258,11 +258,19 @@ export function ResourceHud({
         tabIndex={resourceInteractive ? 0 : undefined}
         onClick={resourceInteractive ? handleResourceClick("credits") : undefined}
         onKeyDown={resourceInteractive ? handleResourceKeyDown("credits") : undefined}
+        aria-label={
+          resourceInteractive
+            ? `Credits: ${formatExactCurrencyAmount(
+                visible.exactResources.credits,
+              )}; toggle resource graph`
+            : undefined
+        }
+        aria-expanded={resourceInteractive ? graphOpen : undefined}
         title={resourceTitle}
       >
         <Zap size={13} />
         <strong title={`${visible.exactResources.credits} credits`}>
-          {formatExactResourceAmount(visible.exactResources.credits)}
+          {formatExactCurrencyAmount(visible.exactResources.credits)}
         </strong>
       </div>
       <div
@@ -274,11 +282,19 @@ export function ResourceHud({
         tabIndex={resourceInteractive ? 0 : undefined}
         onClick={resourceInteractive ? handleResourceClick("data") : undefined}
         onKeyDown={resourceInteractive ? handleResourceKeyDown("data") : undefined}
+        aria-label={
+          resourceInteractive
+            ? `Data: ${formatExactCurrencyAmount(
+                visible.exactResources.data,
+              )}; toggle resource graph`
+            : undefined
+        }
+        aria-expanded={resourceInteractive ? graphOpen : undefined}
         title={resourceTitle}
       >
         <Database size={13} />
         <strong title={`${visible.exactResources.data} data`}>
-          {formatExactResourceAmount(visible.exactResources.data)}
+          {formatExactCurrencyAmount(visible.exactResources.data)}
         </strong>
       </div>
       <div className="resource-settings" ref={settingsRef}>

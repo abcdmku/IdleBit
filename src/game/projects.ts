@@ -30,7 +30,10 @@ import {
   type HardwareWorkRecipe,
   type HardwareWorkResourceId,
 } from "./hardwareWork";
-import { getSystemHardwareWorkRates } from "./systemHardwareWork";
+import {
+  getSystemHardwareWorkRates,
+  getSystemWorkThroughputBlockedReason,
+} from "./systemHardwareWork";
 import {
   createWorkValueMultiplier,
   getWorkValueCredits,
@@ -439,33 +442,11 @@ const getRemainingPhaseRecipe = (
     ),
   );
 
-const projectResourceLabel: Record<HardwareWorkResourceId, string> = {
-  cache: "cache",
-  ram: "RAM",
-  compute: "compute",
-  storageRead: "storage-read",
-  storageWrite: "storage-write",
-  networkIngress: "network-ingress",
-  networkEgress: "network-egress",
-};
-
 const getProjectProjectionBlockedReason = (
   state: GameState,
   systemId: number,
   recipe: HardwareWorkRecipe,
-) => {
-  const system = state.systems.find((candidate) => candidate.id === systemId);
-  if (!system) return "Assigned system is unavailable.";
-  const rates = getSystemHardwareWorkRates(state, systemId, false);
-  const blockedStage = recipe.stages.find(
-    (stage) =>
-      amountCompare(stage.work, 0) > 0 &&
-      amountCompare(rates[stage.resource], 0) <= 0,
-  );
-  return blockedStage
-    ? `${system.name} has no ${projectResourceLabel[blockedStage.resource]} throughput.`
-    : null;
-};
+) => getSystemWorkThroughputBlockedReason(state, systemId, recipe);
 
 export const getProjectRemainingMs = (
   state: GameState,
@@ -502,6 +483,12 @@ export const advanceProjects = (
   state: GameState,
   elapsedMs: number,
   canProgress: (progress: ProjectProgressState) => boolean = () => true,
+  /**
+   * State whose hardware rates held over the advanced interval. Advancement
+   * loops pass the pre-slice state so project work is integrated with the
+   * rates that actually applied over [t, t+dt], not the slice-end snapshot.
+   */
+  rateState: GameState = state,
 ) => {
   const elapsed = Math.max(0, Number.isFinite(elapsedMs) ? elapsedMs : 0);
   let working = state;
@@ -513,7 +500,7 @@ export const advanceProjects = (
     const currentPhase = definition.phases[rawProgress.phaseIndex];
     if (!currentPhase) continue;
     if (rawProgress.systemId === null) continue;
-    const rates = getSystemHardwareWorkRates(working, rawProgress.systemId);
+    const rates = getSystemHardwareWorkRates(rateState, rawProgress.systemId);
     let { stageIndex, stageWorkCompleted } = getPhaseStageProgress(
       rawProgress,
       currentPhase,

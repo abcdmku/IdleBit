@@ -162,7 +162,13 @@ function CronScheduleRow({
     const value = Number(rawValue);
     if (!Number.isFinite(value)) return;
 
-    const nextValue = Math.max(minValue, Math.round(value));
+    // Clamp against the minimum expressed in the TARGET unit — when the
+    // toggle switches modes, the current-mode minValue is the wrong scale.
+    const nextMinValue =
+      nextMode === "minutes"
+        ? Math.max(1, Math.ceil(minimumSeconds / 60))
+        : minimumSeconds;
+    const nextValue = Math.max(nextMinValue, Math.round(value));
     const nextSeconds =
       nextMode === "minutes" ? nextValue * 60 : nextValue;
 

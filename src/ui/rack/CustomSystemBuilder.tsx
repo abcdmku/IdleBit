@@ -19,6 +19,7 @@ import {
 import {
   getCacheBits,
   getCpuClockHz,
+  getCpuSocketEfficiencyMultiplier,
   getPsuWatts,
   getRamBits,
   getRamSpeedMt,
@@ -387,7 +388,7 @@ const getProjectedCacheWatts = (cacheLevel: number, cacheSpeedLevel: number) =>
 const getProjectedCpuEfficiency = (
   baseEfficiency: number,
   cpuPackageCount: number,
-) => baseEfficiency * 0.75 ** Math.max(0, cpuPackageCount - 1);
+) => baseEfficiency * getCpuSocketEfficiencyMultiplier(cpuPackageCount);
 
 const getProjectedRamEfficiency = (ramSpeedLevel: number) =>
   getRamTierLevelDefinition(ramSpeedLevel).efficiency;

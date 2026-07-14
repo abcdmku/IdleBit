@@ -6,14 +6,20 @@ import {
   ACKNOWLEDGE_CLOSE_CHANNEL,
   BEFORE_CLOSE_CHANNEL,
   createCloseHandshake,
+  FORCED_CLOSE_FLAG_KEY,
   parseCloseAcknowledgementRequestId,
   type CloseHandshakeController,
 } from "./closeHandshake.js";
 import { registerPersistenceIpc } from "./persistence.js";
+import type { ElectronPersistenceStore } from "./persistenceStore.js";
+
+const WILL_QUIT_FLUSH_TIMEOUT_MS = 5_000;
 
 let mainWindow: BrowserWindow | null = null;
 let closeHandshake: CloseHandshakeController | null = null;
+let persistenceStore: ElectronPersistenceStore | null = null;
 let isQuitting = false;
+let willQuitFlushStarted = false;
 const defaultRendererDevUrl = "http://127.0.0.1:6173";
 const forceFileRenderer = process.env.IDLEBIT_FILE_RENDERER === "1";
 
@@ -78,6 +84,14 @@ async function createMainWindow(): Promise<void> {
   mainWindow = window;
   const windowCloseHandshake = createCloseHandshake({
     isWindowDestroyed: () => window.isDestroyed(),
+    onTimeoutClose: () => {
+      // The renderer never acknowledged the departure save before the
+      // fail-safe fired; record the unclean close so the loss is diagnosable.
+      // The will-quit flush below waits for this queued write.
+      void persistenceStore
+        ?.set(FORCED_CLOSE_FLAG_KEY, JSON.stringify(Date.now()))
+        .catch(() => undefined);
+    },
     requestClose: () => {
       if (isQuitting) {
         app.quit();
@@ -156,6 +170,24 @@ if (!gotSingleInstanceLock) {
     isQuitting = true;
   });
 
+  app.on("will-quit", (event) => {
+    // Drain in-flight persistence writes (final save, forced-close flag)
+    // before the process exits, bounded so quit can never hang.
+    const store = persistenceStore;
+    if (willQuitFlushStarted || !store) {
+      return;
+    }
+
+    willQuitFlushStarted = true;
+    event.preventDefault();
+    const flushDeadline = new Promise<void>((resolve) => {
+      setTimeout(resolve, WILL_QUIT_FLUSH_TIMEOUT_MS);
+    });
+    void Promise.race([store.flush(), flushDeadline]).finally(() => {
+      app.quit();
+    });
+  });
+
   app.on("second-instance", () => {
     if (!mainWindow) {
       return;
@@ -169,7 +201,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
-    registerPersistenceIpc();
+    persistenceStore = registerPersistenceIpc();
     registerLifecycleIpc();
     await createMainWindow();
 

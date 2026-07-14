@@ -171,6 +171,17 @@ export function SystemWorkbench({
   const bufferUpgradeVisible =
     visible.automationBuffer.nextUpgrade?.unlocked === true;
   const researchPanelVisible = researchCount > 0 || bufferUpgradeVisible;
+
+  // Mobile puts the resource graph on the research tab. If the graph closes
+  // (or research empties) while the research panel itself is hidden, that tab
+  // unmounts and no panel would carry the active class — fall back to Work.
+  useEffect(() => {
+    if (!isMobile) return;
+    if (activeSection !== "research") return;
+    if (graphOpen || researchPanelVisible) return;
+    setActiveSection("tasks");
+  }, [activeSection, graphOpen, isMobile, researchPanelVisible]);
+
   const rightRailVisible = graphOpen || researchPanelVisible;
   const stageCompact = useMemo(
     () => !getRackData(visible).showRack,
@@ -546,6 +557,16 @@ export function SystemWorkbench({
                   visible={visible.infrastructure}
                   resources={visible.exactResources}
                   facilityAvailable={visible.currentChapter.index >= 5}
+                  onSetNodeManaged={(systemId, managed) =>
+                    dispatch({ type: "setSystemManaged", systemId, managed })
+                  }
+                  onPurchaseServerBatch={(skuId, count) =>
+                    dispatch({
+                      type: "purchaseAggregateServerBatch",
+                      skuId,
+                      count,
+                    })
+                  }
                   onCommissionCluster={(name, nodeIds) =>
                     dispatch({ type: "commissionCluster", name, nodeIds })
                   }

@@ -1,8 +1,10 @@
-import { ZERO_AMOUNT, amountAdd, amountMultiply } from "./amount";
+import { ZERO_AMOUNT, amountAdd, amountCompare, amountMultiply } from "./amount";
 import { deriveSystemCapacityProfile } from "./capacity";
 import {
   createHardwareWorkRates,
   type HardwareWorkRates,
+  type HardwareWorkRecipe,
+  type HardwareWorkResourceId,
 } from "./hardwareWork";
 import {
   getCacheLoadRate,
@@ -67,4 +69,38 @@ export const getSystemHardwareWorkRates = (
     networkIngress: profile.rates.networkIngress,
     networkEgress: profile.rates.networkEgress,
   });
+};
+
+const workResourceLabel: Record<HardwareWorkResourceId, string> = {
+  cache: "cache",
+  ram: "RAM",
+  compute: "compute",
+  storageRead: "storage-read",
+  storageWrite: "storage-write",
+  networkIngress: "network-ingress",
+  networkEgress: "network-egress",
+};
+
+/**
+ * Lane-blocker check shared by projects and contracts: a target system that
+ * cannot move one of the recipe's authored stages yields an explicit reason
+ * instead of a fake ETA. Rates are sampled without the power requirement so
+ * the reason names the missing hardware path rather than the power state.
+ */
+export const getSystemWorkThroughputBlockedReason = (
+  state: GameState,
+  systemId: number,
+  recipe: HardwareWorkRecipe,
+): string | null => {
+  const system = state.systems.find((candidate) => candidate.id === systemId);
+  if (!system) return "Assigned system is unavailable.";
+  const rates = getSystemHardwareWorkRates(state, systemId, false);
+  const blockedStage = recipe.stages.find(
+    (stage) =>
+      amountCompare(stage.work, 0) > 0 &&
+      amountCompare(rates[stage.resource], 0) <= 0,
+  );
+  return blockedStage
+    ? `${system.name} has no ${workResourceLabel[blockedStage.resource]} throughput.`
+    : null;
 };

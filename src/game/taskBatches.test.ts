@@ -121,12 +121,21 @@ describe("aggregate task batches", () => {
       workCycles: parent.projectedWorkCycles,
       creditsEarned: parent.projectedRewardCredits,
     });
+    // Metered power billing runs alongside the payout. The fixture's draw is
+    // load-independent (no C-State research), so an idle control run over the
+    // same interval bills exactly what the working run billed: the wallet
+    // delta is the frozen authored payout minus that power spend.
+    const control = advanceGame(state, projection.durationMs * 1.05, "foreground");
+    const billedCredits = amountSubtract(
+      state.exactResources.credits,
+      control.state.exactResources.credits,
+    );
     expect(
       amountSubtract(
         completed.state.exactResources.credits,
         started.exactResources.credits,
       ),
-    ).toBe(parent.projectedRewardCredits);
+    ).toBe(amountSubtract(parent.projectedRewardCredits!, billedCredits));
   });
 
   it("propagates engine-owned standing provenance through system parent work and saves", () => {

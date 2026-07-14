@@ -66,6 +66,41 @@ describe("exact Thermal load and stress", () => {
     expect(getThermalStatus(true, 100, 100)).toBe("critical");
   });
 
+  it("assigns exact boundary contact to the cooler band while heat is falling", () => {
+    // Rising/steady contact keeps the hotter band (default), falling enters
+    // the band being cooled into, so the slice after a falling boundary
+    // contact runs at the correct throughput regardless of caller chunking.
+    expect(getThermalStatus(true, 100, 100, true)).toBe("hot");
+    expect(getThermalStatus(true, 85, 100, true)).toBe("warm");
+    expect(getThermalStatus(true, 70, 100, true)).toBe("nominal");
+    expect(getThermalStatus(true, "99.999", 100, true)).toBe("hot");
+    expect(getThermalStatus(true, 10, 0, true)).toBe("critical");
+  });
+
+  it("derives a falling-direction snapshot status at exact boundary contact", () => {
+    // Sustained heat sits exactly at 100% of cooling while the generated heat
+    // target is below it (cooling down): the next slice belongs to hot.
+    const coolingDown = deriveThermalSnapshot(
+      createThermalState(100),
+      environment([component("cpu", 40, 40, 10_000)], 100),
+    );
+    expect(coolingDown.status).toBe("hot");
+
+    // The same contact while steady (target equals sustained) stays critical.
+    const steady = deriveThermalSnapshot(
+      createThermalState(100),
+      environment([component("cpu", 100, 100, 10_000)], 100),
+    );
+    expect(steady.status).toBe("critical");
+
+    // Rising through the same boundary also stays critical at contact.
+    const heating = deriveThermalSnapshot(
+      createThermalState(100),
+      environment([component("cpu", 150, 150, 10_000)], 100),
+    );
+    expect(heating.status).toBe("critical");
+  });
+
   it("normalizes active heat above idle and aggregates partial activity exactly", () => {
     const repaired = normalizeThermalComponent(
       component("repaired", 12, 5, 15_000),
@@ -120,14 +155,14 @@ describe("exact Thermal load and stress", () => {
     expect(getCoolingPowerWatts(false, cooling(200, 30))).toBe("0");
   });
 
-  it("normalizes upgrade capacity monotonically and cannot downgrade", () => {
+  it("normalizes path capacity monotonically and applies selections both ways", () => {
     const path = normalizeCoolingUpgradePath([
       { id: "level-2", ...cooling(80, 12, 2) },
       { id: "level-0", ...cooling(50, 3, 0) },
       { id: "level-1", ...cooling(40, 5, 1) },
     ]);
     const upgraded = applyCoolingUpgrade(path[0], path[2]);
-    const downgradeAttempt = applyCoolingUpgrade(upgraded, path[1]);
+    const downgraded = applyCoolingUpgrade(upgraded, path[1]);
 
     expect(path.map((entry) => entry.level)).toEqual([0, 1, 2]);
     expect(path.map((entry) => entry.capacityWatts)).toEqual(["50", "50", "80"]);
@@ -136,7 +171,14 @@ describe("exact Thermal load and stress", () => {
       capacityWatts: amount(80),
       powerDrawWatts: amount(12),
     });
-    expect(downgradeAttempt).toEqual(upgraded);
+    // Downgrades adopt the lower tier's normalized state; re-selecting the
+    // current level stays a no-op.
+    expect(downgraded).toEqual({
+      level: 1,
+      capacityWatts: amount(50),
+      powerDrawWatts: amount(5),
+    });
+    expect(applyCoolingUpgrade(downgraded, path[1])).toEqual(downgraded);
   });
 });
 

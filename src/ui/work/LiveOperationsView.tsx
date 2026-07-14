@@ -1,7 +1,7 @@
 import { Pause, Play, RadioTower } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Amount, VisibleState } from "../../game";
-import { formatExactResourceAmount, formatNumber } from "../format";
+import type { VisibleState } from "../../game";
+import { formatExactCurrencyAmount, formatNumber, formatWatts } from "../format";
 import { SmoothProgress } from "../SmoothProgress";
 import { StatTile, StatTileRow } from "../StatTile";
 import type { Dispatch } from "../uiActions";
@@ -50,9 +50,12 @@ export function LiveOperationsView({
   const progress = clampProgress(liveOperations.progress);
   const workMix = liveOperations.workMix.map(({ name }) => name).join(" + ");
 
+  // Sync only from the configured Live Ops system. Selecting a different
+  // system elsewhere in the UI must never overwrite an unsaved pick in the
+  // dropdown (the deps intentionally exclude selectedSystem.id).
   useEffect(() => {
-    setTargetSystemId(liveOperations.systemId ?? visible.selectedSystem.id);
-  }, [liveOperations.systemId, visible.selectedSystem.id]);
+    setTargetSystemId((current) => liveOperations.systemId ?? current);
+  }, [liveOperations.systemId]);
 
   useEffect(() => {
     setMaxCoreCount(
@@ -69,7 +72,7 @@ export function LiveOperationsView({
         {/* The full explainer lives on the header tooltip; the card itself
             stays numeric. */}
         <header
-          title={`Scavenges idle cores only while the game is visible. Auto-repeats two real job batches without displacing queued work. Progress is retained offline but does not advance. ${liveOperations.offlineBehavior}`}
+          title={`Scavenges idle cores only while the game is visible. Auto-repeats two real job batches without displacing queued work. Net and Power count only the extra draw from waking the reserved cores. Progress is retained offline but does not advance. ${liveOperations.offlineBehavior}`}
         >
           <span>Live Operations</span>
           <b aria-live="polite">{status}</b>
@@ -143,14 +146,14 @@ export function LiveOperationsView({
                 />
                 <StatTile
                   label="Net"
-                  value={formatExactResourceAmount(
+                  value={formatExactCurrencyAmount(
                     liveOperations.projectedNetRewardCredits,
                   )}
                   unit="cr"
                   accent="green"
-                  title={`Per batch: reward ${formatExactResourceAmount(
+                  title={`Per batch: reward ${formatExactCurrencyAmount(
                     liveOperations.projectedRewardCredits,
-                  )} cr − cost ${formatExactResourceAmount(
+                  )} cr − cost ${formatExactCurrencyAmount(
                     liveOperations.projectedOperatingCostCredits,
                   )} cr · margin ${formatMargin(
                     liveOperations.projectedMarginBps,
@@ -162,10 +165,9 @@ export function LiveOperationsView({
                 />
                 <StatTile
                   label="Power"
-                  value={formatExactResourceAmount(
-                    liveOperations.projectedPowerWatts as Amount,
+                  value={formatWatts(
+                    Number(liveOperations.projectedPowerWatts),
                   )}
-                  unit="W"
                   accent="amber"
                 />
               </StatTileRow>
@@ -186,11 +188,20 @@ export function LiveOperationsView({
               />
             </div>
 
-            {liveOperations.blockedReason && (
-              <small className="work-blocked-reason" role="status">
-                {liveOperations.blockedReason}
-              </small>
-            )}
+            {/* Reserved single-line slot: a runtime blocker recolors it in
+                place, so waiting/running flips never move the action row. */}
+            <small
+              className={`live-operations-blocked${
+                liveOperations.blockedReason ? " work-blocked-reason" : ""
+              }`}
+              role="status"
+              title={
+                liveOperations.blockedReason ??
+                "No blockers. Live Ops runs whenever idle cores are free."
+              }
+            >
+              {liveOperations.blockedReason ?? ""}
+            </small>
           </>
         )}
 

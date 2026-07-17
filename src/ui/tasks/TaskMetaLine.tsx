@@ -1,4 +1,4 @@
-import { Cpu, Gauge, HardDrive, MemoryStick, Zap } from "lucide-react";
+import { Cpu, HardDrive, Layers, MemoryStick, Zap } from "lucide-react";
 import { formatBits, formatNumber } from "../format";
 import { ResourceCost } from "../ResourceTokens";
 import {
@@ -42,16 +42,6 @@ export function TaskMetaLine({
     operationCount === undefined ? "-" : formatNumber(operationCount);
   const cacheText = cacheBits > 0 ? formatBits(cacheBits) : null;
   const ramText = showRam ? formatBits(ramBits) : null;
-  // The ops chip counts operation INVOCATIONS; the actual paid work volume
-  // (executed cycles + transferred bits — what the payout and duration derive
-  // from) can be ~12x larger, so it gets its own chip when it differs.
-  const paidWorkUnits =
-    typeof task.paidWorkUnits === "number" && task.paidWorkUnits > 0
-      ? task.paidWorkUnits
-      : null;
-  const showPaidWork =
-    paidWorkUnits !== null && paidWorkUnits !== (operationCount ?? 0);
-
   const cpuWeight = mixWeight(operationCount ?? 0);
   const cacheWeight = mixWeight(cacheBits);
   const ramWeight = showRam ? mixWeight(ramBits) : 0;
@@ -74,29 +64,20 @@ export function TaskMetaLine({
       <span className="meta-need">
         <span
           className="meta-chip ops"
-          title={`${opCountText} operation invocations`}
-          aria-label={`${opCountText} operation invocations`}
+          title={`${opCountText} CPU ops`}
+          aria-label={`${opCountText} CPU ops`}
         >
           <Zap size={11} aria-hidden="true" />
           <strong>{opCountText}</strong>
+          <small>ops</small>
         </span>
-        {showPaidWork && (
-          <span
-            className="meta-chip work"
-            title={`${formatNumber(paidWorkUnits)} paid work units (executed cycles + transferred bits)`}
-            aria-label={`${formatNumber(paidWorkUnits)} paid work units`}
-          >
-            <Gauge size={11} aria-hidden="true" />
-            <strong>{formatNumber(paidWorkUnits)}</strong>
-          </span>
-        )}
         {chunked ? (
           <span
             className="meta-chip chunked"
             title={`Chunked work: ${formatNumber(task.workUnitCount ?? 1)} chunks fill idle cores`}
             aria-label={`Chunked work ${formatNumber(task.workUnitCount ?? 1)} chunks`}
           >
-            <Cpu size={11} aria-hidden="true" />
+            <Layers size={11} aria-hidden="true" />
             <strong>{formatNumber(task.workUnitCount ?? 1)}</strong>
           </span>
         ) : (

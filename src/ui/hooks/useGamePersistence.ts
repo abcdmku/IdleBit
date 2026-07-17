@@ -52,7 +52,7 @@ export interface UseGamePersistenceOptions {
 }
 
 const DEFAULT_SAVE_INTERVAL_MS = 4_000;
-export const FOREGROUND_ADVANCE_INTERVAL_MS = 500;
+export const FOREGROUND_ADVANCE_INTERVAL_MS = 10;
 /** Bounded departure-save retries before an Electron close goes unacknowledged. */
 export const ELECTRON_CLOSE_SAVE_ATTEMPTS = 3;
 const NON_DURABLE_SAVE_MESSAGE =

@@ -170,7 +170,7 @@ describe("legacy exact Amount authority", () => {
     );
   });
 
-  it("conserves a first-completion Data reward beside a huge balance", () => {
+  it("conserves repeatable Data rewards beside a huge balance", () => {
     const initial = createInitialGameState();
     let state = exactState({
       ...initial,
@@ -183,14 +183,14 @@ describe("legacy exact Amount authority", () => {
     }
 
     expect(state.activeTasks).toHaveLength(0);
-    expect(state.exactResources.data).toBe(amountAdd(beforeData, "5"));
+    expect(state.exactResources.data).toBe(amountAdd(beforeData, "1"));
 
     const afterFirst = state.exactResources.data;
     state = applyAction(state, { type: "startTask", taskId: "bitFlip" });
     for (let guard = 0; state.activeTasks.length > 0 && guard < 100; guard += 1) {
       state = tickGame(state, 1_000);
     }
-    expect(state.exactResources.data).toBe(afterFirst);
+    expect(state.exactResources.data).toBe(amountAdd(afterFirst, "1"));
   });
 
   it("keeps exact active work identical for split and one-shot ticks", () => {

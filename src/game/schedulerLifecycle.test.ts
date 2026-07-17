@@ -60,14 +60,25 @@ const withSingleRamStick = (state: GameState, bits: number): GameState =>
     0,
   );
 
-const withSchedulerPolicies = (state: GameState): GameState => ({
-  ...state,
-  flags: {
-    ...state.flags,
-    schedulerPolicies: true,
-    schedulerWatchdog: true,
-  },
-});
+const withSystemSchedulerCapacity = (
+  state: GameState,
+  systemSchedulerSlots: number,
+): GameState => {
+  const hardware = {
+    ...state.hardware,
+    systemSchedulerSlots,
+  };
+
+  return {
+    ...state,
+    hardware,
+    systems: state.systems.map((system) =>
+      system.id === state.selectedSystemId
+        ? { ...system, hardware }
+        : system,
+    ),
+  };
+};
 
 describe("scheduler queue lifecycle", () => {
   describe("F-SCH-1: enqueue reservations are atomic", () => {
@@ -225,199 +236,6 @@ describe("scheduler queue lifecycle", () => {
     });
   });
 
-  describe("F-SCH-3: watchdog only requeues the child work unit", () => {
-    it("keeps a non-chunked system parent alive when its child is auto-killed", () => {
-      let state = withSchedulerPolicies(createRackReadyGameState());
-      state = applyAction(state, {
-        type: "setSchedulerPolicy",
-        target: "system",
-        policy: "none",
-      });
-      state = applyAction(state, {
-        type: "setSchedulerAutoKill",
-        target: "system",
-        enabled: true,
-      });
-
-      // A direct task holds 256 of the 1,024 RAM bits, so busMirror's
-      // readBusWindow child (2 parallel 512-bit stages) deadlocks on RAM.
-      state = applyAction(state, {
-        type: "startTaskOnCore",
-        taskId: "readRamPage",
-        coreId: 1,
-      });
-      let stageGuard = 0;
-      while (
-        !state.activeTasks
-          .flatMap((task) => task.coreOperations)
-          .some((operation) => operation.memoryReservedBits > 0) &&
-        stageGuard < 30
-      ) {
-        state = tickGame(state, 500);
-        stageGuard += 1;
-      }
-      expect(
-        state.activeTasks
-          .flatMap((task) => task.coreOperations)
-          .some((operation) => operation.memoryReservedBits > 0),
-      ).toBe(true);
-      state = applyAction(state, { type: "queueTask", taskId: "busMirror" });
-
-      // Let the child dispatch, stage cache, and deadlock on the missing RAM.
-      const hasDeadlockedOp = (current: GameState) =>
-        current.activeTasks.some((task) =>
-          task.coreOperations.some(
-            (operation) => operation.status === "deadlocked",
-          ),
-        );
-      let deadlockGuard = 0;
-      while (!hasDeadlockedOp(state) && deadlockGuard < 240) {
-        state = tickGame(state, 500);
-        deadlockGuard += 1;
-      }
-      expect(hasDeadlockedOp(state)).toBe(true);
-
-      // The 3-second watchdog resolves the deadlock by killing only the child
-      // work unit.
-      let watchdogGuard = 0;
-      while (hasDeadlockedOp(state) && watchdogGuard < 20) {
-        state = tickGame(state, 500);
-        watchdogGuard += 1;
-      }
-      expect(hasDeadlockedOp(state)).toBe(false);
-
-      // The parent queue entry survives — before the fix the whole busMirror
-      // job (and its completed-child progress) was destroyed.
-      expect(
-        (state.queueEntries ?? []).some((entry) => entry.taskId === "busMirror"),
-      ).toBe(true);
-      // The unrelated RAM holder is untouched.
-      expect(
-        state.activeTasks.some((task) => task.taskId === "readRamPage"),
-      ).toBe(true);
-
-      // Freeing the held RAM lets the requeued child stage and run.
-      const holder = state.activeTasks.find(
-        (task) => task.taskId === "readRamPage",
-      );
-      expect(holder).toBeDefined();
-      state = applyAction(state, {
-        type: "cancelTask",
-        taskId: "readRamPage",
-        instanceId: holder!.instanceId,
-      });
-      let guard = 0;
-      while (
-        !state.activeTasks.some(
-          (task) =>
-            task.taskId === "readBusWindow" &&
-            task.coreOperations.every(
-              (operation) => operation.status !== "deadlocked",
-            ) &&
-            task.coreOperations.some(
-              (operation) => operation.memoryReservedBits > 0,
-            ),
-        ) &&
-        guard < 240
-      ) {
-        state = tickGame(state, 500);
-        guard += 1;
-      }
-      expect(
-        state.activeTasks.some(
-          (task) =>
-            task.taskId === "readBusWindow" &&
-            task.coreOperations.some(
-              (operation) => operation.memoryReservedBits > 0,
-            ),
-        ),
-      ).toBe(true);
-    });
-  });
-
-  describe("F-SCH-4: deadlock failure releases reservations by id", () => {
-    it("keeps the waiting duplicate dispatchable after a full deadlock wipe", () => {
-      let state = withSchedulerPolicies(createRackReadyGameState());
-      state = applyAction(state, {
-        type: "setSchedulerPolicy",
-        target: "cpu",
-        cpuId: 1,
-        policy: "none",
-      });
-      state = applyAction(state, {
-        type: "setSchedulerPolicy",
-        target: "cpu",
-        cpuId: 2,
-        policy: "none",
-      });
-      state = withSingleRamStick(state, 768);
-
-      // A direct (non-queued) task keeps core 4 busy and holds 256 bits.
-      state = applyAction(state, {
-        type: "startTaskOnCore",
-        taskId: "readRamPage",
-        coreId: 4,
-      });
-      state = tickGame(state, 16);
-
-      // Four queued copies: three dispatch (two stage, one deadlocks on RAM),
-      // one keeps waiting because no core is free.
-      for (let index = 0; index < 4; index += 1) {
-        state = applyAction(state, { type: "queueTask", taskId: "readRamPage" });
-      }
-      let deadlockGuard = 0;
-      while (
-        !state.activeTasks
-          .flatMap((task) => task.coreOperations)
-          .some(
-            (operation) =>
-              operation.status === "deadlocked" &&
-              operation.lockResource === "ram",
-          ) &&
-        deadlockGuard < 40
-      ) {
-        state = tickGame(state, 500);
-        deadlockGuard += 1;
-      }
-      expect(
-        state.activeTasks.flatMap((task) => task.coreOperations),
-      ).toContainEqual(
-        expect.objectContaining({ status: "deadlocked", lockResource: "ram" }),
-      );
-
-      // Ride the pressure to the full 10-second failure wipe.
-      let guard = 0;
-      while (!state.deadlockProcessLockout && guard < 60) {
-        state = tickGame(state, 500);
-        guard += 1;
-      }
-      expect(state.deadlockProcessLockout).toBe(true);
-      expect(state.activeTasks).toHaveLength(0);
-
-      // Exactly the waiting duplicate survives, intact: top-level entry plus
-      // its own local reservation — no ghosts, no orphans.
-      const survivors = (state.queueEntries ?? []).filter(
-        (entry) => entry.taskId === "readRamPage",
-      );
-      expect(survivors).toHaveLength(1);
-      expectNoOrphanTopLevelEntries(state);
-      expectNoGhostLocalEntries(state);
-
-      // After the cooldown the survivor dispatches and stages its RAM.
-      guard = 0;
-      while (
-        !state.activeTasks.some((task) => task.taskId === "readRamPage") &&
-        guard < 120
-      ) {
-        state = tickGame(state, 500);
-        guard += 1;
-      }
-      expect(
-        state.activeTasks.some((task) => task.taskId === "readRamPage"),
-      ).toBe(true);
-    });
-  });
-
   describe("C-SIM-5: non-repeatable tasks admit one pending instance", () => {
     it("rejects queueing a duplicate while a copy is queued or active", () => {
       let state = createRackReadyGameState();
@@ -540,7 +358,7 @@ describe("scheduler queue lifecycle", () => {
 
   describe("F-PLAY-2: RAM-starved queued work exposes a blocked reason", () => {
     it("labels an entry blocked behind RAM staging pressure", () => {
-      let state = createRackReadyGameState();
+      let state = withSystemSchedulerCapacity(createRackReadyGameState(), 3);
       state = withSingleRamStick(state, 512);
 
       for (let index = 0; index < 3; index += 1) {
@@ -549,15 +367,15 @@ describe("scheduler queue lifecycle", () => {
       state = tickGame(state, 16);
 
       // Two copies stage 256 bits each; the third waits on staging headroom.
-      const activeReservationIds = new Set(
+      const activeParentIds = new Set(
         state.activeTasks
-          .map((task) => task.queueEntryId)
+          .map((task) => task.parentQueueEntryId)
           .filter((id): id is string => Boolean(id)),
       );
-      expect(activeReservationIds.size).toBe(2);
+      expect(activeParentIds.size).toBe(2);
       const waiting = (state.queueEntries ?? []).find(
         (entry) =>
-          entry.taskId === "readRamPage" && !activeReservationIds.has(entry.id),
+          entry.taskId === "readRamPage" && !activeParentIds.has(entry.id),
       );
       expect(waiting).toBeDefined();
 
@@ -566,7 +384,7 @@ describe("scheduler queue lifecycle", () => {
       );
 
       // Running entries report no blocked reason.
-      const runningId = [...activeReservationIds][0]!;
+      const runningId = [...activeParentIds][0]!;
       expect(getQueueEntryDispatchBlockedReason(state, runningId)).toBeNull();
     });
   });

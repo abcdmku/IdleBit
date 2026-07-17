@@ -79,17 +79,22 @@ describe("ResearchPanel automation buffer card", () => {
 
     const card = bufferCard();
     expect(card?.textContent).toContain("Automation Buffer · Local Scheduler");
-    // Coverage renders as a stat tile; the full sentence stays in aria/title.
-    expect(card?.querySelector(".stat-tile")?.getAttribute("aria-label")).toBe(
-      "2h offline coverage",
+    expect(card?.textContent).toContain(
+      "After you close the game, queued work can keep running",
     );
-    expect(card?.querySelector(".stat-tile-value")?.textContent).toContain("2h");
+    expect(card?.textContent).toContain("does not add or repeat jobs");
+    expect(card?.querySelector(".stat-tile")?.getAttribute("aria-label")).toBe(
+      "Offline coverage increases from 0m to 2h",
+    );
+    expect(card?.querySelector(".stat-tile-value")?.textContent).toContain(
+      "0m → 2h",
+    );
     expect(card?.textContent).toContain("70");
     expect(card?.textContent).toContain("8");
 
     const buy = buyButton();
     expect(buy?.disabled).toBe(false);
-    expect(buy?.textContent).toContain("Buy");
+    expect(buy?.textContent).toContain("Add 2h");
     act(() => buy?.click());
     expect(dispatch).toHaveBeenCalledWith({
       type: "purchaseAutomationBuffer",
@@ -130,7 +135,7 @@ describe("ResearchPanel automation buffer card", () => {
     expect(container.textContent).not.toContain("Automation Buffer ·");
   });
 
-  it("guarantees a first-session purchase path without the Automation tab", () => {
+  it("guarantees a first-session purchase path before the Automation tab appears", () => {
     const visible = deriveVisibleState(researchedState(true));
 
     renderPanel(visible);

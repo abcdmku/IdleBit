@@ -435,7 +435,7 @@ describe("per-system managed-work reservations", () => {
             amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
             getPowerBilledCredits(initial, fetchDurationMs * 2 + 1_000),
           ),
-          "1002",
+          "1004",
         ),
       );
     },
@@ -669,7 +669,7 @@ describe("per-system managed-work reservations", () => {
       expect(oneShot.intervalReport.creditsEarned).toBe(
         amountAdd("12.5", amountMultiply(fetchRewardCredits, 2)),
       );
-      expect(oneShot.intervalReport.dataEarned).toBe("2");
+      expect(oneShot.intervalReport.dataEarned).toBe("4");
       expect(oneShot.intervalReport.standingOrderRenewals).toBe(1);
       expect(oneShot.intervalReport.completionEvents).toHaveLength(3);
       expect(oneShot.intervalReport.completionEvents).toEqual(
@@ -691,7 +691,7 @@ describe("per-system managed-work reservations", () => {
             amountAdd("1012.5", amountMultiply(fetchRewardCredits, 2)),
             getPowerBilledCredits(initial, horizonMs),
           ),
-          "1002",
+          "1004",
         ),
       );
 
@@ -777,8 +777,8 @@ describe("per-system managed-work reservations", () => {
     });
     state = {
       ...state,
-      exactResources: exactResourceBag("1000000000", "1000"),
-      resources: { credits: 1_000_000_000, data: 1000 },
+      exactResources: exactResourceBag("1000000000", "1000000000"),
+      resources: { credits: 1_000_000_000, data: 1_000_000_000 },
     };
     state = syncSelectedSystemRuntime(state);
     state = applyAction(state, {

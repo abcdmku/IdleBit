@@ -259,7 +259,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "benchmarkHarness"),
     requirement: (state) => requirementsMet(state, getMultiCoreRequirements()),
     requirements: () => getMultiCoreRequirements(),
-    computeTaskIds: ["microBenchmark", "parallelismBenchmark"],
+    computeTaskIds: ["microBenchmark"],
     // Early credit costs are tuned to a Jobs-only opening: the retired
     // Bootstrap Benchmark project no longer subsidizes this ladder.
     cost: () => [credits(56), data(6)],
@@ -272,6 +272,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     reveal: (state) => hasResearch(state, "multiCore"),
     requirement: (state) => requirementsMet(state, getLocalSchedulerRequirements()),
     requirements: () => getLocalSchedulerRequirements(),
+    computeTaskIds: ["parallelismBenchmark"],
     cost: () => [credits(80), data(6)],
   },
   {
@@ -279,9 +280,8 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Scheduler Watchdog",
     description: "Adds deadlock auto-kill controls.",
     grants: ["schedulerWatchdog"],
-    // Gated behind System Scheduler: buying Watchdog (and the Scheduling
-    // Policy ladder behind it) out of the tight pre-Scheduler Data budget
-    // could soft-lock System Scheduler funding (C-DES-1).
+    // Gated behind System Scheduler so the watchdog cannot consume the tight
+    // pre-Scheduler Data budget and soft-lock System Scheduler funding.
     reveal: (state) => hasResearch(state, "systemScheduler"),
     requirement: (state) => requirementsMet(state, getSchedulerWatchdogRequirements()),
     requirements: () => getSchedulerWatchdogRequirements(),
@@ -296,16 +296,6 @@ export const researchDefinitions: ResearchDefinition[] = [
     requirement: () => false,
     requirements: () => [],
     cost: () => [],
-  },
-  {
-    id: "schedulerPolicies",
-    name: "Scheduling Policy",
-    description: "Adds safer dispatch policies.",
-    grants: ["schedulerPolicies"],
-    reveal: (state) => hasResearch(state, "schedulerWatchdog"),
-    requirement: (state) => requirementsMet(state, getSchedulerPolicyRequirements()),
-    requirements: () => getSchedulerPolicyRequirements(),
-    cost: () => [credits(230), data(14)],
   },
   {
     id: "systemScheduler",
@@ -624,7 +614,6 @@ function getMultiCoreRequirements() {
       (state) => state.hardware.cacheLevel >= 3,
     ),
     computeRequirement("microBenchmark", "Run Micro Benchmark"),
-    computeRequirement("parallelismBenchmark", "Run Parallelism Benchmark"),
   ];
 }
 
@@ -636,6 +625,7 @@ function getLocalSchedulerRequirements() {
       "Install 2 CPU cores",
       (state) => state.hardware.cores >= 2,
     ),
+    computeRequirement("parallelismBenchmark", "Run Parallelism Benchmark"),
   ];
 }
 
@@ -645,20 +635,14 @@ function getSchedulerWatchdogRequirements() {
   ];
 }
 
-function getSchedulerPolicyRequirements() {
-  return [
-    researchRequirement("schedulerWatchdog", "Complete Scheduler Watchdog research"),
-  ];
-}
-
 function getSystemSchedulerRequirements() {
   return [
     researchRequirement("localScheduler", "Complete Local Scheduler research"),
     researchRequirement("ramControl", "Complete RAM Control research"),
     hardwareRequirement(
-      "four-cores",
-      "Install 4 CPU cores",
-      (state) => state.hardware.cores >= 4,
+      "two-cores",
+      "Install 2 CPU cores",
+      (state) => state.hardware.cores >= 2,
     ),
     hardwareRequirement(
       "one-kilobit-ram",

@@ -158,7 +158,6 @@ const researchFromLegacyFlags = (flags: Partial<GameFlags> = {}) => {
   if (flags.multiCore) completed.push("multiCore");
   if (flags.basicQueue) completed.push("localScheduler");
   if (flags.schedulerWatchdog) completed.push("schedulerWatchdog");
-  if (flags.schedulerPolicies) completed.push("schedulerPolicies");
   if (flags.scheduler) completed.push("systemScheduler");
   if (flags.systemStats) completed.push("ramControl");
   if (flags.secondCpu) completed.push("systemBus");

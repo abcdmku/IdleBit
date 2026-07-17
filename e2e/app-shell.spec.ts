@@ -92,6 +92,20 @@ const expectMinimumTargetSize = async (
 };
 
 test.describe("workbench shell", () => {
+  test("prevents text selection throughout the application", async ({ page }) => {
+    await page.goto("/");
+    await waitForHydration(page);
+
+    const selectableElements = await page.locator("body, body *").evaluateAll(
+      (elements) =>
+        elements.filter(
+          (element) => window.getComputedStyle(element).userSelect !== "none",
+        ).length,
+    );
+
+    expect(selectableElements).toBe(0);
+  });
+
   for (const viewport of [
     { name: "phone-320", width: 320, height: 720 },
     { name: "phone-430", width: 430, height: 860 },
@@ -109,13 +123,9 @@ test.describe("workbench shell", () => {
         page.getByRole("complementary", { name: "Work" }),
       ).toBeVisible();
       await expect(page.locator(".command-deck-strip")).toHaveCount(0);
-      await expect(
-        page.locator(
-          viewport.width <= 760
-            ? ".mobile-current-objective"
-            : ".topbar-stage",
-        ),
-      ).toBeVisible();
+      await expect(page.locator(".mobile-current-objective")).toHaveCount(0);
+      await expect(page.locator(".topbar-stage")).toHaveCount(0);
+      await expect(page.locator("body")).not.toContainText("Bootstrap Node");
 
       const dimensions = await page.evaluate(() => ({
         clientWidth: document.documentElement.clientWidth,
@@ -145,7 +155,7 @@ test.describe("workbench shell", () => {
     { name: "phone-320", width: 320, height: 720 },
     { name: "desktop-1920", width: 1920, height: 1080 },
   ]) {
-    test(`suppresses animation and transitions with reduced motion at ${viewport.name}`, async ({
+    test(`matches core progress to the PSU meter and suppresses transitions with reduced motion at ${viewport.name}`, async ({
       page,
     }) => {
       await page.setViewportSize(viewport);
@@ -173,22 +183,61 @@ test.describe("workbench shell", () => {
         const animationElement = document.querySelector(
           ".core-die.running .die-progress",
         );
-        if (!transitionElement || !animationElement) {
+        const psuElement = document.querySelector(
+          ".psu-section .stat-tile-meter",
+        );
+        if (!transitionElement || !animationElement || !psuElement) {
           throw new Error("Expected representative motion probes");
         }
         const transition = getComputedStyle(transitionElement);
         const animation = getComputedStyle(animationElement);
+        const fill = animationElement.querySelector(".progress-fill");
+        const psuFill = psuElement.querySelector(".stat-tile-meter-fill");
+        if (!fill || !psuFill) throw new Error("Expected meter fills");
+        const fillStyle = getComputedStyle(fill);
+        const psu = getComputedStyle(psuElement);
+        const psuFillStyle = getComputedStyle(psuFill);
         return {
           reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
           transitionDuration: transition.transitionDuration,
           animationName: animation.animationName,
           animationDuration: animation.animationDuration,
+          coreMeter: {
+            height: animation.height,
+            borderRadius: animation.borderRadius,
+            backgroundColor: animation.backgroundColor,
+            overflow: animation.overflow,
+          },
+          psuMeter: {
+            height: psu.height,
+            borderRadius: psu.borderRadius,
+            backgroundColor: psu.backgroundColor,
+            overflow: psu.overflow,
+          },
+          coreFill: {
+            borderRadius: fillStyle.borderRadius,
+            transitionDuration: fillStyle.transitionDuration,
+            transitionTimingFunction: fillStyle.transitionTimingFunction,
+          },
+          psuFill: {
+            borderRadius: psuFillStyle.borderRadius,
+            transitionDuration: psuFillStyle.transitionDuration,
+            transitionTimingFunction: psuFillStyle.transitionTimingFunction,
+          },
         };
       });
       expect(baseline.reducedMotion).toBe(false);
       expect(cssTimesAreZero(baseline.transitionDuration)).toBe(false);
-      expect(baseline.animationName).toContain("status-bar-pulse");
-      expect(cssTimesAreZero(baseline.animationDuration)).toBe(false);
+      expect(baseline.animationName).toBe("none");
+      expect(cssTimesAreZero(baseline.animationDuration)).toBe(true);
+      expect(baseline.coreMeter).toEqual(baseline.psuMeter);
+      expect(baseline.coreFill).toEqual(baseline.psuFill);
+      expect(
+        Number.parseFloat(baseline.coreFill.transitionDuration),
+      ).toBeGreaterThan(0);
+      expect(
+        Number.parseFloat(baseline.coreFill.transitionDuration),
+      ).toBeLessThanOrEqual(0.01);
 
       await page.emulateMedia({ reducedMotion: "reduce" });
       await expect
@@ -312,12 +361,11 @@ test.describe("Automation Buffer purchase flows", () => {
 
       await page.goto("/");
       await waitForHydration(page);
-      await page.getByRole("tab", { name: "Automation" }).click();
-      await page
-        .locator(".automation-buffer-panel")
-        .getByRole("button", { name: "Upgrade" })
-        .click();
+      const bufferCard = page.locator(".automation-buffer-action");
+      await expect(bufferCard).toContainText("After you close the game");
+      await bufferCard.getByRole("button", { name: /^Add / }).click();
 
+      await page.getByRole("tab", { name: "Automation" }).click();
       await expect(
         page.locator(".automation-buffer-panel .automation-buffer-level"),
       ).toContainText(definition.name);
@@ -344,12 +392,25 @@ test.describe("Automation Buffer purchase flows", () => {
 
     await page.goto("/");
     await waitForHydration(page);
-    await page.getByRole("tab", { name: "Automation" }).click();
-    const upgrade = page
-      .locator(".automation-buffer-panel")
-      .getByRole("button", { name: "Upgrade" });
+    await page.getByRole("button", { name: "Research" }).click();
+    const bufferCard = page.locator(".automation-buffer-action");
+    await expect(bufferCard).toContainText(
+      "queued work can keep running",
+    );
+    await expect(bufferCard).toContainText("does not add or repeat jobs");
+    const upgrade = bufferCard.getByRole("button", { name: "Add 2h" });
     await expect(upgrade).toBeEnabled();
     await expectMinimumTargetSize(upgrade, "Automation Buffer upgrade", 44);
+    await upgrade.click();
+
+    await page.getByRole("button", { name: /^Work,/ }).click();
+    await page.getByRole("tab", { name: "Automation" }).click();
+    await expect(page.locator(".automation-buffer-panel")).toContainText(
+      "Queue jobs before leaving",
+    );
+    await expect(
+      page.locator('.automation-buffer-panel .stat-tile[aria-label="Max 2h"]'),
+    ).toBeVisible();
 
     const dimensions = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,

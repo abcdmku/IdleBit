@@ -16,9 +16,9 @@ export const stripSharedUnit = (label: string, reference: string) => {
 export const formatFraction = (used: string, capacity: string) =>
   `${stripSharedUnit(used, capacity)} / ${capacity}`;
 
-/** Compact per-die clock: "1.2 kHz" -> "1.2k". Tooltips keep the full value. */
+/** Compact per-die clock that still keeps the physical unit visible. */
 export const formatClockTick = (hz: number) =>
-  formatClock(hz).replace(/ ?([kMG]?)Hz$/u, "$1");
+  formatClock(hz).replace(" ", "");
 
 export const formatPowerRate = (creditsPerSecond: number) =>
   formatResourceRate(creditsPerSecond);

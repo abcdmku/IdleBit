@@ -46,11 +46,10 @@ describe("AutomationBufferPanel", () => {
       container.querySelector(".automation-buffer-panel .stat-tile-row"),
     ).toBeNull();
     expect(container.textContent).toContain("No offline coverage yet");
-    // The capability sentence lives in the status line tooltip.
     expect(
       container
-        .querySelector(".automation-buffer-note")
-        ?.getAttribute("title"),
+        .querySelector(".automation-buffer-purpose")
+        ?.textContent,
     ).toContain("Closing freezes simulation.");
   });
 
@@ -101,11 +100,9 @@ describe("AutomationBufferPanel", () => {
     expect(
       container.querySelector('.stat-tile[aria-label="Max 7d"]'),
     ).not.toBeNull();
-    expect(
-      container
-        .querySelector(".automation-buffer-note")
-        ?.getAttribute("title"),
-    ).toContain("Final seven-day offline window.");
+    expect(container.querySelector(".automation-buffer-purpose")?.textContent).toContain(
+      "Final seven-day offline window.",
+    );
     expect(container.querySelector("button")).toBeNull();
   });
 
@@ -113,6 +110,12 @@ describe("AutomationBufferPanel", () => {
     const visible = deriveVisibleState(createInitialGameState());
     renderPanel({
       ...visible,
+      automationBuffer: {
+        ...visible.automationBuffer,
+        ownedLevelId: "cronRuntime",
+        maxOfflineMs: 8 * 60 * 60 * 1_000,
+        remainingOfflineMs: 8 * 60 * 60 * 1_000,
+      },
       standingOrder: {
         taskId: "fetchBit",
         systemId: visible.selectedSystem.id,
@@ -132,5 +135,25 @@ describe("AutomationBufferPanel", () => {
 
     expect(container.textContent).toContain("Standing order: Fetch Bit");
     expect(container.textContent).toContain("armed");
+  });
+
+  it("explains the first purchased buffer and its finite-queue limit", () => {
+    const visible = deriveVisibleState(createInitialGameState());
+    renderPanel({
+      ...visible,
+      automationBuffer: {
+        ...visible.automationBuffer,
+        ownedLevelId: "localScheduler",
+        maxOfflineMs: 2 * 60 * 60 * 1_000,
+        remainingOfflineMs: 2 * 60 * 60 * 1_000,
+      },
+    });
+
+    expect(container.textContent).toContain(
+      "After you close the game, queued work can keep running",
+    );
+    expect(container.textContent).toContain("does not add or repeat jobs");
+    expect(container.textContent).toContain("Queue jobs before leaving");
+    expect(container.textContent).toContain("automatic repeats require CRON");
   });
 });

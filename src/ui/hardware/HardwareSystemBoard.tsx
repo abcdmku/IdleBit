@@ -7,7 +7,6 @@ import type {
 } from "../../game";
 import { SystemBoard, SystemRail } from "../MotherboardLayout";
 import {
-  getSelectedCoreGroupCpuId,
   getSelectedCoreId,
   getSelectedRamStickId,
   getSelectedSchedulerId,
@@ -70,7 +69,6 @@ export function HardwareSystemBoard({
 }: HardwareSystemBoardProps) {
   const selectedCoreId = getSelectedCoreId(selectedComponent);
   const resolvedSystemId = systemId ?? visible.selectedSystem.id;
-  const selectedCoreGroupCpuId = getSelectedCoreGroupCpuId(selectedComponent);
   const selectedSchedulerId = getSelectedSchedulerId(selectedComponent);
   const selectedRamStickId = getSelectedRamStickId(selectedComponent);
   const selectedAllRamSticks = selectedComponent === "ramSticks";
@@ -78,7 +76,6 @@ export function HardwareSystemBoard({
     visible.flags.basicQueue ||
     visible.flags.scheduler ||
     getQueueEntries(visible).length > 0;
-  const allCoreTuningVisible = visible.flags.basicQueue || visible.flags.scheduler;
   const cronVisible = hasCronScheduler(visible);
   const systemSchedulerVisible = visible.flags.scheduler;
   const systemSchedulerInstalled = getVisibleSystemSchedulerSlots(visible) > 0;
@@ -147,8 +144,6 @@ export function HardwareSystemBoard({
         schedulerVisible={schedulerVisible}
         selectedSchedulerId={selectedSchedulerId}
         selectedCoreId={selectedCoreId}
-        selectedCoreGroupCpuId={selectedCoreGroupCpuId}
-        allCoreTuningVisible={allCoreTuningVisible}
         cacheSelected={cacheSelected}
         onSelectComponent={onSelectComponent}
         cpuUpgrades={cpuUpgrades}

@@ -73,14 +73,25 @@ export const getAllCores = (visible: VisibleState) =>
 export const getOperationCountFromOperations = (operations: UiTaskOperation[]) =>
   operations.reduce((total, operation) => total + (operation.count ?? 1), 0);
 
+const getCycleCountFromOperations = (operations: UiTaskOperation[]) =>
+  operations.reduce(
+    (total, operation) =>
+      total + (operation.cycles ?? operation.requiredCycles ?? 0),
+    0,
+  );
+
 export const getTaskOperationCount = (task: UiTask) =>
   firstNumber(
+    task.requiredCycles,
+    task.cycles,
+    Array.isArray(task.operations)
+      ? getCycleCountFromOperations(task.operations)
+      : undefined,
     task.operationCount,
     typeof task.operations === "number" ? task.operations : undefined,
     task.opCount,
     task.requiredOps,
     task.requiredOperations,
-    task.requiredCycles,
     Array.isArray(task.operations)
       ? getOperationCountFromOperations(task.operations)
       : undefined,
@@ -403,7 +414,6 @@ export const getActiveTaskFor = (task: UiTask, activeTasks: UiActiveTask[]) =>
 export const getTaskRewardCosts = (task: UiTask): DisplayCost[] => {
   const credits = firstNumber(task.rewardCredits, task.rewards?.credits);
   const data = firstNumber(
-    task.firstCompletionData,
     task.rewardData,
     task.rewards?.data,
   );

@@ -78,6 +78,7 @@ export interface UiTask {
   }>;
   operationCount?: number;
   paidWorkUnits?: number;
+  cycles?: number;
   operations?: number | UiTaskOperation[];
   opCount?: number;
   requiredOps?: number;
@@ -90,8 +91,6 @@ export interface UiTask {
   workUnitName?: string;
   rewardCredits?: number;
   rewardData?: number;
-  firstCompletionData?: number;
-  repeatRewardData?: number;
   rewards?: Partial<Record<"credits" | "data", number>>;
   cacheNeedBits?: number;
   cacheBits?: number;
@@ -203,6 +202,7 @@ export interface UiResearch {
   canAfford?: boolean;
   canBuy?: boolean;
   actionLabel?: string;
+  completedLabel?: string;
   lockedReason?: string | null;
   lockReason?: string | null;
   unlockReason?: string | null;

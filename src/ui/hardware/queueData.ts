@@ -91,17 +91,14 @@ const getCpuSchedulerPendingReason = (
     return `CPU scheduler needs ${requiredCores} slots.`;
   }
 
-  if (socket.schedulerConfig.policy !== "none") {
-    const availableCacheBits = Math.max(0, socket.cacheBits - socket.cacheUsedBits);
-    if (getTaskCacheBits(task) > availableCacheBits) {
-      return "Waiting for CPU cache.";
-    }
-
-    const ramPendingReason = getRamPendingReason(visible, task);
-    if (!isSystemQueueTask(task) && ramPendingReason) return ramPendingReason;
+  const availableCacheBits = Math.max(0, socket.cacheBits - socket.cacheUsedBits);
+  if (getTaskCacheBits(task) > availableCacheBits) {
+    return "Waiting for CPU cache.";
   }
 
   const ramPendingReason = getRamPendingReason(visible, task);
+  if (!isSystemQueueTask(task) && ramPendingReason) return ramPendingReason;
+
   if (isSystemQueueTask(task) && ramPendingReason) return ramPendingReason;
 
   return "Waiting for CPU scheduler dispatch.";

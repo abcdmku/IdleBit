@@ -63,8 +63,6 @@
     letter-spacing: var(--tracking-loose);
   }
 
-  .topbar-stage { display: none; }
-
   .topbar-persistence-slot { flex-basis: 24px; }
 
   .topbar-persistence {

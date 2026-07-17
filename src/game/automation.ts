@@ -35,7 +35,8 @@ export const automationBufferDefinitions: readonly AutomationBufferDefinition[] 
     id: "localScheduler",
     name: "Local Scheduler",
     maxOfflineMs: 2 * HOUR_MS,
-    capability: "Completes the existing finite queue only.",
+    capability:
+      "After you close the game, queued work can keep running for up to 2 hours. It does not add or repeat jobs.",
     requiredChapter: "bootstrapNode",
     requiredResearchId: "localScheduler",
     // Tuned for the Jobs-only opening (no early project/contract credits).

@@ -242,7 +242,7 @@ describe("exact accelerator projections", () => {
     });
     expect(projection.purchaseCosts).toEqual([
       { resource: "credits", amount: amount("1150000") },
-      { resource: "data", amount: amount("560") },
+      { resource: "data", amount: amount("11500000") },
     ]);
   });
 
@@ -278,7 +278,7 @@ describe("exact accelerator projections", () => {
       },
       {
         resource: "data",
-        amount: amountMultiply("240", quantity),
+        amount: amountMultiply("5000000", quantity),
       },
     ]);
   });

@@ -102,10 +102,10 @@ describe("campaign runner", () => {
           legacy.result.visible.infrastructure.elapsedMs,
       ),
     ).toBeLessThanOrEqual(10);
-    // Batching merges only no-action spans; every action-dispatching decision
-    // pins a 2s step in both modes. The reworked opening policy dispatches on
-    // most decisions, so the reachable compression floor sits just above half.
-    expect(batched.intervalCount).toBeLessThan(legacy.intervalCount * 0.55);
+    // Batching merges only no-action spans. The Data-heavy capacity opening
+    // dispatches work at every decision boundary, so there may be no idle span
+    // to merge; it must still never add intervals versus the fixed 2s path.
+    expect(batched.intervalCount).toBeLessThanOrEqual(legacy.intervalCount);
   }, 30_000);
 
   it("keeps post-CRON sessions decision-capable at public event boundaries", () => {

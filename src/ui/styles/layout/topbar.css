@@ -24,7 +24,6 @@
 }
 
 .topbar-brand { flex: 0 0 auto; }
-.topbar-stage { flex: 1 1 auto; }
 .topbar-alert-badge { flex: 0 0 auto; }
 .topbar-persistence-slot { flex: 0 0 156px; }
 .resource-hud { flex: 0 0 auto; margin-left: auto; }
@@ -49,46 +48,6 @@
   box-shadow:
     0 0 12px var(--cyan),
     0 0 2px var(--cyan);
-}
-
-.topbar-stage {
-  display: inline-flex;
-  gap: var(--s-3);
-  align-items: center;
-  min-width: 0;
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  letter-spacing: var(--tracking-loose);
-  text-transform: uppercase;
-  overflow: hidden;
-}
-
-.topbar-stage > span {
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 0 1 auto;
-}
-
-.topbar-stage strong {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--text);
-  font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: var(--tracking-mid);
-  text-transform: none;
-  font-size: var(--fs-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-stage strong::before {
-  content: "·";
-  padding-right: var(--s-3);
-  color: var(--muted-2);
 }
 
 .topbar-persistence-slot {

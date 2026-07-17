@@ -38,7 +38,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = undefined;
   });
 
-  it("shows scheduler controls after research and dispatches scheduler actions", () => {
+  it("shows watchdog controls after research and dispatches scheduler actions", () => {
     const base = deriveVisibleState(createInitialGameState());
     const dispatch = vi.fn();
     const socket = base.metrics.cpuSockets[0]!;
@@ -48,7 +48,6 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
         ...base.flags,
         basicQueue: true,
         schedulerWatchdog: true,
-        schedulerPolicies: true,
       },
       hardware: {
         ...base.hardware,
@@ -62,7 +61,8 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
             ...socket,
             schedulerSlots: 1,
             schedulerConfig: {
-              policy: "fifo",
+              ramPriority: "parallelism",
+              cpuPriority: "parallelism",
               autoKillEnabled: false,
               killPolicy: "deadlockedTask",
             },
@@ -101,23 +101,13 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       container.querySelectorAll<HTMLElement>(".scheduler-controls .scheduler-control > span"),
     ).map((label) => label.textContent);
 
-    expect(container.textContent).toContain("Policy");
+    expect(container.textContent).not.toContain("Policy");
     expect(container.textContent).toContain("Auto-kill");
     expect(headerControls).not.toBeNull();
     expect(bodyControls).toBeNull();
     expect(titleButton?.textContent).toBe("Scheduler");
-    expect(controlLabels).toEqual(["Policy", "Auto-kill", "Kill"]);
-
-    act(() => {
-      selects[0]!.value = "none";
-      selects[0]!.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "setSchedulerPolicy",
-      target: "cpu",
-      cpuId: 1,
-      policy: "none",
-    });
+    expect(selects).toHaveLength(1);
+    expect(controlLabels).toEqual(["Auto-kill", "Kill"]);
 
     act(() => {
       autoKill?.click();
@@ -127,6 +117,104 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       target: "cpu",
       cpuId: 1,
       enabled: true,
+    });
+  });
+
+  it("shows system CPU and RAM priorities only when multiple resources exist", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const dispatch = vi.fn();
+    const firstSocket = base.metrics.cpuSockets[0]!;
+    const visible: VisibleState = {
+      ...base,
+      flags: {
+        ...base.flags,
+        scheduler: true,
+      },
+      hardware: {
+        ...base.hardware,
+        systemSchedulerSlots: 1,
+        systemSchedulerConfig: {
+          ...base.hardware.systemSchedulerConfig,
+          ramPriority: "parallelism",
+          cpuPriority: "parallelism",
+        },
+      },
+      metrics: {
+        ...base.metrics,
+        cpuSockets: [
+          firstSocket,
+          {
+            ...firstSocket,
+            id: 2,
+            cores: firstSocket.cores.map((core) => ({ ...core, id: core.id + 1 })),
+          },
+        ],
+        ramSlots: [
+          {
+            id: 1,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+          {
+            id: 2,
+            level: 1,
+            sizeBits: 256,
+            sizeBytes: 32,
+            usedBits: 0,
+            usedBytes: 0,
+            speedLevel: 1,
+            speedMt: 1,
+            capacityUpgrade: null,
+            speedUpgrade: null,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(
+        <HardwareBoard
+          visible={visible}
+          dispatch={dispatch}
+          selectedComponent="scheduler"
+          onSelectComponent={() => undefined}
+        />,
+      );
+    });
+
+    const ramPriority = container.querySelector<HTMLSelectElement>(
+      '.system-scheduler-section select[aria-label="RAM priority"]',
+    );
+    const cpuPriority = container.querySelector<HTMLSelectElement>(
+      '.system-scheduler-section select[aria-label="CPU priority"]',
+    );
+
+    expect(ramPriority?.value).toBe("parallelism");
+    expect(cpuPriority?.value).toBe("parallelism");
+
+    act(() => {
+      ramPriority!.value = "speed";
+      ramPriority!.dispatchEvent(new Event("change", { bubbles: true }));
+      cpuPriority!.value = "capacity";
+      cpuPriority!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setSchedulerResourcePriority",
+      resource: "ram",
+      priority: "speed",
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setSchedulerResourcePriority",
+      resource: "cpu",
+      priority: "capacity",
     });
   });
 
@@ -312,7 +400,8 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
             ...socket,
             schedulerSlots: 1,
             schedulerConfig: {
-              policy: "fifo",
+              ramPriority: "parallelism",
+              cpuPriority: "parallelism",
               autoKillEnabled: true,
               killPolicy: "deadlockedTask",
             },
@@ -617,7 +706,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     expect(container.querySelectorAll(".core-die .die-progress")).toHaveLength(10);
   });
 
-  it("selects all cores and dispatches grouped clock +/- actions", () => {
+  it("shows one package frequency control without an all-core selector", () => {
     const initial = createInitialGameState();
     let state: GameState = {
       ...initial,
@@ -626,10 +715,10 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
       flags: {
         ...initial.flags,
         multiCore: true,
+        basicQueue: true,
       },
     };
     state = applyAction(state, { type: "buyUpgrade", upgradeId: "core", cpuId: 1 });
-    const onSelectComponent = vi.fn();
     const dispatch = vi.fn();
 
     act(() => {
@@ -638,84 +727,33 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
           visible={deriveVisibleState(state)}
           dispatch={dispatch}
           selectedComponent="core:1"
-          onSelectComponent={onSelectComponent}
+          onSelectComponent={() => undefined}
         />,
       );
     });
 
     expect(container.querySelector(".core-select-all-button")).toBeNull();
-
-    state = {
-      ...state,
-      flags: {
-        ...state.flags,
-        basicQueue: true,
-      },
-    };
-
-    act(() => {
-      root.render(
-        <HardwareBoard
-          visible={deriveVisibleState(state)}
-          dispatch={dispatch}
-          selectedComponent="core:1"
-          onSelectComponent={onSelectComponent}
-        />,
-      );
-    });
-
-    const selectAll = container.querySelector<HTMLButtonElement>(
-      ".core-select-all-button",
-    );
-    const coreHeaderStepper = container.querySelector<HTMLElement>(
-      ".core-array-header-controls .upgrade-stepper",
-    );
-
-    expect(coreHeaderStepper?.textContent).toContain("Core");
-    expect(coreHeaderStepper?.className).not.toContain("add-core-stepper");
-    expect(container.querySelector(".add-core-stepper")).toBeNull();
-
-    act(() => {
-      selectAll?.click();
-    });
-
-    expect(onSelectComponent).toHaveBeenLastCalledWith("cores:1");
-
-    act(() => {
-      root.render(
-        <HardwareBoard
-          visible={deriveVisibleState(state)}
-          dispatch={dispatch}
-          selectedComponent="cores:1"
-          onSelectComponent={onSelectComponent}
-        />,
-      );
-    });
-
-    const groupedStepper = Array.from(
+    const packageStepper = Array.from(
       container.querySelectorAll<HTMLElement>(".core-control-strip .upgrade-stepper"),
     ).find((stepper) => stepper.textContent?.includes("Core Freq"));
-    const groupButtons = Array.from(
-      groupedStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
-    );
-    const activeSelectAll = container.querySelector<HTMLButtonElement>(
-      ".core-select-all-button",
-    );
 
-    expect(activeSelectAll?.className).toContain("active");
-    expect(groupedStepper?.textContent).toContain("26");
+    expect(packageStepper?.textContent).toContain("26");
     // Selection state lives on each die's stretched select button (the die
     // itself is a plain container, so no nested-interactive markup).
     const dieSelects = Array.from(
       container.querySelectorAll(".core-die > .core-die-select"),
     );
-    expect(dieSelects.length).toBeGreaterThan(0);
-    expect(
-      dieSelects.every((core) => core.getAttribute("aria-pressed") === "true"),
-    ).toBe(true);
+    expect(dieSelects.map((core) => core.getAttribute("aria-pressed"))).toEqual([
+      "true",
+      "false",
+    ]);
+
+    const packageButtons = Array.from(
+      packageStepper?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    );
 
     act(() => {
-      groupButtons[1]?.click();
+      packageButtons[1]?.click();
     });
 
     expect(dispatch).toHaveBeenLastCalledWith({
@@ -727,7 +765,7 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
     state = applyAction(state, {
       type: "buyUpgrade",
       upgradeId: "clock",
-      coreIds: [1, 2],
+      cpuId: 1,
     });
 
     act(() => {
@@ -735,8 +773,8 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
         <HardwareBoard
           visible={deriveVisibleState(state)}
           dispatch={dispatch}
-          selectedComponent="cores:1"
-          onSelectComponent={onSelectComponent}
+          selectedComponent="core:1"
+          onSelectComponent={() => undefined}
         />,
       );
     });
@@ -1132,4 +1170,3 @@ describe("HardwareBoard scheduler and CPU layouts", () => {
   });
 
 });
-

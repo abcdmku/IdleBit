@@ -84,10 +84,7 @@ describe("CoreArraySection per-core progress and handlers", () => {
         <CoreArraySection
           socket={socket}
           selectedCoreId={1}
-          selectedAllCores={false}
-          allCoreTuningVisible={false}
           onSelectCore={onSelectCore}
-          onSelectAllCores={() => undefined}
           cpuUpgrades={[]}
           resources={visible.resources}
           dispatch={dispatch as never}
@@ -102,6 +99,17 @@ describe("CoreArraySection per-core progress and handlers", () => {
     renderSection(socket, visible, () => undefined, () => undefined);
 
     expect(dieProgressValues(container, ".core-die")).toEqual(["0.25", "0.75"]);
+    expect(
+      container.querySelectorAll(".die-progress.stat-tile-meter"),
+    ).toHaveLength(2);
+    expect(
+      container.querySelectorAll(".die-progress .stat-tile-meter-fill"),
+    ).toHaveLength(2);
+    expect(
+      Array.from(container.querySelectorAll(".core-clock"), (clock) =>
+        clock.textContent?.trim(),
+      ),
+    ).toEqual(["1Hz", "1Hz"]);
     const workLabels = Array.from(
       container.querySelectorAll(".core-work"),
     ).map((label) => label.textContent);
@@ -202,6 +210,17 @@ describe("CpuBank summary core cells", () => {
       "0.25",
       "0.75",
     ]);
+    expect(
+      container.querySelectorAll(".die-progress.stat-tile-meter"),
+    ).toHaveLength(2);
+    expect(
+      container.querySelectorAll(".die-progress .stat-tile-meter-fill"),
+    ).toHaveLength(2);
+    expect(
+      Array.from(container.querySelectorAll(".cpu-summary-core-clock"), (clock) =>
+        clock.textContent?.trim(),
+      ),
+    ).toEqual(["1Hz", "1Hz"]);
 
     const cells = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".cpu-summary-core-cell"),

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Activity, CheckCircle2, Play, Plus } from "lucide-react";
-import type { VisibleState } from "../../game";
+import { Activity, CheckCircle2, CircleDashed, Play, Plus } from "lucide-react";
+import { getAutomationBufferDefinition, type VisibleState } from "../../game";
 import { ModuleMeter } from "../hardware/meters";
 import { ExactResourceCost, ResourceCost } from "../ResourceTokens";
 import { StatTile, StatTileRow } from "../StatTile";
@@ -47,7 +47,7 @@ export function ResearchPanel({
             checked={hideCompleted}
             onChange={(event) => setHideCompleted(event.target.checked)}
           />
-          <span>Hide built</span>
+          <span>Hide researched</span>
         </label>
       </div>
       <div className="panel-body">
@@ -69,6 +69,7 @@ export function ResearchPanel({
         {showBufferUpgrade && bufferUpgrade && (
           <AutomationBufferAction
             upgrade={bufferUpgrade}
+            currentMaxOfflineMs={visible.automationBuffer.maxOfflineMs}
             exactResources={visible.exactResources}
             mutationsDisabled={mutationsDisabled}
             dispatch={dispatch}
@@ -81,11 +82,13 @@ export function ResearchPanel({
 
 function AutomationBufferAction({
   upgrade,
+  currentMaxOfflineMs,
   exactResources,
   mutationsDisabled,
   dispatch,
 }: {
   upgrade: NonNullable<VisibleState["automationBuffer"]["nextUpgrade"]>;
+  currentMaxOfflineMs: number;
   exactResources: VisibleState["exactResources"];
   mutationsDisabled: boolean;
   dispatch: Dispatch;
@@ -95,6 +98,14 @@ function AutomationBufferAction({
     ? "Wait for offline processing"
     : (upgrade.blockedReason ?? "Buy");
   const coverage = formatBufferDuration(upgrade.maxOfflineMs);
+  const currentCoverage = formatBufferDuration(currentMaxOfflineMs);
+  const addedCoverage = formatBufferDuration(
+    Math.max(0, upgrade.maxOfflineMs - currentMaxOfflineMs),
+  );
+  const definition = getAutomationBufferDefinition(upgrade.id);
+  const effect = definition.renewsStandingOrders
+    ? `After you close the game, eligible work can continue for up to ${coverage}. ${definition.capability}`
+    : definition.capability;
   return (
     <article
       className="research-action amber automation-buffer-action"
@@ -103,12 +114,13 @@ function AutomationBufferAction({
       <div className={`research-action-main ${canBuy ? "" : "blocked"}`}>
         <span className="research-copy">
           <strong>Automation Buffer · {upgrade.name}</strong>
+          <p className="automation-buffer-effect">{effect}</p>
           <StatTileRow dense>
             <StatTile
-              label="offline"
-              value={coverage}
+              label="offline cap"
+              value={`${currentCoverage} → ${coverage}`}
               accent="amber"
-              title={`${coverage} offline coverage`}
+              title={`Offline coverage increases from ${currentCoverage} to ${coverage}`}
             />
           </StatTileRow>
           <em className="research-cost-line">
@@ -129,7 +141,7 @@ function AutomationBufferAction({
           title={buyLabel}
         >
           {canBuy && <Plus size={12} />}
-          <span>{canBuy ? "Buy" : buyLabel}</span>
+          <span>{canBuy ? `Add ${addedCoverage}` : buyLabel}</span>
         </button>
       </div>
     </article>
@@ -145,23 +157,12 @@ function isResearchPurchased(research: UiResearch) {
   );
 }
 
-const getResearchRequirementTag = (kind: string | undefined) => {
-  if (kind === "compute") return "Compute";
-  if (kind === "hardware") return "HW";
-  if (kind === "task") return "Task";
-  return "Req";
-};
-
-/** Visible requirement caption is 1-2 words; full wording stays in title/aria.
- * The ✓/tag glyph already says met/kind, so leading verbs and the trailing
- * "research" qualifier are dropped before truncating. */
-const shortRequirementLabel = (label: string) => {
-  const trimmed = label
+const getResearchRequirementLabel = (label: string) =>
+  label
     .trim()
-    .replace(/^(complete|run|finish)\s+/i, "")
-    .replace(/\s+research$/i, "");
-  return trimmed.split(/\s+/).slice(0, 2).join(" ");
-};
+    .replace(/^(complete|run|finish|unlock)\s+/i, "")
+    .replace(/\s+research$/i, "")
+    .trim();
 
 const isResearchComputeComplete = (task: UiResearchComputeTask) =>
   Boolean(task.completed || getTaskCompletedCount(task) > 0);
@@ -197,12 +198,12 @@ function ResearchAction({
     canAffordResearch &&
     allowedByResearch;
   const buyLabel = purchased
-    ? "Built"
+    ? research.completedLabel ?? "Researched"
     : !canBuy && lockedReason
       ? lockedReason
       : !canBuy
         ? "Locked"
-        : research.actionLabel ?? "Buy";
+        : research.actionLabel ?? "Research";
 
   return (
     <article
@@ -216,7 +217,7 @@ function ResearchAction({
           <strong>{research.name}</strong>
           <em className="research-cost-line">
             {purchased ? (
-              "Built"
+              research.completedLabel ?? "Researched"
             ) : (
               <ResourceCost costs={costs} compact resources={resources} />
             )}
@@ -239,19 +240,23 @@ function ResearchAction({
       </div>
 
       {requirements.length > 0 && !purchased && (
-        <div className="research-requirements" aria-label={`${research.name} requirements`}>
+        <ul className="research-requirements" aria-label={`${research.name} requirements`}>
           {requirements.map((item) => (
-            <span
+            <li
               className={`research-requirement ${item.met ? "met" : "open"}`}
               key={item.id}
               title={item.label}
               aria-label={`${item.met ? "Met" : "Open"}: ${item.label}`}
             >
-              <b>{item.met ? "✓" : getResearchRequirementTag(item.kind)}</b>
-              <small>{shortRequirementLabel(item.label)}</small>
-            </span>
+              {item.met ? (
+                <CheckCircle2 size={12} aria-hidden="true" />
+              ) : (
+                <CircleDashed size={12} aria-hidden="true" />
+              )}
+              <span>{getResearchRequirementLabel(item.label)}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {computeTasks.length > 0 && !purchased && (

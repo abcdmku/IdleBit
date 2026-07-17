@@ -263,7 +263,7 @@ function CpuSummaryCacheSeg({
 
 /**
  * Memoized with primitive props: the summary grid renders one cell per core
- * for every socket on every 500ms snapshot, so unchanged cells must skip
+ * for every socket on every ~10ms snapshot, so unchanged cells must skip
  * reconciliation. onSelectCore must be identity-stable.
  */
 const CpuSummaryCoreCell = memo(function CpuSummaryCoreCell({
@@ -311,8 +311,11 @@ const CpuSummaryCoreCell = memo(function CpuSummaryCoreCell({
           <strong>{formatClockTick(clockHz)}</strong>
         </span>
       </span>
-      <span className="smooth-progress die-progress" aria-hidden="true">
-        <SmoothFill value={progress} />
+      <span
+        className="smooth-progress die-progress stat-tile-meter"
+        aria-hidden="true"
+      >
+        <SmoothFill value={progress} className="stat-tile-meter-fill" />
       </span>
     </button>
   );

@@ -389,7 +389,6 @@ export type ResearchId =
   | "multiCore"
   | "localScheduler"
   | "schedulerWatchdog"
-  | "schedulerPolicies"
   | "systemScheduler"
   | "bootloader"
   | "ramControl"
@@ -455,7 +454,6 @@ export type UnlockId =
   | "multiCore"
   | "basicQueue"
   | "schedulerWatchdog"
-  | "schedulerPolicies"
   | "scheduler"
   | "secondCpu"
   | "systemStats"
@@ -503,16 +501,15 @@ export type MemoryRuntimeState =
 
 export type DeadlockResource = "cache" | "ram";
 
-export type SchedulerPolicy =
-  | "none"
-  | "fifo"
-  | "shortestTask"
-  | "smallestMemory";
-
 export type SchedulerKillPolicy =
   | "deadlockedTask"
   | "newestBlocker"
   | "lowestProgress";
+
+export type SchedulerResourcePriority =
+  | "speed"
+  | "capacity"
+  | "parallelism";
 
 export type PowerStateId = "on" | "shuttingDown" | "off" | "booting";
 export type PowerFailureReason = "psuOverload" | "unpaidBill";
@@ -526,7 +523,8 @@ export type CronIntervalMode = "seconds" | "minutes";
 export type CronRunStatus = "queued" | "skipped" | "blocked";
 
 export interface SchedulerConfig {
-  policy: SchedulerPolicy;
+  ramPriority: SchedulerResourcePriority;
+  cpuPriority: SchedulerResourcePriority;
   autoKillEnabled: boolean;
   killPolicy: SchedulerKillPolicy;
 }
@@ -645,13 +643,9 @@ export interface TaskDefinition {
   rewardCredits: number;
   rewardCreditsExact: Amount;
   aggregateBatch: AggregateTaskBatchDefinition | null;
-  /** Safe/clamped compatibility projection; rewardDataExact is authoritative. */
+  /** Stable per-completion Data payout; rewardDataExact is authoritative. */
   rewardData: number;
   rewardDataExact: Amount;
-  firstCompletionData: number;
-  firstCompletionDataExact: Amount;
-  repeatRewardData: number;
-  repeatRewardDataExact: Amount;
   parallelizable: boolean;
   repeatable: boolean;
   coreScaling: TaskCoreScaling;
@@ -996,7 +990,6 @@ export interface GameFlags {
   memoryVoltageModifier: boolean;
   bootloader?: boolean;
   schedulerWatchdog: boolean;
-  schedulerPolicies: boolean;
 }
 
 export interface HardwareState {
@@ -1185,10 +1178,9 @@ export type GameAction =
     }
   | { type: "setCronEnabled"; scheduleId: number; enabled: boolean; systemId?: number }
   | {
-      type: "setSchedulerPolicy";
-      target: "cpu" | "system";
-      policy: SchedulerPolicy;
-      cpuId?: number;
+      type: "setSchedulerResourcePriority";
+      resource: "ram" | "cpu";
+      priority: SchedulerResourcePriority;
       systemId?: number;
     }
   | {
@@ -1427,16 +1419,16 @@ export interface VisibleTask {
   visibility: TaskVisibility;
   composition: TaskCompositionDefinition[];
   rewardCredits: number;
-  /** Exact Data the next completion will settle (zero after first-only reward). */
+  /** Data settled by every completion. */
   rewardData: number;
-  firstCompletionData: number;
-  repeatRewardData: number;
   completionCount: number;
   cacheNeedBits: number;
   ramNeedBits: number;
   cacheNeedBytes: number;
   ramNeedBytes: number;
   operationCount: number;
+  /** Player-facing compute ops (CPU cycles), kept separate from transfer work. */
+  requiredCycles: number;
   paidWorkUnits: number;
   operations: VisibleOperation[];
   subtaskCount: number;
@@ -1493,6 +1485,7 @@ export interface VisibleResearch {
   canBuy: boolean;
   completed: boolean;
   actionLabel?: string;
+  completedLabel: "Researched";
   blockedReason: string | null;
   requirements: VisibleResearchRequirement[];
   computeTasks: VisibleResearchComputeTask[];
@@ -1510,10 +1503,10 @@ export interface VisibleResearchComputeTask {
   name: string;
   category: TaskCategory;
   operationCount: number;
+  /** Player-facing compute ops (CPU cycles), kept separate from transfer work. */
+  requiredCycles: number;
   rewardCredits: number;
   rewardData: number;
-  firstCompletionData: number;
-  repeatRewardData: number;
   cacheNeedBits: number;
   ramNeedBits: number;
   requiredCores: number;
@@ -1615,7 +1608,7 @@ export interface VisibleCpuSocket {
   deadlocked: boolean;
   deadlockResource: DeadlockResource | null;
   deadlockRecoveryUpgrade: VisibleUpgrade | null;
-  allCoreClockUpgrade: VisibleUpgrade | null;
+  packageClockUpgrade: VisibleUpgrade | null;
   cStateUpgrade: VisibleUpgrade | null;
   coreUpgrade: VisibleUpgrade | null;
   cacheUpgrade: VisibleUpgrade | null;

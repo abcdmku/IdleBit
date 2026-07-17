@@ -125,16 +125,15 @@ describe("TaskBay task and research behavior", () => {
 
     expect(button?.disabled).toBe(true);
     expect(button?.textContent).toContain("Cache capacity too low.");
-    // Chips carry their unit through the aria-label, not sr-only text. The
-    // ops chip counts invocations; paid work volume gets its own chip.
+    // Chips carry their unit through the aria-label, not sr-only text.
     expect(
       meta?.querySelector(".meta-chip.ops")?.getAttribute("aria-label"),
-    ).toContain("operation invocations");
+    ).toContain("CPU ops");
     expect(taskCard?.querySelector(".task-card-head .resource-token.credits")).not.toBeNull();
     expect(taskCard?.querySelector(".task-progress")).toBeNull();
   });
 
-  it("shows the real paid-work volume beside the invocation count", () => {
+  it("shows Packet Check 44 ops and 48 payout without redundant paid work", () => {
     const base = deriveVisibleState(createInitialGameState());
     const visible: VisibleState = {
       ...base,
@@ -144,7 +143,9 @@ describe("TaskBay task and research behavior", () => {
             ...task,
             name: "Packet Check",
             operationCount: 4,
+            requiredCycles: 44,
             paidWorkUnits: 48,
+            rewardCredits: 48,
           }
           : task,
       ),
@@ -162,14 +163,133 @@ describe("TaskBay task and research behavior", () => {
 
     const meta = container.querySelector(".task-card .task-meta-line");
     const opsChip = meta?.querySelector(".meta-chip.ops");
-    const workChip = meta?.querySelector(".meta-chip.work");
+    // The payout already communicates paid work. Requirements only show
+    // execution inputs, so the same volume is not repeated as another chip.
+    expect(opsChip?.textContent).toContain("44ops");
+    expect(meta?.querySelector(".meta-chip.cycles")).toBeNull();
+    expect(meta?.querySelector(".meta-chip.work")).toBeNull();
+    expect(meta?.textContent).not.toContain("48");
+    expect(
+      container.querySelector(
+        ".task-card .task-card-head .resource-token.credits strong",
+      )?.textContent,
+    ).toBe("48");
+  });
 
-    // The card no longer hides the ~12x larger paid work volume behind
-    // hover/Inspect: 4 invocations and 48 paid units are both visible.
-    expect(opsChip?.textContent).toContain("4");
-    expect(workChip?.textContent).toContain("48");
-    expect(workChip?.getAttribute("aria-label")).toBe("48 paid work units");
-    expect(workChip?.getAttribute("title")).toContain("paid work units");
+  it("shows Decode Bit 2 ops, 2 cache bits, and 4 payout", () => {
+    const visible = deriveVisibleState(createInitialGameState());
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    const decodeCard = Array.from(container.querySelectorAll(".task-card")).find(
+      (card) => card.querySelector(".task-name")?.textContent === "Decode Bit",
+    );
+    const meta = decodeCard?.querySelector(".task-meta-line");
+
+    expect(meta?.querySelector(".meta-chip.ops")?.textContent).toContain("2ops");
+    expect(meta?.querySelector(".meta-chip.cycles")).toBeNull();
+    expect(meta?.querySelector(".meta-chip.cores")).toBeNull();
+    expect(meta?.querySelector(".lucide-cpu")).toBeNull();
+    expect(
+      meta?.querySelector('.meta-chip.cache[aria-label="Cache 2 b"]'),
+    ).not.toBeNull();
+    expect(
+      decodeCard?.querySelector(".task-card-head .resource-token.credits strong")
+        ?.textContent,
+    ).toBe("4");
+  });
+
+  it("renders exactly selector-visible jobs and keeps benchmarks on their research card", () => {
+    const base = deriveVisibleState(createInitialGameState());
+    const selectorTasks = base.tasks.slice(0, 2);
+    const benchmark = {
+      ...selectorTasks[0]!,
+      id: "microBenchmark" as const,
+      name: "Micro Benchmark",
+      kind: "benchmark" as const,
+      completed: false,
+      active: false,
+      progress: 0,
+    };
+    const visible: VisibleState = {
+      ...base,
+      tasks: selectorTasks,
+      research: [
+        {
+          id: "multiCore",
+          name: "Multi-Core Control",
+          description: "Allows more CPU cores.",
+          grants: ["multiCore"],
+          costs: [],
+          canAfford: true,
+          canBuy: false,
+          completed: false,
+          completedLabel: "Researched",
+          blockedReason: "Needs Micro Benchmark.",
+          requirements: [],
+          computeTasks: [benchmark],
+        },
+        {
+          id: "decodeLogic",
+          name: "Decode Logic",
+          description: "Unrelated research.",
+          grants: [],
+          costs: [],
+          canAfford: true,
+          canBuy: true,
+          completed: false,
+          completedLabel: "Researched",
+          blockedReason: null,
+          requirements: [],
+          computeTasks: [],
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <TaskBay
+          visible={visible}
+          selectedComponent={null}
+          dispatch={() => undefined}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".task-card .task-name"), (name) =>
+        name.textContent?.trim(),
+      ),
+    ).toEqual(selectorTasks.map((task) => task.name));
+    expect(container.textContent).not.toContain("Micro Benchmark");
+
+    act(() => {
+      root.render(<ResearchPanel visible={visible} dispatch={() => undefined} />);
+    });
+
+    const researchCards = Array.from(
+      container.querySelectorAll<HTMLElement>(".research-action"),
+    );
+    const ownerCard = researchCards.find((card) =>
+      card.querySelector(".research-copy > strong")?.textContent?.includes("Multi-Core Control"),
+    );
+    const unrelatedCard = researchCards.find((card) =>
+      card.querySelector(".research-copy > strong")?.textContent?.includes("Decode Logic"),
+    );
+
+    expect(ownerCard?.querySelector(".research-compute strong")?.textContent).toBe(
+      "Micro Benchmark",
+    );
+    expect(unrelatedCard?.textContent).not.toContain("Micro Benchmark");
+    expect(container.querySelector(".task-card")).toBeNull();
   });
 
   it("repeats task actions immediately while the run button is held", () => {
@@ -521,9 +641,10 @@ describe("TaskBay task and research behavior", () => {
     expect(
       busMeta?.querySelector('.meta-chip[aria-label="2 cores required"]'),
     ).not.toBeNull();
+    expect(busMeta?.querySelector(".meta-chip.cores .lucide-cpu")).not.toBeNull();
     expect(compileMeta?.textContent).toContain("16");
     expect(compileMeta?.textContent).not.toContain("Inf");
-    expect(compileMeta?.querySelector(".meta-chip.chunked svg")).not.toBeNull();
+    expect(compileMeta?.querySelector(".meta-chip.chunked .lucide-layers")).not.toBeNull();
   });
 
   it("keeps detailed start projections out of stable task cards", () => {
@@ -558,12 +679,13 @@ describe("TaskBay task and research behavior", () => {
           costs: [{ resource: "data", amount: 12 }],
           canAfford: false,
           canBuy: false,
+          completedLabel: "Researched",
           completed: false,
           blockedReason: "Needs Parallelism Benchmark.",
           requirements: [
             {
               id: "parallelism",
-              label: "Parallelism Benchmark",
+              label: "Run Parallelism Benchmark research",
               kind: "compute",
               met: false,
             },
@@ -575,10 +697,10 @@ describe("TaskBay task and research behavior", () => {
               name: "Micro Benchmark",
               category: "cpu",
               operationCount: 80,
+              requiredCycles: 80,
               requiredCores: 2,
               rewardCredits: 80,
               rewardData: 4,
-              firstCompletionData: 4,
               cacheNeedBits: 4,
               canStart: false,
               canQueue: false,
@@ -610,6 +732,13 @@ describe("TaskBay task and research behavior", () => {
     expect(container.querySelector(".research-description")).toBeNull();
     expect(buyButton?.disabled).toBe(true);
     expect(buyButton?.textContent).toContain("Needs Parallelism Benchmark.");
+    expect(
+      container.querySelector(".research-requirement")?.textContent,
+    ).toBe("Parallelism Benchmark");
+    expect(
+      container.querySelector(".research-requirement")?.getAttribute("title"),
+    ).toBe("Run Parallelism Benchmark research");
+    expect(container.querySelector(".research-requirement b")).toBeNull();
     expect(container.querySelector(".research-cost-line .resource-token.data")).not.toBeNull();
     expect(computeButton?.disabled).toBe(true);
     expect(computeButton?.textContent).toContain("Core clock level 3 required.");
@@ -640,6 +769,7 @@ describe("TaskBay task and research behavior", () => {
           canAfford: true,
           canBuy: true,
           actionLabel: "Level up",
+          completedLabel: "Researched",
           completed: false,
           blockedReason: null,
           requirements: [],
@@ -887,4 +1017,3 @@ describe("TaskBay task and research behavior", () => {
   });
 
 });
-

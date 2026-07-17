@@ -49,7 +49,7 @@ never recovers overflow. Time beyond the cap creates neither progress nor loss.
 | Data Center NOC | 120 hours | Supports five-day facility operations |
 | Global Scheduler | 168 hours | Final seven-day offline window |
 
-Research reveals each level and the player purchases it with Credits and Data.
+Research reveals each level and the player researches it with Credits and Data.
 Buffer capacity increases convenience and planning horizon, never production
 rate. Offline simulation automatically collects deterministic rewards, bills
 only productive automated work, and safely pauses affected infrastructure for
@@ -120,7 +120,8 @@ system design, forecasting, benchmarking, and routing—not click speed.
 
 ### Implemented vertical model
 
-- **Opening and Fleet:** finite first-completion Data replaces Bit Flip farming;
+- **Opening and Fleet:** stable per-completion task Data provides a legible
+  resource loop from Fetch Bit onward;
   physical core clocks stop at 6 GHz; up to 16 systems are named, fully
   simulated Fleet entries before growth moves into aggregate infrastructure; preset
   and Advanced builds expose model-owned duration, throughput, power,
@@ -151,16 +152,18 @@ system design, forecasting, benchmarking, and routing—not click speed.
   productive facility operating cost by exactly 20%. All remain completable
   but none is a mainline campaign gate. The Cloud three-phase finale is the
   single planetary finale.
-- **Command deck:** Work opens with playable Jobs only. Campaign and
-  Automation reveal with System Scheduler research (projects are background
+- **Command deck:** Work opens with playable Jobs only. Automation reveals as
+  soon as the first offline buffer is installed, or with System Scheduler/CRON;
+  Campaign reveals with System Scheduler research (projects are background
   system workloads; Live Operations anchors Automation), the Contract Market
   with CRON Scheduler research (contracts model unattended client workloads),
   and Standing Orders inside Automation at CRON; legacy saves keep views whose
-  content already exists. Until Campaign reveals, the chapter objective and its
-  actionable blocked reason stay in the topbar/mobile objective chip, and
-  buffer levels remain R&D-column purchase cards while Automation shows only
-  buffer status and the departure forecast. Each era funds the next: task
-  first-completions fund research through System Scheduler, projects and Live
+  content already exists. Campaign stage names and objective instructions are
+  never rendered in the topbar or Jobs view; progression remains model-owned.
+  Buffer levels remain R&D-column purchase cards that state the exact coverage
+  increase and offline behavior, while Automation shows installed capacity,
+  finite-queue/renewal limits, and the departure forecast. Each era funds the next: task
+  repeatable task Data funds research through System Scheduler, projects and Live
   Ops fund System Bus/second CPU/CRON, and contracts fund Fleet expansion.
   Active projects, contracts, standing orders, and jobs
   also appear directly on the system executing them; whole-world work remains
@@ -196,10 +199,11 @@ The opening Fetch Bit recipe is exactly two operations: fetch one bit, then
 latch it. At the starter 1 Hz cache and CPU rates it takes two seconds. Bit Flip
 is exactly three operations—read, mutate, and write—so it is strictly slower on
 identical hardware.
-Cards count those real operation invocations; DAG chips report transferred bits
-and CPU cycles as separate physical quantities.
+Cards report CPU cycle work as `ops`; DAG chips report transferred bits as a
+separate physical quantity. Authored recipe invocations remain an internal DAG
+detail rather than a second player-facing compute count.
 
-Progress bars interpolate visually between exact 500 ms simulation snapshots.
+Progress bars interpolate visually over 9 ms between exact foreground simulation snapshots that target a 10 ms cadence and remain aligned to browser animation frames.
 The interpolation never advances game state or changes numeric/ARIA truth;
 batch resets snap instead of animating backward, and reduced-motion mode snaps
 all meters.
@@ -379,7 +383,7 @@ Spent on:
 - Data center management tools.
 - Availability zone and region unlocks.
 
-Cache capacity upgrades can still include a small credit installation cost, but their primary cost should be data. Cache speed tuning uses the same CPU tier frequency values and target-level per-core credit costs as CPU package levels. RAM new-stick installs use CPU-style tier credit costs with the same per-package doubling by stick count as CPU package installs, RAM frequency tuning uses CPU-style tier credit costs, and RAM frequency values use the same CPU tier clock ladder as core/cache speed; RAM capacity tuning multiplies that CPU-style cost by `2^(level - 1)` within the tier so larger sticks are materially more expensive. RAM capacity doubles each level, and completing CPU tier research opens the matching RAM tier at 1024x the previous tier's same level. Broader CPU, power, and facility purchases can stay more credit-heavy.
+Every purchase that adds data-storage capacity costs exactly ten Data per Credit of capital cost. This includes cache capacity, RAM stick installs and size upgrades, persistent storage, server memory, and accelerator device memory. Cache speed tuning uses the same CPU tier frequency values and target-level per-core credit costs as CPU package levels. RAM new-stick installs use CPU-style tier credit costs with the same per-package doubling by stick count as CPU package installs, RAM frequency tuning uses CPU-style tier credit costs, and RAM frequency values use the same CPU tier clock ladder as core/cache speed; RAM capacity tuning multiplies that CPU-style cost by `2^(level - 1)` within the tier so larger sticks are materially more expensive. RAM capacity doubles each level, and completing CPU tier research opens the matching RAM tier at 1024x the previous tier's same level. Frequency, compute throughput, scheduler slots, network bandwidth, offline time, thermal limits, PSU capacity, and facility space are not data-storage capacity and retain their own pricing.
 
 Hardware upgrades should be reversible where doing so supports CPU/system matching or efficiency tuning. Downgrading returns 50% of the last purchased level's credit/data cost, rounded down per resource. Capacity downgrades are blocked when active work, queued scheduler entries, cache/RAM reservations, or an occupied removable core would no longer fit. The control surface should present each reversible spec as one compact +/- control: the minus side removes a level, the plus side buys the next level, and unaffordable credit/data costs appear unlit instead of disabling the whole spec row. CPU Package Level tuning is package-wide: buying a level charges the target CPU tier level cost for each installed core, and adding a core to an upgraded package costs the base core plus the cumulative CPU level and cache-frequency costs needed to match the package. The Cores-header all selection is an upgrade-only selection, not a task provisioning route; it shows the combined next-level cost or downgrade refund and applies the package level step to every core in the selected CPU.
 
@@ -410,9 +414,9 @@ At CPU scale, cache capacity determines how much of the CPU operation queue is c
 
 At system scale, RAM stages larger active work and intermediate results. RAM decides which larger tasks can be active at all, how much intermediate work can be retained, and how quickly memory-heavy operations can move between CPU, RAM, and later storage. Active RAM writes own fixed address blocks on specific sticks instead of appending to an abstract ever-growing progress lane.
 
-Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and scheduler pulls require total installed cache/RAM fit, but competing CPU-local cache work may begin staging even when combined cache footprint will eventually exceed free capacity only when the active scheduler policy is None. A deadlock is created only when active cache/RAM loading would write more staged bits than the hardware can hold. Deadlocked cache halts every active process on that CPU package until resolved; deadlocked RAM halts every active process in the system until resolved. Deadlock pressure counts up to 10 seconds while a deadlock is unresolved. If the player clears the deadlock before 10 seconds, the pressure cools down while work continues. If pressure reaches 10 seconds, all active processes are lost and new work stays locked out until pressure drains back to 0. FIFO, Shortest task, and Smallest memory CPU scheduler policies use active-work footprint lookahead for CPU-local cache and CPU-owned RAM; None is the only CPU policy that ignores that deadlock lookahead. System Scheduler policies route CPU-bound child entries to available CPU schedulers inside the selected system. FIFO and None feed the least-filled eligible CPU scheduler in stable CPU order, Least queued favors lower estimated queued seconds, and Most headroom favors CPU cache headroom; only None ignores System Scheduler RAM-safe admission. CPU-local cache safety and CPU hardware fit remain the responsibility of the target CPU scheduler. System Scheduler intake can reserve CPU scheduler work when the target CPU has scheduler-slot capacity even if all of that CPU's cores are currently busy, its cache is too small, or its CPU scheduler policy is waiting on CPU-local cache; execution starts when the CPU scheduler can pick it up. Scheduler unlocks do not grant infinite backlog capacity or infinite multicore provisioning width by default.
+Cache is the first active staging tier, and RAM is the next tier in the same memory hierarchy. Task starts and scheduler pulls require total installed cache/RAM fit. Scheduler dispatch is always safe FIFO: CPU queues use active-footprint lookahead for CPU-local cache and RAM, while the System Scheduler checks active and queued system RAM before reserving CPU child entries. Resource priorities choose hardware without changing queue order: CPU priorities select among eligible packages, and RAM priorities select or stripe available sticks. A deadlock is created only when active cache/RAM loading would write more staged bits than the hardware can hold, such as after a capacity change or an already-active unsafe manual workload. Deadlocked cache halts every active process on that CPU package until resolved; deadlocked RAM halts every active process in the system until resolved. Deadlock pressure counts up to 10 seconds while a deadlock is unresolved. If the player clears the deadlock before 10 seconds, the pressure cools down while work continues. If pressure reaches 10 seconds, all active processes are lost and new work stays locked out until pressure drains back to 0. System Scheduler intake can reserve CPU scheduler work when the target CPU has scheduler-slot capacity even if all of that CPU's cores are currently busy; execution starts when the CPU scheduler has idle cores and safe staging. Scheduler unlocks do not grant infinite backlog capacity or infinite multicore provisioning width by default.
 
-Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." Cache capacity upgrades should cost more data than credits, cache speed follows the CPU tier frequency/cost ladder with per-core pricing, RAM new-stick installs use CPU-style tier credit costs multiplied by `2^(targetStickCount - 1)`, RAM frequency upgrades use CPU-style tier credit costs, RAM frequency values match the core/cache tier clock ladder, and RAM capacity upgrades use `cpuTierCost * 2^(level - 1)` to price the doubled stick size. CPU-local cache writes share the package cache lane: four 10 Hz cores writing to a 10 Hz cache lane write about 2.5 b/s each, while a 40 Hz cache lane lets all four issue at full speed. RAM load speed uses the same bit-scale start as CPU throughput: RAM begins as one 256 b stick at a 1 Hz load rate when RAM Control is researched, capacity doubles each RAM level, each new RAM tier is 1024x the previous tier at the same level, and CPU tier research unlocks the matching RAM tier. Installing the first RAM stick on an empty system must present the unlocked RAM tiers as explicit choices rather than automatically buying the highest unlocked tier. After a system owns RAM, new stick installs must match the existing RAM tier and must not show alternate tier choices; CPU and RAM package tier changes happen only at install time, not through later upgrades. RAM sticks can mix capacity and frequency; stick frequencies are not added into a total RAM speed, and each module reports and loads at its own frequency. Single-channel RAM allocations fill lower-numbered sticks first and spill to later sticks when the active footprint needs more capacity, but only one stick is actively written on that channel at a time; spilled blocks on other sticks stay staged until the channel advances to them. Concurrent writes to different blocks on the serviced stick/channel share that channel lane. Aggregate RAM write speed is capped by both the sum of writer-core Hz writing to the serviced lane and that RAM lane Hz, so two 20 Hz cores writing to a 60 Hz RAM lane write 40 b/s, not 60 b/s. Dual, Quad, and Oct Channel RAM research are unlocked by the System Scheduler and previous channel research rather than installed stick count. Their costs are 200,000 credits/20,000 data for Dual, 50,000,000 credits/5,000,000 data for Quad, and 1,000,000,000 credits/100,000,000 data for Oct. System Scheduler-owned tasks can stripe writes across up to 2, 4, or 8 serviced channel lanes only after the matching channel research, with usable lanes still capped by installed RAM sticks; larger allocations can continue onto later sticks through those same lanes, each lane still services one stick at a time, later stick groups wait behind the lowest pending group so a faster lane does not skip a lower-numbered stick, and unused later sticks are allocated before spare capacity on a larger earlier stick. Effective write bandwidth is the current applied write rate after both CPU-writer and RAM-lane caps, so four 1 kHz writer cores into quad 1 kHz channels can write 4 Kb/s. The RAM surface should show a selectable stick array with an All target for applying capacity or frequency upgrades across installed sticks, fixed per-stick address bars with reusable block locations, Stage/Load/Ready state per block, active channel count, write bandwidth, per-stick frequency, and blocked channel reasons.
+Cache load speed, RAM load speed, and storage load speed are explicit upgrade paths. Capacity answers "how much can be staged"; load speed answers "how quickly staged work becomes executable." Data-storage capacity costs exactly ten Data per Credit, cache speed follows the CPU tier frequency/cost ladder with per-core pricing, RAM new-stick installs use CPU-style tier credit costs multiplied by `2^(targetStickCount - 1)`, RAM frequency upgrades use CPU-style tier credit costs, RAM frequency values match the core/cache tier clock ladder, and RAM capacity upgrades use `cpuTierCost * 2^(level - 1)` to price the doubled stick size. CPU-local cache writes share the package cache lane: four 10 Hz cores writing to a 10 Hz cache lane write about 2.5 b/s each, while a 40 Hz cache lane lets all four issue at full speed. RAM begins as one 256 b stick at a 1 Hz load rate when RAM Control is researched; capacity doubles each RAM level, each new RAM tier is 1024x the previous tier at the same level, and CPU tier research unlocks the matching RAM tier. The first RAM install presents the unlocked tiers explicitly; later sticks match the installed tier. RAM sticks may mix capacity and frequency, and frequencies are never summed into one displayed speed. The System Scheduler owns all player-facing RAM work and exposes a RAM priority once multiple sticks exist: Speed selects faster stick groups, Capacity selects groups with more free space, and Parallelism spreads ready loads across available sticks/channels. Dual, Quad, and Oct Channel RAM research unlocks up to 2, 4, or 8 lanes, still capped by installed sticks, at 200,000/20,000, 50,000,000/5,000,000, and 1,000,000,000/100,000,000 credits/data. Aggregate write speed is capped by both writer-core issue rate and the participating RAM lane rates. The RAM surface shows fixed-address reusable blocks, Stage/Load/Ready state, active channel count, effective bandwidth, per-stick capacity/frequency, and blocked reasons.
 
 At data center scale, capacity includes:
 
@@ -504,7 +508,7 @@ Each task can define:
 
 | Field | Meaning |
 |---|---|
-| Authored operations | Number of real operation invocations in the recipe; CPU cycles and transferred bits remain separate |
+| Compute ops | CPU cycle work required by the recipe; transferred bits remain separate |
 | Required memory | RAM or memory capacity needed for active/intermediate work |
 | Cache operation queue | CPU operations that must be loaded into cache before execution |
 | Cache fill size | How much cache capacity must be available before cache-required operations can run |
@@ -514,14 +518,14 @@ Each task can define:
 | Parallelizable | Whether the job can be split across cores/systems |
 | Hardware stress | Derived from the active hardware executing the task, not a direct task requirement |
 | Credit value policy | Exact overlap-aware paid hardware work, optionally multiplied by an explicitly named frozen premium |
-| First-completion Data | Hand-authored progression payout that settles once, then disappears from the next-completion projection |
+| Data value policy | One whole Data per ten gross task Credits, rounded down with a one-Data minimum for small public tasks; internal recipe children pay none |
 | SLA requirement | Optional uptime target |
 | Latency requirement | Optional max latency target |
 | Coverage requirement | Optional geographic/service coverage target |
 
-Early tasks should only expose CPU operations, reward, and eventually cache needs. Later tasks expose memory staging, parallelization, storage staging, SLA, latency, and coverage. Task and research compute rows should keep the operation count, multi-core requirement when above one core, resource/staging needs, and payout visible even when the action is blocked; the disabled action button should carry the current blocker, such as "Cache capacity too low." The task list should stay a stable catalog: do not add live state labels or recolor a task card just because that task is active. The task panel header should expose a compact route-layer selector instead of an Auto route: `C` targets a specific core from a dropdown, `CPU` targets a CPU-local scheduler from a CPU dropdown, and `Sys` targets the System Scheduler when unlocked. Later system, rack, cluster, and region routing should extend this same layer-plus-target pattern instead of adding one button per destination. Assigning a task uses the selected route without adding routing text to each task card. Power is never exposed as a task requirement; it is reflected through PSU/system stress while hardware runs the operations.
+Early tasks should only expose CPU operations, reward, and eventually cache needs. Later tasks expose memory staging, parallelization, storage staging, SLA, latency, and coverage. Task and research compute rows should show CPU cycle work once as `ops`, along with the multi-core requirement only when above one core, resource/staging needs, and exact next-completion payout even when the action is blocked. Paid-work units are the source of the Credit payout, not an additional requirement, so the UI must not repeat them beside that payout. Requirement summaries should use concise check rows with meaningful labels instead of generic `Req` or `Task` pills. A blocked action should reserve enough width to show its current blocker, such as "Cache capacity too low," without moving the surrounding card. The task list should stay a stable catalog: do not add live state labels or recolor a task card just because that task is active. The task panel header should expose a compact route-layer selector instead of an Auto route: `C` targets a specific core from a dropdown, `CPU` targets a CPU-local scheduler from a CPU dropdown, and `Sys` targets the System Scheduler when unlocked. Later system, rack, cluster, and region routing should extend this same layer-plus-target pattern instead of adding one button per destination. Assigning a task uses the selected route without adding routing text to each task card. Power is never exposed as a task requirement; it is reflected through PSU/system stress while hardware runs the operations.
 
-CPU-bound tasks own concrete operations. System-level and distributed tasks are composed from CPU-bound child tasks and must not bypass CPU schedulers to send work directly to cores. The System Scheduler admits whole parent queue entries, while CPU schedulers reserve and dispatch real CPU-bound child queue entries. CPU child entries keep their own `taskId` plus parent metadata (`parentTaskId`, parent queue entry, composition index, and chunk work-unit index when relevant). Unlocking RAM exposes CPU-bound RAM page read, write, and overwrite tasks; system tasks that need RAM build on those CPU/RAM operation patterns or hidden CPU-bound leaves.
+CPU-bound tasks own concrete operations. System-level and distributed tasks are composed from CPU-bound child tasks and must not bypass CPU schedulers to send work directly to cores. The System Scheduler admits whole parent queue entries, while CPU schedulers reserve and dispatch real CPU-bound child queue entries. CPU child entries keep their own `taskId` plus parent metadata (`parentTaskId`, parent queue entry, composition index, and chunk work-unit index when relevant). Every player-facing task that requires RAM is system-owned, remains hidden until System Scheduler research is complete, and routes through that scheduler; composed system tasks may still use hidden CPU-bound RAM leaves internally.
 
 ### 4.2 Operation Queue Pipeline
 
@@ -534,7 +538,7 @@ The operation pipeline is:
 5. RAM stages larger active work and intermediate results.
 6. Storage later stages large inactive inputs/outputs before they can move into RAM/cache.
 7. The scheduler assigns ready operations to cores or later systems.
-8. Child completion updates the parent entry; completion settles work-derived Credits and any still-pending first-completion Data once, at the parent task layer, after every required child stage or chunk work unit finishes.
+8. Child completion updates the parent entry; completion settles work-derived Credits and the task's derived whole-unit 1:10 Data payout at the parent task layer, after every required child stage or chunk work unit finishes.
 
 Cache stores CPU operation queues. If the next operation requires cache and the cache queue is empty or incomplete, the task waits for cache load instead of running with a simple speed penalty.
 
@@ -544,7 +548,7 @@ Players should be able to cancel active tasks and pending queued tasks. Cancelin
 
 Tasks should be authored and surfaced as concise player goals, but the simulation should infer a small directed acyclic graph of internal work from each task definition. The graph is not player-authored; it is derived from task requirements so future UI can explain why a task is waiting without exposing every operation as a separate job.
 
-Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible operation counts should be derived once from the cached graph definition, then reused by simulation and selectors. The player-facing operation count is the number of authored operation invocations. CPU cycles, cache/RAM transfer bits, and the overlap-aware paid-work total are separate physical quantities; none may be added together and mislabeled as operations.
+Operation nodes may represent counted work, such as "Fetch Bit x3000" or a later streamed data size, without expanding into thousands or billions of child nodes. Task totals, rewards, cache footprint, RAM footprint, and visible compute ops should be derived once from the cached graph definition, then reused by simulation and selectors. Player-facing `ops` equal required CPU cycles. Cache/RAM transfer bits and the overlap-aware paid-work total remain separate physical quantities and must not be added into the `ops` label.
 
 Task operations should follow a small authoring pattern:
 
@@ -554,13 +558,13 @@ Task operations should follow a small authoring pattern:
 - Task-level cache provisioning sums distinct read and write footprints, so reading 8 b and writing 8 b needs 16 b total; overwrite reuses that footprint and only needs the overwritten size.
 - Parallel cache-backed operations provision their per-core footprint across the required cores.
 - Cache residency and the cache meter should preserve completed read/write footprints until the task completes, while overwrite updates the existing footprint instead of adding another segment. The cache UI should show fixed-height Buffer and Ready lanes. Load and Ready are the same committed cache lane; total committed cache is Buffer plus Ready.
-- Counted memory operations use that total touched cache footprint once for cache fill. Invocation count, CPU cycles, and transferred bits remain distinct; the exact overlap-aware hardware work determines Credits rather than the displayed operation count.
-- Cache load cycles equal touched bits, so cache load rate is readable as bits per second. A 1 b memory operation on a 1 Hz CPU and 1 Hz cache load rate should move straight into Ready with no Buffer buildup.
+- Counted memory operations use that total touched cache footprint once for cache fill. Displayed `ops` equal CPU cycles, while transferred bits remain distinct; exact overlap-aware hardware work across both determines Credits.
+- Cache load cycles equal touched bits, so cache load rate is readable as bits per second. A 1 b memory operation on a 1 Hz CPU and 1 Hz cache load rate should move straight into Ready with no Buffer buildup. Equal-rate Ready segments must not mount or briefly paint a hidden Buffer layer; negligible floating-point display residue snaps to zero while real positive backpressure remains visible.
 - Concurrent cache writes on one CPU package share the package cache load rate, so the cache lane must match the sum of writer-core rates to avoid throttling.
 - RAM load cycles equal staged bits, so loading 256 b into RAM contributes 256 paid-work units before the CPU can process that staged work.
 - Compute operations may still require cache, but their CPU compute cycles run after their cache load is ready.
 - Transform tasks should avoid redundant "copy then write" phases; writing the copied value is the copy.
-- Task Credit rewards equal the overlap-aware paid-work total: sequential CPU/cache/RAM work adds, while concurrent memory issue and cache transfer count their shared slice once. Data rewards can remain hand-authored first-completion progression payouts, but a card shows Data only while the next completion will actually settle it.
+- Task Credit rewards equal the overlap-aware paid-work total: sequential CPU/cache/RAM work adds, while concurrent memory issue and cache transfer count their shared slice once. Public task Data rewards equal `floor(gross Credits / 10)`, with a one-Data minimum for positive small tasks; aggregate batch multipliers affect both currencies, internal recipe children pay neither, and the resulting per-completion payout remains visible on repeatable task cards.
 
 Example early DAG shape:
 
@@ -724,7 +728,7 @@ One tiny CPU doing primitive jobs.
 | Cooling | Hidden |
 | Scheduler | None |
 
-The opening hardware view should treat cores as the primary visible compute units, not as contents inside a CPU package card. Hardware cards should sit directly in the hardware panel without an additional decorative background card around the whole board. Cache and any CPU-local scheduler controls can sit near the core array, but the CPU package frame itself should remain hidden until RAM/system hardware is unlocked. Once RAM is visible, each CPU package frame should wrap that CPU's scheduler, scalable core array, and cache. CPU cache-deadlock countdowns should appear as prominent progress bars in the Cores header before the CPU package exists, then move to the CPU package header after RAM/system hardware reveals the package. RAM deadlock countdowns belong in the RAM header. The active lock timer fills toward failure; cooldown or post-failure reset drains the same bar back toward 0, and the bar remains visible on the affected hardware header until it reaches 0. The timer text should sit on a high-contrast label inside the wider bar so it stays legible over empty and filled states. Affected hardware is red while actively deadlocked and greyed out only during the post-failure lockout reset, not during a harmless early cooldown. The core array layout must support common high-core CPUs by stepping through logical layouts that add rows before shrinking tiles: 1x2, 2x2, 2x4, 3x4, 4x4, 3x8, then 4x8. Dense layouts put cache next to the CPU-local scheduler and let the core array take the full module width. The rendered CSS grid must always fill the available core-array width, cap desktop layouts at eight columns, cap medium widths at six columns, cap narrow widths at four columns, and never horizontally scroll. Core tiles use the lower progress strip as the status light and stack the core label over frequency in compact and dense layouts. CPU Package Level tuning replaces per-core clock tuning, but the visible control should read as Core Freq. CPU packages are bought only at tier level 1, package level upgrades set the clock for every core in that package, and package level cost is multiplied by installed core count. After CPU Operation Scheduler unlock, the Cores header exposes the All selector for package-level tuning and keeps the Add Core +/- control in that same header; Add Core remains separate from CPU Package Level and includes the selected package tier's level-1 core cost plus current package level backfill cost.
+The opening hardware view should treat cores as the primary visible compute units, not as contents inside a CPU package card. Hardware cards should sit directly in the hardware panel without an additional decorative background card around the whole board. Cache and any CPU-local scheduler controls can sit near the core array, but the CPU package frame itself should remain hidden until RAM/system hardware is unlocked. Once RAM is visible, each CPU package frame should wrap that CPU's scheduler, scalable core array, and cache. CPU cache-deadlock countdowns should appear as prominent progress bars in the Cores header before the CPU package exists, then move to the CPU package header after RAM/system hardware reveals the package. RAM deadlock countdowns belong in the RAM header. The active lock timer fills toward failure; cooldown or post-failure reset drains the same bar back toward 0, and the bar remains visible on the affected hardware header until it reaches 0. The timer text should sit on a high-contrast label inside the wider bar so it stays legible over empty and filled states. Affected hardware is red while actively deadlocked and greyed out only during the post-failure lockout reset, not during a harmless early cooldown. The core array layout must support common high-core CPUs by stepping through logical layouts that add rows before shrinking tiles: 1x2, 2x2, 2x4, 3x4, 4x4, 3x8, then 4x8. Dense layouts put cache next to the CPU-local scheduler and let the core array take the full module width. The rendered CSS grid must always fill the available core-array width, cap desktop layouts at eight columns, cap medium widths at six columns, cap narrow widths at four columns, and never horizontally scroll. Core tiles use a stable lower progress strip as the status light, sharing the PSU Draw meter's track, geometry, fill motion, and contrast while retaining the core status color. Core tiles stack the core label over frequency in compact and dense layouts. CPU Package Level tuning replaces per-core clock tuning, but the visible control should read as Core Freq. CPU packages are bought only at tier level 1, package level upgrades set the clock for every core in that package, and package level cost is multiplied by installed core count. The Cores header has no All selector because frequency is always a package property; selecting a die is only for task routing and status. Add Core remains separate from CPU Package Level and includes the selected package tier's level-1 core cost plus current package level backfill cost.
 
 Component upgrade controls should stay compact and stable during high-frequency processing. Reversible specs use a single +/- stepper so buy and downgrade actions read as tuning the same hardware spec rather than separate unrelated buttons.
 On multi-CPU systems, CPU package add/remove belongs in the CPU bank header immediately before the Array/Tabs view toggle, and the view toggle remains the rightmost control. CPU tabs use the package letter only. CPU array cards should use the same core grid/tile treatment as tab detail views so per-core labels, frequencies, and status bars read consistently. RAM stick grids should stack to a readable single column in narrow panels, with the All RAM selector grouped next to the RAM title rather than crowding the purchase control. Outside the rack slot visualization, each standalone core-array, CPU package, CPU card, and CPU detail view should show that package's current effective efficiency; CPU detail Cores headers show efficiency instead of an active/total core count.
@@ -733,9 +737,9 @@ HUD resource readouts should expose the credits/data graph without fighting mobi
 ### Tasks
 
 Early tasks should be tiny and direct. The first visible work should be a bit-scale starter pair; byte-scale and cache-sensitive tasks appear only after the player has seen simple CPU operations complete and spent earned resources on research.
-Task Credit payouts should match the exact overlap-aware paid hardware work for the started parent task, including cache and RAM loading work. Data can mark progression milestones only as a first-completion payout and must disappear from the card once the next completion will no longer settle it.
+Task Credit payouts should match the exact overlap-aware paid hardware work for the started parent task, including cache and RAM loading work. Public task Data equals one whole unit per ten gross Credits, rounded down, with a one-Data minimum for small tasks. The derived payout is the same on every completion. Fetch Bit therefore pays 1 Data and requires no Data-funded unlock, ensuring the player can establish a positive Data balance before choosing a Data sink.
 Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
-Research is the player-facing unlock surface. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
+Research is the player-facing unlock surface. Except for the intentional Fetch Bit and Decode Bit starter pair, a task must stay absent from the Jobs list until every research item that gates that task is complete. Hardware and prior-task requirements may still leave an already researched task visibly blocked. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
 The task panel should group available work by mechanical category, starting with CPU-bound work and system work; later distributed work should land in its own group rather than blending into the CPU task list.
 On mobile, the Tasks and R&D tabs should show a red new-content notification when newly visible tasks or open research have not been viewed yet; opening that tab marks the currently visible IDs as seen.
 Pinned task controls should remain useful for repeatable work: an active pinned task should still expose the selected scheduler route action when another copy can be queued.
@@ -743,12 +747,12 @@ Pinned task controls should remain useful for repeatable work: an active pinned 
 | Task | Purpose |
 |---|---|
 | Fetch Bit | First runnable task; teaches 1 b cache-backed work at 1 Hz |
-| Decode Bit | Visible starter goal that needs a 2 b cache footprint |
+| Decode Bit | Visible two-operation starter goal with a 2 b cache footprint and 4-Credit gross hardware-work payout |
 | Bit Flip | Unlocks with Decode Logic and teaches a three-operation read/mutate/write recipe |
 | Bit Shift | Unlocks with Decode Logic and introduces 2 b shifted bit work |
-| Byte Copy | Reveals with the byte/cache research group; starts after Byte Operations |
-| Packet Check | Reveals with the byte/cache research group; starts after Cache Mapping |
-| Tiny Checksum | Unlocks after RAM Control and teaches larger RAM/cache staging |
+| Byte Copy | Appears after Byte Operations research and introduces byte-scale work |
+| Packet Check | Appears after Cache Mapping research and introduces cache-fill waiting |
+| Tiny Checksum | Appears after RAM Control and System Scheduler research and teaches larger RAM/cache staging |
 
 ### Repeatable System Tasks
 
@@ -756,20 +760,21 @@ Repeatable system tasks are the only tasks CRON v1 can automate. They are system
 
 | Task | Reveal Timing | Purpose |
 |---|---|---|
-| Memory Scrub | After first Tiny Checksum | Introduces repeatable RAM maintenance work before automation is unlocked |
-| Queue Compaction | After first Tiny Checksum | Repeats scheduler maintenance work that CRON can later automate |
-| Power Telemetry | After first Tiny Checksum | Teaches draw observation before PSU controls are researched |
-| Bus Mirror | Second CPU purchase | Teaches multi-CPU system work after another CPU joins the board |
+| Memory Scrub | System Scheduler research plus first Tiny Checksum | Introduces repeatable RAM maintenance work before automation is unlocked |
+| Queue Compaction | System Scheduler research plus first Tiny Checksum | Repeats scheduler maintenance work that CRON can later automate |
+| Power Telemetry | System Scheduler research plus first Tiny Checksum | Teaches draw observation before PSU controls are researched |
+| Bus Mirror | System Scheduler research plus second CPU purchase | Teaches multi-CPU system work after another CPU joins the board |
 | Thermal Probe | Thermal Control | Repeatable diagnostic for heat buildup, cooling headroom, and sustained throughput |
-| Shard Reconcile | Second CPU purchase | Introduces wider repeatable system work for a growing CPU package |
+| Shard Reconcile | System Scheduler research plus second CPU purchase | Introduces wider repeatable system work for a growing CPU package |
 
 ### Research Compute
 
-Some research needs benchmark-style compute before the research can be purchased. These benchmark tasks are internal work items launched from the research card, not lingering normal task cards.
+Some research needs benchmark-style compute before it can be researched. These benchmark tasks are internal work items launched from the research card, not lingering normal task cards.
 
 | Research | Compute Work | Notes |
 |---|---|---|
-| Multi-Core Control | Micro Benchmark, Parallelism Benchmark | The card lists clock/cache prerequisites and runs both benchmarks before the multi-core unlock can be purchased |
+| Multi-Core Control | Micro Benchmark | The card lists clock/cache prerequisites and runs the single-core benchmark before additional cores can be purchased |
+| Local Scheduler | Parallelism Benchmark | Installing the second core reveals this small two-core benchmark; completing it proves direct multicore execution before queue automation unlocks |
 | System Bus | Multi-Core Benchmark | The card runs the four-core benchmark before second CPU purchase is unlocked |
 
 ### System Research Gates
@@ -791,24 +796,26 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Decode Logic research | Starter task resources | Unlocks the paired bit-operation tasks |
 | Bit Flip | Decode Logic research | First mutation task |
 | Bit Shift | Decode Logic research | First shift task |
-| Byte Copy | Decode Logic research, blocked until Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
-| Cache upgrades | New save | Cache capacity upgrades are data-weighted; cache speed upgrades are available immediately and use the CPU tier frequency/cost ladder with per-core pricing |
-| Packet Check | Decode Logic research, blocked until Cache Mapping research | First cache-fill waiting task |
+| Byte Copy | Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
+| Data-storage capacity | New save | Cache, RAM, persistent storage, server memory, and accelerator memory cost exactly ten Data per Credit; speed, PSU, thermal, queue, network, offline-time, and facility limits use separate pricing |
+| Packet Check | Cache Mapping research | First cache-fill waiting task |
 | Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
 | Byte Operations, Cache Mapping, and Benchmark Harness research | Decode Logic research | Reveal together as the byte/cache research group; Cache Mapping still requires Byte Operations plus Byte Copy, and Benchmark Harness still requires Cache Mapping plus Packet Check and clock tuning |
-| Multi-Core Control research | Run Micro Benchmark and Parallelism Benchmark from the research card | Gates additional cores |
+| Multi-Core Control research | Run Micro Benchmark from the research card | Gates additional cores |
+| Parallelism Benchmark | Multi-Core Control plus 2 installed cores | Uses both cores directly and completes the Local Scheduler compute gate |
 | Hold-repeat accessibility | Available in settings | Changes input comfort only and never increases the intended progression ceiling |
 | RAM Control research | Local Scheduler research | Appears alongside System Scheduler and reveals a paid RAM bay; the first RAM Stick purchase installs 256 b at 1 Hz |
-| System Scheduler research | Four cores, RAM Control, and at least 1 Kb RAM | Gates barrier-aware system scheduling |
+| System Scheduler research | Two cores, RAM Control, and at least 1 Kb RAM | Gates RAM-owned and barrier-aware system scheduling; those jobs fund the later four-core benchmark |
 | CPU tier research | kHz after System Automation; later tiers after previous tier research | Unlocks level-1 kHz, MHz, and GHz CPU/RAM tiers. Physical core clocks stop at 6 GHz; larger values are aggregate infrastructure throughput. |
 | C-State Control research | kHz CPU Research | Stays in research as a global `Level up` item after unlock until max C-State level; levels reduce idle CPU draw only across every system |
 | Memory Voltage Modifier research | RAM Control and kHz CPU Research | Stays in research as a global `Level up` item after unlock until max level; levels reduce idle RAM draw only, with repeat costs starting at 100,000 credits and multiplying by 1.8 |
 | PSU readouts | New save | Shows draw, capacity, load/stress, state, and subsidized billed rate from the first screen |
 | PSU Capacity upgrade | New save | Lets the player buy more PSU wattage with credits from the first screen |
 | CRON module | CRON Scheduler research | CRON appears at the top of the system board as a paid CRON Job Slot install after research is bought |
-| Memory Scrub, Queue Compaction, and Power Telemetry | After first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
+| Tiny Checksum | RAM Control and System Scheduler research plus first Packet Check | First composed checksum task |
+| Memory Scrub, Queue Compaction, and Power Telemetry | System Scheduler research plus first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
 | CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
-| Bus Mirror and Shard Reconcile | Second CPU purchase | Later repeatable system tasks for multi-CPU system management |
+| Bus Mirror and Shard Reconcile | System Scheduler research plus second CPU purchase | Later repeatable system tasks for multi-CPU system management |
 | PSU Management research | System Scheduler research and first Power Telemetry | Costs 300 Credits / 2 Data, ends the onboarding subsidy, and enables billing/failure consequences after countermeasures are visible |
 | Thermal Control research | Workshop entry | Reveals Thermal status, cooling installation, overclock presets, and Thermal Probe |
 | Broad auto-repeat | Deferred until later scheduler/automation layers | CRON v1 is the scoped early timer; general task auto-repeat stays out of the bit-scale opening |
@@ -856,8 +863,9 @@ Multi-core CPU unlocks after:
 
 - Benchmark Harness research.
 - Several clock/cache upgrades shown as Multi-Core Control requirements.
-- Completion of Micro Benchmark and Parallelism Benchmark from the Multi-Core Control research card.
+- Completion of Micro Benchmark from the Multi-Core Control research card.
 - Purchase of Multi-Core Control research.
+- Purchase of a second core, which reveals the two-core Parallelism Benchmark required by Local Scheduler.
 
 ### New Mechanics
 
@@ -883,7 +891,7 @@ Cores help many jobs run at once.
 | Second core | Multi-Core Control research |
 | Basic queue | Own 2 cores and complete Local Scheduler research |
 | More cores | Buy core slots / reach CPU tier |
-| Scheduler | Own 4 cores, complete RAM Control, install at least 1 Kb RAM, and complete System Scheduler research |
+| Scheduler | Own 2 cores, complete RAM Control, install at least 1 Kb RAM, and complete System Scheduler research |
 
 ---
 
@@ -895,11 +903,11 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 
 ### Unlock Condition
 
-RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b stick at 1 Hz. The RAM hardware surface should sit above the CPU package; after System Scheduler research completes, the System Scheduler surface should sit above RAM as an empty paid first-slot bay until the player buys a System Queue Slot. System Scheduler unlocks when the player reaches 4 cores, completes RAM Control, and upgrades installed RAM capacity to at least 1 Kb.
+RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b stick at 1 Hz. The RAM hardware surface should sit above the CPU package; after System Scheduler research completes, the System Scheduler surface should sit above RAM as an empty paid first-slot bay until the player buys a System Queue Slot. System Scheduler unlocks on the established two-core machine after RAM Control and at least 1 Kb installed RAM. Scheduler-owned RAM jobs then provide the work economy for growing to four cores and running the System Bus benchmark.
 
-Local Scheduler research enables per-CPU queue-slot purchases. The default CPU scheduler backlog is 0 slots; until the first CPU Queue Slot is bought, the CPU scheduler renders as a faded paid install outline with that first slot price. Each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler install outline for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
+Local Scheduler research enables per-CPU queue-slot purchases. Before that research, small multicore tasks may still use multiple installed cores directly; scheduler slots gate queued and system-managed multicore dispatch, not the physical ability for a CPU package to run a two-core task. The default CPU scheduler backlog is 0 slots; until the first CPU Queue Slot is bought, the CPU scheduler renders as a faded paid install outline with that first slot price. Each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler install outline for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap system-managed multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
 
-Scheduler Watchdog research appears after Local Scheduler and unlocks per-scheduler auto-kill controls plus the kill policy selector. It also reveals Deadlock Cooldown upgrades that increase the post-deadlock pressure drain rate. Auto-kill applies only to scheduler-owned active tasks, waits for 3 seconds of continuous deadlock, shows the selected victim, target core, and countdown while armed, and kills at most one task per scheduler per tick. The System Scheduler watchdog only owns RAM deadlocks; cache deadlocks from system-scheduled CPU work are owned by the affected CPU scheduler watchdog. Scheduling Policy appears after Scheduler Watchdog and unlocks policy controls: None, FIFO, Shortest task, and Smallest memory. CPU scheduler policies affect dispatch order and deadlock lookahead, not direct core assignment; only None skips lookahead. System Scheduler policies affect routing to CPU schedulers inside the selected system: FIFO and None feed the least-filled eligible CPU scheduler in stable CPU order, Least queued favors lower queued runtime, and Most headroom favors cache headroom. Only None ignores RAM-safe admission. CPU cache pressure and CPU hardware fit are evaluated by each CPU scheduler's own dispatch policy.
+Scheduler Watchdog research appears after Local Scheduler and unlocks per-scheduler auto-kill controls plus the kill policy selector. It also reveals Deadlock Cooldown upgrades that increase the post-deadlock pressure drain rate. Auto-kill applies only to scheduler-owned active tasks, waits for 3 seconds of continuous deadlock, shows the selected victim, target core, and countdown while armed, and kills at most one task per scheduler per tick. The System Scheduler watchdog only owns RAM deadlocks; cache deadlocks from system-scheduled CPU work are owned by the affected CPU scheduler watchdog. Queue dispatch is always safe FIFO and has no separate policy research or selector. The System Scheduler exposes resource priorities only when the hardware choice is meaningful. RAM Speed allocates on faster sticks first but continues using slower sticks on free channels as fallback, Capacity favors larger free allocations without idling other channels, and Parallelism stripes ready loads across available channels. With multiple CPU packages, CPU Speed favors faster packages, Capacity favors packages with more cores and cache headroom, and Parallelism balances queued work.
 
 ### Scheduler Layers
 
@@ -908,14 +916,13 @@ Scheduler Watchdog research appears after Local Scheduler and unlocks per-schedu
 | 0 | None | Player manually starts tasks |
 | 1 | CPU Operation Scheduler | Feeds cache-backed CPU operation queues to idle cores |
 | 2 | Scheduler Watchdog | Auto-kills scheduler-owned deadlocks after a delay when enabled |
-| 3 | Scheduling Policy | Adds None, FIFO, Shortest task, and Smallest memory policies |
-| 4 | System Scheduler | Coordinates RAM-staged work and eligible multicore dispatch inside one system |
-| 5 | Cluster Scheduler | Routes work across networked systems |
-| 6 | Regional Scheduler | Routes work across data centers, availability zones, and regions |
+| 3 | System Scheduler | Coordinates RAM-staged work and eligible multicore dispatch inside one system |
+| 4 | Cluster Scheduler | Routes work across networked systems |
+| 5 | Regional Scheduler | Routes work across data centers, availability zones, and regions |
 
 The named scheduler path begins with the CPU Operation Scheduler, then moves to System Scheduler for one built machine. Later layers should be named by the scale they coordinate: cluster scheduler, regional scheduler, and eventually global/planetary policy.
 
-### Scheduler Policies
+### Later Scheduler Priorities
 
 | Policy | Behavior |
 |---|---|
@@ -975,11 +982,11 @@ RAM determines:
 
 RAM should not be heavily exposed before RAM Control. After RAM Control it becomes the required staging layer for System Scheduler and larger cache-backed tasks. RAM should use compact +/- controls and a single selectable module-card strip that can show mixed stick sizes and mixed per-module frequencies without presenting a summed total speed; four sticks should render as a 2x2 grid instead of stretching into a wide row. Cache uses the matching compact lane treatment with Buffer and Ready only.
 
-Cache and RAM pressure uses deadlocks instead of invisible start blockers once total installed capacity is sufficient. CPU-local work may start or scheduler-dispatch when combined cache footprint is risky only under the None policy. FIFO, Shortest task, and Smallest memory CPU scheduler dispatch account for active work on the affected CPU and CPU-owned RAM and will not start CPU-owned work whose eventual cache/RAM footprint cannot fit. System Scheduler routing policies account for active and queued system RAM footprint before reserving CPU child entries, except None, which ignores that RAM-safe admission check. CPU-local cache footprint is delegated to the selected CPU scheduler. When an active load/write would push CPU-local cache or system-wide RAM beyond capacity, that operation enters `deadlocked`, holds its task/core, and turns the affected core, CPU package, cache/RAM section, and scheduler slot red. A cache deadlock freezes all active work on that CPU package, including the task currently holding cache. A RAM deadlock freezes all active work across the system, including unrelated CPU work, until the deadlock is cleared. The pressure timer gives the player 10 seconds to clear the problem; resolving it earlier lets work resume while the timer cools down, but hitting the full timer wipes active processes and blocks new starts until pressure returns to 0. Canceling active or queued work remains the baseline manual fix, and adding capacity can also let the deadlocked task continue. The first deadlock help caption and follow-up cooldown caption pause the game while visible unless a scheduler watchdog auto-kill countdown is active, scroll fully into view when they appear, and are one-time UI hints stored outside the save blob.
+Cache and RAM pressure uses deadlocks instead of invisible start blockers once total installed capacity is sufficient. Safe FIFO scheduler dispatch accounts for active and queued cache/RAM footprints before starting work; there is no unsafe policy override. CPU-local cache footprint remains delegated to the selected CPU scheduler. When an already-active load/write would push CPU-local cache or system-wide RAM beyond capacity, that operation enters `deadlocked`, holds its task/core, and turns the affected core, CPU package, cache/RAM section, and scheduler slot red. A cache deadlock freezes all active work on that CPU package, including the task currently holding cache. A RAM deadlock freezes all active work across the system, including unrelated CPU work, until the deadlock is cleared. The pressure timer gives the player 10 seconds to clear the problem; resolving it earlier lets work resume while the timer cools down, but hitting the full timer wipes active processes and blocks new starts until pressure returns to 0. Canceling active or queued work remains the baseline manual fix, and adding capacity can also let the deadlocked task continue. The first deadlock help caption and follow-up cooldown caption pause the game while visible unless a scheduler watchdog auto-kill countdown is active, scroll fully into view when they appear, and are one-time UI hints stored outside the save blob.
 
 ### CRON Role
 
-CRON is the first explicit timer automation layer. It is hidden after the second CPU purchase until the player buys CRON Scheduler research, then appears as a paid CRON Job Slot install outline. Buying the first slot creates the first schedule row.
+CRON is the first explicit timer automation layer. It is hidden after the second CPU purchase until the player completes CRON Scheduler research, then appears as a paid CRON Job Slot install outline. Buying the first slot creates the first schedule row.
 
 CRON v1 rules:
 
@@ -1879,14 +1886,14 @@ These should be built on existing systems, not introduced as unrelated mechanics
 |---|---|---|
 | Early CPU | Manual task choice | Player learns task requirements before automation hides decisions |
 | 2 cores | Basic queue | Manually assigning jobs to each core |
-| 4 cores | System Scheduler | Core-by-core operation management and cache/RAM queue feeding |
+| 2 cores + 1 Kb RAM | System Scheduler | RAM task intake and whole-system queue coordination |
+| 4 cores | System Bus benchmark | Proves wider scheduler-managed multicore work before a second CPU |
 | Scheduler Watchdog | Auto-kill controls | Manually clearing long deadlocked scheduler-owned work |
-| Scheduling Policy | Scheduler policy controls | Manually avoiding risky dispatch order |
 | Second CPU | CRON v1 | Manually relaunching visible repeatable system tasks |
 | Full system | Preconfigured CPUs | Manual CPU package tuning |
 | Multi-system rack | Preconfigured systems | Building every additional machine from parts |
 | Custom system tiers | Tiered custom builder | Exposes only validated build choices per progression tier |
-| Workstation | Scheduler policies | Manual CPU/GPU/NPU/RAM/storage assignment |
+| Workstation | Resource priorities | Manual CPU/GPU/NPU/RAM/storage assignment |
 | Multiple systems | System templates | Rebuilding machines by hand after custom builds are stable |
 | Networking | Shared queue | Manual per-system job assignment |
 | Cluster | Cluster scheduler | Manual distributed job placement |
@@ -1934,10 +1941,10 @@ A strong first vertical slice should include progression through:
 1. Single core.
 2. CPU package level/cache upgrades.
 3. Multi-core unlock.
-4. Four-core milestone.
-5. RAM Control reveal with a paid 256 b / 1 Hz first-stick install.
-6. 1 Kb RAM gate for System Scheduler.
-7. System Scheduler unlock.
+4. RAM Control reveal with a paid 256 b / 1 Hz first-stick install.
+5. 1 Kb RAM gate for System Scheduler on the two-core machine.
+6. System Scheduler unlock and first system-owned RAM jobs.
+7. Four-core System Bus benchmark.
 8. Second CPU package unlock.
 9. Second CPU purchase reveals CRON Scheduler research; PSU has been visible since the start.
 10. CRON Scheduler reveals a paid CRON Job Slot install; buying it unlocks CRON v1 for visible repeatable system tasks only.

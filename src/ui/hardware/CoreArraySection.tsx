@@ -19,10 +19,7 @@ import type { CoreGridDensity } from "./visibleState";
 export function CoreArraySection({
   socket,
   selectedCoreId,
-  selectedAllCores,
-  allCoreTuningVisible,
   onSelectCore,
-  onSelectAllCores,
   cpuUpgrades,
   resources,
   dispatch,
@@ -31,10 +28,7 @@ export function CoreArraySection({
 }: {
   socket: VisibleCpuSocket;
   selectedCoreId: number | null;
-  selectedAllCores: boolean;
-  allCoreTuningVisible: boolean;
   onSelectCore: (coreId: number) => void;
-  onSelectAllCores: () => void;
   cpuUpgrades: VisibleUpgrade[];
   resources: VisibleState["resources"];
   dispatch: Dispatch;
@@ -53,7 +47,7 @@ export function CoreArraySection({
     "--core-grid-tablet-columns": tabletColumns,
     "--core-grid-mobile-columns": mobileColumns,
   } as CSSProperties;
-  const selectedClockUpgrade = socket.allCoreClockUpgrade;
+  const selectedClockUpgrade = socket.packageClockUpgrade;
   const cooldownActive = deadlockPressure
     ? shouldShowCacheDeadlockPressure(socket, deadlockPressure) &&
       deadlockPressure.lockout
@@ -87,18 +81,6 @@ export function CoreArraySection({
               <DeadlockCountdown pressure={deadlockPressure} compact />
             )}
           </span>
-        )}
-        {allCoreTuningVisible && (
-          <button
-            type="button"
-            className={`core-select-all-button ${selectedAllCores ? "active" : ""}`}
-            onClick={onSelectAllCores}
-            aria-pressed={selectedAllCores}
-            aria-label="Select all cores"
-            title="Select all cores"
-          >
-            All
-          </button>
         )}
         {showEfficiency && (
           <div className="core-array-efficiency">
@@ -139,7 +121,7 @@ export function CoreArraySection({
               activeInstanceId={active?.instanceId ?? null}
               progress={getCoreOperationProgress(core)}
               density={grid.density}
-              selected={selectedAllCores || selectedCoreId === core.id}
+              selected={selectedCoreId === core.id}
               onSelectCore={stableSelectCore}
               coreLabel={getSocketCoreLabel(socket, core.id)}
               dispatch={dispatch}
@@ -165,7 +147,7 @@ export function CoreArraySection({
 
 /**
  * Memoized with primitive props: up to 512 dies reconcile per socket view and
- * a snapshot lands every 500ms, so idle/unchanged dies must skip re-render.
+ * snapshots target ~10ms, so idle/unchanged dies must skip re-render.
  * Handlers passed in must be identity-stable (see useStableCallback above).
  */
 const CoreDie = memo(function CoreDie({
@@ -259,8 +241,11 @@ const CoreDie = memo(function CoreDie({
           {work}
         </span>
       )}
-      <span className="smooth-progress die-progress" aria-hidden="true">
-        <SmoothFill value={progress} />
+      <span
+        className="smooth-progress die-progress stat-tile-meter"
+        aria-hidden="true"
+      >
+        <SmoothFill value={progress} className="stat-tile-meter-fill" />
       </span>
     </div>
   );

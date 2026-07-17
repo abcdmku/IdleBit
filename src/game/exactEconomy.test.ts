@@ -147,8 +147,8 @@ describe("exact economy phase A", () => {
       cpuId: 1,
     });
 
-    expectConservation(before, upgraded, "0", "3", "0", "1");
-    expectConservation(upgraded, downgraded, "1", "0", "0", "0");
+    expectConservation(before, upgraded, "0", "3", "0", "30");
+    expectConservation(upgraded, downgraded, "1", "0", "15", "0");
 
     const researchReady = hugeState({
       ...createInitialGameState(),

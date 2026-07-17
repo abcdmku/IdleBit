@@ -44,12 +44,7 @@ export function TaskCard({
 
   const paidWorkTitle =
     typeof task.paidWorkUnits === "number"
-      ? `Payout from ${formatNumber(task.paidWorkUnits)} paid work units${
-          (task.firstCompletionData ?? task.rewardData ?? 0) >
-            (task.repeatRewardData ?? 0)
-            ? "; Data pays on the next first completion only"
-            : ""
-        }`
+      ? `Payout from ${formatNumber(task.paidWorkUnits)} paid work units`
       : "Rewards";
 
   return (

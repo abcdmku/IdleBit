@@ -78,6 +78,25 @@ describe("cached CPU hardware lookup (F-PERF-1)", () => {
     expect(getCoreClockHz(state, 2)).toBe(getCpuClockHz("mhz", 3));
   });
 
+  it("collapses legacy mixed per-core levels into one package frequency", () => {
+    const initial = createInitialGameState();
+    const synced = syncHardwarePackages({
+      ...initial,
+      hardware: {
+        ...initial.hardware,
+        cpus: [
+          createCpuHardwareState(1, [1, 2], { tierId: "hz", level: 2 }),
+        ],
+        coreClockLevels: { 1: 2, 2: 4 },
+      },
+    });
+
+    expect(synced.hardware.cpus[0]?.level).toBe(4);
+    expect(synced.hardware.coreClockLevels).toMatchObject({ 1: 4, 2: 4 });
+    expect(getCoreClockHz(synced, 1)).toBe(getCpuClockHz("hz", 4));
+    expect(getCoreClockHz(synced, 2)).toBe(getCpuClockHz("hz", 4));
+  });
+
   it("synthesizes a default package when no CPUs exist", () => {
     const initial = createInitialGameState();
     const state: GameState = {

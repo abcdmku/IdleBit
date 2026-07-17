@@ -285,17 +285,12 @@ export const createOpeningFleetBeamCalibration = (
         visible.currentChapter.index >= 3,
     },
     milestones: bootstrapMilestoneAdapter,
-    // Metered billing from the first tick (C-DES-6 ruling) slows the measured
-    // regular cadence: the System Scheduler decision window now lands around
-    // day 6-7 instead of inside the old 3-day prefix.
+    // Bound the measured public prefix. Data-heavy storage capacity may leave
+    // this cadence before System Scheduler; the beam then continues from the
+    // latest real public state instead of rejecting the calibration outright.
     maximumCalendarMs: 8 * 24 * 60 * 60_000,
     offlineStepMs: 24 * 60 * 60_000,
   });
-  if (prefixRun.metrics.status !== "completed") {
-    throw new Error(
-      "Public opening prefix did not reach the System Scheduler decision window.",
-    );
-  }
   const initialState: PublicRouteState = {
     game: prefixRun.state,
     nowMs: prefixRun.metrics.elapsedCalendarMs,

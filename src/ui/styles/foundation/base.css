@@ -103,8 +103,8 @@
   --dur-1: 120ms;
   --dur-2: 200ms;
   --dur-3: 320ms;
-  /* Foreground simulation publishes every 500ms; finish just before the next snapshot. */
-  --runtime-meter-duration: 480ms;
+  /* Foreground simulation targets ~10ms publishes; finish before the next snapshot. */
+  --runtime-meter-duration: 9ms;
 
   /* ---------- Component-local sizes ---------- */
   --progress-bar-thickness: 3px;
@@ -121,7 +121,12 @@
   text-rendering: geometricPrecision;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
 html, body, #root {
   height: 100%;
@@ -416,7 +421,7 @@ h1, h2, p, dl, dt, dd { margin: 0; }
   border-radius: inherit;
   background: var(--stat-accent);
   transform-origin: left center;
-  transition: transform var(--dur-2) var(--ease);
+  transition: transform var(--runtime-meter-duration) linear;
 }
 
 .stat-tile-row {

@@ -16,8 +16,6 @@ export function CpuModuleLayout({
   schedulerVisible,
   selectedSchedulerId,
   selectedCoreId,
-  selectedCoreGroupCpuId,
-  allCoreTuningVisible,
   cacheSelected,
   onSelectComponent,
   cpuUpgrades,
@@ -34,8 +32,6 @@ export function CpuModuleLayout({
   schedulerVisible: boolean;
   selectedSchedulerId: number | null;
   selectedCoreId: number | null;
-  selectedCoreGroupCpuId: number | null;
-  allCoreTuningVisible: boolean;
   cacheSelected: boolean;
   onSelectComponent: (component: SelectedComponent) => void;
   cpuUpgrades: VisibleUpgrade[];
@@ -93,10 +89,7 @@ export function CpuModuleLayout({
     <CoreArraySection
       socket={socket}
       selectedCoreId={selectedCoreId}
-      selectedAllCores={allCoreTuningVisible && selectedCoreGroupCpuId === socket.id}
-      allCoreTuningVisible={allCoreTuningVisible}
       onSelectCore={(coreId) => onSelectComponent(`core:${coreId}`)}
-      onSelectAllCores={() => onSelectComponent(`cores:${socket.id}`)}
       cpuUpgrades={cpuUpgrades}
       resources={visible.resources}
       dispatch={dispatch}

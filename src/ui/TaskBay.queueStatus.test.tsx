@@ -195,7 +195,8 @@ describe("TaskBay queue and deadlock status", () => {
         ...base.hardware,
         systemSchedulerSlots: 1,
         systemSchedulerConfig: {
-          policy: "fifo",
+          ramPriority: "parallelism",
+          cpuPriority: "parallelism",
           autoKillEnabled: false,
           killPolicy: "deadlockedTask",
         },
@@ -210,7 +211,8 @@ describe("TaskBay queue and deadlock status", () => {
             schedulerSlots: 4,
             queuedCount: 1,
             schedulerConfig: {
-              policy: "fifo",
+              ramPriority: "parallelism",
+              cpuPriority: "parallelism",
               autoKillEnabled: false,
               killPolicy: "deadlockedTask",
             },
@@ -438,7 +440,8 @@ describe("TaskBay queue and deadlock status", () => {
         ramBytes: 32,
         systemSchedulerSlots: 1,
         systemSchedulerConfig: {
-          policy: "fifo",
+          ramPriority: "parallelism",
+          cpuPriority: "parallelism",
           autoKillEnabled: false,
           killPolicy: "deadlockedTask",
         },
@@ -455,7 +458,8 @@ describe("TaskBay queue and deadlock status", () => {
             schedulerSlots: 1,
             queuedCount: 1,
             schedulerConfig: {
-              policy: "fifo",
+              ramPriority: "parallelism",
+              cpuPriority: "parallelism",
               autoKillEnabled: false,
               killPolicy: "deadlockedTask",
             },

@@ -80,6 +80,9 @@ describe("Workshop Fleet storage vertical", () => {
     expect(amountSubtract(before.exactResources.credits, after.exactResources.credits)).toBe(
       "30000",
     );
+    expect(amountSubtract(before.exactResources.data, after.exactResources.data)).toBe(
+      "300000",
+    );
     expect(after.workshop.storageSkuId).toBe("localSsd");
     expect(after.systems[0]?.workshop.storageSkuId).toBe("localSsd");
     const fleetNode = after.infrastructure.fleetNodes.find(

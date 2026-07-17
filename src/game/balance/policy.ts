@@ -148,8 +148,7 @@ const POLICY_CONFIGS: Readonly<Record<EngagementProfileId, PolicyConfig>> = {
     allowBurstContracts: false,
     projectLimit: 1,
     // Low-attention players still choose finite project phases when they
-    // return. In particular, Open Foundry is their non-contract source of the
-    // first-completion Data needed for Workshop specialization.
+    // return. Open Foundry remains a non-contract source of Workshop progress.
     allowSideProjects: true,
     manualDispatchLimit: 1,
     standingOrderHysteresisBps: 1_000,
@@ -521,11 +520,10 @@ const getSpecializedObjectiveTaskIds = (
 };
 
 const repeatJobValue = (job: ReadonlyJob, dataWeight: number) =>
-  // Standing orders must value repeat rewards, never the one-time rewardData field.
-  value(job.rewardCredits, job.repeatRewardData, dataWeight);
+  value(job.rewardCredits, job.rewardData, dataWeight);
 
 const manualJobValue = (job: ReadonlyJob, dataWeight: number) =>
-  value(job.rewardCredits, job.firstCompletionData, dataWeight);
+  value(job.rewardCredits, job.rewardData, dataWeight);
 
 const bestStandingOrderJob = (
   visible: ReadonlyVisible,
@@ -673,6 +671,15 @@ const progressionUpgradeScore = (
   upgrade: ReadonlyVisible["upgrades"][number],
   visible: ReadonlyVisible,
 ) => {
+  if (
+    upgrade.id === "systemSchedulerSlot" &&
+    visible.flags.scheduler &&
+    visible.hardware.systemSchedulerSlots < 1
+  ) {
+    // The first parent slot is part of the System Scheduler unlock: without
+    // it none of the newly revealed RAM jobs can run or fund wider hardware.
+    return 3_000;
+  }
   const unmetHardwareIds = visible.research.flatMap((research) =>
     research.requirements
       .filter((requirement) => !requirement.met && requirement.kind === "hardware")
@@ -722,6 +729,14 @@ const progressionUpgradeScore = (
     computeBlockers.some((reason) =>
       /(system queue|system scheduler slots)/i.test(reason),
     )
+  ) {
+    // Install parent intake before widening CPU child queues. This makes the
+    // newly unlocked RAM jobs available to fund the later four-slot benchmark.
+    return 3_000;
+  }
+  if (
+    upgrade.id === "core" &&
+    computeBlockers.some((reason) => /needs? \d+ (?:CPU |idle )?cores?/i.test(reason))
   ) {
     return 2_000;
   }
@@ -1390,8 +1405,7 @@ export const decideBalancePolicy = (
       "research",
       `Buy available progression research ${research.name}.`,
       research.costs,
-      // Objective-critical research must not be starved by the savings
-      // reserve; finite first-completion Data has no refill to wait for.
+      // Objective-critical research must not be starved by the savings reserve.
       researchProgressionScore(research.id, visible) >= 9_000
         ? 0
         : config.reserveBps,
@@ -1481,23 +1495,6 @@ export const decideBalancePolicy = (
         candidate.canAfford && progressionUpgradeScore(candidate, visible) > 0,
     ) &&
     config.manualDispatchLimit > 0;
-  const noveltyCandidates = [...visible.jobs]
-    .filter(
-      (job) =>
-        canDispatchWithStartAction(job) &&
-        workFitsHardware(job, visible) &&
-        job.firstCompletionData > job.repeatRewardData,
-    )
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const noveltyTargetId =
-    visible.currentChapter.index <= 2 &&
-    amountCompare(toAmount(visible.exactResources.data), 100) < 0 &&
-    noveltyCandidates.length > 0
-      ? noveltyCandidates[
-          (context.sessionIndex + Math.floor(context.nowMs / 60_000)) %
-            noveltyCandidates.length
-        ]?.id ?? null
-      : null;
   const manualJobs = canManuallyDispatch
     && (visible.currentChapter.index <= 2 || researchTaskIds.size > 0)
     ? [...visible.jobs]
@@ -1510,8 +1507,6 @@ export const decideBalancePolicy = (
               specializedObjectiveTaskIds.includes(job.id)),
         )
         .sort((left, right) => {
-          const noveltyPriority =
-            Number(right.id === noveltyTargetId) - Number(left.id === noveltyTargetId);
           const researchPriority =
             Number(researchTaskIds.has(right.id)) - Number(researchTaskIds.has(left.id));
           // Honor the ten-identical-manual-completions promise: once a job
@@ -1527,7 +1522,6 @@ export const decideBalancePolicy = (
                 )
               : 0;
           return (
-            noveltyPriority ||
             researchPriority ||
             overusePriority ||
             openingActionValuePriority ||

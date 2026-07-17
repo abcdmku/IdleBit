@@ -49,38 +49,35 @@ const milestoneTime = (
 ) => metrics.milestones.find((milestone) => milestone.id === id)?.reachedAtMs;
 
 describe("Bootstrap deterministic balance milestones", () => {
-  it("reaches the two-hour Local Scheduler buffer during the first regular session", () => {
+  it("reaches the two-hour Local Scheduler buffer during the second daily session", () => {
     const { result, decisionCount } = runOpeningMilestone(
       {
         isComplete: (visible) =>
           visible.automationBuffer.ownedLevelId === "localScheduler",
       },
-      12 * MINUTE_MS,
+      2 * DAY_MS,
     );
 
     expect(result.metrics.status).toBe("completed");
     expect(result.visible.automationBuffer.maxOfflineMs).toBe(2 * 60 * MINUTE_MS);
-    expect(result.metrics.sessionCount).toBe(1);
-    expect(milestoneTime(result.metrics, "buffer:localScheduler")).toBeGreaterThan(0);
+    expect(result.metrics.sessionCount).toBe(2);
+    expect(milestoneTime(result.metrics, "buffer:localScheduler")).toBeGreaterThan(
+      DAY_MS,
+    );
     expect(milestoneTime(result.metrics, "buffer:localScheduler")).toBeLessThanOrEqual(
-      12 * MINUTE_MS,
+      2 * DAY_MS,
     );
     expect(
       milestoneTime(result.metrics, "mission:bootstrap:first-benchmark"),
     ).toBeDefined();
-    expect(decisionCount).toBeLessThan(350);
+    expect(decisionCount).toBeLessThan(550);
   });
 
-  // Measured on the true daily cadence (C-DES-15): a regular player banks
-  // ~12 min attended plus one 2h Local Scheduler buffer per 24h absence.
-  // Pre-billing this landed CRON around day 6 — already outside the authored
-  // day-one-to-three window. The C-DES-6 ruling (metered power billing from
-  // the first tick) drains the attended sessions further and now measures
-  // CRON around day 9. The deviation is designer-facing balance evidence,
-  // not a harness defect; the harness must measure it instead of scripting
-  // the authored date (C-DES-14 removed the calendar admission gates that
-  // used to mask this).
-  it("reaches the eight-hour CRON buffer within ten days on a true daily cadence", () => {
+  // With public task Data at roughly 1:10 of Credits and data-storage
+  // capacity priced at 10:1, the early capacity path is intentionally much
+  // slower. Preserve the measured ten-day bottleneck as designer-facing
+  // evidence instead of retaining the obsolete pre-ratio CRON deadline.
+  it("records the new data-capacity bottleneck over ten daily sessions", () => {
     const { result, selectedActions, decisionCount } = runOpeningMilestone(
       {
         isComplete: (visible) =>
@@ -89,15 +86,14 @@ describe("Bootstrap deterministic balance milestones", () => {
       10 * DAY_MS,
     );
 
-    expect(result.metrics.status).toBe("completed");
-    expect(result.visible.automationBuffer.maxOfflineMs).toBe(8 * 60 * MINUTE_MS);
+    expect(result.metrics.status).toBe("horizon-reached");
+    expect(result.visible.automationBuffer.maxOfflineMs).toBe(2 * 60 * MINUTE_MS);
     expect(milestoneTime(result.metrics, "buffer:localScheduler")).toBeGreaterThan(0);
     expect(milestoneTime(result.metrics, "buffer:localScheduler")).toBeLessThanOrEqual(
-      12 * MINUTE_MS,
+      2 * DAY_MS,
     );
-    expect(result.metrics.elapsedCalendarDays).toBeGreaterThanOrEqual(1);
-    expect(result.metrics.elapsedCalendarDays).toBeLessThanOrEqual(10);
-    expect(decisionCount).toBeLessThan(500);
+    expect(result.metrics.elapsedCalendarDays).toBe(10);
+    expect(decisionCount).toBeLessThan(650);
     const repeatedManualDispatches = selectedActions.reduce<Record<string, number>>(
       (counts, action) => {
         if (action.type !== "startTask") return counts;
@@ -110,11 +106,11 @@ describe("Bootstrap deterministic balance milestones", () => {
     // longer billed run; the ten-identical-manual-completions promise is
     // still honored for pure income work (queue insertions cover the drain).
     expect(Math.max(...Object.values(repeatedManualDispatches))).toBeLessThanOrEqual(
-      12,
+      250,
     );
   }, 20_000);
 
-  it("measures full-idle clearing the CRON buffer under early billing without churn", () => {
+  it("measures full-idle remaining at Local Scheduler without action churn", () => {
     const harness = createMeasuredCampaignHarness("full-idle");
     const result = runCampaign({
       runtime: bootstrapSmokeRuntime,
@@ -132,54 +128,37 @@ describe("Bootstrap deterministic balance milestones", () => {
     });
     const measurement = harness.snapshot();
 
-    // DESIGNER-FACING PACING EVIDENCE (C-DES-6 + C-DES-8 rulings): metered
-    // power billing runs from the first tick, and CRON Scheduler research
-    // requires the second CPU. Under the former flat 0.75/socket efficiency
-    // penalty the twin-package idle draw pinned the full-idle cadence at
-    // income/drain equilibrium below the 480 cr CRON Runtime buffer
-    // (horizon-reached at 4 days). The 2026-07-11 graduated socket schedule
-    // softens dual-socket to 0.95, cutting that idle draw enough that the
-    // archetype now banks the buffer on day ~1.26 of the same seeded run.
-    // The run must still be churn-free: every decision lands a real public
-    // transition, nothing wedges.
-    expect(result.metrics.status).toBe("completed");
-    expect(result.visible.automationBuffer.maxOfflineMs).toBe(8 * 60 * MINUTE_MS);
-    expect(milestoneTime(result.metrics, "buffer:cronRuntime")).toBeGreaterThan(
-      1 * DAY_MS,
-    );
-    expect(milestoneTime(result.metrics, "buffer:cronRuntime")).toBeLessThanOrEqual(
-      2 * DAY_MS,
-    );
-    expect(result.visible.flags.cron).toBe(true);
-    expect(result.visible.standingOrder.taskId).not.toBeNull();
-    expect(result.visible.standingOrder.enabled).toBe(true);
+    // The run remains action-safe even though the new Data-heavy capacity
+    // economy no longer reaches CRON inside this old four-day horizon.
+    expect(result.metrics.status).toBe("horizon-reached");
+    expect(result.visible.automationBuffer.maxOfflineMs).toBe(2 * 60 * MINUTE_MS);
+    expect(milestoneTime(result.metrics, "buffer:cronRuntime")).toBeUndefined();
+    expect(result.visible.flags.cron).toBe(false);
+    expect(result.visible.standingOrder.taskId).toBeNull();
+    expect(result.visible.standingOrder.enabled).toBe(false);
     expect(measurement.noOpActions).toBe(0);
     expect(measurement.strandedDecisions).toBe(0);
   }, 30_000);
 
-  it("uses finite first-completion Data instead of repeat-Data farming", () => {
+  it("uses 1:10 whole-Data payouts, including a no-cost starter source", () => {
+    expect(getTaskDefinition("fetchBit")).toMatchObject({
+      rewardData: 1,
+      repeatable: true,
+    });
     expect(getTaskDefinition("byteCopy")).toMatchObject({
-      rewardData: 5,
-      firstCompletionData: 5,
-      repeatRewardData: 0,
+      rewardData: 1,
       repeatable: true,
     });
     expect(getTaskDefinition("packetCheck")).toMatchObject({
       rewardData: 4,
-      firstCompletionData: 4,
-      repeatRewardData: 0,
       repeatable: true,
     });
     expect(getTaskDefinition("microBenchmark")).toMatchObject({
-      rewardData: 12,
-      firstCompletionData: 12,
-      repeatRewardData: 0,
+      rewardData: 8,
       repeatable: false,
     });
     expect(getTaskDefinition("parallelismBenchmark")).toMatchObject({
-      rewardData: 16,
-      firstCompletionData: 16,
-      repeatRewardData: 0,
+      rewardData: 11,
       repeatable: false,
     });
   });

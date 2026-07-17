@@ -525,6 +525,8 @@ export const allocateRamBlocksForOperation = (
   if (sticks.length === 0) return null;
 
   const channelCount = getTaskRamChannelCount(state, task);
+  const ramPriority =
+    state.hardware.systemSchedulerConfig.ramPriority ?? "parallelism";
   const activeBlocks = getActiveRamBlocks(state, task, operation);
   const plans = sticks.map((stick, index) => ({
     stick,
@@ -540,8 +542,31 @@ export const allocateRamBlocksForOperation = (
 
   if (totalFree < requiredBits) return null;
 
-  if (channelCount <= 1) {
-    const allocation = takeFromStickPlans(plans, requiredBits);
+  const activeStickIds = new Set(activeBlocks.map((block) => block.stickId));
+  const orderPlans = (plansToOrder: RamStickPlan[]) =>
+    [...plansToOrder].sort((left, right) => {
+      if (ramPriority === "speed" && left.stick.speedMt !== right.stick.speedMt) {
+        return right.stick.speedMt - left.stick.speedMt;
+      }
+
+      const leftFreeBits = getPlanFreeBits(left);
+      const rightFreeBits = getPlanFreeBits(right);
+      if (ramPriority === "capacity" && leftFreeBits !== rightFreeBits) {
+        return rightFreeBits - leftFreeBits;
+      }
+
+      if (ramPriority === "parallelism") {
+        const activeDelta =
+          Number(activeStickIds.has(left.stick.id)) -
+          Number(activeStickIds.has(right.stick.id));
+        if (activeDelta !== 0) return activeDelta;
+      }
+
+      return left.stickIndex - right.stickIndex;
+    });
+
+  if (channelCount <= 1 || ramPriority !== "parallelism") {
+    const allocation = takeFromStickPlans(orderPlans(plans), requiredBits);
     const usedChannelCount = Math.max(
       1,
       new Set(allocation.blocks.map((block) => block.channelIndex)).size,
@@ -552,17 +577,8 @@ export const allocateRamBlocksForOperation = (
       : null;
   }
 
-  const activeStickIds = new Set(activeBlocks.map((block) => block.stickId));
-  const orderMultiChannelPlans = (plansForChannel: RamStickPlan[]) =>
-    [...plansForChannel].sort((left, right) => {
-      const activeDelta =
-        Number(activeStickIds.has(left.stick.id)) -
-        Number(activeStickIds.has(right.stick.id));
-
-      return activeDelta !== 0 ? activeDelta : left.stickIndex - right.stickIndex;
-    });
   const channelPlans = Array.from({ length: channelCount }, (_, channelIndex) =>
-    orderMultiChannelPlans(
+    orderPlans(
       plans.filter((plan) => plan.channelIndex === channelIndex),
     ),
   );
@@ -689,23 +705,47 @@ const getRamBlockServiceRank = (
 };
 
 const getSelectedRamWriteSticksByChannel = (state: GameState) => {
+  const priority =
+    state.hardware.systemSchedulerConfig.ramPriority ?? "parallelism";
+  if (priority === "parallelism") return null;
+
   const selectedSticks = new Map<number, number>();
   const stickPositions = getRamStickPositions(state);
+  const sticksById = new Map(
+    getInstalledRamSticks(state).map((stick) => [stick.id, stick]),
+  );
   const candidates = getActiveRamLoadOperations(state).flatMap((operation) =>
     getCurrentRamWriteBlocks(operation).map((block) => ({
       channelIndex: block.channelIndex ?? 0,
       serviceRank: getRamBlockServiceRank(operation, block, stickPositions),
       stickId: block.stickId,
+      speedMt: sticksById.get(block.stickId)?.speedMt ?? 0,
+      capacityBits: sticksById.get(block.stickId)?.bits ?? 0,
     })),
-  );
-  const activeServiceRank = candidates.reduce(
-    (lowestRank, candidate) => Math.min(lowestRank, candidate.serviceRank),
-    Number.MAX_SAFE_INTEGER,
   );
 
   for (const candidate of candidates) {
-    if (candidate.serviceRank !== activeServiceRank) continue;
-    if (!selectedSticks.has(candidate.channelIndex)) {
+    const selectedId = selectedSticks.get(candidate.channelIndex);
+    if (selectedId === undefined) {
+      selectedSticks.set(candidate.channelIndex, candidate.stickId);
+      continue;
+    }
+
+    const selected = candidates.find(
+      (item) =>
+        item.channelIndex === candidate.channelIndex && item.stickId === selectedId,
+    );
+    if (!selected) continue;
+
+    const candidateScore =
+      priority === "speed" ? candidate.speedMt : candidate.capacityBits;
+    const selectedScore =
+      priority === "speed" ? selected.speedMt : selected.capacityBits;
+    if (
+      candidateScore > selectedScore ||
+      (candidateScore === selectedScore &&
+        candidate.serviceRank < selected.serviceRank)
+    ) {
       selectedSticks.set(candidate.channelIndex, candidate.stickId);
     }
   }
@@ -726,6 +766,7 @@ const getRamWriteRateAllocations = (state: GameState) => {
   for (const operation of getActiveRamLoadOperations(state)) {
     const blocks = getCurrentRamWriteBlocks(operation).filter(
       (block) =>
+        selectedSticksByChannel === null ||
         selectedSticksByChannel.get(block.channelIndex ?? 0) === block.stickId,
     );
     const totalRemainingBits = blocks.reduce(
@@ -1206,7 +1247,21 @@ export const estimateActiveRemainingSeconds = (
   taskId: TaskDefinition["id"],
   remainingCycles: number,
   coreId = 1,
-) => remainingCycles / getEffectiveClock(state, getTaskDefinition(taskId), coreId);
+  assignedCoreIds: number[] = [coreId],
+) => {
+  const task = getTaskDefinition(taskId);
+  const effectiveRate = task.parallelizable
+    ? Array.from(new Set(assignedCoreIds)).reduce(
+        (rate, assignedCoreId) =>
+          rate + getEffectiveClock(state, task, assignedCoreId),
+        0,
+      )
+    : getEffectiveClock(state, task, coreId);
+
+  return effectiveRate > 0
+    ? remainingCycles / effectiveRate
+    : Number.POSITIVE_INFINITY;
+};
 
 export const estimateJobSeconds = estimateTaskSeconds;
 

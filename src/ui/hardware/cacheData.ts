@@ -2,6 +2,10 @@ import type { VisibleState } from "../../game";
 import { clampMeter } from "../panels/uiNumbers";
 import type { CacheSegment, CacheSegmentKind, CacheSegmentState, RamSegment } from "./meters";
 
+const CACHE_DISPLAY_EPSILON_BITS = 1e-9;
+const normalizeCacheBits = (bits: number) =>
+  Math.abs(bits) <= CACHE_DISPLAY_EPSILON_BITS ? 0 : bits;
+
 const getCacheSegmentKind = (
   action: string | null | undefined,
 ): CacheSegmentKind =>
@@ -30,14 +34,18 @@ export const toCacheSegment = (
   const state = segment.state ?? "loaded";
   const progress = clampMeter(segment.progress ?? 1);
   const bufferProgress = clampMeter(segment.bufferProgress ?? 1);
-  const readyBits =
-    segment.readyBits ?? getLegacyCacheReadyBits(segment.bits, state, progress, bufferProgress);
-  const bufferBits =
+  const readyBits = normalizeCacheBits(
+    segment.readyBits ?? getLegacyCacheReadyBits(segment.bits, state, progress, bufferProgress),
+  );
+  const bufferBits = normalizeCacheBits(
     segment.bufferBits ??
     (state === "buffering"
       ? Math.max(0, segment.bits * bufferProgress - readyBits)
-      : 0);
-  const committedBits = segment.committedBits ?? readyBits + bufferBits;
+      : 0),
+  );
+  const committedBits = normalizeCacheBits(
+    segment.committedBits ?? readyBits + bufferBits,
+  );
 
   return {
     kind: getCacheSegmentKind(segment.memoryAction),

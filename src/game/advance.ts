@@ -838,14 +838,6 @@ const repeatStableStandingCycle = (
   ) {
     return { state: afterCycle, repeated: 0, elapsedMs: 0 };
   }
-  const task = getTaskDefinition(taskId);
-  if (
-    (beforeCycle.completedTasks[taskId] ?? 0) === 0 &&
-    amountCompare(task.firstCompletionDataExact, task.repeatRewardDataExact) !== 0
-  ) {
-    return { state: afterCycle, repeated: 0, elapsedMs: 0 };
-  }
-
   const creditDelta = amountSubtract(
     afterCycle.exactResources.credits,
     beforeCycle.exactResources.credits,
@@ -1234,20 +1226,9 @@ const getTaskCompletionEconomicsDeltas = (
           before.taskWorkCyclesCompleted[taskId] ?? ZERO_AMOUNT,
         ),
       );
-      const totalData = amountAdd(
-        (before.completedTasks[taskId] ?? 0) === 0 && completionCount > 0
-          ? task.firstCompletionDataExact
-          : ZERO_AMOUNT,
-        amountMultiply(
-          task.repeatRewardDataExact,
-          amount(
-            Math.max(
-              0,
-              completionCount -
-                ((before.completedTasks[taskId] ?? 0) === 0 ? 1 : 0),
-            ),
-          ),
-        ),
+      const totalData = amountMultiply(
+        task.rewardDataExact,
+        amount(Math.max(0, completionCount)),
       );
       const standingCount = Math.min(
         completionCount,

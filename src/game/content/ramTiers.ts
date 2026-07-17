@@ -11,7 +11,7 @@ import {
   type Amount,
   type AmountInput,
 } from "../amount";
-import { roundedCost } from "../exactCosts";
+import { capacityCosts, roundedCost } from "../exactCosts";
 
 export interface RamTierLevelDefinition {
   level: number;
@@ -257,12 +257,12 @@ export const getRamTierFirstGlobalLevel = (tierId: CpuTierId) =>
 
 export const getRamTierInstallCost = (targetLevel: number): Cost[] => {
   const level = getRamTierLevelDefinition(targetLevel);
-  return [credits(level.upgradeCost)];
+  return capacityCosts(level.upgradeCost);
 };
 
 export const getRamTierCapacityUpgradeCost = (targetLevel: number): Cost[] => {
   const level = getRamTierLevelDefinition(targetLevel);
-  return [credits(level.calculatedCost)];
+  return capacityCosts(level.calculatedCost);
 };
 
 export const getRamTierSpeedUpgradeCost = (targetLevel: number): Cost[] => [

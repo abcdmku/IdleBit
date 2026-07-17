@@ -184,7 +184,6 @@ import type {
   ResearchId,
   SchedulerConfig,
   SchedulerKillPolicy,
-  SchedulerPolicy,
   SchedulerWatchdogPreview,
   TaskDefinition,
   TaskId,
@@ -787,7 +786,18 @@ const getChildWorkKey = (
 ) => `${workUnitIndex ?? "single"}:${compositionIndex}:${compositionRepeatIndex}`;
 
 const getSystemChildWorkUnits = (task: TaskDefinition): SystemChildWorkUnit[] => {
-  if (!isSystemScheduledTask(task) || task.composition.length === 0) return [];
+  if (!isSystemScheduledTask(task)) return [];
+  if (task.composition.length === 0) {
+    return [
+      {
+        taskId: task.id,
+        compositionIndex: 0,
+        compositionRepeatIndex: 0,
+        workUnitIndex: null,
+        key: getChildWorkKey(0, 0, null),
+      },
+    ];
+  }
 
   return task.composition.flatMap((entry, compositionIndex) => {
     const workUnitIndexes =
@@ -903,7 +913,10 @@ const cpuCanProvisionTask = (
 ) => {
   if (idleCores < task.minCores) return false;
   if (task.minCores <= 1) return true;
-  return state.flags.scheduler && getCpuSchedulerWidth(state, cpuId) >= task.minCores;
+  if (!state.flags.basicQueue && !state.flags.scheduler) {
+    return !isSystemScheduledTask(task);
+  }
+  return getCpuSchedulerWidth(state, cpuId) >= task.minCores;
 };
 
 /**
@@ -993,9 +1006,14 @@ const selectCpuIdForTask = (
   if (cpuId !== undefined) return cpuId;
 
   return state.hardware.cpus.find(
-    (cpu) =>
-      cpuCanProvisionTask(state, task, cpu.id) &&
-      canStartTask(state, task.id, cpu.id),
+    (cpu) => {
+      const normalizedCpu = getCpuHardware(state, cpu.id);
+      return (
+        availableCoreIds(state, cpu.id).length >= task.minCores &&
+        normalizedCpu.coreIds.length >= task.minCores &&
+        canStartTask(state, task.id, cpu.id)
+      );
+    },
   )?.id;
 };
 
@@ -1046,13 +1064,11 @@ const selectCoreIdsForTask = (
   const schedulerWidth = getCpuSchedulerWidth(state, targetCpuId);
 
   if (ordered.length < requiredCores) return [];
-  if (requiredCores > 1 && !state.flags.scheduler) return [];
-  if (requiredCores > 1 && schedulerWidth < requiredCores) return [];
 
   const wantedCores = Math.min(
     task.maxCores ?? requiredCores,
-    task.parallelizable && state.flags.scheduler ? ordered.length : requiredCores,
-    task.parallelizable && state.flags.scheduler
+    task.parallelizable ? ordered.length : requiredCores,
+    task.parallelizable && (state.flags.basicQueue || state.flags.scheduler)
       ? Math.max(requiredCores, schedulerWidth)
       : ordered.length,
   );
@@ -2110,28 +2126,6 @@ const isQueueEntryReservedByActiveTask = (
   );
 };
 
-const getDispatchRank = (
-  state: GameState,
-  task: TaskDefinition,
-  cpuId: number | undefined,
-  policy: SchedulerPolicy,
-  index: number,
-) => {
-  if (policy === "shortestTask") {
-    return estimateTaskSeconds(
-      state,
-      task,
-      cpuId === undefined ? 1 : getCpuHardware(state, cpuId).coreIds[0] ?? 1,
-    );
-  }
-
-  if (policy === "smallestMemory") {
-    return task.cacheNeedBits + task.ramNeedBits;
-  }
-
-  return index;
-};
-
 const getQueuedSystemChildRamBits = (state: GameState) => {
   const seenReservations = new Set<string>();
   const activeReservations = new Set(
@@ -2165,6 +2159,8 @@ const getSystemAdmissionAvailableRamBits = (state: GameState) =>
 
 interface SystemChildCpuCandidate {
   cpuId: number;
+  speedHz: number;
+  coreCapacity: number;
   queuedSlots: number;
   queuedSeconds: number;
   cacheHeadroomBits: number;
@@ -2229,6 +2225,11 @@ const getSystemChildCpuCandidates = (
     return [
       {
         cpuId: normalizedCpu.id,
+        speedHz: getEffectiveCoreClockHz(
+          state,
+          normalizedCpu.coreIds[0] ?? 1,
+        ),
+        coreCapacity: normalizedCpu.coreIds.length,
         queuedSlots,
         queuedSeconds: getQueuedCpuSeconds(state, normalizedCpu.id),
         cacheHeadroomBits:
@@ -2249,28 +2250,37 @@ const selectCpuIdForChildReservation = (
   const candidates = getSystemChildCpuCandidates(state, task);
   if (candidates.length === 0) return undefined;
 
-  const policy = createSchedulerConfig(state.hardware.systemSchedulerConfig).policy;
+  const priority = createSchedulerConfig(
+    state.hardware.systemSchedulerConfig,
+  ).cpuPriority;
 
   return candidates.reduce((best, candidate) => {
-    if (policy === "shortestTask") {
-      if (candidate.queuedSeconds < best.queuedSeconds) return candidate;
+    if (priority === "speed" && candidate.speedHz !== best.speedHz) {
+      return candidate.speedHz > best.speedHz ? candidate : best;
+    }
+
+    if (priority === "capacity") {
+      if (candidate.coreCapacity !== best.coreCapacity) {
+        return candidate.coreCapacity > best.coreCapacity ? candidate : best;
+      }
       if (
-        candidate.queuedSeconds === best.queuedSeconds &&
-        candidate.queuedSlots < best.queuedSlots
+        candidate.cacheHeadroomBits !== best.cacheHeadroomBits
       ) {
-        return candidate;
+        return candidate.cacheHeadroomBits > best.cacheHeadroomBits
+          ? candidate
+          : best;
       }
     }
-    if (policy === "smallestMemory") {
-      if (candidate.cacheHeadroomBits > best.cacheHeadroomBits) return candidate;
-      if (
-        candidate.cacheHeadroomBits === best.cacheHeadroomBits &&
-        candidate.queuedSlots < best.queuedSlots
-      ) {
-        return candidate;
+
+    if (priority === "parallelism") {
+      if (candidate.queuedSlots !== best.queuedSlots) {
+        return candidate.queuedSlots < best.queuedSlots ? candidate : best;
+      }
+      if (candidate.queuedSeconds !== best.queuedSeconds) {
+        return candidate.queuedSeconds < best.queuedSeconds ? candidate : best;
       }
     }
-    if (candidate.queuedSlots < best.queuedSlots) return candidate;
+
     if (
       candidate.queuedSlots === best.queuedSlots &&
       candidate.availableCoreCount >= task.minCores &&
@@ -2290,9 +2300,7 @@ const canReserveSystemChildWork = (
   state: GameState,
   childTask: TaskDefinition,
 ) => {
-  const policy = createSchedulerConfig(state.hardware.systemSchedulerConfig).policy;
   const ramSafe =
-    policy === "none" ||
     childTask.ramNeedBits <= getSystemAdmissionAvailableRamBits(state);
 
   return ramSafe && selectCpuIdForChildReservation(state, childTask) !== undefined;
@@ -2359,7 +2367,6 @@ interface CpuQueueDispatchCandidate {
   reservationId: string;
   task: TaskDefinition;
   cpuId: number;
-  policy: SchedulerPolicy;
   rank: number;
   index: number;
 }
@@ -2403,14 +2410,12 @@ const canStartQueuedCpuEntry = (
           (activeTask) => activeTask.taskId === task.id,
         ))));
 
-const canCpuQueuePolicyDispatchTask = (
+const canCpuQueueDispatchTask = (
   state: GameState,
   task: TaskDefinition,
   cpuId: number,
-  policy: SchedulerPolicy,
   systemOwned: boolean,
 ) => {
-  if (policy === "none") return true;
   return systemOwned
     ? taskFitsFreeCacheStaging(state, task, cpuId)
     : taskFitsFreeStaging(state, task, cpuId);
@@ -2424,15 +2429,16 @@ const selectCoreIdsForQueuedCpuEntry = (
   const available = availableCoreIds(state, cpuId);
   const requiredCores = task.minCores;
   const schedulerWidth = getCpuSchedulerWidth(state, cpuId);
+  const schedulerAvailable = state.flags.basicQueue || state.flags.scheduler;
 
   if (available.length < requiredCores) return [];
-  if (requiredCores > 1 && !state.flags.scheduler) return [];
+  if (requiredCores > 1 && !schedulerAvailable) return [];
   if (requiredCores > 1 && schedulerWidth < requiredCores) return [];
 
   const wantedCores = Math.min(
     task.maxCores ?? requiredCores,
-    task.parallelizable && state.flags.scheduler ? available.length : requiredCores,
-    task.parallelizable && state.flags.scheduler
+    task.parallelizable && schedulerAvailable ? available.length : requiredCores,
+    task.parallelizable && schedulerAvailable
       ? Math.max(requiredCores, schedulerWidth)
       : available.length,
   );
@@ -2454,13 +2460,11 @@ const getCpuQueueDispatchCandidates = (state: GameState) => {
 
       const task = getTaskDefinition(entry.taskId);
       const systemOwned = Boolean(entry.parentQueueEntryId);
-      const policy = getCpuHardware(state, cpuId).schedulerConfig.policy;
-
       if (!canStartQueuedCpuEntry(state, task, cpuId, systemOwned)) return [];
       if (selectCoreIdsForQueuedCpuEntry(state, task, cpuId).length < task.minCores) {
         return [];
       }
-      if (!canCpuQueuePolicyDispatchTask(state, task, cpuId, policy, systemOwned)) {
+      if (!canCpuQueueDispatchTask(state, task, cpuId, systemOwned)) {
         return [];
       }
 
@@ -2470,8 +2474,7 @@ const getCpuQueueDispatchCandidates = (state: GameState) => {
           reservationId,
           task,
           cpuId,
-          policy,
-          rank: getDispatchRank(state, task, cpuId, policy, index),
+          rank: index,
           index,
         },
       ];
@@ -2490,6 +2493,24 @@ export const getQueueEntryDispatchBlockedReason = (
   state: GameState,
   queueEntryId: string,
 ): string | null => {
+  const systemEntry = (state.queueEntries ?? []).find(
+    (entry) => entry.id === queueEntryId && entry.target === "system",
+  );
+  if (systemEntry) {
+    const parentTask = getTaskDefinition(systemEntry.taskId);
+    const unit = getReadyChildWorkUnits(state, systemEntry, parentTask)[0];
+    if (!unit) return null;
+
+    const childTask = getTaskDefinition(unit.taskId);
+    if (childTask.ramNeedBits > getSystemAdmissionAvailableRamBits(state)) {
+      return "Waiting for free RAM staging.";
+    }
+    if (selectCpuIdForChildReservation(state, childTask) === undefined) {
+      return "Waiting for CPU scheduler capacity.";
+    }
+    return null;
+  }
+
   const located = getCpuQueueEntries(state).find(
     ({ entry }) =>
       entry.id === queueEntryId ||
@@ -2516,14 +2537,11 @@ export const getQueueEntryDispatchBlockedReason = (
     return "Waiting for idle cores.";
   }
 
-  const policy = getCpuHardware(state, cpuId).schedulerConfig.policy;
-  if (policy !== "none") {
-    if (!taskFitsFreeCacheStaging(state, task, cpuId)) {
-      return "Waiting for free cache staging.";
-    }
-    if (!systemOwned && !taskFitsFreeMemoryStaging(state, task)) {
-      return "Waiting for free RAM staging.";
-    }
+  if (!taskFitsFreeCacheStaging(state, task, cpuId)) {
+    return "Waiting for free cache staging.";
+  }
+  if (!systemOwned && !taskFitsFreeMemoryStaging(state, task)) {
+    return "Waiting for free RAM staging.";
   }
 
   return null;
@@ -2759,10 +2777,7 @@ const completeParentTask = (
   const completedAmount =
     state.completedTasks[parentTask.id] ?? state.completedJobs[parentTask.id] ?? 0;
   const benchmarkIds = parentTask.kind === "benchmark" ? [parentTask.id] : [];
-  const dataReward =
-    completedAmount === 0
-      ? parentTask.firstCompletionDataExact
-      : parentTask.repeatRewardDataExact;
+  const dataReward = parentTask.rewardDataExact;
   const parentEntry = state.queueEntries?.find(
     (entry) => entry.id === parentQueueEntryId,
   );
@@ -2869,10 +2884,7 @@ const completeTask = (state: GameState, activeTask: ActiveTask): GameState => {
   const nextBenchmarks = Array.from(
     new Set([...state.completedBenchmarks, ...benchmarkIds]),
   );
-  const dataReward =
-    completedAmount === 0
-      ? task.firstCompletionDataExact
-      : task.repeatRewardDataExact;
+  const dataReward = task.rewardDataExact;
   const rewardCredits = getStoredTaskRewardCredits(
     task,
     activeTask.projectedRewardCredits,
@@ -6217,15 +6229,13 @@ const applySingleSystemAction = (state: GameState, action: GameAction): GameStat
     return startTaskOnCore(state, action.jobId, action.coreId);
   }
   if (action.type === "queueJob") return queueTask(state, action.jobId, action.cpuId);
-  if (action.type === "setSchedulerPolicy") {
-    if (!state.flags.schedulerPolicies) return state;
+  if (action.type === "setSchedulerResourcePriority") {
+    if (!state.flags.scheduler) return state;
     return pullQueue(
-      updateSchedulerConfig(
-        state,
-        action.target,
-        { policy: action.policy },
-        action.cpuId,
-      ),
+      updateSystemSchedulerConfig(state, {
+        [action.resource === "ram" ? "ramPriority" : "cpuPriority"]:
+          action.priority,
+      }),
     );
   }
   if (action.type === "setSchedulerAutoKill") {
@@ -6491,6 +6501,7 @@ export const getVisibleRemainingSeconds = (
     activeTask.taskId,
     amountToSafeNumber(activeTask.remainingCycles),
     activeTask.coreId,
+    activeTask.assignedCoreIds,
   );
 
 export const getVisibleOperationProgress = (operation: ActiveCoreOperation) =>

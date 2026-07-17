@@ -113,7 +113,9 @@ const finalizeSeedState = (state: GameState): GameState =>
 
 export const createRackReadyGameState = (): GameState => {
   const base = createInitialGameState();
-  const exactResources = exactResourceBag(RACK_READY_SEED_CREDITS, 1_000_000);
+  // Diagnostic seeds must be able to exercise every visible capacity purchase;
+  // data-storage capital now requires ten Data per Credit.
+  const exactResources = exactResourceBag(RACK_READY_SEED_CREDITS, "1e24");
   const workstationCpuLevel = 4;
   const workstationCpus = [
     createCpuHardwareState(1, [1, 2], {

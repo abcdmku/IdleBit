@@ -10,7 +10,6 @@ import type { Dispatch } from "../uiActions";
 import type { SelectedComponent } from "../workbenchData";
 import { TaskBay } from "../tasks/TaskBay";
 import { AutomationBufferPanel } from "./AutomationBufferPanel";
-import { CurrentObjective } from "./CurrentObjective";
 import { DepartureForecast } from "./DepartureForecast";
 import {
   ContractsView,
@@ -184,7 +183,6 @@ export function WorkPanel({
           )}
           {resolvedActiveView === "jobs" && (
             <div className="work-jobs-view">
-              <CurrentObjective visible={visible} variant="mobile" />
               <TaskBay
                 visible={visible}
                 selectedComponent={selectedComponent}

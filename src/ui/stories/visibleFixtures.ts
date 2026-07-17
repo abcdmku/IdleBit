@@ -98,7 +98,8 @@ const makeSocket = (id: number, activeTask?: UiActiveTask | null) => ({
   cacheBits: 128,
   cacheUsedBits: id === 1 ? 24 : 0,
   schedulerConfig: {
-    policy: "fifo",
+    ramPriority: "parallelism",
+    cpuPriority: "parallelism",
     autoKill: false,
     killPolicy: "deadlockedTask",
   },
@@ -126,7 +127,8 @@ export const firstScreenTaskVisible = {
     secondCpu: false,
     systemSchedulerSlots: 0,
     systemSchedulerConfig: {
-      policy: "fifo",
+      ramPriority: "parallelism",
+      cpuPriority: "parallelism",
       autoKill: false,
       killPolicy: "deadlockedTask",
     },
@@ -177,7 +179,8 @@ export const rackReadyTaskVisible = {
     secondCpu: true,
     systemSchedulerSlots: 2,
     systemSchedulerConfig: {
-      policy: "fifo",
+      ramPriority: "parallelism",
+      cpuPriority: "parallelism",
       autoKill: false,
       killPolicy: "deadlockedTask",
     },

@@ -329,17 +329,16 @@ export const syncCronSchedules = (state: GameState): GameState => {
 export const createSchedulerConfig = (
   template?: Partial<SchedulerConfig>,
 ): SchedulerConfig => {
-  const rawPolicy = template?.policy as string | undefined;
-  const policy: SchedulerConfig["policy"] =
-    rawPolicy === "none" ||
-    rawPolicy === "fifo" ||
-    rawPolicy === "shortestTask" ||
-    rawPolicy === "smallestMemory"
-      ? rawPolicy
-      : "fifo";
+  const normalizeResourcePriority = (
+    value: string | undefined,
+  ): SchedulerConfig["ramPriority"] =>
+    value === "speed" || value === "capacity" || value === "parallelism"
+      ? value
+      : "parallelism";
 
   return {
-    policy,
+    ramPriority: normalizeResourcePriority(template?.ramPriority),
+    cpuPriority: normalizeResourcePriority(template?.cpuPriority),
     autoKillEnabled: template?.autoKillEnabled ?? false,
     killPolicy: template?.killPolicy ?? "deadlockedTask",
   };
@@ -889,7 +888,6 @@ export const createInitialGameState = (): GameState => {
       memoryVoltageModifier: false,
       bootloader: false,
       schedulerWatchdog: false,
-      schedulerPolicies: false,
     },
     power: firstSystem.power,
     cron: firstSystem.cron,
@@ -1048,8 +1046,6 @@ export const updateProgressionFlags = (state: GameState): GameState => {
         state.flags.basicQueue || researched.includes("localScheduler"),
       schedulerWatchdog:
         state.flags.schedulerWatchdog || researched.includes("schedulerWatchdog"),
-      schedulerPolicies:
-        state.flags.schedulerPolicies || researched.includes("schedulerPolicies"),
       scheduler:
         state.flags.scheduler || researched.includes("systemScheduler"),
       secondCpu: state.flags.secondCpu || researched.includes("systemBus"),
@@ -1093,16 +1089,16 @@ export const getMilestone = (state: GameState) => {
   if (!state.flags.cache) return "Research cache mapping.";
   if (!state.flags.benchmarks) return "Research the benchmark harness.";
   if (!hasCompleted(state, "microBenchmark")) return "Tune clock/cache for micro benchmark.";
-  if (!hasCompleted(state, "parallelismBenchmark")) {
-    return "Run the parallelism benchmark.";
-  }
   if (!state.flags.multiCore) return "Research multi-core control.";
   if (state.hardware.cores < 2) return "Add a second core for local scheduling.";
+  if (!hasCompleted(state, "parallelismBenchmark")) {
+    return "Run the two-core parallelism benchmark.";
+  }
   if (!state.flags.basicQueue) return "Research the local scheduler.";
-  if (state.hardware.cores < 4) return "Reach four cores for the system scheduler.";
   if (!state.research.completed.includes("ramControl")) return "Research RAM control.";
   if (state.hardware.ramBits < 1024) return "Upgrade RAM to 1 Kb.";
   if (!state.flags.scheduler) return "Research the system scheduler.";
+  if (state.hardware.cores < 4) return "Reach four cores for the system bus benchmark.";
   if (!hasCompleted(state, "multiCoreBenchmark")) {
     return "Complete the multi-core benchmark.";
   }

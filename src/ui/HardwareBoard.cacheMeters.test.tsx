@@ -114,6 +114,42 @@ describe("HardwareBoard cache and upgrade meters", () => {
     expect(loadedBadge?.querySelector("small")?.textContent).toBe("Loaded");
   });
 
+  it("never paints Buffer when one core and cache run at the same rate", () => {
+    let state = applyAction(createInitialGameState(), {
+      type: "startTask",
+      taskId: "fetchBit",
+    });
+
+    for (let elapsedMs = 0; elapsedMs <= 1_000; elapsedMs += 100) {
+      const visible = deriveVisibleState(state);
+      const residency = visible.metrics.cacheResidency[0];
+
+      act(() => {
+        root.render(
+          <HardwareBoard
+            visible={visible}
+            dispatch={() => undefined}
+            selectedComponent="cache"
+            onSelectComponent={() => undefined}
+          />,
+        );
+      });
+
+      expect(residency?.bufferBits ?? 0, `buffer at ${elapsedMs} ms`).toBe(0);
+      expect(
+        container.querySelector(".cache-pipeline-row.buffering.active"),
+      ).toBeNull();
+      expect(
+        container.querySelector(".cache-pipeline-row.buffering .cache-pressure-segment"),
+      ).toBeNull();
+      expect(
+        container.querySelector(".cache-pipeline-row.loaded .cache-pressure-buffer"),
+      ).toBeNull();
+
+      state = tickGame(state, 100);
+    }
+  });
+
   it("renders Byte Copy read and write cache residency as separate segments", () => {
     const initial = createInitialGameState();
     let state: GameState = {
@@ -334,4 +370,3 @@ describe("HardwareBoard cache and upgrade meters", () => {
   });
 
 });
-

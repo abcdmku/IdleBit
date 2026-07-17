@@ -1,4 +1,11 @@
-import { amount, amountToSafeNumber } from "../amount";
+import {
+  amount,
+  amountDivide,
+  amountFloor,
+  amountMax,
+  amountMultiply,
+  amountToSafeNumber,
+} from "../amount";
 import { bitsToBytes } from "../units";
 import type {
   GameState,
@@ -14,7 +21,6 @@ import type {
   TaskSubtaskDefinition,
 } from "../types";
 import {
-  hasDecodeLogic,
   hasResearch,
   systemCatalogResearchId,
 } from "./research";
@@ -49,7 +55,6 @@ type RawTask = {
   kind: TaskKind;
   category: TaskDefinition["category"];
   visibility?: TaskVisibility;
-  rewardData: string | number;
   aggregateBatch?: TaskDefinition["aggregateBatch"];
   parallelizable: boolean;
   repeatable: boolean;
@@ -73,6 +78,9 @@ const compileCodeTaskId: TaskId = "compileCode";
 const renderFrameTaskId: TaskId = "renderFrame";
 const inferenceBatchTaskId: TaskId = "inferenceBatch";
 const regressionTestTaskId: TaskId = "regressionTest";
+
+/** Public task economy: one whole Data per ten gross Credits. */
+export const TASK_CREDITS_PER_DATA = 10;
 
 const countTask = (state: GameState, id: TaskDefinition["id"]) =>
   state.completedTasks[id] ?? state.completedJobs[id] ?? 0;
@@ -479,6 +487,9 @@ const hasRamControl = (state: GameState) => hasResearch(state, "ramControl");
 const hasInstalledRam = (state: GameState) =>
   hasRamControl(state) && state.hardware.ramBits > 0;
 
+const hasSystemScheduler = (state: GameState) =>
+  hasResearch(state, "systemScheduler");
+
 const rawCpuLeafTask = (
   id: TaskId,
   name: string,
@@ -491,15 +502,14 @@ const rawCpuLeafTask = (
     repeatable?: boolean;
     minCores?: number;
     maxCores?: number;
-    rewardData?: number;
+    category?: TaskDefinition["category"];
   } = {},
 ): RawTask => ({
   id,
   name,
   kind: "task",
-  category: "cpu",
+  category: options.category ?? "cpu",
   visibility: options.visibility ?? "internal",
-  rewardData: options.rewardData ?? 0,
   parallelizable: options.parallelizable ?? operation.parallel ?? false,
   repeatable: options.repeatable ?? true,
   minCores: options.minCores ?? 1,
@@ -528,7 +538,6 @@ const rawTasks: RawTask[] = [
     name: "Fetch Bit",
     kind: "task",
     category: "cpu",
-    rewardData: 0,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -570,7 +579,6 @@ const rawTasks: RawTask[] = [
     name: "Decode Bit",
     kind: "task",
     category: "cpu",
-    rewardData: 0,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -589,7 +597,7 @@ const rawTasks: RawTask[] = [
         id: "decode-bit",
         name: "Decode Bit",
         kind: "compute",
-        cycles: 2,
+        cycles: 1,
         cacheBits: 2,
         ramBits: 0,
       },
@@ -612,10 +620,6 @@ const rawTasks: RawTask[] = [
     name: "Bit Flip",
     kind: "task",
     category: "cpu",
-    // First-completion Data re-homed from the retired Bootstrap Benchmark
-    // project so the Jobs-only opening funds the same research path. Front-
-    // loaded here because the cache ladder to Byte Copy is the first sink.
-    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -672,7 +676,6 @@ const rawTasks: RawTask[] = [
     name: "Bit Shift",
     kind: "task",
     category: "cpu",
-    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -729,11 +732,10 @@ const rawTasks: RawTask[] = [
     name: "Byte Copy",
     kind: "task",
     category: "cpu",
-    rewardData: 5,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: hasDecodeLogic,
+    reveal: (state) => hasResearch(state, "byteOperations"),
     requirement: (state) => hasResearch(state, "byteOperations"),
     operations: [
       {
@@ -773,11 +775,10 @@ const rawTasks: RawTask[] = [
     name: "Packet Check",
     kind: "task",
     category: "cpu",
-    rewardData: 4,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: hasDecodeLogic,
+    reveal: (state) => hasResearch(state, "cacheMapping"),
     requirement: (state) => hasResearch(state, "cacheMapping"),
     operations: [
       {
@@ -838,14 +839,9 @@ const rawTasks: RawTask[] = [
     },
     {
       visibility: "default",
-      reveal: hasRamControl,
-      requirement: hasInstalledRam,
-      // RAM-era first completions fund System Scheduler research now that
-      // projects unlock after (not before) the scheduler exists. Tiny
-      // Checksum's former 8 Data is re-homed across the three RAM page jobs
-      // (+3/+3/+2) because system tasks stay locked until the scheduler
-      // exists (C-DES-3).
-      rewardData: 6,
+      category: "system",
+      reveal: (state) => hasRamControl(state) && hasSystemScheduler(state),
+      requirement: (state) => hasInstalledRam(state) && hasSystemScheduler(state),
     },
   ),
   rawCpuLeafTask(
@@ -862,10 +858,9 @@ const rawTasks: RawTask[] = [
     },
     {
       visibility: "default",
-      reveal: hasRamControl,
-      requirement: hasInstalledRam,
-      // +3 re-homed from Tiny Checksum (C-DES-3).
-      rewardData: 6,
+      category: "system",
+      reveal: (state) => hasRamControl(state) && hasSystemScheduler(state),
+      requirement: (state) => hasInstalledRam(state) && hasSystemScheduler(state),
     },
   ),
   rawCpuLeafTask(
@@ -882,10 +877,9 @@ const rawTasks: RawTask[] = [
     },
     {
       visibility: "default",
-      reveal: hasRamControl,
-      requirement: hasInstalledRam,
-      // +2 re-homed from Tiny Checksum (C-DES-3).
-      rewardData: 5,
+      category: "system",
+      reveal: (state) => hasRamControl(state) && hasSystemScheduler(state),
+      requirement: (state) => hasInstalledRam(state) && hasSystemScheduler(state),
     },
   ),
   rawCpuLeafTask("stageChecksumPage", "Stage Checksum Page", {
@@ -1346,17 +1340,17 @@ const rawTasks: RawTask[] = [
     name: "Tiny Checksum",
     kind: "task",
     category: "system",
-    // First-completion Data moved to the pre-Scheduler RAM page jobs: this
-    // system task is unreachable until System Scheduler research, so its Data
-    // cannot fund that research (C-DES-3).
-    rewardData: 0,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
     reveal: (state) =>
-      hasResearch(state, "ramControl") && hasCompleted(state, "packetCheck"),
+      hasResearch(state, "ramControl") &&
+      hasResearch(state, "systemScheduler") &&
+      hasCompleted(state, "packetCheck"),
     requirement: (state) =>
-      hasResearch(state, "ramControl") && countTask(state, "packetCheck") >= 1,
+      hasResearch(state, "ramControl") &&
+      hasResearch(state, "systemScheduler") &&
+      countTask(state, "packetCheck") >= 1,
     composition: [compose("stageChecksumPage"), compose("checksumStep")],
     recipe: [
       {
@@ -1376,11 +1370,11 @@ const rawTasks: RawTask[] = [
     name: "Memory Scrub",
     kind: "task",
     category: "system",
-    rewardData: 3,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => hasCompleted(state, "tinyChecksum"),
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     composition: [compose("scanRamPage"), compose("repairRamDrift")],
@@ -1402,11 +1396,11 @@ const rawTasks: RawTask[] = [
     name: "Queue Compaction",
     kind: "task",
     category: "system",
-    rewardData: 2,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => hasCompleted(state, "tinyChecksum"),
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     composition: [compose("readQueueTable"), compose("compactQueueEntries")],
@@ -1428,11 +1422,11 @@ const rawTasks: RawTask[] = [
     name: "Power Telemetry",
     kind: "task",
     category: "system",
-    rewardData: 2,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
-    reveal: (state) => hasCompleted(state, "tinyChecksum"),
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     requirement: (state) =>
       hasResearch(state, "systemScheduler") && hasCompleted(state, "tinyChecksum"),
     composition: [compose("samplePowerRails"), compose("normalizeDrawTrace")],
@@ -1454,12 +1448,12 @@ const rawTasks: RawTask[] = [
     name: "Bus Mirror",
     kind: "task",
     category: "system",
-    rewardData: 5,
     parallelizable: true,
     repeatable: true,
     minCores: 2,
     maxCores: 2,
-    reveal: (state) => state.hardware.secondCpu,
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") && state.hardware.secondCpu,
     requirement: (state) =>
       state.hardware.secondCpu && hasResearch(state, "systemScheduler"),
     composition: [compose("readBusWindow"), compose("mirrorBusState")],
@@ -1481,7 +1475,6 @@ const rawTasks: RawTask[] = [
     name: "Thermal Probe",
     kind: "task",
     category: "system",
-    rewardData: 4,
     parallelizable: false,
     repeatable: true,
     minCores: 1,
@@ -1510,12 +1503,12 @@ const rawTasks: RawTask[] = [
     name: "Shard Reconcile",
     kind: "task",
     category: "system",
-    rewardData: 8,
     parallelizable: true,
     repeatable: true,
     minCores: 4,
     maxCores: 4,
-    reveal: (state) => state.hardware.secondCpu,
+    reveal: (state) =>
+      hasResearch(state, "systemScheduler") && state.hardware.secondCpu,
     requirement: (state) =>
       state.hardware.secondCpu && hasResearch(state, "systemScheduler"),
     composition: [
@@ -1552,7 +1545,6 @@ const rawTasks: RawTask[] = [
     name: "Compile Code",
     kind: "task",
     category: "system",
-    rewardData: 12,
     aggregateBatch: {
       workUnitMultiplier: 64,
       maximumMultiplier: 1_000_000_000,
@@ -1605,7 +1597,6 @@ const rawTasks: RawTask[] = [
     name: "Render Frame",
     kind: "task",
     category: "system",
-    rewardData: 18,
     aggregateBatch: {
       workUnitMultiplier: 96,
       maximumMultiplier: 1_000_000_000,
@@ -1660,7 +1651,6 @@ const rawTasks: RawTask[] = [
     name: "Inference Batch",
     kind: "task",
     category: "system",
-    rewardData: 30,
     aggregateBatch: {
       workUnitMultiplier: 64,
       maximumMultiplier: 1_000_000_000,
@@ -1701,7 +1691,6 @@ const rawTasks: RawTask[] = [
     name: "Regression Test",
     kind: "task",
     category: "system",
-    rewardData: 24,
     aggregateBatch: {
       workUnitMultiplier: 96,
       maximumMultiplier: 1_000_000_000,
@@ -1764,7 +1753,6 @@ const rawTasks: RawTask[] = [
     name: "Micro Benchmark",
     kind: "benchmark",
     category: "cpu",
-    rewardData: 12,
     parallelizable: false,
     repeatable: false,
     minCores: 1,
@@ -1797,23 +1785,25 @@ const rawTasks: RawTask[] = [
     name: "Parallelism Benchmark",
     kind: "benchmark",
     category: "cpu",
-    rewardData: 16,
-    parallelizable: false,
+    parallelizable: true,
     repeatable: false,
-    minCores: 1,
-    reveal: (state) => hasCompleted(state, "microBenchmark"),
+    minCores: 2,
+    maxCores: 2,
+    reveal: (state) => hasResearch(state, "multiCore") && state.hardware.cores >= 2,
     requirement: (state) =>
-      hasCompleted(state, "microBenchmark") &&
-      hasResearch(state, "benchmarkHarness") &&
+      hasResearch(state, "multiCore") &&
+      state.hardware.cores >= 2 &&
       !hasCompleted(state, "parallelismBenchmark"),
     operations: [
       {
         id: "measure-splits",
         name: "Measure Work Splits",
         kind: "compute",
-        cycles: 110,
-        cacheBits: 4,
+        // Split the original 110-cycle benchmark evenly across both cores.
+        cycles: 55,
+        cacheBits: 2,
         ramBits: 0,
+        parallel: true,
       },
     ],
     recipe: [
@@ -1829,7 +1819,6 @@ const rawTasks: RawTask[] = [
     name: "Multi-Core Benchmark",
     kind: "benchmark",
     category: "system",
-    rewardData: 14,
     parallelizable: true,
     repeatable: false,
     minCores: 4,
@@ -1879,7 +1868,6 @@ const rawTasks: RawTask[] = [
     name: "Workstation Benchmark",
     kind: "task",
     category: "cpu",
-    rewardData: 80,
     parallelizable: false,
     repeatable: false,
     minCores: 1,
@@ -2359,20 +2347,37 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
   const workUnitCycles = getPerWorkUnitCycles(coreScaling, composition, subtasks);
   // Public job payout is one Credit per runtime-aligned paid work unit.
   const rewardCreditsExact = paidWorkUnitsExact;
-  const rewardDataExact = amount(raw.rewardData);
+  const visibility = raw.visibility ?? "default";
+  const requiresSystemScheduler =
+    visibility !== "internal" && raw.kind !== "benchmark" && summary.ramBits > 0;
+  if (requiresSystemScheduler && raw.category !== "system") {
+    throw new Error(`Player-facing RAM task ${raw.id} must be system-owned`);
+  }
+  const grossRewardCreditsExact = amountMultiply(
+    rewardCreditsExact,
+    raw.aggregateBatch?.workUnitMultiplier ?? 1,
+  );
+  // Data is deliberately scarcer than Credits. Currency displays use whole
+  // units, so small public tasks keep a one-Data floor instead of rendering a
+  // fractional payout as zero. Internal recipe children never pay resources.
+  const rewardDataExact =
+    visibility === "internal"
+      ? amount(0)
+      : amountMax(
+          1,
+          amountFloor(
+            amountDivide(grossRewardCreditsExact, TASK_CREDITS_PER_DATA),
+          ),
+        );
   const definition: TaskDefinition = {
     id: raw.id,
     name: raw.name,
     kind: raw.kind,
     category: raw.category,
-    visibility: raw.visibility ?? "default",
+    visibility,
     composition,
     rewardData: amountToSafeNumber(rewardDataExact),
     rewardDataExact,
-    firstCompletionData: amountToSafeNumber(rewardDataExact),
-    firstCompletionDataExact: rewardDataExact,
-    repeatRewardData: 0,
-    repeatRewardDataExact: amount(0),
     parallelizable: raw.parallelizable,
     repeatable: raw.repeatable,
     coreScaling,
@@ -2386,8 +2391,12 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     workUnitRamNeedBits: summary.ramBits,
     minCores: raw.minCores,
     maxCores: raw.maxCores,
-    reveal: raw.reveal,
-    requirement: raw.requirement,
+    reveal: requiresSystemScheduler
+      ? (state) => hasSystemScheduler(state) && raw.reveal(state)
+      : raw.reveal,
+    requirement: requiresSystemScheduler
+      ? (state) => hasSystemScheduler(state) && raw.requirement(state)
+      : raw.requirement,
     subtasks,
     operations,
     operationCount,

@@ -1,5 +1,5 @@
 import type { Cost } from "../types";
-import { roundedGrowthCost } from "../exactCosts";
+import { capacityGrowthCosts, roundedGrowthCost } from "../exactCosts";
 
 /**
  * Canonical per-component cost ladders shared by the in-place upgrade screen
@@ -14,7 +14,5 @@ export const coreCosts = (purchaseCount: number): Cost[] => [
 ];
 
 /** Cache capacity ladder: level L -> L + 1 (purchaseCount = L - 1). */
-export const cacheCapacityCosts = (purchaseCount: number): Cost[] => [
-  roundedGrowthCost("credits", "3", "1.45", purchaseCount),
-  roundedGrowthCost("data", "1", "1.5", purchaseCount),
-];
+export const cacheCapacityCosts = (purchaseCount: number): Cost[] =>
+  capacityGrowthCosts("3", "1.45", purchaseCount);

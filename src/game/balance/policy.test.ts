@@ -301,32 +301,28 @@ describe("production balance action policies", () => {
     );
   });
 
-  it("reconsiders standing orders using repeat data instead of one-time rewardData", () => {
+  it("reconsiders standing orders using stable per-completion Data", () => {
     const opening = withBuffer(observeOpening(), "cronRuntime", 8 * 60 * 60_000);
     const baseJob = opening.jobs[0]!;
-    const oneTimeTrap = job(baseJob, {
+    const lowDataJob = job(baseJob, {
       id: "fetchBit",
-      name: "One-time trap",
+      name: "Low Data",
       rewardCredits: 10,
-      rewardData: 10_000,
-      firstCompletionData: 10_000,
-      repeatRewardData: 0,
+      rewardData: 1,
       seconds: 1,
     });
     const repeatWinner = job(baseJob, {
       id: "decodeBit",
-      name: "Repeat winner",
+      name: "Data winner",
       rewardCredits: 10,
-      rewardData: 0,
-      firstCompletionData: 0,
-      repeatRewardData: 5,
+      rewardData: 5,
       seconds: 1,
     });
     const visible: VisibleState = {
       ...opening,
       flags: { ...opening.flags, cron: true },
-      jobs: [oneTimeTrap, repeatWinner],
-      work: { ...opening.work, jobs: [oneTimeTrap, repeatWinner] },
+      jobs: [lowDataJob, repeatWinner],
+      work: { ...opening.work, jobs: [lowDataJob, repeatWinner] },
       standingOrder: {
         taskId: "fetchBit",
         systemId: opening.selectedSystem.id,
@@ -1859,7 +1855,7 @@ describe("production balance action policies", () => {
         },
       },
       100_000,
-      100,
+      1_000_000,
     );
 
     expect(

@@ -39,7 +39,9 @@ test("relaunches the built renderer with durable state, offline progress, and th
     await expect(
       rendererPage.getByRole("main", { name: "IdleBit system workbench" }),
     ).toBeVisible();
-    await expect(rendererPage.locator("body")).toContainText("Bootstrap Node");
+    await expect(rendererPage.locator(".topbar-stage")).toHaveCount(0);
+    await expect(rendererPage.locator(".mobile-current-objective")).toHaveCount(0);
+    await expect(rendererPage.locator("body")).not.toContainText("Bootstrap Node");
     expect(await rendererPage.evaluate(() => window.location.protocol)).toBe("file:");
 
     const bridge = await rendererPage.evaluate(() => ({

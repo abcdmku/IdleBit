@@ -7,13 +7,6 @@ export function getSelectedCoreId(selection: SelectedComponent) {
   return Number.isFinite(coreId) ? coreId : null;
 }
 
-export function getSelectedCoreGroupCpuId(selection: SelectedComponent) {
-  if (!selection?.startsWith("cores:")) return null;
-
-  const cpuId = Number(selection.slice("cores:".length));
-  return Number.isFinite(cpuId) ? cpuId : null;
-}
-
 export function getSelectedSchedulerId(selection: SelectedComponent) {
   if (!selection?.startsWith("scheduler:")) return null;
 

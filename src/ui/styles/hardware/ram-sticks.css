@@ -198,10 +198,35 @@
 }
 
 .ram-select-all-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
   height: auto;
   min-height: 24px;
   margin-left: 0;
   padding-inline: var(--s-3);
+  border: 1px solid rgba(36, 231, 195, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(36, 231, 195, 0.035);
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.ram-select-all-button:hover {
+  border-color: var(--line-hot);
+  color: var(--cyan);
+}
+
+.ram-select-all-button.active {
+  border-color: var(--line-warn);
+  color: var(--amber);
+  background: var(--amber-soft);
 }
 
 .ram-header-all-button {

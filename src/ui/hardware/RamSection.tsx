@@ -190,7 +190,7 @@ export function RamSection({
         {stickCount > 1 && (
           <button
             type="button"
-            className={`core-select-all-button ram-select-all-button ram-header-all-button ${
+            className={`ram-select-all-button ram-header-all-button ${
               selectedAllRamSticks ? "active" : ""
             }`}
             onClick={onSelectAllSticks}

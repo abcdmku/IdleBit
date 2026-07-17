@@ -5,7 +5,7 @@ type MeterStyle = CSSProperties & { "--meter-progress": number };
 type SmoothFillKey = string | number | boolean | null | undefined;
 
 /**
- * Shared snap detection for runtime meters that interpolate across 500ms
+ * Shared snap detection for runtime meters that interpolate across ~10ms
  * simulation snapshots via a CSS transition. Returns true on exactly the
  * renders where the transition must be suppressed: monotonic meters snap on
  * EVERY decrease — no jitter tolerance — so a batch reset never animates

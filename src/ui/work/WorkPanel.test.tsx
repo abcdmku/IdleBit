@@ -157,20 +157,17 @@ describe("WorkPanel", () => {
     expect(document.activeElement).toBe(jobsTab);
   });
 
-  it("keeps a fresh save on a single Jobs tab with the actionable objective line", () => {
+  it("keeps campaign stages and objective instructions out of Jobs", () => {
     const visible = deriveVisibleState(createInitialGameState());
     renderPanel(visible);
 
     expect(tabLabels()).toEqual(["Jobs"]);
-    const chip = container.querySelector(".mobile-current-objective");
     expect(visible.currentObjective?.blockedReason).toBeTruthy();
-    expect(chip?.querySelector("strong")?.textContent).toBe(
+    expect(container.querySelector(".mobile-current-objective")).toBeNull();
+    expect(container.textContent).not.toContain("Bootstrap Node");
+    expect(container.textContent).not.toContain(
       visible.currentObjective?.blockedReason,
     );
-    expect(chip?.querySelector("strong")?.textContent).toBe(
-      "Complete Fetch Bit or Decode Bit.",
-    );
-    expect(chip?.getAttribute("aria-label")).toContain("Bootstrap Node");
   });
 
   it("hides Campaign pre-scheduler even when a project phase is startable", () => {
@@ -358,7 +355,7 @@ describe("WorkPanel", () => {
     );
   });
 
-  it("hides the Automation tab when only the next buffer upgrade is unlocked", () => {
+  it("keeps Automation hidden before purchase and reveals it with installed coverage", () => {
     const state = createInitialGameState();
     const researched: GameState = {
       ...state,
@@ -376,7 +373,7 @@ describe("WorkPanel", () => {
       container.querySelector('[role="tab"][aria-label="Automation"]'),
     ).toBeNull();
 
-    // Owning a buffer (maxOfflineMs > 0) does not reveal the tab either.
+    // The first purchase reveals a status surface so its effect is immediate.
     const owned: GameState = {
       ...researched,
       automationBuffer: {
@@ -389,8 +386,14 @@ describe("WorkPanel", () => {
     renderPanel(ownedVisible);
     expect(
       container.querySelector('[role="tab"][aria-label="Automation"]'),
-    ).toBeNull();
-    expect(tabLabels()).toEqual(["Jobs"]);
+    ).not.toBeNull();
+    expect(tabLabels()).toEqual(["Jobs", "Automation"]);
+    selectTab("Automation");
+    expect(container.textContent).toContain("Local Scheduler");
+    expect(
+      container.querySelector('.stat-tile[aria-label="Max 2h"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Queue jobs before leaving");
   });
 
   it("shows the status-only buffer readout and hides locked Live Ops in Automation", () => {

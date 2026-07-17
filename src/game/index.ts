@@ -79,7 +79,7 @@ export type {
   ResearchId,
   ResourceId,
   SchedulerKillPolicy,
-  SchedulerPolicy,
+  SchedulerResourcePriority,
   SchedulerWatchdogPreview,
   StageId,
   FinaleCharterId,

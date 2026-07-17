@@ -24,7 +24,7 @@
 }
 
 /* Lane motion lives on the segment's inline width: interpolate it across
-   500ms snapshots; .is-snapping (decrease = batch commit/consumption) and
+   ~10ms snapshots; .is-snapping (decrease = batch commit/consumption) and
    remounts render at the exact value with no backward animation. */
 .module-meter.cache-pressure-meter .cache-pressure-segment {
   position: relative;
@@ -65,7 +65,6 @@
   background: var(--cache-core-solid-color);
 }
 
-.module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-buffer { opacity: 0; }
 .module-meter.cache-pressure-meter .cache-pressure-segment.loaded > .cache-pressure-fill {
   transform: scaleX(1);
 }

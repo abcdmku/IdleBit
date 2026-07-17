@@ -33,6 +33,8 @@ export function AutomationBufferPanel({
         <strong className="automation-buffer-level">{ownedBuffer.name}</strong>
       </header>
 
+      <p className="automation-buffer-purpose">{ownedBuffer.capability}</p>
+
       {buffer.maxOfflineMs > 0 ? (
         <StatTileRow dense>
           <StatTile
@@ -51,22 +53,24 @@ export function AutomationBufferPanel({
         </StatTileRow>
       ) : (
         // Two "0m" tiles say nothing; one line states the situation.
-        <p className="automation-buffer-note" title={ownedBuffer.capability}>
+        <p className="automation-buffer-note">
           No offline coverage yet
         </p>
       )}
 
-      {/* One short status line; the capability detail lives in its tooltip. */}
-      <p
-        className="automation-buffer-note"
-        title={ownedBuffer.capability}
-      >
-        {visible.standingOrder.taskId
-          ? `Standing order: ${standingOrderName} · ${
-              visible.standingOrder.enabled ? "armed" : "paused"
-            }`
-          : "No standing order"}
-      </p>
+      {ownedBuffer.renewsStandingOrders ? (
+        <p className="automation-buffer-note">
+          {visible.standingOrder.taskId
+            ? `Standing order: ${standingOrderName} · ${
+                visible.standingOrder.enabled ? "armed" : "paused"
+              }`
+            : "No standing order configured"}
+        </p>
+      ) : buffer.maxOfflineMs > 0 ? (
+        <p className="automation-buffer-note">
+          Queue jobs before leaving · automatic repeats require CRON
+        </p>
+      ) : null}
     </section>
   );
 }

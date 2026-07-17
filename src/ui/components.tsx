@@ -26,7 +26,6 @@ import {
 import type { Dispatch } from "./uiActions";
 import { getVisibleSelection, type SelectedComponent } from "./workbenchData";
 import { getRackData } from "./rack/rackData";
-import { CurrentObjective } from "./work/CurrentObjective";
 import { WorkPanel } from "./work/WorkPanel";
 
 export type { SelectedComponent } from "./workbenchData";
@@ -254,7 +253,6 @@ export function SystemWorkbench({
           <span className="brand-bar" aria-hidden="true" />
           IdleBit
         </span>
-        <CurrentObjective visible={visible} variant="topbar" />
         {showPsuFailureNotice && (
           <button
             type="button"

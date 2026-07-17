@@ -452,10 +452,15 @@ describe("App failure modals", () => {
     expect(researchTab?.className).toContain("has-notification");
     expect(researchTab?.getAttribute("aria-label")).toBe("Research, 3 new");
     expect(researchTab?.title).toBe("3 new research");
-    await expect(
-      idleBitPersistence.get<string[]>("ui.seen-tasks-v1", []),
-    ).resolves.toEqual(
-      expect.arrayContaining(["bitFlip", "bitShift", "byteCopy", "packetCheck"]),
+    const seenTasks = await idleBitPersistence.get<string[]>(
+      "ui.seen-tasks-v1",
+      [],
+    );
+    expect(seenTasks).toEqual(
+      expect.arrayContaining(["fetchBit", "decodeBit", "bitFlip", "bitShift"]),
+    );
+    expect(seenTasks).not.toEqual(
+      expect.arrayContaining(["byteCopy", "packetCheck"]),
     );
 
     await act(async () => {

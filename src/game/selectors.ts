@@ -369,12 +369,10 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
       if (state.hardware.cacheLevel < 3) return "Cache capacity level 3 required.";
     }
     if (task.id === "parallelismBenchmark") {
-      if (!hasResearch(state, "benchmarkHarness")) {
-        return "Benchmark Harness research required.";
+      if (!hasResearch(state, "multiCore")) {
+        return "Multi-Core Control research required.";
       }
-      if (!isTaskComplete(state, getTaskDefinition("microBenchmark"))) {
-        return "Micro Benchmark required.";
-      }
+      if (state.hardware.cores < 2) return "Needs 2 CPU cores.";
     }
     if (task.id === "multiCoreBenchmark") {
       if (!hasResearch(state, "systemScheduler")) {
@@ -388,6 +386,14 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
 
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
+  }
+
+  if (
+    isSystemScheduledTask(task) &&
+    task.minCores > 1 &&
+    getMaxSchedulerWidthForTask(state, task, false) < task.minCores
+  ) {
+    return `CPU scheduler needs ${task.minCores} slots.`;
   }
 
   if (state.power.state !== "on") {
@@ -415,17 +421,6 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
     return task.minCores > 1
       ? `Needs ${task.minCores} idle cores.`
       : "No idle core available.";
-  }
-
-  if (task.minCores > 1 && !state.flags.scheduler) {
-    return "System scheduler required.";
-  }
-
-  if (
-    task.minCores > 1 &&
-    getMaxSchedulerWidthForTask(state, task, true) < task.minCores
-  ) {
-    return `CPU scheduler needs ${task.minCores} slots.`;
   }
 
   return null;
@@ -583,9 +578,6 @@ const getTaskProjection = (
 const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => {
   const blockedReason = getBlockedReason(state, task);
   const projection = getTaskProjection(state, task, blockedReason);
-  const firstCompletionData = isTaskComplete(state, task)
-    ? task.repeatRewardData
-    : task.firstCompletionData;
   return ({
   id: task.id,
   name: task.name,
@@ -596,12 +588,7 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   rewardCredits: amountToSafeNumber(
     projection.rewardCredits ?? task.rewardCreditsExact,
   ),
-  // Advertise the exact Data that the next completion will settle. Discovery
-  // Data is first-completion-only; completed repeatable cards must not keep
-  // showing a reward that their repeat path will not pay.
-  rewardData: firstCompletionData,
-  firstCompletionData,
-  repeatRewardData: task.repeatRewardData,
+  rewardData: task.rewardData,
   completionCount:
     state.completedTasks[task.id] ?? state.completedJobs[task.id] ?? 0,
   cacheNeedBits: task.cacheNeedBits,
@@ -609,6 +596,7 @@ const getTaskVisible = (state: GameState, task: TaskDefinition): VisibleTask => 
   cacheNeedBytes: task.cacheNeedBytes,
   ramNeedBytes: task.ramNeedBytes,
   operationCount: task.operationCount,
+  requiredCycles: task.requiredCycles,
   paidWorkUnits: amountToSafeNumber(
     projection.paidWorkUnits ?? task.paidWorkUnitsExact,
   ),
@@ -1507,7 +1495,7 @@ const getCpuSockets = (
         state.flags.schedulerWatchdog && cpu.id === primaryCpuId
           ? getVisibleUpgrade(state, deadlockRecoveryUpgrade)
           : null,
-      allCoreClockUpgrade: getVisibleUpgrade(state, clockUpgrade, {
+      packageClockUpgrade: getVisibleUpgrade(state, clockUpgrade, {
         cpuId: cpu.id,
       }),
       cStateUpgrade: null,
@@ -1619,10 +1607,9 @@ const getResearchComputeTask = (
     name: task.name,
     category: task.category,
     operationCount: task.operationCount,
+    requiredCycles: task.requiredCycles,
     rewardCredits: visibleTask.rewardCredits,
     rewardData: visibleTask.rewardData,
-    firstCompletionData: visibleTask.firstCompletionData,
-    repeatRewardData: visibleTask.repeatRewardData,
     cacheNeedBits: task.cacheNeedBits,
     ramNeedBits: task.ramNeedBits,
     requiredCores: task.minCores,
@@ -1728,7 +1715,8 @@ const getVisibleResearch = (state: GameState) =>
         canAfford: canAffordResearch,
         canBuy,
         completed,
-        ...(repeatableLevelUp ? { actionLabel: "Level up" } : {}),
+        actionLabel: repeatableLevelUp ? "Level up" : "Research",
+        completedLabel: "Researched" as const,
         blockedReason: completed
           ? null
           : firstUnmetRequirement
@@ -2371,17 +2359,21 @@ export const deriveVisibleState = (state: GameState): VisibleState => {
   const currentChapter = getVisibleCampaignChapter(syncedState);
   const currentObjective =
     work.missions.find((mission) => mission.current) ?? null;
-  // Work-surface reveal gates. The opening is Jobs-only: Campaign and
-  // Automation open once the player owns a real scheduled system (System
-  // Scheduler research), and the Market opens with CRON because managed
-  // contracts model unattended client workloads. Legacy OR-branches keep
-  // surfaces functional for saves that already hold that content.
+  // Work-surface reveal gates. The opening is Jobs-only. Automation opens as
+  // soon as the player owns offline coverage, or once a
+  // real scheduled system exists. This makes the first buffer purchase visibly
+  // consequential while keeping the untouched opening Jobs-only. The Market
+  // opens with CRON because managed contracts model unattended client work.
+  // Legacy OR-branches keep surfaces functional for saves with existing work.
   const workViews = {
     campaign:
       syncedState.flags.scheduler ||
       work.projects.some((project) => project.active || project.completed),
     market: syncedState.flags.cron || work.contracts.length > 0,
-    automation: syncedState.flags.scheduler || syncedState.flags.cron,
+    automation:
+      syncedState.automationBuffer.ownedLevelId !== "startingNode" ||
+      syncedState.flags.scheduler ||
+      syncedState.flags.cron,
   };
   const ramUsedBits = getRamUsedBits(syncedState);
   const ramUsedBytes = getRamUsedBytes(syncedState);

@@ -1,4 +1,10 @@
-import type { SchedulerKillPolicy, SchedulerPolicy, SchedulerWatchdogPreview, VisibleCpuSocket, VisibleState } from "../../game";
+import type {
+  SchedulerKillPolicy,
+  SchedulerResourcePriority,
+  SchedulerWatchdogPreview,
+  VisibleCpuSocket,
+  VisibleState,
+} from "../../game";
 import { getSocketForCore } from "../panels/cpuLabels";
 import { clampMeter } from "../panels/uiNumbers";
 import { SmoothFill } from "../SmoothProgress";
@@ -6,24 +12,16 @@ import type { Dispatch } from "../uiActions";
 import { formatCountdownSeconds } from "./display";
 import { getCoreTargetLabel } from "./coreTargets";
 
-const schedulerPolicyLabels: Record<SchedulerPolicy, string> = {
-  none: "None",
-  fifo: "FIFO",
-  shortestTask: "Shortest",
-  smallestMemory: "Smallest memory",
-};
-
-const systemSchedulerPolicyLabels: Record<SchedulerPolicy, string> = {
-  none: "None",
-  fifo: "FIFO",
-  shortestTask: "Least queued",
-  smallestMemory: "Most headroom",
-};
-
 const schedulerKillPolicyLabels: Record<SchedulerKillPolicy, string> = {
   deadlockedTask: "Deadlocked",
   newestBlocker: "Newest blocker",
   lowestProgress: "Lowest progress",
+};
+
+const resourcePriorityLabels: Record<SchedulerResourcePriority, string> = {
+  speed: "Speed",
+  capacity: "Capacity",
+  parallelism: "Parallelism",
 };
 
 const formatCoreTarget = (coreIds: number[], sockets: VisibleCpuSocket[]) => {
@@ -99,38 +97,36 @@ export function SchedulerControls({
   dispatch: Dispatch;
 }) {
   const showAutoKill = visible.flags.schedulerWatchdog;
-  const showPolicy = visible.flags.schedulerPolicies;
   const showKillPolicy = visible.flags.schedulerWatchdog;
-  const policyLabels =
-    target === "system" ? systemSchedulerPolicyLabels : schedulerPolicyLabels;
-
-  if (!showAutoKill && !showPolicy && !showKillPolicy) {
+  const showRamPriority =
+    target === "system" && visible.metrics.ramSlots.length > 1;
+  const showCpuPriority =
+    target === "system" && visible.metrics.cpuSockets.length > 1;
+  if (
+    !showAutoKill &&
+    !showKillPolicy &&
+    !showRamPriority &&
+    !showCpuPriority
+  ) {
     return null;
   }
 
   return (
     <div className="scheduler-controls" aria-label="Scheduler controls">
-      {showPolicy && (
-        <label className="scheduler-control">
-          <span>Policy</span>
-          <select
-            value={config.policy}
-            onChange={(event) =>
-              dispatch({
-                type: "setSchedulerPolicy",
-                target,
-                cpuId,
-                policy: event.target.value as SchedulerPolicy,
-              })
-            }
-          >
-            {(Object.keys(policyLabels) as SchedulerPolicy[]).map((policy) => (
-              <option key={policy} value={policy}>
-                {policyLabels[policy]}
-              </option>
-            ))}
-          </select>
-        </label>
+      {showRamPriority && (
+        <ResourcePriorityControl
+          resource="ram"
+          value={config.ramPriority}
+          dispatch={dispatch}
+        />
+      )}
+
+      {showCpuPriority && (
+        <ResourcePriorityControl
+          resource="cpu"
+          value={config.cpuPriority}
+          dispatch={dispatch}
+        />
       )}
 
       {showAutoKill && (
@@ -179,3 +175,43 @@ export function SchedulerControls({
   );
 }
 
+function ResourcePriorityControl({
+  resource,
+  value,
+  dispatch,
+}: {
+  resource: "ram" | "cpu";
+  value: SchedulerResourcePriority;
+  dispatch: Dispatch;
+}) {
+  const label = resource.toUpperCase();
+  const title =
+    resource === "ram"
+      ? "RAM priority: Speed fills faster sticks first, Capacity fills larger free sticks first, and Parallelism stripes loads. Free channels still service fallback sticks."
+      : "CPU priority: Speed favors faster packages, Capacity favors more cores and cache headroom, and Parallelism balances queued work.";
+
+  return (
+    <label className="scheduler-control" title={title}>
+      <span>{label}</span>
+      <select
+        aria-label={`${label} priority`}
+        value={value}
+        onChange={(event) =>
+          dispatch({
+            type: "setSchedulerResourcePriority",
+            resource,
+            priority: event.target.value as SchedulerResourcePriority,
+          })
+        }
+      >
+        {(Object.keys(resourcePriorityLabels) as SchedulerResourcePriority[]).map(
+          (priority) => (
+            <option key={priority} value={priority}>
+              {resourcePriorityLabels[priority]}
+            </option>
+          ),
+        )}
+      </select>
+    </label>
+  );
+}

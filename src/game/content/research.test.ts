@@ -25,12 +25,10 @@ const dataCost = (id: ResearchId, state: GameState) => {
 };
 
 describe("research content sheet", () => {
-  // C-DES-1: buying Scheduler Watchdog (and the Scheduling Policy ladder
-  // behind it) out of the tight pre-Scheduler Data budget could soft-lock
-  // System Scheduler funding, so it must not exist before System Scheduler.
-  it("gates Scheduler Watchdog and Scheduling Policy behind System Scheduler", () => {
+  // C-DES-1: buying Scheduler Watchdog out of the tight pre-Scheduler Data
+  // budget could soft-lock System Scheduler funding.
+  it("gates Scheduler Watchdog behind System Scheduler", () => {
     const watchdog = getDefinition("schedulerWatchdog");
-    const policies = getDefinition("schedulerPolicies");
     const preScheduler = withCompleted(["multiCore", "localScheduler"]);
     const postScheduler = withCompleted([
       "multiCore",
@@ -42,19 +40,6 @@ describe("research content sheet", () => {
     expect(watchdog.requirement(preScheduler)).toBe(false);
     expect(watchdog.reveal(postScheduler)).toBe(true);
     expect(watchdog.requirement(postScheduler)).toBe(true);
-
-    expect(policies.reveal(preScheduler)).toBe(false);
-    expect(policies.reveal(postScheduler)).toBe(false);
-    expect(
-      policies.reveal(
-        withCompleted([
-          "multiCore",
-          "localScheduler",
-          "systemScheduler",
-          "schedulerWatchdog",
-        ]),
-      ),
-    ).toBe(true);
   });
 
   // C-DES-11 / F-BAL-5: channel research is priced to its hardware era

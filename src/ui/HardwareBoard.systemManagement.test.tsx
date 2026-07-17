@@ -780,7 +780,6 @@ describe("HardwareBoard second CPU system management", () => {
           queuedCount: 1,
           schedulerConfig: {
             ...socket.schedulerConfig,
-            policy: "fifo",
           },
           cores: socket.cores.map((core, coreIndex) =>
             coreIndex === 0

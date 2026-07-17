@@ -1,9 +1,9 @@
 import {
   amount,
-  exactCost,
   type Amount,
   type ExactCost,
 } from "../amount";
+import { capacityCosts } from "../exactCosts";
 
 export const acceleratorWorkloadClasses = [
   "render",
@@ -56,10 +56,7 @@ export const acceleratorSkuDefinitions: readonly AcceleratorSkuDefinition[] = [
     activePowerWatts: amount("170"),
     idleHeatWatts: amount("16"),
     activeHeatWatts: amount("155"),
-    costs: [
-      exactCost("credits", "500000"),
-      exactCost("data", "240"),
-    ],
+    costs: capacityCosts("500000"),
   },
   {
     id: "gpuTensor24",
@@ -76,10 +73,7 @@ export const acceleratorSkuDefinitions: readonly AcceleratorSkuDefinition[] = [
     activePowerWatts: amount("320"),
     idleHeatWatts: amount("31"),
     activeHeatWatts: amount("295"),
-    costs: [
-      exactCost("credits", "24000000"),
-      exactCost("data", "900"),
-    ],
+    costs: capacityCosts("24000000"),
   },
   {
     id: "npuEdge4",
@@ -96,10 +90,7 @@ export const acceleratorSkuDefinitions: readonly AcceleratorSkuDefinition[] = [
     activePowerWatts: amount("32"),
     idleHeatWatts: amount("2.5"),
     activeHeatWatts: amount("28"),
-    costs: [
-      exactCost("credits", "650000"),
-      exactCost("data", "320"),
-    ],
+    costs: capacityCosts("650000"),
   },
   {
     id: "npuBatch16",
@@ -118,10 +109,7 @@ export const acceleratorSkuDefinitions: readonly AcceleratorSkuDefinition[] = [
     activePowerWatts: amount("90"),
     idleHeatWatts: amount("8"),
     activeHeatWatts: amount("78"),
-    costs: [
-      exactCost("credits", "36000000"),
-      exactCost("data", "1200"),
-    ],
+    costs: capacityCosts("36000000"),
   },
 ] as const;
 

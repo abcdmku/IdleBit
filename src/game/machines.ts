@@ -187,7 +187,7 @@ export const createHardwareFromMachineSelection = (
     cores: coreCount,
     schedulerSlots: cpus.reduce((total, item) => total + item.schedulerSlots, 0),
     systemSchedulerSlots: schedulerSlots,
-    systemSchedulerConfig: createSchedulerConfig({ policy: "fifo" }),
+    systemSchedulerConfig: createSchedulerConfig(),
     deadlockRecoveryLevel: 0,
     secondCpu: cpuPackageCount > 1,
     ramLevel: ramSticks.length,

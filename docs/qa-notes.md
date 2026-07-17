@@ -22,7 +22,7 @@ Target engagement and completion ranges:
   every 0/2/8/12/24/48/72/120/168-hour Automation Buffer boundary, departure
   snapshots, harmless overflow, billing, blockers, and return reports.
 - Bootstrap Node through Workshop Fleet are playable. The opening uses finite
-  first-completion/benchmark Data, plausible physical clocks, finite queues,
+  derived per-completion task Data at a whole-unit 1:10 Credit ratio, plausible physical clocks, finite queues,
   safe CRON standing orders, an explicit 16-system fully simulated Fleet cap,
   preset/Advanced builder
   projections, explicit bounded hardware, per-system cooling/overclock state,
@@ -34,7 +34,7 @@ Target engagement and completion ranges:
 - Fetch Bit separates a one-bit cache read from explicit latch/verify CPU work.
   Tests prove that its 1 b load takes exactly 1 second at 1 Hz while whole-task
   duration remains emergent from the full operation path. Shared progress bars
-  visually bridge exact 500 ms state updates, snap backward batch resets, and
+  visually bridge exact frame-aligned state updates targeting 10 ms, snap backward batch resets, and
   retain exact ARIA values.
 - PSU draw and headroom are visible from the opening, while energy is subsidized
   and unsafe work pauses safely. PSU Management appears only after System
@@ -108,6 +108,40 @@ Target engagement and completion ranges:
   Windows metadata semantics reject Electron Builder output; that environment
   limitation is distinct from an application packaging failure.
 
+### Task-reveal gating acceptance (automated pass)
+
+Status: **Passed by focused automated component/integration coverage.** The
+fresh browser/manual desktop and mobile smoke was not rerun in this turn, so the
+result below is not evidence of a new hands-on smoke pass against a running app.
+
+- A fresh game intentionally shows only the Fetch Bit / Decode Bit starter pair
+  in Jobs. Decode Bit may show its normal hardware blocker; neither starter is
+  hidden behind research.
+- Every other normal task remains absent from Jobs until its prerequisite
+  research is complete. Starting or partially progressing that research does not
+  reveal the task; completing it reveals the task without requiring a reload.
+- Research benchmark work appears only inside the research card that owns it.
+  Benchmarks never appear as normal Job cards, including while available,
+  running, blocked, completed, or revisiting completed research.
+- Desktop and mobile render no one-frame flash, empty-card placeholder, search or
+  filter result, count/badge increment, or other metadata leak for unrevealed
+  tasks during initial load, tab/route changes, research progress, or research
+  completion.
+- Fresh saves and hydrated saves preserve the same gates. Saves captured before
+  research, during research, and after completion reveal exactly the tasks
+  justified by completed research, with no transient leak while hydration or
+  offline advancement is applied.
+- Focused reveal, UI, and mobile coverage passed 179/179 tests across 4 files,
+  including game-owned reveal state/selectors, visible Jobs and research
+  surfaces, responsive treatment, and saved-state cases.
+- Full `npm test` passed 1,004/1,004 tests across 120 files.
+- `npm run typecheck` passed.
+- `npm run build` passed with only the existing non-blocking Vite warning for a
+  minified chunk larger than 500 kB.
+- A fresh browser/manual smoke at desktop and mobile widths remains useful final
+  observational evidence for flash-free first paint and route transitions; it
+  was not run as part of this automated verification pass.
+
 ### Offline catch-up terminology
 
 Historical CRON v1 checks below say that missed CRON runs did not “catch up.” That means the timer did not enqueue every missed interval after a duplicate, blocker, full queue, power transition, reload, or absence. It does **not** mean all elapsed game time must be discarded. The campaign target intentionally adds bounded whole-game offline simulation for `min(actual elapsed, Automation Buffer owned at departure)` while retaining safe pauses and no retroactive recovery beyond the departure buffer.
@@ -137,15 +171,18 @@ implementation evidence above and `game-spec.md` section 0.
 - Player-facing jobs/tasks are backed by low-level CPU operations.
 - Task definitions infer cached internal recipe-step DAG nodes plus deterministic accept/stage/execute/complete dependencies for ready/waiting reasons.
 - CPU Package Level upgrades affect CPU operation throughput and power draw for every core in that package, with the target-level cost multiplied by installed cores.
-- After CPU Operation Scheduler unlock, the Cores header can select all cores on that CPU for upgrade tuning only, retargeting the package-level +/- control to a combined buy/downgrade cost without creating an all-core task route.
+- The Cores header has no All selector or per-core frequency path: its single Core Freq control tunes the CPU package, every installed core inherits that package tier and level, and legacy mixed core levels normalize to one package frequency.
 - Cache upgrades affect cache operation queue capacity/load behavior.
 - Reversible hardware specs expose one +/- control, refund half of the last purchase cost on downgrade, and dim unaffordable credit/data tokens instead of disabling the full spec row.
 - Workshop cooling tiers follow the same reversibility rule: the tier ladder lives inside the Thermal section under the heat/stress readout, lower tiers stay clickable as downgrades refunding half of the installed tier's cost (shown as +tokens, never dimmed), no thermal gate blocks the downgrade (throttling is the deterrent, like overclock presets), and reinstalling a higher tier pays its full price again.
 - Cache-required tasks wait for cache fill before required operations execute.
 - Active and queued tasks can be canceled without granting rewards.
 - Multi-core unlock is gated by early benchmark progression.
+- Multi-Core Control requires the single-core Micro Benchmark; after it is researched, installing core 2 reveals Parallelism Benchmark, which runs directly across both cores and gates Local Scheduler.
+- Player-facing RAM tasks stay hidden until System Scheduler research and always enter through System Scheduler slots.
+- System Scheduler shows RAM Speed/Capacity/Parallelism only with multiple sticks and CPU Speed/Capacity/Parallelism only with multiple CPU packages; changing either control immediately changes routing policy.
 - RAM Control appears alongside System Scheduler after Local Scheduler research.
-- Four-core milestone plus RAM Control and 1 Kb RAM unlock System Scheduler behavior.
+- The established two-core machine plus RAM Control and 1 Kb RAM unlocks System Scheduler behavior; its RAM jobs provide the next income step before the four-core System Bus benchmark.
 - Completed System Scheduler research reveals a paid system-level scheduler install outline above RAM; buying the first System Queue Slot makes it usable for whole system tasks.
 - System Queue Slot upgrades are separate from CPU Queue Slot upgrades.
 - CPU purchases on existing systems install a level-1 one-core package matching the system's installed CPU tier, price CPU #2/#3/#4/etc. exponentially at 2x/4x/8x/etc. the tier base price, reduce effective CPU efficiency by 25% per added CPU package, and show projected power increase; buying another CPU reveals CRON Scheduler research only, while baseline PSU/power readouts are already present.
@@ -163,7 +200,7 @@ implementation evidence above and `game-spec.md` section 0.
 - kHz CPU Research unlocks after System Automation; completing each CPU tier research reveals the next MHz, GHz, THz, and PHz package tier plus the matching RAM tier from the CSV, and C-State Control appears after kHz CPU Research, then stays open as a global `Level up` research item until max C-State level while reducing idle CPU draw only across every system.
 - Cache/RAM exhaustion becomes an active deadlock state only when active staging would write beyond available capacity once total installed capacity fits the task; cache deadlocks halt the affected CPU package, RAM deadlocks halt the whole system, deadlocked hardware plus scheduler slots render red, and the 10-second deadlock countdown appears as a progress bar in the Cores header before CPU packages exist, then in the CPU or RAM header after those surfaces unlock.
 - The first visible deadlock shows a one-time Cache/RAM help caption with a Got it dismissal stored outside the save blob, followed by a one-time cooldown caption that pauses the game while visible.
-- Scheduler Watchdog and Scheduling Policy research reveal auto-kill and dispatch-policy controls.
+- Scheduler Watchdog research reveals auto-kill and kill-target controls; queue dispatch itself is fixed safe FIFO and has no separate policy research or selector.
 - Broad auto-repeat outside CRON v1 remains deferred.
 - Networking, data centers, SLA contracts, availability zones, and regions remain out of scope for this slice.
 
@@ -240,12 +277,12 @@ Target scope from `game-spec.md` section 13.3:
   - Cache capacity upgrades are data-weighted; cache speed upgrades are available immediately and use the same CPU tier frequency values and target-level per-core credit costs as CPU package levels.
   - Reversible hardware upgrades can be downgraded for a 50% refund of the last level cost, while occupied scheduler/cache/RAM/core capacity blocks unsafe removal.
   - Broad auto-repeat does not unlock in the early slice; only CRON v1 can automate repeatable system tasks after CRON Scheduler research and the first CRON Job Slot purchase.
-  - Multi-core research requires the micro/parallelism benchmark path.
+  - Multi-Core Control requires Micro Benchmark; installing core 2 then reveals Parallelism Benchmark as the Local Scheduler compute gate.
   - Click Rate Tuning appears after Local Scheduler, unlocks for 500,000 credits, then stays as a research `Level up` item for levels 1-36; level 1 costs 100,000 credits, later costs use rounded 1.4x growth, and levels raise manual hold dispatch from 10 Hz to 80 Hz while level 0 keeps the 110 ms default.
   - RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b RAM stick and a 1 Hz load rate.
   - First RAM install lets the player choose any CPU-unlocked RAM tier, then later RAM sticks match the existing system RAM tier; selected-stick or all-stick capacity and frequency upgrades are independent, mixed capacity and frequency are allowed, RAM frequency values match the core/cache tier clock ladder, capacity doubles each RAM level, each RAM tier is 1024x the previous tier at the same level, new-stick costs use CPU-style tier credit costs with CPU-package-style per-stick doubling, frequency costs use CPU-style tier credit costs, and capacity costs multiply that CPU-style cost by `2^(level - 1)`.
   - RAM readouts report module frequency from the installed sticks and do not sum stick speeds into a total RAM speed.
-  - System Scheduler unlocks at the four-core milestone after RAM Control and at least 1 Kb RAM.
+  - System Scheduler unlocks on the two-core machine after RAM Control and at least 1 Kb RAM; its RAM jobs fund the later four-core System Bus benchmark.
   - Bootloader Research unlocks after System Scheduler research, then levels from 1 to 36 through the research card to reduce startup from 9.20s to 0.10s with 0.26s removed per level and apply the same saved seconds to graceful shutdown.
   - Second CPU unlock requires System Scheduler, multi-core benchmark completion, and System Bus research.
   - Second CPU purchase installs a level-1 one-core package matching the existing system CPU tier, reveals CRON Scheduler research, and leaves locked CRON, advanced PSU/tuning, and Thermal modules hidden.
@@ -260,7 +297,7 @@ Target scope from `game-spec.md` section 13.3:
   - Basic queue assigns ready operations/tasks to idle cores after queue slots are purchased.
   - CPU scheduler backlog capacity starts at 0; CPU Queue Slot upgrades add finite CPU queued-task capacity, full queues block additional CPU queue intake, and multicore tasks cannot provision more cores on a CPU than that CPU's scheduler slots support.
   - System tasks enter the visible System Scheduler as whole tasks through separate System Queue Slot capacity; CPU-local scheduler targeting only accepts CPU-bound tasks and reserves system task CPU work at dispatch time.
-  - Only the None scheduler policy skips deadlock lookahead. System Scheduler FIFO routing feeds the least-filled eligible CPU scheduler in stable CPU order, Least queued and Most headroom choose CPU schedulers by queued runtime and cache headroom, non-None System Scheduler routing waits for enough free RAM footprint, and CPU cache pressure plus CPU hardware fit remain delegated to the selected CPU scheduler.
+  - CPU and System Scheduler queues use fixed safe FIFO admission. System resource priorities choose eligible CPU packages by speed, headroom, or balanced queued work, while RAM-safe admission and CPU-local cache fit always remain enforced.
   - Scheduler Watchdog auto-kill applies only to scheduler-owned active deadlocks, shows the pending kill victim with its target core and a countdown, waits for 3 seconds of continuous deadlock, and obeys the configured kill policy.
   - System Scheduler watchdogs own RAM deadlocks only; CPU-cache deadlocks from system-scheduled CPU work surface on the affected CPU scheduler watchdog.
   - Deadlock Cooldown upgrades become available after Scheduler Watchdog and increase the post-deadlock pressure drain rate.
@@ -282,7 +319,7 @@ Target scope from `game-spec.md` section 13.3:
   - RAM extends the memory staging hierarchy after cache and stages larger active/intermediate work after RAM Control.
   - RAM appears above the CPU package as a paid first-stick install outline, then shows one selectable module-card strip with fixed small-grid sizing such as 2x2 for four sticks; System Scheduler appears above RAM after research as a paid first-slot install outline.
   - RAM load progress is visible as fixed per-stick address blocks with loading/ready state, and CPU processing waits until the RAM-backed work is loaded.
-  - Single-channel RAM allocations fill lower-numbered sticks first and spill to later sticks for capacity, but only one stick is actively written per channel at a time. Concurrent writes to different blocks on the serviced stick/channel share that lane. Aggregate RAM write speed is capped by both writer-core Hz and serviced RAM-lane Hz. Dual, Quad, and Oct Channel RAM research cost 200,000/20,000, 50,000,000/5,000,000, and 1,000,000,000/100,000,000 credits/data, no longer require matching installed stick counts, and let the System Scheduler stripe writes across up to 2/4/8 serviced channel lanes capped by installed sticks; later stick groups wait behind the lowest pending group instead of skipping lower-numbered sticks, unused later sticks reserve before spare capacity on larger earlier sticks, and the RAM panel reports active/max channels plus effective write bandwidth.
+  - System Scheduler RAM priority is selectable when multiple sticks exist: Speed allocates to faster sticks first but keeps slower sticks active on otherwise free channels, Capacity favors groups with more free space without blocking fallback channels, and Parallelism deliberately stripes ready loads across available sticks and lanes. Aggregate RAM write speed is capped by writer-core Hz and participating RAM-lane Hz. Dual, Quad, and Oct Channel RAM research retains its 200,000/20,000, 50,000,000/5,000,000, and 1,000,000,000/100,000,000 credits/data costs and caps usable service at 2/4/8 lanes or the installed stick count, whichever is lower.
   - Memory Voltage Modifier is a repeatable RAM idle-draw reduction path after RAM Control plus kHz CPU Research; it starts repeat levels at 100,000 credits, multiplies each next level by 1.8, and does not change active RAM write bandwidth.
   - Total RAM fit still blocks impossible tasks; System Scheduler dispatch waits for free RAM footprint before starting more system work, while any forced/legacy RAM exhaustion during active writes still creates a system-wide deadlock.
   - RAM loading does not prevent unrelated manual or queued CPU-level work from starting when enough idle cores and cache remain.
@@ -424,7 +461,7 @@ Historical `FEATURES.md` observations at that checkpoint:
 - `FEATURES.md` exists and names `game-spec.md` as the source of truth.
 - Vertical slice simulation and responsive UI features that match the current operation-task build are marked `Tested` when existing notes cite automated or smoke evidence.
 - Bit-scale startup, progressive task/research reveal, inferred task composition DAG, and deferred Thermal gate evidence remain tracked from automated verification and browser smoke.
-- Operation composition, cache queue/fill behavior, paid cache/RAM load operation totals, per-core derived task resource needs, finite CPU-local scheduler queue slots, separate System Scheduler queue slots, system-vs-CPU scheduler task routing, adaptive scheduler slot grids, duplicate scheduled-copy status display, compact task route controls, CPU package reveal, full-width dense core grid layouts and cache/scheduler pairing, active scheduler queue reservations until completion, System Scheduler FIFO least-filled routing plus Least queued/Most headroom routing across CPU scheduler slots on the selected system while CPU cores are busy, CPU cache is undersized, or CPU-local cache policy is blocking execution, lower-level CPU scheduler wait reasons bubbling up to System Scheduler slots, scheduler waiting/active reasons and core-first pickup blocker priority, scheduler width gating for multicore tasks, CPU-local cache/scheduler gates, RAM Control and 1 Kb System Scheduler gates, System Scheduler above RAM, RAM above CPU, researched tier level-1 CPU installs, CPU Package Level upgrades with per-core pricing, Add Core tier/base CPU cost plus CPU/cache-frequency backfill, socket power-delta readouts, data-weighted cache capacity costs, CPU-tier cache frequency, CPU-style RAM frequency costs, CPU-style RAM new-stick costs with per-stick doubling, size-scaled RAM capacity costs, RAM tier caps unlocked through CPU research, reversible upgrade refunds and occupied-capacity downgrade blockers, cache deadlocks with CPU-local halt behavior, System Scheduler RAM footprint waiting, 10-second deadlock failure and cooldown lockout behavior, high-contrast deadlock countdown header placement with persistent fill/drain progress bars, post-failure greyed lockout hardware, non-None CPU scheduler footprint dispatch, None-policy unsafe dispatch/admission, and System Scheduler route-policy RAM-footprint intake gating, watchdog auto-kill core/countdown display, scheduler policy controls, fixed-address RAM blocks, single-channel RAM spillover across sticks with one actively serviced stick per channel, RAM channel striping, visible RAM load progress before CPU execution, queue acceptance under active pressure, previous PSU stress, CPU tier power draw, Memory Voltage Modifier idle RAM draw reduction with 1.8x repeat costs, mixed-size/mixed-frequency RAM sticks with per-stick and all-stick upgrades, and non-summed RAM module frequency readouts are covered by automated or smoke verification.
+- Operation composition, cache/RAM staging, finite CPU and System Scheduler slots, parent/child queue ownership, safe FIFO cache/RAM admission, RAM/CPU resource priorities, fixed-address RAM blocks, channel-aware service, visible waiting reasons, deadlock recovery, watchdog controls, and mixed RAM capacity/frequency tuning are covered by automated or smoke verification. The former None/FIFO/Shortest/Smallest policy selector and Scheduling Policy research were removed; resource priorities remain because they select hardware rather than reorder queue intake.
 - New CRON, CPU tier research, C-State, hidden pre-research automation, deferred PSU Management/Thermal, first-screen PSU Capacity, paid-over-time power billing, power state, PSU overload failure, and RAM/CPU efficiency matching rows are tracked with automated coverage.
 - The first-screen PSU/readout, immediate billing, 0-credit bootstrap grace, 10-second unpaid-credit cutoff warning, unpaid auto-shutdown, first-time/repeat out-of-credits popups that mention restart grace, early PSU Capacity, graceful shutdown drain, hard PSU failure, full-card PSU over-power flashing, header overload progress, first-time overload-failure popup, and repeat-failure topbar badge expectations above have automated verification; browser smoke evidence should still be refreshed after UI changes.
 - Browser persistence and Electron shell are marked `Built`.
@@ -464,7 +501,10 @@ Historical `FEATURES.md` observations at that checkpoint:
 - Chunked system task refactor on May 22, 2026: `npm test`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Browser smoke at `http://localhost:6173/` reloaded cleanly after Vite refreshed stale hot-module state. Coverage verifies chunked Compile Code runs faster with more selected-system cores, uses idle cores across CPU packages without crossing systems, and reports chunk count in task cards.
 - CPU pricing loophole fix on May 23, 2026: `npx vitest run src/game/simulation.test.ts`, `npm test`, `npm run typecheck`, and `npm run build` passed. Coverage verifies CPU Package Level costs multiply by installed cores, Add Core includes the selected CPU package tier's level-1 cost plus current CPU level and cache-frequency backfill costs, and cache frequency uses the same CPU tier frequency/cost ladder as CPU package levels. Full `git diff --check` remains blocked by the unrelated pre-existing `src/ui/rack/types.ts` blank line at EOF, while scoped `git diff --check` for touched CPU/cache files passed.
 - System Scheduler RAM intake fix on May 24, 2026: `npx vitest run src/game/simulation.test.ts -t "RAM|system scheduler|multiple system tasks|FIFO system scheduler"`, `npm test`, `npm run typecheck`, `npm run build`, and scoped `git diff --check` passed; full `git diff --check` remains blocked by the unrelated pre-existing blank EOF in `src/ui/rack/types.ts`. Coverage verifies multiple system-scheduled RAM tasks continue completing without getting stuck in loading, FIFO System Scheduler dispatch waits for free RAM footprint, and CPU-local cache deadlock behavior remains separate.
-- CPU-bound system composition refactor on May 24, 2026: system/distributed task definitions now compose CPU-bound child tasks instead of owning direct operations, RAM Control reveals CPU-bound RAM read/write/overwrite page tasks, and scheduler queue metadata tracks parent system entries plus CPU-bound child reservations. Targeted simulation coverage verifies non-CPU task composition invariants, RAM task visibility, system tasks staying queued without CPU scheduler slots, and composed Tiny Checksum/Compile Code CPU scheduler reservations.
+- Scheduler resource-routing pass on July 17, 2026: all 1,014 tests, TypeScript checks, the web production build, Electron compilation, and scoped diff checks passed. Coverage verifies the second-core Parallelism Benchmark gate, System Scheduler ownership for every player-facing RAM task, Speed/Capacity/Parallelism RAM and CPU priorities, first-slot balance progression, multicore remaining-time projection, legacy scheduler-config defaults, and visible priority controls.
+- System Scheduler RAM Speed correction on July 17, 2026: new multi-channel allocations now fill the fastest available stick first when the load fits instead of unconditionally striping onto slower sticks as though Parallelism were selected. The focused live-setting regression, all 152 simulation tests, the full 1,015-test suite, and TypeScript checks passed.
+- RAM priority fallback and scheduler-policy removal on July 17, 2026: Speed and Capacity now resolve contention per physical RAM channel, so the preferred stick wins its lane while slower/smaller sticks continue as fallback on free channels; Parallelism remains the explicit striping mode. The None/FIFO/Shortest/Smallest scheduler policy state, actions, UI selector, research definition, flag, and dispatch branches were removed. CPU and System Scheduler queues now use one safe FIFO admission path, while RAM/CPU resource priorities remain as hardware-placement controls. Focused RAM, research, scheduler lifecycle, and UI checks passed, followed by all 1,008 repository tests and TypeScript checks.
+- CPU-bound system composition refactor on May 24, 2026: system/distributed task definitions now compose CPU-bound child tasks instead of owning direct operations, player-facing RAM page tasks are System Scheduler-owned, and scheduler queue metadata tracks parent system entries plus CPU-bound child reservations. Targeted simulation coverage verifies non-CPU task composition invariants, RAM task visibility, system tasks staying queued without CPU scheduler slots, and composed Tiny Checksum/Compile Code CPU scheduler reservations.
 - RAM channel research gate/cost cleanup on May 25, 2026: `npx vitest run src/game/simulation.test.ts -t "RAM channel research|keeps RAM writes|stripes system-scheduled RAM"`, `npx vitest run src/game/simulation.test.ts`, `npm test`, `npm run typecheck`, and `npm run build` passed. Browser check at `http://localhost:6173/` verified Dual Channel RAM shows 200 K credits and 20,000 data with no `Install 2 RAM sticks` blocker and no console errors. Coverage verifies Dual, Quad, and Oct Channel RAM research can complete with one installed RAM stick, cost 200,000/20,000, 50,000,000/5,000,000, and 1,000,000,000/100,000,000 credits/data, and keep runtime channel lanes capped by installed sticks.
 - Core add-control outline cleanup on May 25, 2026: `npx vitest run src/ui/HardwareBoard.schedulerLayout.test.tsx`, `npm test`, `npm run typecheck`, and `npm run build` passed. Browser check at `http://localhost:6173/` verified the Core add stepper uses a solid border, has no `add-core-stepper` dashed class, and logs no console errors.
 - CPU core sale regression on May 25, 2026: `npx vitest run src/game/simulation.test.ts -t "sold CPU core|CPU level and core costs|cache frequency and core costs"`, `npx vitest run src/game/simulation.test.ts`, `npm test`, `npm run typecheck`, and `npm run build` passed. Browser smoke at `http://localhost:6173/` loaded the IdleBit app shell with no console errors. Coverage verifies selling a core refunds credits and removes that core from hardware, visible CPU sockets, clock levels, and core scheduler state.
@@ -521,11 +561,54 @@ Current files include the React/Vite app, pure `src/game` simulation, platform p
 
 - Exact payout coverage passed: the closed-world payout ledger enumerates public Credit-producing workloads, base rewards remain tied to the same exact paid work volume, and named managed-work multipliers preserve that attribution.
 - Per-system Local Fabric hardware passed: NIC installs are campaign-gated, charge exact SKU costs, expose real ingress/egress rates only on the addressed machine, and retain their hardware provenance through save serialization.
-- Task reward projection passed: first-completion Data is shown while pending, paid once, removed from the task card after completion, and not paid on repeats.
-- Canonical operation accounting passed: UI `ops` count authored invocations independently from transferred cache/RAM bits and CPU cycles; opening coverage verifies Fetch Bit at 2 ops/2 paid work/2 Credits and Bit Flip at 3 ops.
+- Task reward projection passed: Fetch Bit exposes the one-Data minimum without a Data prerequisite, and public task Data derives from gross Credits at a whole-unit 1:10 ratio, remains visible, and settles on every completion.
+- Canonical work accounting passed at that checkpoint: gross payouts remained tied to exact paid hardware work rather than a displayed compute count. The July 13 correction below supersedes the earlier UI unit definition and establishes player-facing `ops` as CPU cycles while keeping authored invocation counts internal.
 - Stable runtime UI passed: shared progress meters publish exact accessible values while smoothing forward motion and snapping semantic resets; Playwright verified starting work updates reserved status without shifting the interface across responsive and reduced-motion coverage.
 - Event delta invariance passed: foreground simulation matches across one-shot and partitioned advances at operation transitions, and Workshop accelerator/thermal work matches across event-boundary chunking.
 - `npm test`: passed — 93 test files, 807 tests (95.89s Vitest duration; 98.5s command wall time).
 - `npm run typecheck`: passed — app, E2E, and Electron TypeScript projects (27.1s).
 - `npm run build`: passed — Vite production build and Electron compile (69.5s). Vite emitted the existing non-blocking warning that a minified chunk exceeds 500 kB.
 - `npx playwright test` against `http://127.0.0.1:6173/`: passed — 34 Chromium tests (38.2s test duration; 41.7s command wall time), including 320–1920 px layouts, 200% reflow, reduced motion, accessibility, persistence, progressive campaign controls, Local Fabric/cluster/Cloud flows, project ownership, and no-shift work interactions.
+
+## July 13, 2026 — Task and Research UI Correction Checklist
+
+Focused automated acceptance and the targeted responsive browser subset passed.
+The browser subset did not directly exercise a populated/seeded Research state,
+so Research copy and state treatment below are verified by focused component
+assertions rather than claimed as direct browser-smoke evidence.
+
+- Passed: Decode Bit shows 2 compute `ops` and its cache work concisely, displays a 4-Credit payout, and records an exact gross task-completion reward/event of 4 Credits. The card does not advertise 5 Credits; verification correctly avoids asserting a +4 total-balance delta because independent power billing can settle during the same runtime interval.
+- Passed: all 24 player-facing definitions (20 repeatable jobs and 4 one-shot benchmarks) were audited. Every gross Credit payout and selector projection equals the definition's exact overlap-aware paid hardware-work units rather than an authored operation-invocation count.
+- Passed: player-facing `ops` are CPU cycles and appear as one compute value alongside cache/RAM need or fit where applicable; authored operation-invocation counts remain internal. A core badge appears only when `requiredCores > 1`, while chunk counts use a distinct non-core treatment.
+- Passed: task requirements omit a paid-work-unit value that merely duplicates the Credit payout; payout remains in the reward position, while requirements show actionable compute, cache, RAM, core, and chunk information.
+- Passed by focused component assertions: Research UI copy uses `Research` for an available action and `Researched` for completed work, without describing research as bought, built, or purchased.
+- Passed by focused component assertions: Research prerequisites use compact readable text instead of generic `Req` or `Task` pills, retaining complete wording in accessible labeling where shortening is necessary.
+- Passed by focused component assertions: blocked task, research, and research-compute actions present their reason in a wide control with the full reason in the accessible name.
+- Passed: ready, blocked, active, queued, completed, and researched state changes retain reserved row structure instead of moving adjacent content.
+- Passed by targeted Playwright: 1920 px desktop, 760 px tablet, 430 px and 320 px phone layouts, plus 200% equivalent reflow remain contained without overlapping controls, tiny blocked actions, or horizontal page scrolling.
+
+Final automated catalog audit after the Decode Bit correction reports zero mismatches across all 24 public definitions: exact rewards and selector projections match exact paid hardware work for the 20 repeatable jobs and 4 one-shot benchmarks, and all 20 repeatable completion intervals emit the expected exact gross reward.
+
+Verification results:
+
+- Focused task/research/payout suite: passed 31 tests across 6 files.
+- `npm test`: passed 1,001 tests across 120 files.
+- `npm run typecheck`: passed the app, E2E, and Electron TypeScript projects.
+- `npm run build`: passed; Vite emitted only the existing non-blocking warning for a minified chunk larger than 500 kB.
+- Final targeted responsive Playwright subset: passed 5/5 at 1920 px desktop, 760 px tablet, 430 px and 320 px phone widths, and 200% equivalent reflow.
+- An earlier full 36-test E2E attempt completed 22 tests and had 14 unrelated existing failures across Automation Buffer, persistence, Cloud, and WorkDeck coverage. It is not used as evidence for this focused pass; the final 5/5 responsive subset is the browser acceptance evidence for the July 13 scope.
+
+## July 17, 2026 — Non-selectable UI
+
+- Application text cannot be selected or highlighted. The global foundation rule disables selection and the touch callout for every rendered element, including controls and dynamically rendered content.
+- `npm run typecheck`: passed.
+- `npx playwright test e2e/app-shell.spec.ts -g "prevents text selection"`: passed 1/1 in Chromium; the assertion checked `user-select: none` on the document body and every rendered descendant after hydration.
+
+## July 17, 2026 — Data-Storage Capacity Pricing
+
+- Cache capacity, RAM installs and size upgrades, persistent storage, server memory, and accelerator device memory now cost exactly 10 Data per 1 Credit through one shared exact-cost function.
+- PSU, thermal, scheduler-slot, network, offline-time, and facility limits are explicitly outside this rule; focused coverage verifies that PSU capacity remains Credits-only and RAM frequency remains speed-priced.
+- Preset and Advanced machine builds share the same RAM capacity calculation, including the four-stick doubling ladder, so neither path bypasses the Data cost.
+- The new pairing with typical 1:10 Credit-to-Data task payouts creates an effective 100x Data burden. Measured balance coverage now places Local Scheduler in the second regular daily session and records that the former 4/10-day CRON milestones are no longer reachable under those old horizons. This is retained as pacing evidence for the next campaign rebalance rather than masked with legacy expectations.
+- `npm test`: passed 1,011 tests across 121 files.
+- `npm run typecheck`: passed the app, E2E, and Electron TypeScript projects.

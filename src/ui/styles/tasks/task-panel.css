@@ -305,10 +305,16 @@
   white-space: nowrap;
 }
 
+.meta-chip > small {
+  color: var(--muted-2);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .meta-chip.ops > svg,
 .meta-chip.cores > svg,
 .meta-chip.chunked > svg { color: var(--cyan); opacity: 1; }
-.meta-chip.work > svg { color: var(--amber); opacity: 1; }
 .meta-chip.cache > svg { color: var(--green); opacity: 1; }
 .meta-chip.ram > svg { color: var(--violet); opacity: 1; }
 

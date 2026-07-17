@@ -1012,7 +1012,6 @@ const guardedManagedSystemActionTypes = new Set<GameAction["type"]>([
   "setCronTask",
   "setCronInterval",
   "setCronEnabled",
-  "setSchedulerPolicy",
   "setSchedulerAutoKill",
   "setSchedulerKillPolicy",
   "buyUpgrade",

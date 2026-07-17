@@ -189,7 +189,7 @@ export function RamPressureMeter({
 
 /**
  * One RAM occupancy block. The outer span's inline width/left carry the
- * runtime motion (bits reserved grow every 500ms snapshot), so they interpolate
+ * runtime motion (bits reserved grow on ~10ms snapshots), so they interpolate
  * via the CSS width/left transition and snap — never animate backward — when
  * either extent shrinks or the block moves left (frees/repacking).
  */
@@ -271,7 +271,7 @@ function CachePressureMeter({
 /**
  * One cache lane extent. The pipeline lanes pin the inner SmoothFills to
  * constants, so ALL runtime motion is the outer span's inline width (bits
- * accrue every 500ms snapshot). The CSS width transition interpolates that
+ * accrue on ~10ms snapshots). The CSS width transition interpolates that
  * growth at display FPS; batch commits/consumption shrink the extent and must
  * snap instead of animating backward.
  */
@@ -317,14 +317,12 @@ function CachePressureSegment({
         } as CSSProperties
       }
     >
-      <SmoothFill
-        className="cache-pressure-buffer"
-        value={
-          segment.state === "loading" || segment.state === "loaded"
-            ? 1
-            : segment.bufferProgress
-        }
-      />
+      {segment.state !== "loaded" && (
+        <SmoothFill
+          className="cache-pressure-buffer"
+          value={segment.state === "loading" ? 1 : segment.bufferProgress}
+        />
+      )}
       <SmoothFill
         className="cache-pressure-fill"
         value={getCacheSegmentWriteProgress(segment)}

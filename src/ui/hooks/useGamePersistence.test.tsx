@@ -192,6 +192,7 @@ describe("useGamePersistence", () => {
   });
 
   it("accumulates animation frames into deterministic foreground intervals", async () => {
+    expect(FOREGROUND_ADVANCE_INTERVAL_MS).toBe(10);
     const callbacks: FrameRequestCallback[] = [];
     rafSpy.mockImplementation((callback: FrameRequestCallback) => {
       callbacks.push(callback);
@@ -221,8 +222,8 @@ describe("useGamePersistence", () => {
     };
 
     runLatestFrame(base);
-    runLatestFrame(base + 100);
-    runLatestFrame(base + 200);
+    runLatestFrame(base + FOREGROUND_ADVANCE_INTERVAL_MS / 4);
+    runLatestFrame(base + FOREGROUND_ADVANCE_INTERVAL_MS / 2);
     expect(latestHook.state.tick).toBe(initialTick);
 
     runLatestFrame(base + FOREGROUND_ADVANCE_INTERVAL_MS);
@@ -231,7 +232,8 @@ describe("useGamePersistence", () => {
       6,
     );
 
-    runLatestFrame(base + FOREGROUND_ADVANCE_INTERVAL_MS + 125);
+    const remainderMs = FOREGROUND_ADVANCE_INTERVAL_MS / 4;
+    runLatestFrame(base + FOREGROUND_ADVANCE_INTERVAL_MS + remainderMs);
     expect(latestHook.state.tick).toBeCloseTo(
       initialTick + FOREGROUND_ADVANCE_INTERVAL_MS / 1_000,
       6,
@@ -243,7 +245,7 @@ describe("useGamePersistence", () => {
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await flushEffects();
     expect(latestHook.state.tick).toBeCloseTo(
-      initialTick + (FOREGROUND_ADVANCE_INTERVAL_MS + 125) / 1_000,
+      initialTick + (FOREGROUND_ADVANCE_INTERVAL_MS + remainderMs) / 1_000,
       6,
     );
   });

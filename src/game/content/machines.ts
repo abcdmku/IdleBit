@@ -15,7 +15,6 @@ import {
   getRamTierFirstGlobalLevel,
   getRamTierCapacityUpgradeCost,
   getRamTierInstallCost,
-  getRamTierLevelDefinition,
   getRamTierSpeedUpgradeCost,
 } from "./ramTiers";
 import { getPsuCapacityBuildCost } from "./psu";
@@ -23,7 +22,6 @@ import { getCpuSchedulerSlotBuildCost } from "./scheduler";
 import { cacheCapacityCosts, coreCosts } from "./componentCosts";
 import { normalizeMachineComponentSelection } from "../machineSelection";
 import {
-  amountMultiply,
   amountPow,
   type AmountInput,
 } from "../amount";
@@ -62,14 +60,11 @@ const ramTierLevel = (tierId: CpuTierId) => getRamTierFirstGlobalLevel(tierId);
 // Preset RAM tiers price sticks exactly like the in-place install ladder
 // (each additional stick doubles), so a preset never undercuts the identical
 // Advanced selection (F-BAL-4): sum(2^i, i < stickCount) = 2^stickCount - 1.
-const ramTierCost = (tierId: CpuTierId, stickCount = RAM_TIER_STICK_COUNT) => [
-  credits(
-    amountMultiply(
-      getRamTierLevelDefinition(ramTierLevel(tierId)).upgradeCost,
-      2 ** Math.max(0, stickCount) - 1,
-    ),
-  ),
-];
+const ramTierCost = (tierId: CpuTierId, stickCount = RAM_TIER_STICK_COUNT) =>
+  scaleCostsExact(
+    getRamTierInstallCost(ramTierLevel(tierId)),
+    2 ** Math.max(0, stickCount) - 1,
+  );
 
 const getPositiveInteger = (value: number | undefined, fallback: number) =>
   Math.max(0, Math.trunc(value ?? fallback));

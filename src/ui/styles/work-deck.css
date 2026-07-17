@@ -7,8 +7,6 @@
   padding: var(--s-2) var(--s-3) var(--s-3);
 }
 
-.mobile-current-objective { display: none; }
-
 .automation-buffer-panel {
   display: grid;
   gap: var(--s-3);
@@ -72,6 +70,14 @@
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.automation-buffer-panel > .automation-buffer-purpose {
+  overflow: visible;
+  color: var(--text-caption);
+  line-height: 1.45;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .automation-buffer-upgrade {
@@ -721,40 +727,6 @@
 @media (max-width: 760px) {
   .work-panel-body {
     padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--s-4));
-  }
-
-  .mobile-current-objective {
-    display: grid;
-    gap: 2px;
-    /* Fixed reserved height: objective text changes must never reflow. */
-    height: 38px;
-    padding: var(--s-1) var(--s-3);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius);
-    background: var(--tile);
-    overflow: hidden;
-  }
-
-  .mobile-current-objective small,
-  .mobile-current-objective strong {
-    overflow: hidden;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-current-objective small {
-    color: var(--cyan);
-    font-family: var(--font-mono);
-    font-size: var(--fs-2xs);
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
-  }
-
-  .mobile-current-objective strong {
-    color: var(--text);
-    font-family: var(--font-display);
-    font-size: var(--fs-xs);
   }
 
   .automation-buffer-upgrade {

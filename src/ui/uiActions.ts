@@ -4,7 +4,7 @@ import type {
   CpuTierId,
   GameAction,
   SchedulerKillPolicy,
-  SchedulerPolicy,
+  SchedulerResourcePriority,
   TaskId,
   ProjectId,
 } from "../game";
@@ -35,16 +35,15 @@ export type UiGameAction =
     }>
   | WithSystem<{ type: "cancelQueuedTask"; taskId: string }>
   | WithSystem<{
-      type: "setSchedulerPolicy";
-      target: "cpu" | "system";
-      policy: SchedulerPolicy;
-      cpuId?: number;
-    }>
-  | WithSystem<{
       type: "setSchedulerAutoKill";
       target: "cpu" | "system";
       enabled: boolean;
       cpuId?: number;
+    }>
+  | WithSystem<{
+      type: "setSchedulerResourcePriority";
+      resource: "ram" | "cpu";
+      priority: SchedulerResourcePriority;
     }>
   | WithSystem<{
       type: "setSchedulerKillPolicy";

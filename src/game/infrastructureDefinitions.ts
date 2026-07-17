@@ -1,4 +1,5 @@
 import { amount, exactCost } from "./amount";
+import { capacityCosts } from "./exactCosts";
 import type {
   CapacityProfile,
   NetworkSkuDefinition,
@@ -55,7 +56,7 @@ export const serverSkuDefinitions: readonly ServerSkuDefinition[] = [
       idleWatts: 45,
       peakWatts: 120,
     }),
-    costs: [exactCost("credits", "250000"), exactCost("data", "1")],
+    costs: capacityCosts("250000"),
     defaultStorageSkuId: "localSsd",
     defaultNetworkSkuId: "gigabitNic",
   },
@@ -69,7 +70,7 @@ export const serverSkuDefinitions: readonly ServerSkuDefinition[] = [
       idleWatts: 380,
       peakWatts: 900,
     }),
-    costs: [exactCost("credits", "700000"), exactCost("data", "500")],
+    costs: capacityCosts("700000"),
     defaultStorageSkuId: "nvmeArray",
     defaultNetworkSkuId: "fabricNic",
   },
@@ -94,7 +95,7 @@ export const storageSkuDefinitions: readonly StorageSkuDefinition[] = [
       idleWatts: 2,
       peakWatts: 8,
     }),
-    costs: [exactCost("credits", "30000")],
+    costs: capacityCosts("30000"),
   },
   {
     id: "nvmeArray",
@@ -107,7 +108,7 @@ export const storageSkuDefinitions: readonly StorageSkuDefinition[] = [
       idleWatts: 18,
       peakWatts: 70,
     }),
-    costs: [exactCost("credits", "200000"), exactCost("data", "200")],
+    costs: capacityCosts("200000"),
   },
 ] as const;
 

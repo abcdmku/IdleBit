@@ -74,7 +74,7 @@ describe("pressure meter segments", () => {
 
   it("interpolates cache lane growth and snaps batch resets", () => {
     // Growth across snapshots keeps the width transition live so CSS can
-    // interpolate the 500ms steps at display FPS.
+    // interpolate the ~10ms steps at display FPS.
     let segment = renderCachePipeline(0.25);
     expect(segment.style.width).toBe("25%");
     expect(segment.classList.contains("is-snapping")).toBe(false);

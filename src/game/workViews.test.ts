@@ -54,6 +54,23 @@ describe("work-surface reveal gates", () => {
     expect(cron.workViews.market).toBe(true);
   });
 
+  it("reveals Automation immediately after the first buffer purchase", () => {
+    const state = createInitialGameState();
+    const visible = deriveVisibleState({
+      ...state,
+      automationBuffer: {
+        ...state.automationBuffer,
+        ownedLevelId: "localScheduler",
+      },
+    });
+
+    expect(visible.workViews).toEqual({
+      campaign: false,
+      market: false,
+      automation: true,
+    });
+  });
+
   it("keeps the Market visible for legacy saves that already hold contracts", () => {
     const state = createInitialGameState();
     const legacy: GameState = {

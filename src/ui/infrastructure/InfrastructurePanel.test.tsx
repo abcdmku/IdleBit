@@ -662,12 +662,13 @@ describe("InfrastructurePanel", () => {
     expect(workshopServerButton?.textContent).toContain("Workshop Server ×2");
     expect(workshopServerButton?.disabled).toBe(false);
     // Two Workshop Servers with their default Local SSD + Gigabit NIC
-    // profile: 2 × (250,000 + 30,000 + 12,000) credits and 2 × 1 data.
+    // profile: 2 × (250,000 + 30,000 + 12,000) credits. Server memory and
+    // SSD capacity add 2 × (2,500,000 + 300,000) data; the NIC adds none.
     expect(
       workshopServerButton?.querySelector('[aria-label="584000 credits"]'),
     ).not.toBeNull();
     expect(
-      workshopServerButton?.querySelector('[aria-label="2 data"]'),
+      workshopServerButton?.querySelector('[aria-label="5600000 data"]'),
     ).not.toBeNull();
 
     act(() => workshopServerButton?.click());

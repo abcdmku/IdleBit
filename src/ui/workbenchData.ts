@@ -5,7 +5,6 @@ export type SelectedComponent =
   | "cron"
   | "thermal"
   | `core:${number}`
-  | `cores:${number}`
   | `scheduler:${number}`
   | `system:${string}`
   | `ramStick:${number}`
@@ -137,9 +136,6 @@ const hasSystemMemory = (visible: VisibleState) => {
   );
 };
 
-const hasCpuSchedulerUnlocked = (visible: VisibleState) =>
-  visible.flags.basicQueue || visible.flags.scheduler;
-
 const getSystemId = (entry: RecordLike, fallback: string) => {
   const id = entry.id ?? entry.systemId ?? entry.machineId;
   return typeof id === "string" || typeof id === "number" ? String(id) : fallback;
@@ -245,17 +241,6 @@ export function getVisibleSelection(
     return coreId >= 1 && coreId <= visible.hardware.cores
       ? selectedComponent
       : "core:1";
-  }
-
-  if (selectedComponent.startsWith("cores:")) {
-    const socketId = Number(selectedComponent.slice("cores:".length));
-    const fallbackSocketId = visible.metrics.cpuSockets[0]?.id;
-    return hasCpuSchedulerUnlocked(visible) &&
-      visible.metrics.cpuSockets.some((socket) => socket.id === socketId)
-      ? selectedComponent
-      : fallbackSocketId
-        ? (`core:${visible.metrics.cpuSockets[0]?.cores[0]?.id ?? 1}` as SelectedComponent)
-        : null;
   }
 
   if (selectedComponent.startsWith("scheduler:")) {

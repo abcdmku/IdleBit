@@ -81,17 +81,42 @@ describe("ResearchPanel reserved geometry", () => {
       ]),
     );
     // Blocked keeps copy + button as siblings in the same grid; only the
-    // label and colors change (fixed column width lives in CSS).
+    // label and colors change in the reserved full-width action row.
     const blocked = mainRowStructure();
     expect(blocked.children).toEqual(ready.children);
     const blockedButton = container.querySelector<HTMLButtonElement>(
       ".research-buy-button",
     );
     expect(blockedButton?.disabled).toBe(true);
-    // The clipped label keeps the full reason in the button title.
+    expect(blockedButton?.textContent).toContain(
+      "Requires 5,000 credits and a Benchmark Harness.",
+    );
+    // The title keeps the full reason available independent of visual wrapping.
     expect(blockedButton?.title).toBe(
       "Requires 5,000 credits and a Benchmark Harness.",
     );
+  });
+
+  it("uses research language for available and completed work", () => {
+    render(withResearch([researchItem()]));
+    expect(container.querySelector(".research-filter-toggle")?.textContent).toBe(
+      "Hide researched",
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>(".research-buy-button")
+        ?.textContent,
+    ).toContain("Research");
+
+    render(withResearch([researchItem({ completed: true })]));
+    const filter = container.querySelector<HTMLInputElement>(
+      ".research-filter-toggle input",
+    );
+    act(() => filter?.click());
+    expect(
+      container.querySelector<HTMLButtonElement>(".research-buy-button")
+        ?.textContent,
+    ).toContain("Researched");
+    expect(container.textContent).not.toContain("Built");
   });
 
   it("always reserves the compute-benchmark meter row", () => {

@@ -823,7 +823,7 @@ describe("explicit phased projects", () => {
 });
 
 describe("opening economy, selectors, and save state", () => {
-  it("awards Data for Bit Flip discovery once while repeated work keeps Credit output", () => {
+  it("awards stable Data and Credits for every Bit Flip completion", () => {
     const base = fund({
       ...createInitialGameState(),
       research: { completed: ["decodeLogic"], clickRateLevel: 0 },
@@ -834,9 +834,9 @@ describe("opening economy, selectors, and save state", () => {
     const second = advanceGame(secondStarted, 10_000, "foreground").state;
 
     expect(first.completedTasks.bitFlip).toBe(1);
-    expect(first.exactResources.data).toBe("1000005");
+    expect(first.exactResources.data).toBe("1000001");
     expect(second.completedTasks.bitFlip).toBe(2);
-    expect(second.exactResources.data).toBe(first.exactResources.data);
+    expect(second.exactResources.data).toBe("1000002");
     expect(Number(second.exactResources.credits)).toBeGreaterThan(
       Number(first.exactResources.credits),
     );

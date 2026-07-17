@@ -44,7 +44,7 @@ describe("Workshop accelerator content", () => {
     expect(gpu.deviceMemoryBits).toBe("68719476736");
     expect(gpu.costs).toEqual([
       { resource: "credits", amount: "500000" },
-      { resource: "data", amount: "240" },
+      { resource: "data", amount: "5000000" },
     ]);
 
     for (const definition of acceleratorSkuDefinitions) {

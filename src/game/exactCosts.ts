@@ -25,6 +25,28 @@ export const roundedGrowthCost = (
 ): Cost =>
   roundedCost(resource, amountMultiply(base, amountPow(growth, exponent)));
 
+/**
+ * Data-storage capacity is deliberately Data-led: every whole Credit of
+ * capital cost also requires exactly ten Data. Keep this shared so RAM,
+ * caches, persistent storage, and device memory cannot drift apart.
+ */
+export const capacityCosts = (creditValue: AmountInput): Cost[] => {
+  const credits = amountRound(creditValue);
+  return [
+    exactCost("credits", credits),
+    exactCost("data", amountMultiply(credits, "10")),
+  ].filter((cost) => amountCompare(cost.amount, ZERO_AMOUNT) > 0);
+};
+
+export const capacityGrowthCosts = (
+  creditBase: AmountInput,
+  creditGrowth: AmountInput,
+  exponent: number,
+): Cost[] =>
+  capacityCosts(
+    amountMultiply(creditBase, amountPow(creditGrowth, exponent)),
+  );
+
 export const scaleCostsExact = (
   costs: readonly Cost[],
   multiplier: AmountInput,

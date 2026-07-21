@@ -73,7 +73,7 @@ describe("power lifecycle delta-invariance", () => {
     ).toBeLessThan(0);
   });
 
-  it("meters pre-PSU-Management billing invariantly and stops safely at zero", () => {
+  it("shuts down at zero invariantly without PSU Management", () => {
     // Fresh save: 10 credits, 0.1 uW idle draw = 0.1 cr/s, no PSU Management.
     // The wallet exhausts at t=100s, strictly inside every coarse chunk.
     const initial = createInitialGameState();
@@ -86,11 +86,9 @@ describe("power lifecycle delta-invariance", () => {
     );
 
     expect(amountCompare(oneShot.state.exactResources.credits, 0)).toBe(0);
-    // No countermeasures yet, so nothing destructive starts at 0 credits:
-    // no cutoff timer, no failure, power stays on.
-    expect(oneShot.state.power.state).toBe("on");
+    expect(oneShot.state.power.state).toBe("off");
     expect(oneShot.state.power.unpaidShutdownWarningSeconds).toBe(0);
-    expect(oneShot.state.power.lastFailureReason).toBeNull();
+    expect(oneShot.state.power.lastFailureReason).toBe("unpaidBill");
     expect(oneShot.state).toEqual(chunked.state);
     expect(oneShot.state).toEqual(fine.state);
   });

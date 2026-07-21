@@ -11,6 +11,9 @@ const requiredResearchByPlayerTask = {
   bitShift: ["decodeLogic"],
   byteCopy: ["byteOperations"],
   packetCheck: ["cacheMapping"],
+  // These reveal at core #2 so their Local Scheduler blocker is discoverable.
+  parallelBitCount: ["multiCore"],
+  dualStreamDecode: ["multiCore"],
   readRamPage: ["ramControl", "systemScheduler"],
   writeRamPage: ["ramControl", "systemScheduler"],
   overwriteRamPage: ["ramControl", "systemScheduler"],

@@ -162,9 +162,9 @@ const getPublicViews = (state: GameState) => {
 };
 
 describe("player-facing task payout audit", () => {
-  it("covers 20 repeatable jobs and four one-shot research benchmarks", () => {
-    expect(publicDefinitions).toHaveLength(24);
-    expect(repeatableDefinitions).toHaveLength(20);
+  it("covers 22 repeatable jobs and four one-shot research benchmarks", () => {
+    expect(publicDefinitions).toHaveLength(26);
+    expect(repeatableDefinitions).toHaveLength(22);
     expect(publicDefinitions.filter((task) => !task.repeatable)).toHaveLength(4);
   });
 

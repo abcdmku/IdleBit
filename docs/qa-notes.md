@@ -36,11 +36,10 @@ Target engagement and completion ranges:
   duration remains emergent from the full operation path. Shared progress bars
   visually bridge exact frame-aligned state updates targeting 10 ms, snap backward batch resets, and
   retain exact ARIA values.
-- PSU draw and headroom are visible from the opening, while energy is subsidized
-  and unsafe work pauses safely. PSU Management appears only after System
-  Scheduler plus Power Telemetry (300 Credits / 2 Data), then enables metered
-  billing, unpaid cutoff, and destructive foreground failure after the player
-  has countermeasures.
+- PSU draw, headroom, billing, zero-credit shutdown, and overload trips are
+  active from the opening without research gates. A zero-credit restart has 60
+  seconds of no-bill recovery grace. PSU Management appears after System
+  Scheduler plus Power Telemetry (300 Credits / 2 Data) for advanced controls.
 - Local Fabric, Rack/Facility, Resilient Cloud, and Planetary Commons are real
   saved simulation layers. Focused integration tests cover best-fit placement,
   weighted fairness, distributed DAG barriers, exact rack-unit procurement,
@@ -58,7 +57,8 @@ Target engagement and completion ranges:
   identify completed jobs, contracts, and project phases by name.
 - Work now reveals progressively through at most four focused destinations:
   Jobs, Campaign, Market, and Automation. The opening withholds empty future
-  categories, departure planning, and Research. Active work is projected from
+  categories and departure planning, while R&D shows Decode Logic immediately
+  with its starter-completion requirement. Active work is projected from
   game-owned `activeWork` state onto its executing system, with focused tests
   for cross-system exclusion and chapter-scoped mission/project visibility.
 - Spatial stability is a UI invariant: work lifecycle changes update reserved
@@ -117,9 +117,15 @@ result below is not evidence of a new hands-on smoke pass against a running app.
 - A fresh game intentionally shows only the Fetch Bit / Decode Bit starter pair
   in Jobs. Decode Bit may show its normal hardware blocker; neither starter is
   hidden behind research.
-- Every other normal task remains absent from Jobs until its prerequisite
-  research is complete. Starting or partially progressing that research does not
-  reveal the task; completing it reveals the task without requiring a reload.
+- R&D is visible on a fresh save with Decode Logic blocked on completing either
+  starter task; the player does not need to run work before discovering Research.
+- Installing the second core reveals Parallel Bit Count and Dual-Stream Decode
+  as repeatable two-core CPU-bound jobs alongside the research-only Parallelism
+  Benchmark. The jobs remain blocked until Local Scheduler and two CPU queue
+  slots are available, reject direct-core dispatch, and run scheduler-queued.
+- Other normal tasks remain absent from Jobs until their reveal-gating research
+  is complete. The two core-#2 jobs are the explicit preview exception: their
+  visible Local Scheduler blocker teaches the next gate without permitting work.
 - Research benchmark work appears only inside the research card that owns it.
   Benchmarks never appear as normal Job cards, including while available,
   running, blocked, completed, or revisiting completed research.
@@ -134,7 +140,7 @@ result below is not evidence of a new hands-on smoke pass against a running app.
 - Focused reveal, UI, and mobile coverage passed 179/179 tests across 4 files,
   including game-owned reveal state/selectors, visible Jobs and research
   surfaces, responsive treatment, and saved-state cases.
-- Full `npm test` passed 1,004/1,004 tests across 120 files.
+- Full `npm test` passed 1,012/1,012 tests across 121 files.
 - `npm run typecheck` passed.
 - `npm run build` passed with only the existing non-blocking Vite warning for a
   minified chunk larger than 500 kB.
@@ -191,7 +197,7 @@ implementation evidence above and `game-spec.md` section 0.
 - Once the CPU package frame is visible, CPU cards show tier, level, clock, efficiency, active draw, idle draw, and level-1 purchase costs instead of copied-package install choices.
 - RAM stays hidden/actionless before RAM Control, then appears as a paid first-stick install outline before becoming the staging surface needed for System Scheduler; CRON stays hidden/actionless before CRON Scheduler research, and Thermal plus advanced PSU/tuning research are deferred.
 - CRON Scheduler research reveals a paid CRON Job Slot install; buying it unlocks CRON v1 timer automation for visible repeatable system tasks only.
-- PSU/power readouts, powered-on billing, power state behavior, cheap credits-only PSU wattage upgrades, and overload failure pressure are visible from the first screen; PSU Management research is deferred until it exposes a new decision.
+- PSU/power readouts, powered-on billing, zero-credit shutdown, power state behavior, cheap credits-only PSU wattage upgrades, and destructive overload failure pressure are active from the first screen; PSU Management is reserved for advanced controls.
 - Thermal Control research, Thermal UI, Cooling Loop upgrades, and Thermal Probe are deferred.
 - Five repeatable system tasks reveal on the specified gates: Memory Scrub, Queue Compaction, and Power Telemetry after Tiny Checksum; Bus Mirror and Shard Reconcile after the second CPU purchase.
 - CRON v1 supports seconds/minutes modes, starts with a 60s minimum interval, uses increasingly expensive `cronInterval` upgrades to reduce the minimum by 1 second per upgrade, skips duplicate/blocked/full/off-state runs, does not replay every missed timer firing, and adds a power spike when queuing work. This historical timer rule does not prohibit bounded whole-game offline advancement.
@@ -328,7 +334,7 @@ Target scope from `game-spec.md` section 13.3:
   - PSU/power readouts are visible from the first screen and show current state, scaled draw, billing pressure, load, capacity, and remaining credits.
   - Billing uses 1 credit/sec per 1 uW, active CPU draw is `clock / efficiency`, idle CPU draw uses the C-State multiplier after unlock, and CRON queue-start spikes can still add short draw.
   - Idle powered-on time drains positive credits, billing clamps credits at 0, shows a 10-second unpaid-credit cutoff warning, and then auto-shuts down the system with a first-time explanation plus quick repeat popup if no credits are earned.
-  - Powering on at 0 credits grants a short bootstrap no-bill grace window; earning credits exits grace, while grace expiration at 0 credits starts the same 10-second unpaid-credit warning.
+  - Powering on at 0 credits grants a 60-second bootstrap no-bill grace window; earning credits exits grace, while grace expiration at 0 credits starts the same 10-second unpaid-credit warning.
   - Active starter work remains profitable after immediate powered-on billing.
   - Power states are `on`, `shuttingDown`, `off`, and `booting`.
   - `off` systems grey hardware except power/start controls, block manual work, scheduler dispatch, and CRON, and bill zero.
@@ -359,7 +365,7 @@ Target scope from `game-spec.md` section 13.3:
 - PSU Capacity upgrades are buyable with credits from the first screen.
 - Billing starts immediately while the system is powered on, including idle time, with the starter CPU drawing 0.1 uW and billing 0.1 cr/s.
 - Idle powered-on time drains positive credits, billing clamps credits at 0, shows a 10-second unpaid-credit cutoff warning, and then auto-shuts down the system with a first-time explanation plus quick repeat popup if no credits are earned.
-- Powering on at 0 credits grants a short bootstrap no-bill grace window; earning credits exits grace, while letting grace expire at 0 credits starts the same 10-second unpaid-credit warning.
+- Powering on at 0 credits grants a 60-second bootstrap no-bill grace window; earning credits exits grace, while letting grace expire at 0 credits starts the same 10-second unpaid-credit warning.
 - Active starter work remains profitable after immediate powered-on billing.
 - CPU Package Level upgrades change package clock, task speed, active draw, idle draw, and visible next-level costs; adding a core to an upgraded package includes the cumulative CPU level and cache-frequency backfill cost for that core.
 - CPU purchases are always researched tier level-1 packages with one starting core.
@@ -419,7 +425,7 @@ Target scope from `game-spec.md` section 13.3:
 - RAM readouts communicate active/intermediate staging, per-stick fixed block locations, active/max channel count, effective write bandwidth, and the RAM-stick add/remove control in the RAM header.
 - PSU readouts communicate draw, billing, capacity, state, load, and overload failure pressure without making power a per-task requirement.
 - Leaving the powered-on system idle with positive credits drains credits over time, clamps credits at 0, shows a 10-second unpaid-credit cutoff warning, and then auto-shuts down for unpaid billing with a first-time explanation plus quick repeat popup if no credits are earned.
-- Powering on at 0 credits enters the short no-bill bootstrap grace window; completing starter work exits grace and remains net-profitable, while grace expiration at 0 credits starts the same unpaid-credit warning.
+- Powering on at 0 credits enters the 60-second no-bill bootstrap grace window; completing starter work exits grace and remains net-profitable, while grace expiration at 0 credits starts the same unpaid-credit warning.
 - Power-off blocks manual work, scheduler dispatch, and CRON, greys hardware except power/start controls, and bills zero.
 - Deadlocked cache/RAM surfaces render red, affected hardware greys out only during post-failure lockout reset, the deadlock countdown appears as a wider fill/drain progress bar with a high-contrast time label in the affected Cores/CPU/RAM header rather than inside individual core cards, stays anchored there until pressure reaches 0, and the first deadlock plus cooldown help captions appear over the affected Cache or RAM section without a modal or layout shift while scrolling fully into view.
 - Thermal Control research, Thermal controls, and cooling loop upgrades are deferred.

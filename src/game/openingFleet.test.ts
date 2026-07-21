@@ -324,7 +324,7 @@ describe("opening and Fleet invariants", () => {
     expect(state.power.lastFailureReason).toBeNull();
   });
 
-  it("meters power billing from the first tick and safely pauses unsafe pre-management work", () => {
+  it("meters power billing and trips an overloaded PSU before management", () => {
     const initial = createInitialGameState();
     const beforeCredits = initial.exactResources.credits;
     // 0.1 uW starter draw = 0.1 cr/s at 1 credit/sec per uW.
@@ -334,27 +334,38 @@ describe("opening and Fleet invariants", () => {
       amountCompare(billedBriefly.exactResources.credits, beforeCredits),
     ).toBeLessThan(0);
 
-    // Draining the wallet before PSU Management never turns destructive:
-    // billing stops at 0 credits with no cutoff timer.
-    const broke = tickGame(initial, 10 * 60_000);
+    // Empty-wallet shutdown is physical and does not require research.
+    const warned = tickGame(withResources(initial, 0, 0), 1);
+    expect(warned.power.unpaidShutdownWarningSeconds).toBe(10);
+    const broke = tickGame(warned, 10_000);
     expect(amountCompare(broke.exactResources.credits, 0)).toBe(0);
-    expect(broke.power.state).toBe("on");
-    expect(broke.power.lastFailureReason).toBeNull();
+    expect(broke.power.state).toBe("off");
+    expect(broke.power.lastFailureReason).toBe("unpaidBill");
     expect(broke.power.unpaidShutdownWarningSeconds).toBe(0);
 
     const blockedInput = {
       ...initial,
       hardware: { ...initial.hardware, psuWatts: 0.00000001 },
     };
-    const blocked = applyAction(blockedInput, {
+    const startedOverloaded = applyAction(blockedInput, {
       type: "startTask",
       taskId: "fetchBit",
     });
-    expect(blocked.activeTasks).toHaveLength(0);
+    expect(startedOverloaded.activeTasks).toHaveLength(1);
     expect(
       deriveVisibleState(blockedInput).tasks.find((task) => task.id === "fetchBit")
         ?.blockedReason,
-    ).toMatch(/PSU overload risk/);
+    ).toBeNull();
+    expect(
+      deriveVisibleState(blockedInput).metrics.powerOverloadFailure,
+    ).toMatchObject({ active: true, seconds: 0 });
+    expect(
+      deriveVisibleState(blockedInput).metrics.powerOverloadFailure.rate,
+    ).toBeGreaterThan(0);
+    const trippedAtStart = tickGame(startedOverloaded, 2_000);
+    expect(trippedAtStart.activeTasks).toHaveLength(0);
+    expect(trippedAtStart.power.state).toBe("off");
+    expect(trippedAtStart.power.lastFailureReason).toBe("psuOverload");
 
     let unsafe = applyAction(initial, { type: "startTask", taskId: "fetchBit" });
     expect(unsafe.activeTasks).toHaveLength(1);
@@ -362,14 +373,14 @@ describe("opening and Fleet invariants", () => {
       ...unsafe,
       hardware: { ...unsafe.hardware, psuWatts: 0.00000001 },
     };
-    const paused = tickGame(unsafe, 20_000);
-    expect(paused.activeTasks).toHaveLength(1);
-    expect(paused.power.state).toBe("on");
-    expect(paused.power.overloadFailureSeconds).toBe(0);
-    expect(paused.power.lastFailureReason).toBeNull();
+    const tripped = tickGame(unsafe, 20_000);
+    expect(tripped.activeTasks).toHaveLength(0);
+    expect(tripped.power.state).toBe("off");
+    expect(tripped.power.overloadFailureSeconds).toBe(0);
+    expect(tripped.power.lastFailureReason).toBe("psuOverload");
   });
 
-  it("enables destructive billing consequences only after PSU Management", () => {
+  it("keeps unpaid cutoff and overload failure independent of PSU Management", () => {
     const initial = createInitialGameState();
     const managed = withResources({
       ...initial,
@@ -378,7 +389,7 @@ describe("opening and Fleet invariants", () => {
     });
     expect(deriveVisibleState(managed).metrics.powerCostPerSecond).toBeGreaterThan(0);
 
-    // The same overload and empty wallet stay non-destructive pre-management.
+    // Both physical failure paths apply without research.
     const unmanagedOverload = tickGame(
       {
         ...initial,
@@ -386,11 +397,14 @@ describe("opening and Fleet invariants", () => {
       },
       2_000,
     );
-    expect(unmanagedOverload.power.state).toBe("on");
-    expect(unmanagedOverload.power.lastFailureReason).toBeNull();
-    const unmanagedBroke = tickGame(withResources(initial, 0, 0), 11_000);
+    expect(unmanagedOverload.power.state).toBe("off");
+    expect(unmanagedOverload.power.lastFailureReason).toBe("psuOverload");
+    const unmanagedWarning = tickGame(withResources(initial, 0, 0), 1_000);
+    expect(unmanagedWarning.power.unpaidShutdownWarningSeconds).toBe(10);
+    const unmanagedBroke = tickGame(unmanagedWarning, 10_000);
     expect(unmanagedBroke.power.unpaidShutdownWarningSeconds).toBe(0);
-    expect(unmanagedBroke.power.state).toBe("on");
+    expect(unmanagedBroke.power.state).toBe("off");
+    expect(unmanagedBroke.power.lastFailureReason).toBe("unpaidBill");
 
     const overloaded = tickGame(
       {

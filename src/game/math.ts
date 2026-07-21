@@ -1460,8 +1460,8 @@ export const getBilledPowerWatts = (state: GameState) =>
   getHardwareDrawWatts(state);
 
 // Metered billing is live from the start of a new save (1 credit/sec per uW).
-// PSU Management only unlocks the destructive consequences (unpaid cutoff,
-// PSU overload failure), never the meter itself.
+// PSU overload failure is a physical consequence from the start. PSU
+// PSU Management gates advanced controls, not physical power consequences.
 export const getPowerCostPerSecondExact = (state: GameState) =>
   amountMultiply(getHardwareDrawWattsExact(state), 1_000_000);
 

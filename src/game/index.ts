@@ -181,6 +181,7 @@ export {
   amountMax,
   amountMin,
   amountMultiply,
+  amountRound,
   amountSubtract,
   amountToSafeNumber,
   amountToNumber,

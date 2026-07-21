@@ -36,7 +36,6 @@ import {
 import { syncExactResources } from "./economy";
 import { getProductiveFacilitiesForNodeIds } from "./facilityInfrastructure";
 import { getPsuStress } from "./math";
-import { isPsuManagementUnlocked } from "./progression";
 import {
   getLiveOperationsCompletionDelta,
   hasRunnableLiveOperations,
@@ -397,12 +396,10 @@ const getOfflineSafetyBlocker = (state: GameState, stepMs: number) => {
     );
   }
 
-  // Before PSU Management there is no unpaid cutoff to pre-empt: offline
-  // billing safely drains to 0 credits and work continues, so the runway
-  // blocker only budgets system power once the cutoff consequence exists.
-  const systemCostPerSecond = isPsuManagementUnlocked(state)
-    ? getSystemPowerOperatingCostPerSecond(state, "offline")
-    : ZERO_AMOUNT;
+  const systemCostPerSecond = getSystemPowerOperatingCostPerSecond(
+    state,
+    "offline",
+  );
   const totalCostPerSecond = amountAdd(
     amountAdd(
       systemCostPerSecond,

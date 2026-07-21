@@ -196,7 +196,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     name: "Decode Logic",
     description: "Adds bit flip and shift work.",
     grants: [],
-    reveal: (state) => hasCompleted(state, "fetchBit") || hasCompleted(state, "decodeBit"),
+    reveal: () => true,
     requirement: (state) => requirementsMet(state, getDecodeLogicRequirements()),
     requirements: () => getDecodeLogicRequirements(),
     cost: () => [credits(3)],
@@ -310,8 +310,7 @@ export const researchDefinitions: ResearchDefinition[] = [
   {
     id: "psuManagement",
     name: "PSU Management",
-    description:
-      "Arms unpaid-power cutoff and PSU overload failure handling, with the controls to manage both.",
+    description: "Adds advanced power controls.",
     grants: ["psuManagement"],
     reveal: (state) => hasCompleted(state, "powerTelemetry"),
     requirement: (state) =>

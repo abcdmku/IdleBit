@@ -201,7 +201,7 @@ describe("ResourceHud", () => {
     act(() => {
       root.render(
         <ResourceHud
-          visible={makeVisibleState(5, 10)}
+          visible={makeVisibleState(5, 10.999)}
           onReset={() => undefined}
           animateResourceGains={true}
         />,
@@ -217,7 +217,7 @@ describe("ResourceHud", () => {
     ).toBeUndefined();
     expect(
       creditsFlyout?.querySelector(".resource-token.credits strong")?.textContent,
-    ).toBe("+3");
+    ).toBe("+4");
     expect(
       creditsFlyout?.querySelector(".resource-token.credits span")?.textContent,
     ).toBeUndefined();

@@ -1,6 +1,7 @@
 import { Database, Zap, type LucideIcon } from "lucide-react";
 import {
   amountCompare,
+  amountRound,
   type Amount,
   type ExactCost,
   type ExactResourceBag,
@@ -110,6 +111,7 @@ export function ExactResourceAmount({
   showLabel = true,
   compact = false,
   dimmed = false,
+  rounded = false,
 }: {
   resource: ResourceKind;
   amount: Amount;
@@ -117,6 +119,8 @@ export function ExactResourceAmount({
   showLabel?: boolean;
   compact?: boolean;
   dimmed?: boolean;
+  /** Round a transient display to the nearest whole currency unit. */
+  rounded?: boolean;
 }) {
   const { Icon, label } = resourceVisuals[resource];
   const prefix = plus ? "+" : "";
@@ -136,7 +140,7 @@ export function ExactResourceAmount({
       <Icon size={compact ? 13 : 14} aria-hidden="true" />
       <strong aria-hidden="true">
         {prefix}
-        {formatExactCurrencyAmount(amount)}
+        {formatExactCurrencyAmount(rounded ? amountRound(amount) : amount)}
       </strong>
       {showLabel && <span aria-hidden="true">{label}</span>}
     </span>

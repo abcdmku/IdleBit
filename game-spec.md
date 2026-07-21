@@ -435,15 +435,15 @@ At system scale:
 - The PSU is a system reliability component, not a per-task requirement.
 - The PSU is visible from the first screen so draw, capacity, and safe headroom are learned before billing can fail.
 - Basic PSU wattage upgrades are cheap and purchasable with credits from the first screen so the player can buy headroom before deeper management research.
-- Onboarding power is subsidized. PSU Management appears after System Scheduler and Power Telemetry; purchasing it ends the subsidy and enables metered billing, unpaid cutoff, and destructive overload failure only after the player has seen countermeasures.
+- PSU overload and zero-credit shutdown are physical consequences from the first screen. Sustained draw above capacity builds trip pressure; billing at zero starts the unpaid cutoff. Neither requires research. PSU Management appears after System Scheduler and Power Telemetry and adds advanced power controls.
 - CPU draw is micro-watt based: active core draw is `clockHz / efficiency / 1_000_000` W, idle cores use the same draw until C-State Control is researched, and purchased C-State levels multiply idle draw down from there.
 - RAM draw is micro-watt based: each stick's active write draw is about `clockHz / efficiency * 0.1`, so memory remains roughly one tenth of equivalent CPU draw at the same clock. Memory Voltage Modifier levels reduce idle RAM draw only and do not change active write bandwidth.
-- The starter PSU capacity is `10 uW`. After PSU Management, billing is `1 credit/sec` per `1 uW`, so the starter `0.1 uW` draw projects `0.1 cr/s`; before the gate, its billed rate is zero.
+- The starter PSU capacity is `10 uW`. Billing is `1 credit/sec` per `1 uW` from the start, so the starter `0.1 uW` draw projects `0.1 cr/s`.
 - PSU capacity progression is `10 uW * 1.7^(level - 1)`. Target-level capacity upgrade cost begins at 24 Credits and grows by 1.32.
-- After PSU Management, if billing reaches 0 credits, the PSU shows a 10-second unpaid-credit cutoff warning instead of allowing negative credits. If the warning expires before credits are earned or the system finishes shutting down, the system performs an emergency shutdown. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
-- Powering on from 0 credits grants a short bootstrap grace window with no billing, enough to run starter work and recover.
-- If hardware draw approaches PSU capacity, stress increases and unsafe new starts are blocked.
-- Before PSU Management, an already-running unsafe workload pauses without destructive loss. After the gate, overload failure pressure fills in the PSU header while the whole PSU module flashes red. It reaches failure in about 10 seconds just above 100% load and fills faster the farther draw exceeds capacity; the failure instantly cuts power, shows a short explanatory popup the first time, uses a red topbar badge for later trips, and clears active/queued work.
+- If billing reaches 0 credits, the PSU shows a 10-second unpaid-credit cutoff warning instead of allowing negative credits. If the warning expires before credits are earned or the system finishes shutting down, the system performs an emergency shutdown. The first shutdown shows an explanatory popup; later shutdowns show a quick popup.
+- Powering on from 0 credits grants 60 seconds of bootstrap grace with no billing, enough to run starter work and recover.
+- If hardware draw approaches PSU capacity, stress increases; unsafe starts remain runnable but risk a physical trip.
+- Overload failure pressure always fills in the PSU header while the whole PSU module flashes red. It reaches failure in about 10 seconds just above 100% load and fills faster the farther draw exceeds capacity; the failure instantly cuts power, shows a short explanatory popup the first time, uses a red topbar badge for later trips, and clears active/queued work.
 - Dense cores and additional CPUs increase draw nonlinearly. Packing more compute into one system should be powerful but harder to cool and power reliably.
 - A system has four power states: `on`, `shuttingDown`, `off`, and `booting`.
 - `off` systems grey out hardware except power/start controls, block work starts, scheduler dispatch, CRON runs, and power billing.
@@ -629,8 +629,8 @@ At all scales, power should work similarly, but tasks do not directly request po
 
 `power_stress = active_hardware_draw / safe_power_capacity`
 
-After PSU Management, power cost accrues continuously while a system is powered
-in foreground play. During absence, only productive automated intervals are
+Power cost accrues continuously from the start while a system is powered in
+foreground play. During absence, only productive automated intervals are
 billed; an exhausted or unsafe queue pauses under its saved low-power/shutdown
 policy without continuing to drain Credits:
 
@@ -638,23 +638,22 @@ policy without continuing to drain Credits:
 
 CPU draw uses `active_core_uW = clockHz / efficiency`. Idle cores use the active draw until C-State Control is researched, then use the current C-State idle multiplier. PSU readouts show the live rate as `cr/s`.
 
-There is no free wattage threshold after PSU Management. Before that research,
-onboarding power is fully subsidized while the PSU still exposes draw and safe
-headroom.
+There is no free wattage threshold or research subsidy. PSU Management adds
+advanced controls without enabling or disabling physical power consequences.
 
-Once PSU Management is owned, Credits cannot go negative from power billing. If
-the next bill cannot be paid, Credits clamp to 0 and the PSU shows a 10-second
+Credits cannot go negative from power billing. If the next bill cannot be paid,
+Credits clamp to 0 and the PSU shows a 10-second
 unpaid-credit cutoff warning while powered work can still finish and recover the
 balance. Earning Credits clears the warning; expiry powers the system off and
-stops billing. A zero-Credit restart receives a short no-bill bootstrap grace
+stops billing. A zero-Credit restart receives a 60-second no-bill bootstrap grace
 period before the same warning can begin.
 
 System power state controls whether work can run:
 
 | State | Work / CRON | Billing | Notes |
 |---|---|---|---|
-| `on` | Allowed | Subsidized before PSU Management; metered foreground draw or productive offline draw afterward unless bootstrap grace is active | Normal running state |
-| `shuttingDown` | New starts, scheduler pulls, and CRON blocked; active work continues | Uses the same subsidy/metering rule until active work drains | Makes graceful power-off deliberate |
+| `on` | Allowed | Metered foreground draw or productive offline draw unless bootstrap grace is active | Normal running state |
+| `shuttingDown` | New starts, scheduler pulls, and CRON blocked; active work continues | Uses the same metering rule until active work drains | Makes graceful power-off deliberate |
 | `off` | Blocked | Zero | Hardware is greyed except power/start controls |
 | `booting` | Blocked | No productive-work bill | Returns to `on` after startup completes |
 
@@ -662,8 +661,8 @@ Booting and shutting-down state should be visible near the player’s current sy
 
 If draw approaches or exceeds available power:
 
-- Unsafe starts are forecast and blocked. Before PSU Management, an existing overloaded workload safely pauses instead of failing.
-- After PSU Management, overload failure pressure fills once draw exceeds 100% capacity, reaching failure in roughly 10 seconds at the threshold and faster at higher overload.
+- Unsafe starts are forecast but remain runnable; sustained overload always builds trip pressure and can fail regardless of PSU Management.
+- Overload failure pressure fills from the start once draw exceeds 100% capacity, reaching failure in roughly 10 seconds at the threshold and faster at higher overload.
 - A managed PSU failure immediately powers the computer off, shows a short explanatory popup the first time and a red topbar badge after later trips, and clears active plus queued work; the player must reboot.
 - Efficiency drops.
 - Jobs may slow down.
@@ -703,7 +702,7 @@ One tiny CPU doing primitive jobs.
 - Current task state.
 - Credits.
 - Data.
-- PSU draw, capacity, stress, state, and the subsidized billed rate.
+- PSU draw, capacity, stress, state, and the billed rate.
 
 ### Hidden
 
@@ -739,7 +738,7 @@ HUD resource readouts should expose the credits/data graph without fighting mobi
 Early tasks should be tiny and direct. The first visible work should be a bit-scale starter pair; byte-scale and cache-sensitive tasks appear only after the player has seen simple CPU operations complete and spent earned resources on research.
 Task Credit payouts should match the exact overlap-aware paid hardware work for the started parent task, including cache and RAM loading work. Public task Data equals one whole unit per ten gross Credits, rounded down, with a one-Data minimum for small tasks. The derived payout is the same on every completion. Fetch Bit therefore pays 1 Data and requires no Data-funded unlock, ensuring the player can establish a positive Data balance before choosing a Data sink.
 Tasks can show internal recipe steps, but later tasks should not literally rerun the whole previous visible task chain.
-Research is the player-facing unlock surface. Except for the intentional Fetch Bit and Decode Bit starter pair, a task must stay absent from the Jobs list until every research item that gates that task is complete. Hardware and prior-task requirements may still leave an already researched task visibly blocked. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
+Research is the player-facing unlock surface. Except for the intentional Fetch Bit and Decode Bit starter pair, a task stays absent from Jobs until its reveal-gating research is complete. Hardware and prior-task requirements may leave revealed work visibly blocked. Parallel Bit Count and Dual-Stream Decode are the explicit teaching exception: core #2 previews them with a Local Scheduler blocker, then two open slots on one CPU scheduler are required to route either task. New task groups and hardware categories should be unlocked by completing research, not by hidden completion side effects or direct upgrade shortcuts.
 The task panel should group available work by mechanical category, starting with CPU-bound work and system work; later distributed work should land in its own group rather than blending into the CPU task list.
 On mobile, the Tasks and R&D tabs should show a red new-content notification when newly visible tasks or open research have not been viewed yet; opening that tab marks the currently visible IDs as seen.
 Pinned task controls should remain useful for repeatable work: an active pinned task should still expose the selected scheduler route action when another copy can be queued.
@@ -752,6 +751,8 @@ Pinned task controls should remain useful for repeatable work: an active pinned 
 | Bit Shift | Unlocks with Decode Logic and introduces 2 b shifted bit work |
 | Byte Copy | Appears after Byte Operations research and introduces byte-scale work |
 | Packet Check | Appears after Cache Mapping research and introduces cache-fill waiting |
+| Parallel Bit Count | Appears with the second installed core; Local Scheduler and two CPU queue slots dispatch its repeatable two-core bit work |
+| Dual-Stream Decode | Appears with the second installed core; Local Scheduler dispatches its synchronized two-core decode path |
 | Tiny Checksum | Appears after RAM Control and System Scheduler research and teaches larger RAM/cache staging |
 
 ### Repeatable System Tasks
@@ -774,7 +775,7 @@ Some research needs benchmark-style compute before it can be researched. These b
 | Research | Compute Work | Notes |
 |---|---|---|
 | Multi-Core Control | Micro Benchmark | The card lists clock/cache prerequisites and runs the single-core benchmark before additional cores can be purchased |
-| Local Scheduler | Parallelism Benchmark | Installing the second core reveals this small two-core benchmark; completing it proves direct multicore execution before queue automation unlocks |
+| Local Scheduler | Parallelism Benchmark | Installing the second core reveals this one-time direct two-core proof; completing it unlocks CPU-scheduled repeatable multicore work |
 | System Bus | Multi-Core Benchmark | The card runs the four-core benchmark before second CPU purchase is unlocked |
 
 ### System Research Gates
@@ -784,7 +785,7 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Research | Appears After | Unlocks |
 |---|---|---|
 | CRON Scheduler | Second CPU purchase | CRON v1 timer automation for visible repeatable system tasks |
-| PSU Management | System Scheduler plus first Power Telemetry | Ends onboarding subsidy; enables metered billing, unpaid cutoff, and destructive PSU failure controls |
+| PSU Management | System Scheduler plus first Power Telemetry | Enables advanced power controls; billing, unpaid-credit cutoff, and overload trips are already physical |
 | Thermal Control | Workshop entry | Thermal status, cooling tiers, overclocking, and their power/heat tradeoff |
 
 ### Progressive Task And Research Reveal
@@ -799,24 +800,25 @@ The second CPU purchase reveals the automation research gate, but system modules
 | Byte Copy | Byte Operations research | First byte-scale task, modeled as 8 read ops and 8 write ops with a 16 b cache footprint |
 | Data-storage capacity | New save | Cache, RAM, persistent storage, server memory, and accelerator memory cost exactly ten Data per Credit; speed, PSU, thermal, queue, network, offline-time, and facility limits use separate pricing |
 | Packet Check | Cache Mapping research | First cache-fill waiting task |
-| Research panel | First starter completion | Research should not crowd the first screen before the player has earned resources |
+| Research panel | New save | Decode Logic is visible immediately and remains blocked until Fetch Bit or Decode Bit completes |
 | Byte Operations, Cache Mapping, and Benchmark Harness research | Decode Logic research | Reveal together as the byte/cache research group; Cache Mapping still requires Byte Operations plus Byte Copy, and Benchmark Harness still requires Cache Mapping plus Packet Check and clock tuning |
 | Multi-Core Control research | Run Micro Benchmark from the research card | Gates additional cores |
 | Parallelism Benchmark | Multi-Core Control plus 2 installed cores | Uses both cores directly and completes the Local Scheduler compute gate |
+| Parallel Bit Count and Dual-Stream Decode | Multi-Core Control plus 2 installed cores | Revealed at core #2, then waits for Local Scheduler and two CPU queue slots instead of allowing direct-core dispatch |
 | Hold-repeat accessibility | Available in settings | Changes input comfort only and never increases the intended progression ceiling |
 | RAM Control research | Local Scheduler research | Appears alongside System Scheduler and reveals a paid RAM bay; the first RAM Stick purchase installs 256 b at 1 Hz |
 | System Scheduler research | Two cores, RAM Control, and at least 1 Kb RAM | Gates RAM-owned and barrier-aware system scheduling; those jobs fund the later four-core benchmark |
 | CPU tier research | kHz after System Automation; later tiers after previous tier research | Unlocks level-1 kHz, MHz, and GHz CPU/RAM tiers. Physical core clocks stop at 6 GHz; larger values are aggregate infrastructure throughput. |
 | C-State Control research | kHz CPU Research | Stays in research as a global `Level up` item after unlock until max C-State level; levels reduce idle CPU draw only across every system |
 | Memory Voltage Modifier research | RAM Control and kHz CPU Research | Stays in research as a global `Level up` item after unlock until max level; levels reduce idle RAM draw only, with repeat costs starting at 100,000 credits and multiplying by 1.8 |
-| PSU readouts | New save | Shows draw, capacity, load/stress, state, and subsidized billed rate from the first screen |
+| PSU readouts | New save | Shows draw, capacity, load/stress, state, and billed rate from the first screen |
 | PSU Capacity upgrade | New save | Lets the player buy more PSU wattage with credits from the first screen |
 | CRON module | CRON Scheduler research | CRON appears at the top of the system board as a paid CRON Job Slot install after research is bought |
 | Tiny Checksum | RAM Control and System Scheduler research plus first Packet Check | First composed checksum task |
 | Memory Scrub, Queue Compaction, and Power Telemetry | System Scheduler research plus first Tiny Checksum | First repeatable system tasks; runnable manually only while the system is on |
 | CRON Scheduler research | Second CPU purchase | Unlocks CRON v1 automation for visible repeatable system tasks only |
 | Bus Mirror and Shard Reconcile | System Scheduler research plus second CPU purchase | Later repeatable system tasks for multi-CPU system management |
-| PSU Management research | System Scheduler research and first Power Telemetry | Costs 300 Credits / 2 Data, ends the onboarding subsidy, and enables billing/failure consequences after countermeasures are visible |
+| PSU Management research | System Scheduler research and first Power Telemetry | Costs 300 Credits / 2 Data and enables advanced power controls |
 | Thermal Control research | Workshop entry | Reveals Thermal status, cooling installation, overclock presets, and Thermal Probe |
 | Broad auto-repeat | Deferred until later scheduler/automation layers | CRON v1 is the scoped early timer; general task auto-repeat stays out of the bit-scale opening |
 
@@ -905,7 +907,7 @@ The player has enough parallelism that manual assignment becomes annoying. The s
 
 RAM Control and System Scheduler appear together after Local Scheduler research. RAM Control reveals an empty RAM bay; buying the first RAM Stick installs one 256 b stick at 1 Hz. The RAM hardware surface should sit above the CPU package; after System Scheduler research completes, the System Scheduler surface should sit above RAM as an empty paid first-slot bay until the player buys a System Queue Slot. System Scheduler unlocks on the established two-core machine after RAM Control and at least 1 Kb installed RAM. Scheduler-owned RAM jobs then provide the work economy for growing to four cores and running the System Bus benchmark.
 
-Local Scheduler research enables per-CPU queue-slot purchases. Before that research, small multicore tasks may still use multiple installed cores directly; scheduler slots gate queued and system-managed multicore dispatch, not the physical ability for a CPU package to run a two-core task. The default CPU scheduler backlog is 0 slots; until the first CPU Queue Slot is bought, the CPU scheduler renders as a faded paid install outline with that first slot price. Each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler install outline for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap system-managed multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
+Local Scheduler research enables per-CPU queue-slot purchases. The one-time Parallelism Benchmark is the direct pre-scheduler two-core proof; repeatable multicore CPU-bound tasks must wait for Local Scheduler and reserve one CPU scheduler slot per required core. The default CPU scheduler backlog is 0 slots; until the first CPU Queue Slot is bought, the CPU scheduler renders as a faded paid install outline with that first slot price. Each CPU Queue Slot upgrade adds one held CPU task. Once the CPU scheduler dispatches a queued CPU task, that task stays in the scheduler queue and keeps its queue slot occupied until the task completes, even if it later deadlocks. The scheduler UI should use one compact header count and a bounded adaptive-height slot grid, not a separate status meter, queue title, redundant progress bar, or large resizing rows, so high-frequency processing updates never reflow neighboring hardware. The slot grid should step through 2x2, 4x2, 4x4, 6x4, 6x6, 8x8, and later square-ish dense layouts as queue-slot capacity grows; the System Scheduler should start at the actual purchased footprint for one and two slots before growing to 2x2. Early low-row grids may be shorter and grow into the dense height so the first slots are readable without becoming giant. At least 24 scheduler slots should fit in the visible grid before the scheduler scrolls internally. Each queued task should list its current waiting, active, or deadlocked reason inside its slot. Duplicate queued copies of the same task must be displayed by queue occurrence, so one copy can show active work while another copy is deadlocked. CPU-bound tasks can be queued directly on a CPU Operation Scheduler. Completing System Scheduler research should reveal a system-level scheduler install outline for whole system tasks. System Queue Slot upgrades are bought on that System Scheduler surface and admit whole system tasks separately from per-CPU queue slots. A system-scheduled task holds its system queue slot until it completes or is canceled; when its CPU-bound portions become executable, the CPU scheduler reserves the chosen CPU's slots and handles whether the task's operations may fan out across multiple cores. Those CPU-local scheduler slots still cap system-managed multicore provisioning width: a CPU with 2 purchased CPU Queue Slots cannot dispatch a system task onto 4 cores until its CPU scheduler is upgraded.
 
 Scheduler Watchdog research appears after Local Scheduler and unlocks per-scheduler auto-kill controls plus the kill policy selector. It also reveals Deadlock Cooldown upgrades that increase the post-deadlock pressure drain rate. Auto-kill applies only to scheduler-owned active tasks, waits for 3 seconds of continuous deadlock, shows the selected victim, target core, and countdown while armed, and kills at most one task per scheduler per tick. The System Scheduler watchdog only owns RAM deadlocks; cache deadlocks from system-scheduled CPU work are owned by the affected CPU scheduler watchdog. Queue dispatch is always safe FIFO and has no separate policy research or selector. The System Scheduler exposes resource priorities only when the hardware choice is meaningful. RAM Speed allocates on faster sticks first but continues using slower sticks on free channels as fallback, Capacity favors larger free allocations without idling other channels, and Parallelism stripes ready loads across available channels. With multiple CPU packages, CPU Speed favors faster packages, Capacity favors packages with more cores and cache headroom, and Parallelism balances queued work.
 
@@ -1003,20 +1005,15 @@ CRON v1 rules:
 ### Power Supply Role
 
 The PSU is visible from the first screen. It shows draw, capacity, load, state,
-the subsidized billed rate, and a cheap Credits-only wattage upgrade so the
-player learns headroom before it can destroy work. PSU Management appears after
-System Scheduler plus Power Telemetry and explicitly ends that subsidy. Tasks
-do not spend or require power directly; hardware doing work creates draw.
+the billed rate, and a cheap Credits-only wattage upgrade. Billing is active at
+`1 cr/s` per `1 uW`; fully `off` systems bill zero and block work/CRON. Billing
+clamps at zero Credits, shows a 10-second unpaid cutoff, and then emergency-
+shuts down with first/repeat notices without a research gate. A zero-Credit
+restart has 60 seconds of no-bill bootstrap grace. PSU Management adds advanced
+power controls. Tasks do not spend or require power directly; hardware doing
+work creates draw.
 
-Before PSU Management, the starter `0.1 uW` draw is fully subsidized and an
-unsafe start is blocked; an already-running overload safely pauses without
-destructive loss. After research, actual draw is paid over time at `1 cr/s` per
-`1 uW`, so that same draw projects `0.1 cr/s`. Fully `off` systems bill zero and
-block work/CRON. Managed billing clamps at zero Credits, shows a 10-second
-unpaid cutoff, and then emergency-shuts down with first/repeat notices. A
-zero-Credit restart has a short bootstrap grace window.
-
-After PSU Management, if active draw exceeds PSU capacity:
+Whenever active draw exceeds PSU capacity:
 
 - Overload failure pressure fills in a large centered PSU header meter, taking about 10 seconds just above 100% load and filling faster at higher overload.
 - The whole PSU module flashes red while draw is above the rated power.
@@ -1853,7 +1850,7 @@ These should be built on existing systems, not introduced as unrelated mechanics
 | 16 | CPU tier research | Unlocks kHz after System Automation, then MHz and GHz level-1 packages, with physical core clocks capped at 6 GHz |
 | 17 | C-State Control | Adds global idle CPU draw reduction after kHz CPU Research and levels from the research list until max |
 | 18 | Memory Voltage Modifier | Adds RAM idle draw reduction after RAM Control and kHz CPU Research and levels from the research list until max |
-| 19 | PSU Management | Ends the onboarding subsidy after System Scheduler and Power Telemetry, enabling billing and failure consequences |
+| 19 | PSU Management | Adds advanced power controls after System Scheduler and Power Telemetry |
 | 20 | Thermal Control | Workshop gate for thermal status, cooling, and overclocking |
 | 21 | Workshop Fleet | Introduces named, owned PC-scale systems |
 | 22 | Preset systems | Adds validated role-oriented system purchases |
@@ -2022,11 +2019,11 @@ Late game should include:
 5. RAM should become visible only when the player has enough parallelism for active/intermediate staging to matter.
 6. Cache, RAM, and storage load speeds should be meaningful upgrade paths.
 7. Tasks should not require power directly; active hardware creates power draw and stress.
-8. Power draw and headroom are visible immediately, but onboarding is subsidized until PSU Management; after that gate, actual draw is billed with no free threshold.
+8. Power draw, headroom, and billing are active immediately with no free threshold or research subsidy.
 9. CPU draw should scale from package tier, package level, clock, efficiency, active core count, and C-State idle multipliers.
-10. Managed power billing should clamp at 0 Credits, show a 10-second unpaid cutoff before auto-shutdown, and provide a short no-bill bootstrap restart from zero.
+10. Power billing should clamp at 0 Credits, show a 10-second unpaid cutoff before auto-shutdown without a research gate, and provide a 60-second no-bill bootstrap restart from zero.
 11. Power state controls should make `off` useful for configuration and zero billing while clearly blocking work and CRON.
-12. Before PSU Management, unsafe starts block and existing overload pauses safely; destructive PSU failure belongs only after the player owns visible countermeasures.
+12. PSU overload trips are never research-gated: unsafe starts may run, pressure builds above capacity, and a sustained overload hard-powers off the system. Offline simulation still pauses before destructive loss.
 13. CRON v1 should repeat only visible repeatable system tasks, skip blocked or duplicate work, and never catch up missed runs.
 14. Cooling should unlock only after heat is experienced or overclocking is unlocked, and should improve efficiency as well as reliability while adding an active-power tradeoff.
 15. Higher SLA jobs should pay more because they require safer infrastructure.

@@ -243,6 +243,7 @@ export function ResourceHud({
                 resource={burst.kind}
                 amount={burst.amount}
                 plus
+                rounded
                 showLabel={false}
               />
             </span>

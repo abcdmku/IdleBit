@@ -39,8 +39,11 @@ const BATCH_MS = 15 * 60 * 1_000;
 
 const unlockedState = (): GameState => {
   const initial = createInitialGameState();
+  const exactResources = exactResourceBag("1000000", "0");
   return {
     ...initial,
+    exactResources,
+    resources: { credits: 1_000_000, data: 0 },
     flags: { ...initial.flags, scheduler: true },
     research: {
       ...initial.research,

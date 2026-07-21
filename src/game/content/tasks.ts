@@ -57,6 +57,7 @@ type RawTask = {
   visibility?: TaskVisibility;
   aggregateBatch?: TaskDefinition["aggregateBatch"];
   parallelizable: boolean;
+  requiresCpuScheduler?: boolean;
   repeatable: boolean;
   coreScaling?: TaskCoreScaling;
   workUnitCount?: number;
@@ -822,6 +823,137 @@ const rawTasks: RawTask[] = [
         id: "compare",
         name: "Compare packet",
         operationIds: ["compare-packet"],
+      },
+    ],
+  },
+  {
+    id: "parallelBitCount",
+    name: "Parallel Bit Count",
+    kind: "task",
+    category: "cpu",
+    parallelizable: true,
+    requiresCpuScheduler: true,
+    repeatable: true,
+    minCores: 2,
+    maxCores: 2,
+    reveal: (state) => hasResearch(state, "multiCore") && state.hardware.cores >= 2,
+    requirement: (state) =>
+      hasResearch(state, "multiCore") &&
+      hasResearch(state, "localScheduler") &&
+      state.hardware.cores >= 2,
+    operations: [
+      {
+        id: "read-bit-pair",
+        name: "Read Bit Pair",
+        kind: "memory",
+        memoryAction: "read",
+        cycles: 1,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "count-set-bits",
+        name: "Count Set Bits",
+        kind: "compute",
+        cycles: 2,
+        cacheBits: 0,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "sum-counts",
+        name: "Sum Core Counts",
+        kind: "compute",
+        cycles: 1,
+        cacheBits: 0,
+        ramBits: 0,
+      },
+    ],
+    recipe: [
+      {
+        id: "read",
+        name: "Read one bit per core",
+        operationIds: ["read-bit-pair"],
+      },
+      {
+        id: "count",
+        name: "Count bits in parallel",
+        operationIds: ["count-set-bits"],
+      },
+      {
+        id: "sum",
+        name: "Sum core results",
+        operationIds: ["sum-counts"],
+      },
+    ],
+  },
+  {
+    id: "dualStreamDecode",
+    name: "Dual-Stream Decode",
+    kind: "task",
+    category: "cpu",
+    parallelizable: true,
+    requiresCpuScheduler: true,
+    repeatable: true,
+    minCores: 2,
+    maxCores: 2,
+    reveal: (state) => hasResearch(state, "multiCore") && state.hardware.cores >= 2,
+    requirement: (state) =>
+      hasResearch(state, "multiCore") &&
+      hasResearch(state, "localScheduler") &&
+      state.hardware.cores >= 2,
+    operations: [
+      {
+        id: "read-stream-tokens",
+        name: "Read Stream Tokens",
+        kind: "memory",
+        memoryAction: "read",
+        cycles: 1,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "decode-streams",
+        name: "Decode Streams",
+        kind: "compute",
+        cycles: 3,
+        cacheBits: 2,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "sync-streams",
+        name: "Synchronize Streams",
+        kind: "barrier",
+        cycles: 0,
+        cacheBits: 0,
+        ramBits: 0,
+        parallel: true,
+      },
+      {
+        id: "merge-decodes",
+        name: "Merge Decodes",
+        kind: "compute",
+        cycles: 2,
+        cacheBits: 2,
+        ramBits: 0,
+      },
+    ],
+    recipe: [
+      {
+        id: "read",
+        name: "Read both streams",
+        operationIds: ["read-stream-tokens"],
+      },
+      {
+        id: "decode",
+        name: "Decode both streams",
+        operationIds: ["decode-streams"],
+      },
+      {
+        id: "merge",
+        name: "Synchronize and merge",
+        operationIds: ["sync-streams", "merge-decodes"],
       },
     ],
   },
@@ -2379,6 +2511,7 @@ const buildTaskDefinition = (id: TaskId): TaskDefinition => {
     rewardData: amountToSafeNumber(rewardDataExact),
     rewardDataExact,
     parallelizable: raw.parallelizable,
+    requiresCpuScheduler: raw.requiresCpuScheduler ?? false,
     repeatable: raw.repeatable,
     coreScaling,
     workUnitCount,

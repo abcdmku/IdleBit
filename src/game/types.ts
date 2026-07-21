@@ -313,6 +313,8 @@ export type TaskId =
   | "bitShift"
   | "byteCopy"
   | "packetCheck"
+  | "parallelBitCount"
+  | "dualStreamDecode"
   | "readRamPage"
   | "writeRamPage"
   | "overwriteRamPage"
@@ -647,6 +649,8 @@ export interface TaskDefinition {
   rewardData: number;
   rewardDataExact: Amount;
   parallelizable: boolean;
+  /** Public direct-core dispatch is blocked; work must enter a CPU scheduler queue. */
+  requiresCpuScheduler: boolean;
   repeatable: boolean;
   coreScaling: TaskCoreScaling;
   workUnitCount: number;

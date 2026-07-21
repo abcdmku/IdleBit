@@ -756,7 +756,13 @@ describe("IdleBit simulation", () => {
     expect(visible.tasks.find((task) => task.id === "decodeBit")?.blockedReason).toBe(
       "Cache capacity too low.",
     );
-    expect(visible.research).toEqual([]);
+    expect(visible.research).toEqual([
+      expect.objectContaining({
+        id: "decodeLogic",
+        canBuy: false,
+        blockedReason: "Needs Complete Fetch Bit or Decode Bit.",
+      }),
+    ]);
     expect(visible.upgrades.map((upgrade) => upgrade.id)).toEqual([
       "clock",
       "cache",
@@ -1139,7 +1145,11 @@ describe("IdleBit simulation", () => {
       "fetchBit",
       "decodeBit",
     ]);
-    expect(visible.research.map((item) => item.id)).toEqual([]);
+    expect(visible.research.map((item) => item.id)).toEqual(["decodeLogic"]);
+    expect(visible.research[0]).toMatchObject({
+      canBuy: false,
+      blockedReason: "Needs Complete Fetch Bit or Decode Bit.",
+    });
 
     state = runTask(state, "fetchBit");
     visible = deriveVisibleState(state);
@@ -4497,11 +4507,36 @@ describe("IdleBit simulation", () => {
   it("keeps scheduler unlocks in research instead of upgrade shortcuts", () => {
     let state = unlockMultiCore();
 
+    expect(deriveVisibleState(state).tasks.map((task) => task.id)).not.toEqual(
+      expect.arrayContaining(["parallelBitCount", "dualStreamDecode"]),
+    );
+
     state = buy(state, "core");
 
     let visible = deriveVisibleState(state);
     let localScheduler = visible.research.find(
       (item) => item.id === "localScheduler",
+    );
+
+    expect(visible.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "parallelBitCount",
+          category: "cpu",
+          requiredCores: 2,
+          canStart: false,
+          canQueue: false,
+          blockedReason: "Local Scheduler research required.",
+        }),
+        expect.objectContaining({
+          id: "dualStreamDecode",
+          category: "cpu",
+          requiredCores: 2,
+          canStart: false,
+          canQueue: false,
+          blockedReason: "Local Scheduler research required.",
+        }),
+      ]),
     );
 
     expect(localScheduler?.canBuy).toBe(false);
@@ -4525,6 +4560,64 @@ describe("IdleBit simulation", () => {
     expect(upgrades).not.toContain("scheduler");
     expect(localScheduler?.canBuy).toBe(true);
     expect(localScheduler?.requirements.every((item) => item.met)).toBe(true);
+
+    state = fund(research(state, "localScheduler"));
+    let parallelBitCount = deriveVisibleState(state).tasks.find(
+      (task) => task.id === "parallelBitCount",
+    );
+    expect(parallelBitCount).toMatchObject({
+      canStart: false,
+      canQueue: false,
+      blockedReason: "Use CPU scheduler.",
+      queueBlockedReason: "CPU scheduler needs 2 slots.",
+    });
+
+    state = buy(buy(state, "schedulerSlot", undefined, 1), "schedulerSlot", undefined, 1);
+    parallelBitCount = deriveVisibleState(state).tasks.find(
+      (task) => task.id === "parallelBitCount",
+    );
+    expect(parallelBitCount).toMatchObject({
+      canStart: false,
+      canQueue: true,
+      blockedReason: "Use CPU scheduler.",
+      queueBlockedReason: null,
+    });
+
+    const oneSlotOccupied = applyAction(state, {
+      type: "queueTask",
+      taskId: "fetchBit",
+      cpuId: 1,
+    });
+    expect(
+      deriveVisibleState(oneSlotOccupied).tasks.find(
+        (task) => task.id === "parallelBitCount",
+      ),
+    ).toMatchObject({
+      canQueue: false,
+      queueBlockedReason: "Needs 2 open CPU scheduler slots.",
+    });
+
+    const direct = applyAction(state, {
+      type: "startTaskOnCore",
+      taskId: "parallelBitCount",
+      coreId: 1,
+    });
+    expect(direct.activeTasks).toEqual([]);
+
+    state = applyAction(state, {
+      type: "queueTask",
+      taskId: "parallelBitCount",
+      cpuId: 1,
+    });
+    expect(state.queue).toContain("parallelBitCount");
+    state = tickGame(state, 1);
+    expect(state.activeTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: "parallelBitCount",
+        schedulerQueued: true,
+        assignedCoreIds: [1, 2],
+      }),
+    );
   });
 
   it("levels Bootloader Research after System Scheduler to shorten startup", () => {
@@ -6535,8 +6628,8 @@ describe("IdleBit simulation", () => {
     expect(state.resources.credits).toBeGreaterThanOrEqual(0);
   });
 
-  it("warns for ten seconds before auto-shutdown on an unpaid bill", () => {
-    let state = withPsuManagement(createInitialGameState());
+  it("warns before unpaid auto-shutdown without PSU Management", () => {
+    let state = createInitialGameState();
     state = withExactResourceValues({
       ...state,
       power: {
@@ -6597,8 +6690,8 @@ describe("IdleBit simulation", () => {
     expect(state.power.unpaidShutdownWarningSeconds).toBe(0);
   });
 
-  it("grants bootstrap grace when starting up at 0 credits", () => {
-    const initial = withPsuManagement(createInitialGameState());
+  it("grants one minute of bootstrap grace when starting at 0 credits", () => {
+    const initial = createInitialGameState();
     let state = withExactResourceValues({
       ...initial,
       power: {
@@ -6612,7 +6705,7 @@ describe("IdleBit simulation", () => {
     state = applyAction(state, { type: "requestPowerOn" });
 
     expect(state.power.state).toBe("booting");
-    expect(state.power.bootstrapGraceSeconds).toBeGreaterThan(0);
+    expect(state.power.bootstrapGraceSeconds).toBe(60);
 
     const graceBefore = state.power.bootstrapGraceSeconds;
     state = tickSeconds(state, 1);
@@ -6682,11 +6775,11 @@ describe("IdleBit simulation", () => {
     expect(after.powerCostPerSecond).toBeGreaterThan(before.powerCostPerSecond);
   });
 
-  it("builds PSU overload failure pressure then hard-powers off at ten seconds", () => {
-    let state = withPsuStress(
-      withPsuManagement(fund(createInitialGameState())),
-      1.001,
-    );
+  it("builds PSU overload pressure and trips without PSU Management", () => {
+    let state = withPsuStress(fund(createInitialGameState()), 1.001);
+
+    expect(state.flags.psuManagement).toBe(false);
+    expect(state.research.completed).not.toContain("psuManagement");
 
     expect(getPsuStress(state)).toBeGreaterThan(1);
 

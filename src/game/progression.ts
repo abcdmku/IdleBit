@@ -134,7 +134,7 @@ export const getRamBytes = (level: number) => bitsToBytes(getRamBits(level));
 export const getRamSpeedMt = (level: number) =>
   level <= 0 ? 1 : getRamTierLevelDefinition(level).clockHz;
 
-export const POWER_BOOTSTRAP_GRACE_SECONDS = 20;
+export const POWER_BOOTSTRAP_GRACE_SECONDS = 60;
 export const POWER_UNPAID_SHUTDOWN_WARNING_SECONDS = 10;
 
 export const createRamStickState = (

@@ -106,7 +106,6 @@ import {
   getPsuWatts,
   getRamBits,
   getRamSpeedMt,
-  isPsuManagementUnlocked,
   getMilestone,
   getStage,
   getStageLabel,
@@ -328,6 +327,20 @@ const getMaxSchedulerWidthForTask = (
   );
 };
 
+const getMaxOpenCpuSchedulerSlotsForTask = (
+  state: GameState,
+  task: TaskDefinition,
+) =>
+  Math.max(
+    0,
+    ...state.hardware.cpus.map((cpu) => {
+      const hardware = getCpuHardware(state, cpu.id);
+      if (hardware.coreIds.length < task.minCores) return 0;
+      if (!taskFitsCpuHardware(state, task, cpu.id)) return 0;
+      return getAvailableSchedulerSlots(state, cpu.id);
+    }),
+  );
+
 const isTaskComplete = (state: GameState, task: TaskDefinition) =>
   (state.completedTasks[task.id] ?? state.completedJobs[task.id] ?? 0) > 0 ||
   state.completedBenchmarks.includes(task.id);
@@ -380,9 +393,14 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
       }
       if (state.hardware.cores < 4) return "Needs 4 CPU cores.";
     }
+    if (task.requiresCpuScheduler && !hasResearch(state, "localScheduler")) {
+      return "Local Scheduler research required.";
+    }
     if (task.kind === "benchmark") return "Research benchmark prerequisite missing.";
     return "Research or prerequisite task missing.";
   }
+
+  if (task.requiresCpuScheduler) return "Use CPU scheduler.";
 
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
@@ -399,10 +417,6 @@ const getBlockedReason = (state: GameState, task: TaskDefinition) => {
   if (state.power.state !== "on") {
     if (state.power.state === "off") return "System powered off.";
     return state.power.state === "booting" ? "System booting." : "System shutting down.";
-  }
-
-  if (!isPsuManagementUnlocked(state) && getPsuStress(state) > 1) {
-    return "PSU overload risk; increase capacity before starting work.";
   }
 
   if (
@@ -435,9 +449,6 @@ const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
     if (state.power.state === "off") return "System powered off.";
     return state.power.state === "booting" ? "System booting." : "System shutting down.";
   }
-  if (!isPsuManagementUnlocked(state) && getPsuStress(state) > 1) {
-    return "PSU overload risk; increase capacity before queueing work.";
-  }
   if (isSystemScheduledTask(task) && !state.flags.scheduler) {
     return "System scheduler required.";
   }
@@ -465,6 +476,12 @@ const getQueueBlockedReason = (state: GameState, task: TaskDefinition) => {
     getMaxSchedulerWidthForTask(state, task, false) < task.minCores
   ) {
     return `CPU scheduler needs ${task.minCores} slots.`;
+  }
+  if (
+    task.minCores > 1 &&
+    getMaxOpenCpuSchedulerSlotsForTask(state, task) < task.minCores
+  ) {
+    return `Needs ${task.minCores} open CPU scheduler slots.`;
   }
   const availableSlots = getAvailableSchedulerSlots(state);
   if (availableSlots <= 0) {
@@ -1784,7 +1801,6 @@ const getVisiblePowerOverloadFailure = (state: GameState) => {
   const seconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
   const psuStress = getPsuStress(state);
   const rate =
-    isPsuManagementUnlocked(state) &&
     (state.power.state === "on" || state.power.state === "shuttingDown")
       ? getPowerOverloadRate(psuStress)
       : 0;

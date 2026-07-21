@@ -136,7 +136,6 @@ import {
   getAllCoreIds,
   getCpuHardware,
   getCpuIdForCore,
-  isPsuManagementUnlocked,
   getOperationProgress,
   POWER_BOOTSTRAP_GRACE_SECONDS,
   POWER_UNPAID_SHUTDOWN_WARNING_SECONDS,
@@ -656,7 +655,6 @@ const canStartTask = (state: GameState, taskId: TaskId, cpuId?: number) => {
 
   return (
     canAcceptPoweredWork(state) &&
-    (isPsuManagementUnlocked(state) || getPsuStress(state) <= 1) &&
     !isDeadlockStartBlocked(state) &&
     canAcceptTask(state, taskId) &&
     !hasPendingNonRepeatableInstance(state, task) &&
@@ -4230,17 +4228,6 @@ const updatePowerOverloadFailure = (
   stressState: GameState = state,
 ): GameState => {
   const currentSeconds = Math.max(0, state.power.overloadFailureSeconds ?? 0);
-  if (!isPsuManagementUnlocked(state)) {
-    return currentSeconds <= 0
-      ? state
-      : {
-          ...state,
-          power: {
-            ...state.power,
-            overloadFailureSeconds: 0,
-          },
-        };
-  }
   // Stress is integrated from the state that held over the slice (pre-slice),
   // not the settled endpoint, so a task completing exactly at the boundary
   // still contributes its overload pressure for the interval it ran.
@@ -4464,44 +4451,6 @@ const applyPowerBilling = (
   costPerSecondOverride?: Amount,
   deferUnpaidCutoff = false,
 ): GameState => {
-  if (!isPsuManagementUnlocked(state)) {
-    // Metered billing charges from the first tick, but the unpaid-cutoff
-    // warning stays locked behind PSU Management: before the player has
-    // countermeasures, an empty wallet safely idles at 0 credits (bootstrap
-    // grace still counts down, nothing destructive ever starts).
-    const base =
-      state.power.unpaidShutdownWarningSeconds > 0
-        ? {
-            ...state,
-            power: { ...state.power, unpaidShutdownWarningSeconds: 0 },
-          }
-        : state;
-    const funded = clearBillingGraceIfFunded(base);
-    if (amountCompare(funded.exactResources.credits, 0) <= 0) {
-      const graceSeconds = Math.max(0, funded.power.bootstrapGraceSeconds ?? 0);
-      if (graceSeconds <= 0) return funded;
-      return {
-        ...funded,
-        power: {
-          ...funded.power,
-          bootstrapGraceSeconds: Math.max(0, graceSeconds - deltaSeconds),
-        },
-      };
-    }
-    const costPerSecond =
-      costPerSecondOverride ?? getPowerCostPerSecondExact(funded);
-    const exactPowerCost = amountMultiply(
-      costPerSecond,
-      amountDivide(amount(deltaMs), amount(1000)),
-    );
-    if (amountCompare(exactPowerCost, 0) <= 0) return funded;
-    if (amountCompare(funded.exactResources.credits, exactPowerCost) < 0) {
-      // Pay what remains and stop at zero; no warning timer before PSU
-      // Management.
-      return setExactResource(funded, "credits", 0);
-    }
-    return spendExact(funded, [exactCost("credits", exactPowerCost)]);
-  }
   const fundedState = clearBillingGraceIfFunded(state);
   const warningSeconds = Math.max(
     0,
@@ -5060,7 +5009,6 @@ const getSingleSystemEventSeconds = (
   }
   if (
     policy.productive &&
-    isPsuManagementUnlocked(state) &&
     (state.power.bootstrapGraceSeconds ?? 0) > 0 &&
     amountCompare(state.exactResources.credits, 0) <= 0
   ) {
@@ -5068,7 +5016,6 @@ const getSingleSystemEventSeconds = (
   }
   if (
     policy.productive &&
-    isPsuManagementUnlocked(state) &&
     canRunPoweredWork(state)
   ) {
     const overloadRate = getPowerOverloadRate(getPsuStress(thermalEventState));
@@ -5139,14 +5086,6 @@ export const getSystemPowerOperatingCostPerSecond = (
       return total;
     }
     const local = hoistEnsuredSystem(ensured, system);
-    // Pre-PSU-Management billing collects only while credits remain (the
-    // safe path never overdraws), so a broke wallet contributes no rate.
-    if (
-      !isPsuManagementUnlocked(local) &&
-      amountCompare(local.exactResources.credits, 0) <= 0
-    ) {
-      return total;
-    }
     // Offline safety checks need the full productive rate even if a warning
     // was saved at departure, so absence advancement pauses before failure.
     if (mode === "offline") {
@@ -5367,7 +5306,6 @@ const tickSingleSystem = (
   const unpaidCutoffAtSliceEnd =
     policy.billPower &&
     wasPoweredOn &&
-    isPsuManagementUnlocked(ticked) &&
     amountCompare(ticked.exactResources.credits, 0) <= 0 &&
     amountCompare(preSliceCostPerSecond, 0) > 0 &&
     deltaSeconds >= unpaidRunwaySeconds;
@@ -5385,14 +5323,6 @@ const tickSingleSystem = (
     : billed;
 
   if (!wasPoweredOn || !canRunPoweredWork(powered)) {
-    return updateProgressionFlags(
-      syncCoreSchedulers(
-        applyDestructivePressure(advanceThermalForSlice(powered)),
-      ),
-    );
-  }
-
-  if (!isPsuManagementUnlocked(powered) && getPsuStress(powered) > 1) {
     return updateProgressionFlags(
       syncCoreSchedulers(
         applyDestructivePressure(advanceThermalForSlice(powered)),
@@ -5672,6 +5602,11 @@ const startTaskWithOrigin = (
     return queued === state ? state : pullQueue(queued);
   }
 
+  if (task.requiresCpuScheduler) {
+    const queued = enqueueTask(state, taskId, undefined, workOrigin);
+    return queued === state ? state : pullQueue(queued);
+  }
+
   const started = assignTaskToIdleCores(
     state,
     taskId,
@@ -5719,7 +5654,8 @@ export const startTaskOnCore = (
   if (isLiveOperationsTaskId(taskId)) return state;
   if (isSystemManaged(state, state.selectedSystemId)) return state;
   if (!getAllCoreIds(state).includes(coreId)) return state;
-  if (isSystemScheduledTask(getTaskDefinition(taskId))) return state;
+  const task = getTaskDefinition(taskId);
+  if (isSystemScheduledTask(task) || task.requiresCpuScheduler) return state;
 
   return assignTaskToCores(state, taskId, coreId);
 };

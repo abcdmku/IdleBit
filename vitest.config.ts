@@ -14,7 +14,9 @@ export default defineConfig({
     ],
     globals: true,
     // Balance calibration exercises the real public campaign runner and can
-    // legitimately exceed Vitest's five-second per-test default.
-    testTimeout: 10_000,
+    // legitimately exceed Vitest's five-second per-test default. The heaviest
+    // campaign simulations pass in seconds alone but need headroom when the
+    // full suite saturates every worker.
+    testTimeout: 60_000,
   },
 });

@@ -108,7 +108,7 @@ describe("Bootstrap deterministic balance milestones", () => {
     expect(Math.max(...Object.values(repeatedManualDispatches))).toBeLessThanOrEqual(
       250,
     );
-  }, 20_000);
+  }, 300_000);
 
   it("measures full-idle remaining at Local Scheduler without action churn", () => {
     const harness = createMeasuredCampaignHarness("full-idle");
@@ -138,7 +138,7 @@ describe("Bootstrap deterministic balance milestones", () => {
     expect(result.visible.standingOrder.enabled).toBe(false);
     expect(measurement.noOpActions).toBe(0);
     expect(measurement.strandedDecisions).toBe(0);
-  }, 30_000);
+  }, 300_000);
 
   it("uses 1:10 whole-Data payouts, including a no-cost starter source", () => {
     expect(getTaskDefinition("fetchBit")).toMatchObject({

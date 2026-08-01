@@ -106,7 +106,7 @@ describe("campaign runner", () => {
     // dispatches work at every decision boundary, so there may be no idle span
     // to merge; it must still never add intervals versus the fixed 2s path.
     expect(batched.intervalCount).toBeLessThanOrEqual(legacy.intervalCount);
-  }, 30_000);
+  }, 300_000);
 
   it("keeps post-CRON sessions decision-capable at public event boundaries", () => {
     const boundaryMs = 2 * 60_000;

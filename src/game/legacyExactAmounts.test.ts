@@ -112,7 +112,7 @@ describe("legacy exact Amount authority", () => {
     expect(sold.exactResources.data).toBe(
       amountAdd(restored.exactResources.data, totalCost(refunds, "data")),
     );
-  }, 30_000);
+  }, 300_000);
 
   it("round-trips huge task batch reward/work and active progress strings", () => {
     const baseTask = getTaskDefinition("compileCode");

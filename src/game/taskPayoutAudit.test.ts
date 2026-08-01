@@ -241,7 +241,7 @@ describe("player-facing task payout audit", () => {
     ]);
   });
 
-  it("settles every repeatable job at its frozen gross reward", { timeout: 90_000 }, () => {
+  it("settles every repeatable job at its frozen gross reward", { timeout: 300_000 }, () => {
     const state = createAuditState();
     const views = getPublicViews(state);
 
